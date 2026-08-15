@@ -12,6 +12,8 @@ bugs are moved to `docs/bugs/fixed/`.
 ## Active Defect Backlog
 
 - [ ] [**BUG-002: TypeError on null foreground window handle during guarded search key dispatch**](BUG-002-null-foreground-window-type-error.md)
+- [ ] [**BUG-004: Dashboard window fails to shrink when toggling off debug overlay or path inspector**](BUG-004-dashboard-window-fails-to-shrink-on-overlay-toggle.md)
+- [ ] [**BUG-004: Navigation map visualization confusing player color with spawn cells and missing close-event persistence**](BUG-004-navigation-map-visualization-and-persistence-clarity.md)
 
 ## Fixed Defects
 
