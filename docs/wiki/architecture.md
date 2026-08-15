@@ -10,7 +10,8 @@ related:
   - glossary.md
   - ../decisions/ADR-001-cli-before-http-server.md
   - ../decisions/ADR-002-target-architecture-and-pyside6.md
-  - ../user-stories/US-002-vision-frame-capture.md
+  - ../user-stories/completed/US-002-vision-frame-capture.md
+  - ../user-stories/completed/US-003-mob-detection-yolo.md
 ---
 
 # Architecture
@@ -38,7 +39,10 @@ Game Client
 ## Layers and Components
 
 1. **Perception Layer:**
-   - **YOLO:** Detection of dynamic entities (mobs, players).
+   - **YOLO:** `OpenCVDnnYoloDetector` loads raw YOLO ONNX models and ordered UTF-8 labels,
+     performs CPU OpenCV-DNN inference, filters by confidence and class name, and applies NMS.
+     It returns structured client-space detections with a bounding box, confidence, class ID, and
+     class name; the `Detector` protocol supports deterministic mock implementations.
    - **Template Matching:** Detection of fixed 2D UI elements and anchors.
    - **ROI OCR:** Targeted text extraction from specific UI regions (e.g. central loot/system log).
    - **Frame capture:** `WindowsFrameSource` captures the foreground client's exact client area
@@ -72,6 +76,6 @@ required observation.
 
 The desktop presentation is a small PySide6 application boundary (`flyff_bot.ui`) that renders a
 localized world-state summary. It introduces no web runtime. It is deliberately a bootstrap: real
-Win32 input dispatch and production perception models remain separate future work. US-002 now
-provides the first production-facing perception adapter: foreground client-area capture with
-client-space coordinates preserved for downstream vision and input verification.
+Win32 input dispatch remains separate future work. US-002 provides foreground client-area capture
+with client-space coordinates preserved for downstream vision and input verification; US-003 adds
+the first production-facing model adapter for YOLO object detection.

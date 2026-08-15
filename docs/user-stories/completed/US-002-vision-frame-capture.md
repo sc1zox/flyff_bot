@@ -15,7 +15,7 @@ so that downstream computer vision models (OpenCV, YOLO, OCR) can inspect the cu
 
 ## Context and assumptions
 
-- Source: [Computer vision and YOLO request](../sources/2026-08-15-computer-vision-and-yolo-request.md).
+- Source: [Computer vision and YOLO request](../../sources/2026-08-15-computer-vision-and-yolo-request.md).
 - The Flyff client runs in windowed or borderless mode on Windows.
 - Frame capture should produce OpenCV-compatible formats (`numpy.ndarray` in BGR/RGB).
 - Performance must be sufficient for real-time detection without starving the CPU.

@@ -16,7 +16,7 @@ from the central screen log / system message area, so that picked-up loot and dr
 ## Context and assumptions
 
 - Source: [Computer vision and YOLO request](../sources/2026-08-15-computer-vision-and-yolo-request.md).
-- Depends on [US-002](US-002-vision-frame-capture.md) for game frames.
+- Depends on [US-002](completed/US-002-vision-frame-capture.md) for game frames.
 - Flyff displays pickup notifications in the middle of the screen or in system chat (e.g. "[Item-Name] erhalten" in German, or "You received [Item-Name]" in English).
 - An OCR engine or font-template reader will extract message text from the preprocessed notification region.
 

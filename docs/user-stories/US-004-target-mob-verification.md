@@ -16,7 +16,7 @@ the correct target mob before initiating attacks, so that wrong monsters, NPCs, 
 ## Context and assumptions
 
 - Source: [Computer vision and YOLO request](../sources/2026-08-15-computer-vision-and-yolo-request.md).
-- Depends on [US-002](US-002-vision-frame-capture.md) for frame capture.
+- Depends on [US-002](completed/US-002-vision-frame-capture.md) for frame capture.
 - In Flyff, selecting a target displays a target header/bar (top-center of client) with the target name, level, and HP bar.
 - Verification can combine template matching, color/HP bar detection, OCR, or bounding-box classification.
 

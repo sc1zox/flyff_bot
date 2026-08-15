@@ -23,3 +23,14 @@ the target architecture proposal and ADR-002.
 
 Recorded the completed US-002 foreground client-area capture boundary, injectable frame-source
 contract, typed capture errors, and client-coordinate mapping in the architecture and glossary.
+
+## [2026-08-15] synthesis | Product and technical roadmap
+
+Synthesized the phased 4-stage roadmap (US-001 through US-010) across sources and architecture ADRs,
+indexed in docs/wiki/roadmap.md and organized the user story backlog.
+
+## [2026-08-15] synthesis | Mob detection with YOLO (US-003)
+
+Recorded the completed OpenCV DNN YOLO adapter, structured client-space detection contract,
+configurable filtering, injectable detector seam, and UTF-8 label-file convention in the
+architecture and glossary; moved US-003 to the completed stories directory.

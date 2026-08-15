@@ -7,6 +7,7 @@ one-line purpose.
 
 - [Project overview](project-overview.md) — goals, current scope, boundaries, and next unknowns.
 - [Architecture](architecture.md) — current module boundaries and design principles.
+- [Roadmap](roadmap.md) — phased implementation plan and user story milestones.
 - [Glossary](glossary.md) — stable project language and abbreviations.
 
 ## Maintenance

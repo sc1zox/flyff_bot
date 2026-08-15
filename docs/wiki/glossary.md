@@ -35,3 +35,9 @@ related:
   deterministic tests.
 - **Captured frame** — A contiguous three-channel `uint8` image array paired with its exact client
   dimensions and BGR or RGB pixel order.
+- **Detector** — The injectable protocol that maps a captured frame to structured object
+  detections; production inference is provided by the OpenCV DNN YOLO adapter.
+- **Detection** — A model result containing a client-space bounding box, confidence, numeric class
+  ID, and ordered label name.
+- **YOLO label contract** — A UTF-8 text file with one non-empty class name per line; line order
+  defines the numeric class IDs emitted by the model.
