@@ -122,6 +122,15 @@ class Message(StrEnum):
     UI_TARGET_ANNOTATION = "ui.target_annotation"
     UI_MOB_ANNOTATION = "ui.mob_annotation"
     UI_NO_TARGET_NAME = "ui.no_target_name"
+    UI_PROFILE_NAME_PLACEHOLDER = "ui.profile_name_placeholder"
+    UI_PROFILE_SAVE = "ui.profile_save"
+    UI_PROFILE_LOAD = "ui.profile_load"
+    UI_PROFILE_RESET = "ui.profile_reset"
+    UI_PROFILE_RESET_TITLE = "ui.profile_reset_title"
+    UI_PROFILE_RESET_PROMPT = "ui.profile_reset_prompt"
+    UI_PROFILE_LOAD_ERROR_TITLE = "ui.profile_load_error_title"
+    UI_PROFILE_LOAD_ERROR_PROMPT = "ui.profile_load_error_prompt"
+    UI_PROFILE_CELLS_COUNT = "ui.profile_cells_count"
 
 
 class Translator:

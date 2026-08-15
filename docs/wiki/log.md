@@ -113,3 +113,7 @@ DashboardUpdate; moved US-020 to the completed stories directory.
 Recorded the multi-axis camera search stage, vertical pitch tilt controls (VK_UP/VK_DOWN),
 gentle rotation pacing with visual settle pauses, instant perception interruption, and dead-reckoning
 coordination in architecture and glossary; moved US-018 to the completed stories directory.
+
+## [2026-08-16] synthesis | Navigation map profiles and session reset (US-021)
+
+Recorded the completed navigation profile slot management under data/navigation/, custom profile name validation and loading, modal reset safeguards purging dead-reckoning and spatial map memory, periodic and shutdown persistence hooks, and localized PySide6 UI profile controls; moved US-021 to the completed stories directory.

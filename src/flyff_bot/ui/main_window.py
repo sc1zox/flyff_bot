@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QEvent, QObject, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
@@ -9,7 +11,9 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -17,6 +21,11 @@ from PySide6.QtWidgets import (
 
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.input_control import parse_virtual_key
+from flyff_bot.features.navigation.persistence import (
+    DEFAULT_NAVIGATION_DIR,
+    list_navigation_profiles,
+    sanitize_profile_name,
+)
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
@@ -30,10 +39,14 @@ class MainWindow(QMainWindow):
     pause_requested = Signal()
     emergency_stop_requested = Signal()
     attack_key_changed = Signal(int)
+    save_profile_requested = Signal(Path)
+    load_profile_requested = Signal(Path)
+    reset_navigation_requested = Signal()
 
-    def __init__(self, translator: Translator) -> None:
+    def __init__(self, translator: Translator, *, navigation_dir: Path | None = None) -> None:
         super().__init__()
         self._translator = translator
+        self._navigation_dir = navigation_dir or DEFAULT_NAVIGATION_DIR
         self._latest_update: DashboardUpdate | None = None
         self._status_label = QLabel()
         self._goal_label = QLabel()
@@ -41,6 +54,13 @@ class MainWindow(QMainWindow):
         self._overlay_label.setVisible(False)
         self._path_inspector = PathInspectorWidget(self._translator)
         self._path_inspector.setVisible(False)
+        self._profile_bar = QWidget()
+        self._profile_bar.setVisible(False)
+        self._profile_selector = QComboBox()
+        self._profile_name_input = QLineEdit()
+        self._save_profile_button = QPushButton()
+        self._load_profile_button = QPushButton()
+        self._reset_map_button = QPushButton()
         self._start_button = QPushButton()
         self._pause_button = QPushButton()
         self._emergency_stop_button = QPushButton()
@@ -107,6 +127,42 @@ class MainWindow(QMainWindow):
         return self._path_toggle
 
     @property
+    def profile_bar(self) -> QWidget:
+        """Expose the profile bar widget for testing."""
+
+        return self._profile_bar
+
+    @property
+    def profile_selector(self) -> QComboBox:
+        """Expose the profile selector dropdown for testing."""
+
+        return self._profile_selector
+
+    @property
+    def profile_name_input(self) -> QLineEdit:
+        """Expose the profile name input field for testing."""
+
+        return self._profile_name_input
+
+    @property
+    def save_profile_button(self) -> QPushButton:
+        """Expose the profile save button for testing."""
+
+        return self._save_profile_button
+
+    @property
+    def load_profile_button(self) -> QPushButton:
+        """Expose the profile load button for testing."""
+
+        return self._load_profile_button
+
+    @property
+    def reset_map_button(self) -> QPushButton:
+        """Expose the reset map button for testing."""
+
+        return self._reset_map_button
+
+    @property
     def attack_key_button(self) -> QPushButton:
         """Expose the key-capture control for the desktop application and tests."""
 
@@ -170,6 +226,7 @@ class MainWindow(QMainWindow):
 
     @Slot(bool)
     def _update_path_visibility(self, visible: bool) -> None:
+        self._profile_bar.setVisible(visible)
         self._path_inspector.setVisible(visible)
         self._adapt_window_geometry()
 
@@ -204,11 +261,22 @@ class MainWindow(QMainWindow):
         controls.addWidget(self._debug_toggle)
         controls.addWidget(self._path_toggle)
         controls.addWidget(self._language_selector)
+
+        profile_layout = QHBoxLayout()
+        profile_layout.setContentsMargins(0, 0, 0, 0)
+        profile_layout.addWidget(self._profile_selector)
+        profile_layout.addWidget(self._profile_name_input)
+        profile_layout.addWidget(self._save_profile_button)
+        profile_layout.addWidget(self._load_profile_button)
+        profile_layout.addWidget(self._reset_map_button)
+        self._profile_bar.setLayout(profile_layout)
+
         content = QVBoxLayout()
         content.addWidget(self._status_label)
         content.addWidget(self._goal_label)
         content.addLayout(controls)
         content.addWidget(self._overlay_label)
+        content.addWidget(self._profile_bar)
         content.addWidget(self._path_inspector)
         container = QWidget()
         container.setLayout(content)
@@ -223,6 +291,70 @@ class MainWindow(QMainWindow):
         self._debug_toggle.toggled.connect(self._update_overlay_visibility)
         self._path_toggle.toggled.connect(self._update_path_visibility)
         self._language_selector.currentIndexChanged.connect(self._switch_language)
+        self._save_profile_button.clicked.connect(self._on_save_profile_clicked)
+        self._load_profile_button.clicked.connect(self._on_load_profile_clicked)
+        self._reset_map_button.clicked.connect(self._on_reset_map_clicked)
+
+    def refresh_profiles(self, select_path: Path | None = None) -> None:
+        """Scan the navigation profiles directory and populate the selector."""
+
+        current_path = select_path or self._profile_selector.currentData()
+        self._profile_selector.blockSignals(True)
+        self._profile_selector.clear()
+        profiles = list_navigation_profiles(self._navigation_dir)
+        selected_index = -1
+        for idx, profile in enumerate(profiles):
+            label = self._translator.text(
+                Message.UI_PROFILE_CELLS_COUNT,
+                name=profile.name,
+                count=profile.cell_count,
+            )
+            self._profile_selector.addItem(label, profile.path)
+            if current_path is not None and profile.path == current_path:
+                selected_index = idx
+
+        if selected_index >= 0:
+            self._profile_selector.setCurrentIndex(selected_index)
+        elif self._profile_selector.count() > 0:
+            self._profile_selector.setCurrentIndex(0)
+        self._profile_selector.blockSignals(False)
+
+    @Slot()
+    def _on_save_profile_clicked(self) -> None:
+        raw_text = self._profile_name_input.text()
+        cleaned = sanitize_profile_name(raw_text)
+        if not cleaned:
+            selected_data = self._profile_selector.currentData()
+            if isinstance(selected_data, Path):
+                cleaned = sanitize_profile_name(selected_data.stem)
+        if not cleaned:
+            return
+        target_path = self._navigation_dir / f"{cleaned}.json"
+        self.save_profile_requested.emit(target_path)
+        self.refresh_profiles(select_path=target_path)
+
+    @Slot()
+    def _on_load_profile_clicked(self) -> None:
+        selected = self._profile_selector.currentData()
+        if isinstance(selected, Path) and selected.is_file():
+            self.load_profile_requested.emit(selected)
+
+    @Slot()
+    def _on_reset_map_clicked(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            self._translator.text(Message.UI_PROFILE_RESET_TITLE),
+            self._translator.text(Message.UI_PROFILE_RESET_PROMPT),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.reset_navigation_requested.emit()
+
+    def show_error_dialog(self, title: str, message: str) -> None:
+        """Display a warning/error dialog to the operator."""
+
+        QMessageBox.warning(self, title, message)
 
     def _retranslate(self) -> None:
         self.setWindowTitle(self._translator.text(Message.UI_TITLE))
@@ -239,6 +371,13 @@ class MainWindow(QMainWindow):
         self._debug_toggle.setText(self._translator.text(Message.UI_DEBUG_OVERLAY))
         self._path_toggle.setText(self._translator.text(Message.UI_PATH_INSPECTOR))
         self._path_inspector.set_translator(self._translator)
+        self._save_profile_button.setText(self._translator.text(Message.UI_PROFILE_SAVE))
+        self._load_profile_button.setText(self._translator.text(Message.UI_PROFILE_LOAD))
+        self._reset_map_button.setText(self._translator.text(Message.UI_PROFILE_RESET))
+        self._profile_name_input.setPlaceholderText(
+            self._translator.text(Message.UI_PROFILE_NAME_PLACEHOLDER)
+        )
+        self.refresh_profiles()
         previous_language = self._translator.language
         self._language_selector.blockSignals(True)
         self._language_selector.clear()
@@ -306,6 +445,20 @@ class MainWindow(QMainWindow):
         if update.navigation is not None:
             self._path_inspector.set_navigation(update.navigation)
         self._update_overlay_visibility(self._debug_toggle.isChecked())
+        is_active = update.status in {
+            BotStatus.ACTIVE,
+            BotStatus.RECONCILING,
+            BotStatus.SEARCH_ROTATING,
+            BotStatus.SEARCH_TILTING,
+            BotStatus.SEARCH_ROAMING,
+            BotStatus.SEARCH_MINIMAP,
+        }
+        profile_controls_enabled = not is_active
+        self._profile_selector.setEnabled(profile_controls_enabled)
+        self._profile_name_input.setEnabled(profile_controls_enabled)
+        self._save_profile_button.setEnabled(profile_controls_enabled)
+        self._load_profile_button.setEnabled(profile_controls_enabled)
+        self._reset_map_button.setEnabled(profile_controls_enabled)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Ensure the session is paused and navigation data is persisted upon window close."""

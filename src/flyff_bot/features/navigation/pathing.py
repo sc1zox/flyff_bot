@@ -13,7 +13,7 @@ from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.automation.models import Viewport, VisibleMob, WorldState
-from flyff_bot.features.navigation.persistence import save_spatial_map
+from flyff_bot.features.navigation.persistence import load_spatial_map, save_spatial_map
 from flyff_bot.features.navigation.planning import Route, RouteConfig, RoutePlanner
 from flyff_bot.features.navigation.spatial import GridCell, SpatialMap, WorldPoint
 from flyff_bot.features.navigation.tracking import (
@@ -238,8 +238,42 @@ class PathingController:
     def persist(self) -> None:
         """Write the learned map to its configured location, if one was provided."""
 
-        if self._map_path is not None:
-            save_spatial_map(self._map, self._map_path)
+        self.save_map()
+
+    def load_map(self, path: Path) -> None:
+        """Load a persisted map snapshot from disk and reset pathing state."""
+
+        self._map = load_spatial_map(path, self._map.config)
+        self._planner = RoutePlanner(self._map, self._config.route)
+        self._map_path = path
+        self._reset_state()
+
+    def save_map(self, path: Path | None = None) -> None:
+        """Save the current spatial map to disk under the specified or configured path."""
+
+        target_path = path or self._map_path
+        if target_path is not None:
+            self._map_path = target_path
+            save_spatial_map(self._map, target_path)
+
+    def reset(self) -> None:
+        """Clear all learned cells, routes, and dead-reckoned positions."""
+
+        self._map = SpatialMap(self._map.config)
+        self._planner = RoutePlanner(self._map, self._config.route)
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        self._tracker.reset()
+        self._stalls.reset()
+        self._mode = PathingMode.IDLE
+        self._waypoints = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds = None
+        self._safe_waypoint = None
+        self._safe_cell = None
+        self._avoided = frozenset()
+        self._movement_commanded = False
 
     def _estimate_mob_position(
         self,

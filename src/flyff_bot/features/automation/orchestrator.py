@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from pathlib import Path
 from typing import Protocol
 
 from flyff_bot.features.automation.combat_execution import CombatInputAdapter, CombatInputDispatcher
@@ -165,6 +166,33 @@ class FarmingOrchestrator:
         combat = replace(self._config.combat, rotation=(KeyBinding(virtual_key),))
         self._config = replace(self._config, combat=combat)
         self._combat = CombatController(combat)
+
+    def save_navigation_profile(self, path: Path) -> None:
+        """Persist the active spatial map to a specific profile file."""
+
+        if self._mode not in {FarmingMode.PAUSED, FarmingMode.EMERGENCY_STOPPED}:
+            raise RuntimeError("Navigation profiles can only be saved while farming is paused.")
+        if self._pathing is not None:
+            self._pathing.save_map(path)
+            self._publish(False)
+
+    def load_navigation_profile(self, path: Path) -> None:
+        """Load a persisted map profile from disk and update the live navigation state."""
+
+        if self._mode not in {FarmingMode.PAUSED, FarmingMode.EMERGENCY_STOPPED}:
+            raise RuntimeError("Navigation profiles can only be loaded while farming is paused.")
+        if self._pathing is not None:
+            self._pathing.load_map(path)
+            self._publish(False)
+
+    def reset_navigation_map(self) -> None:
+        """Reset the active spatial map and tracking origin."""
+
+        if self._mode not in {FarmingMode.PAUSED, FarmingMode.EMERGENCY_STOPPED}:
+            raise RuntimeError("Navigation map can only be reset while farming is paused.")
+        if self._pathing is not None:
+            self._pathing.reset()
+            self._publish(False)
 
     def tick(self) -> FarmingTick:
         """Perform at most one perception, decision, and guarded-dispatch cycle."""

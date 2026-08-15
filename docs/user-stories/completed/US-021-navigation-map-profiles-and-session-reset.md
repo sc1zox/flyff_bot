@@ -1,7 +1,7 @@
 ---
 id: US-021
 title: Navigation map profile slots, persistence management, and session reset
-status: draft
+status: completed
 created: 2026-08-16
 updated: 2026-08-16
 ---
@@ -15,7 +15,7 @@ As an operator managing automated farming sessions across different game zones, 
 ## Context and assumptions
 
 - **Architectural Grounding:**
-  - Extends [US-019](completed/US-019-intelligent-pathing-and-spawn-heatmap.md) (`SpatialMap`, `PathingController`, `save_spatial_map`, `load_spatial_map`) and [US-020](completed/US-020-visual-navigation-path-and-heatmap-inspector.md) (`PathInspectorWidget`, `MainWindow`).
+  - Extends [US-019](US-019-intelligent-pathing-and-spawn-heatmap.md) (`SpatialMap`, `PathingController`, `save_spatial_map`, `load_spatial_map`) and [US-020](US-020-visual-navigation-path-and-heatmap-inspector.md) (`PathInspectorWidget`, `MainWindow`).
   - Stored in the native Windows filesystem under `data/navigation/*.json`.
 - **Operating State & Concurrency Safety:**
   - Map modifications (Loading a different profile, saving as a new name, or resetting live memory) are strictly permitted **only while farming is paused or stopped** (`FarmingMode.PAUSED` or `FarmingMode.EMERGENCY_STOPPED`).
@@ -45,40 +45,40 @@ As an operator managing automated farming sessions across different game zones, 
 ## Acceptance criteria
 
 ### 1. Profile Slot Management UI
-- [ ] Given the dashboard is launched, when the operator views the path inspection panel, then a dedicated **Profile Management Bar** is visible containing:
+- [x] Given the dashboard is launched, when the operator views the path inspection panel, then a dedicated **Profile Management Bar** is visible containing:
   - A profile selector dropdown listing all `.json` files in `data/navigation/`.
   - A text input for entering custom profile names.
   - Action buttons: **Speichern (Save)**, **Laden (Load)**, and **Karte leeren (Reset)**.
-- [ ] Given the bot is in `SEARCHING`, `TARGETING`, or `COMBAT` mode, when the UI renders, then the profile dropdown, name field, Save, Load, and Reset buttons are disabled (`setEnabled(False)`).
-- [ ] Given the bot is in `PAUSED` or `EMERGENCY_STOPPED` mode, then all profile management controls are enabled.
+- [x] Given the bot is in `SEARCHING`, `TARGETING`, or `COMBAT` mode, when the UI renders, then the profile dropdown, name field, Save, Load, and Reset buttons are disabled (`setEnabled(False)`).
+- [x] Given the bot is in `PAUSED` or `EMERGENCY_STOPPED` mode, then all profile management controls are enabled.
 
 ### 2. Saving and Loading Profiles
-- [ ] Given a session has recorded movement and mob spawns, when the operator enters `flame_north` and clicks **Speichern**, then:
+- [x] Given a session has recorded movement and mob spawns, when the operator enters `flame_north` and clicks **Speichern**, then:
   - The map is written to `data/navigation/flame_north.json` following the versioned JSON schema.
   - The profile dropdown updates to include `flame_north.json` as the selected item.
-- [ ] Given multiple saved map profiles exist in `data/navigation/`, when the operator selects `mushpang_valley.json` and clicks **Laden**, then:
+- [x] Given multiple saved map profiles exist in `data/navigation/`, when the operator selects `mushpang_valley.json` and clicks **Laden**, then:
   - `PathingController` is updated with the loaded map data.
   - `PathInspectorWidget` repaints immediately showing the loaded cells, edges, and spawn hotspots.
-- [ ] Given a corrupted or invalid JSON file is selected for loading, when the operator clicks **Laden**, then an error message dialog is presented and the active map state remains intact without crashing.
+- [x] Given a corrupted or invalid JSON file is selected for loading, when the operator clicks **Laden**, then an error message dialog is presented and the active map state remains intact without crashing.
 
 ### 3. Session Map Reset Safeguard
-- [ ] Given an active map with visited cells and spawn weights, when the operator clicks **Karte leeren (Reset)**, then a modal confirmation dialog is displayed:
+- [x] Given an active map with visited cells and spawn weights, when the operator clicks **Karte leeren (Reset)**, then a modal confirmation dialog is displayed:
   - German: *"Möchten Sie die aktuelle Navigationskarte wirklich zurücksetzen? Ungespeicherte Änderungen gehen verloren."*
   - English: *"Are you sure you want to reset the current navigation map? Unsaved changes will be lost."*
-- [ ] Given the confirmation dialog is open, when the operator clicks **Abbrechen (Cancel)**, then the map state remains unchanged.
-- [ ] Given the confirmation dialog is open, when the operator clicks **Ja / Bestätigen (Confirm)**, then:
+- [x] Given the confirmation dialog is open, when the operator clicks **Abbrechen (Cancel)**, then the map state remains unchanged.
+- [x] Given the confirmation dialog is open, when the operator clicks **Ja / Bestätigen (Confirm)**, then:
   - All cells, edges, spawn weights, and stalls are purged from the spatial map.
   - The player's dead-reckoning tracker resets position to $(0.0, 0.0)$ and heading to $0.0^\circ$.
   - The 2D inspector canvas clears and displays a fresh origin grid.
 
 ### 4. Automatic Persistence & Close Hook
-- [ ] Given a farming session is running, when the operator clicks **Pausieren** or triggers the emergency stop, then the active navigation profile is automatically saved to disk.
-- [ ] Given continuous farming is active for $\ge 30$ seconds, then the orchestrator automatically writes an updated map snapshot to disk.
-- [ ] Given the user closes the desktop application window via the 'X' title bar button, then `MainWindow.closeEvent` invokes `pause_requested`, ensuring the current navigation map is written to disk before process termination.
+- [x] Given a farming session is running, when the operator clicks **Pausieren** or triggers the emergency stop, then the active navigation profile is automatically saved to disk.
+- [x] Given continuous farming is active for $\ge 30$ seconds, then the orchestrator automatically writes an updated map snapshot to disk.
+- [x] Given the user closes the desktop application window via the 'X' title bar button, then `MainWindow.closeEvent` invokes `pause_requested`, ensuring the current navigation map is written to disk before process termination.
 
 ### 5. Localization & Verification
-- [ ] All new UI controls, button labels, tooltips, dialog titles, prompt messages, and status notices are synchronized in `de.json` and `en.json`.
-- [ ] Automated unit tests in `tests/unit/test_ui.py` and `tests/unit/test_path_inspector.py` verify:
+- [x] All new UI controls, button labels, tooltips, dialog titles, prompt messages, and status notices are synchronized in `de.json` and `en.json`.
+- [x] Automated unit tests in `tests/unit/test_ui.py` and `tests/unit/test_path_inspector.py` verify:
   - Profile dropdown discovery and population.
   - Save, Load, and Reset signal flows and validation.
   - State gating (enabled when paused, disabled when active).

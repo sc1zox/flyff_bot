@@ -102,5 +102,14 @@
   "ui.target_none": "No target",
   "ui.target_annotation": "Target: {status} ({name})",
   "ui.mob_annotation": "{class_name} {confidence}",
-  "ui.no_target_name": "none"
+  "ui.no_target_name": "none",
+  "ui.profile_name_placeholder": "Profile name…",
+  "ui.profile_save": "Save",
+  "ui.profile_load": "Load",
+  "ui.profile_reset": "Clear Map",
+  "ui.profile_reset_title": "Reset Navigation Map",
+  "ui.profile_reset_prompt": "Are you sure you want to reset the current navigation map? Unsaved changes will be lost.",
+  "ui.profile_load_error_title": "Load Error",
+  "ui.profile_load_error_prompt": "The selected map profile could not be loaded: {reason}",
+  "ui.profile_cells_count": "{name} ({count} tiles)"
 }

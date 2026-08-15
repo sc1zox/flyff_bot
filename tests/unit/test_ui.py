@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import numpy as np
+import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from flyff_bot.features.automation.models import (
     InventoryEntry,
@@ -143,14 +146,33 @@ def test_farming_controls_connect_dashboard_intent() -> None:
         def emergency_stop(self) -> None:
             self.requests.append("stop")
 
+        def save_navigation_profile(self, path: Path) -> None:
+            self.requests.append(f"save:{path.name}")
+
+        def load_navigation_profile(self, path: Path) -> None:
+            self.requests.append(f"load:{path.name}")
+
+        def reset_navigation_map(self) -> None:
+            self.requests.append("reset")
+
     session = Session()
     connect_farming_controls(window, session)
     window.start_button.click()
     window.pause_button.click()
     window.emergency_stop_button.click()
+    window.save_profile_requested.emit(Path("spot.json"))
+    window.load_profile_requested.emit(Path("spot.json"))
+    window.reset_navigation_requested.emit()
     application.processEvents()
 
-    assert session.requests == ["start", "pause", "stop"]
+    assert session.requests == [
+        "start",
+        "pause",
+        "stop",
+        "save:spot.json",
+        "load:spot.json",
+        "reset",
+    ]
 
 
 def test_start_farming_focuses_the_game_before_starting_the_session() -> None:
@@ -348,6 +370,103 @@ def test_main_window_path_toggle_dynamically_adjusts_window_size() -> None:
     application.processEvents()
     assert window.path_inspector.isHidden()
     assert window.height() < expanded_height
+
+
+def test_main_window_profile_bar_toggle_and_state_gating(tmp_path: Path) -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH), navigation_dir=tmp_path)
+    assert window.profile_bar.isHidden()
+
+    window.path_toggle.setChecked(True)
+    assert not window.profile_bar.isHidden()
+
+    # Active farming status disables profile controls
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE))
+    assert not window.profile_selector.isEnabled()
+    assert not window.profile_name_input.isEnabled()
+    assert not window.save_profile_button.isEnabled()
+    assert not window.load_profile_button.isEnabled()
+    assert not window.reset_map_button.isEnabled()
+
+    # Paused status enables profile controls
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.PAUSED))
+    assert window.profile_selector.isEnabled()
+    assert window.profile_name_input.isEnabled()
+    assert window.save_profile_button.isEnabled()
+    assert window.load_profile_button.isEnabled()
+    assert window.reset_map_button.isEnabled()
+
+    # Emergency stopped status enables profile controls
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.EMERGENCY_STOPPED))
+    assert window.profile_selector.isEnabled()
+    assert window.profile_name_input.isEnabled()
+    assert window.save_profile_button.isEnabled()
+
+
+def test_main_window_profile_save_and_load_signals(tmp_path: Path) -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH), navigation_dir=tmp_path)
+
+    saved_paths: list[Path] = []
+    loaded_paths: list[Path] = []
+    window.save_profile_requested.connect(saved_paths.append)
+    window.load_profile_requested.connect(loaded_paths.append)
+
+    # Save
+    window.profile_name_input.setText("flame_north")
+    window.save_profile_button.click()
+    application.processEvents()
+
+    assert len(saved_paths) == 1
+    assert saved_paths[0] == tmp_path / "flame_north.json"
+
+    # Create dummy file so it exists for loading
+    saved_paths[0].write_text("{}", encoding="utf-8")
+    window.refresh_profiles(select_path=saved_paths[0])
+
+    # Load
+    window.load_profile_button.click()
+    application.processEvents()
+
+    assert loaded_paths == [saved_paths[0]]
+
+
+def test_main_window_reset_map_dialog_confirmation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH), navigation_dir=tmp_path)
+
+    reset_calls: list[bool] = []
+    window.reset_navigation_requested.connect(lambda: reset_calls.append(True))
+
+    # Reject / Cancel
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.No
+    )
+    window.reset_map_button.click()
+    application.processEvents()
+    assert reset_calls == []
+
+    # Accept / Confirm
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes
+    )
+    window.reset_map_button.click()
+    application.processEvents()
+    assert reset_calls == [True]
+
+
+def test_main_window_close_event_emits_pause_requested() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    pause_calls: list[bool] = []
+    window.pause_requested.connect(lambda: pause_calls.append(True))
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+    assert pause_calls == [True]
 
 
 def _world_state() -> WorldState:

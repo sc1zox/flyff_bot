@@ -33,7 +33,7 @@ from flyff_bot.features.vision import (
     TesseractTextRecognizer,
     WindowsFrameSource,
 )
-from flyff_bot.i18n import Translator
+from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import DashboardFeed
 from flyff_bot.ui.main_window import MainWindow
 
@@ -47,11 +47,25 @@ class FarmingControls(Protocol):
 
     def emergency_stop(self) -> None: ...
 
+    def save_navigation_profile(self, path: Path) -> None: ...
+
+    def load_navigation_profile(self, path: Path) -> None: ...
+
+    def reset_navigation_map(self) -> None: ...
+
 
 class WindowFocusControls(Protocol):
     """The foreground handoff required before a farming session can run."""
 
     def focus_window(self, window_handle: int) -> None: ...
+
+
+class StartableControls(Protocol):
+    """The subset of session controls needed to initiate farming after window focus."""
+
+    def start(self) -> None: ...
+
+    def pause(self) -> None: ...
 
 
 def connect_farming_controls(
@@ -66,9 +80,22 @@ def connect_farming_controls(
     window.pause_requested.connect(orchestrator.pause)
     window.emergency_stop_requested.connect(orchestrator.emergency_stop)
 
+    def _safe_load_profile(path: Path) -> None:
+        try:
+            orchestrator.load_navigation_profile(path)
+        except Exception as exc:
+            window.show_error_dialog(
+                window._translator.text(Message.UI_PROFILE_LOAD_ERROR_TITLE),
+                window._translator.text(Message.UI_PROFILE_LOAD_ERROR_PROMPT, reason=str(exc)),
+            )
+
+    window.save_profile_requested.connect(orchestrator.save_navigation_profile)
+    window.load_profile_requested.connect(_safe_load_profile)
+    window.reset_navigation_requested.connect(orchestrator.reset_navigation_map)
+
 
 def start_farming(
-    controller: WindowFocusControls, window_handle: int, orchestrator: FarmingControls
+    controller: WindowFocusControls, window_handle: int, orchestrator: StartableControls
 ) -> None:
     """Return focus to the game before allowing guarded farming ticks to resume."""
 

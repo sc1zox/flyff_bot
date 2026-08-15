@@ -23,6 +23,8 @@ related:
   - ../user-stories/completed/US-015-idle-timeout-and-search-navigation.md
   - ../user-stories/completed/US-018-multi-axis-camera-search-and-paced-scanning.md
   - ../user-stories/completed/US-019-intelligent-pathing-and-spawn-heatmap.md
+  - ../user-stories/completed/US-020-visual-navigation-path-and-heatmap-inspector.md
+  - ../user-stories/completed/US-021-navigation-map-profiles-and-session-reset.md
 ---
 
 # Architecture
@@ -204,3 +206,15 @@ traversal graph edges (with stall risk highlights), safe waypoint fallback ancho
 patrol route polylines. `FarmingOrchestrator` delivers an immutable `NavigationSnapshot` on every
 published tick via `DashboardUpdate` without blocking worker threads. Localized labels in German and
 English explain all map elements and legend badges.
+
+US-021 adds named navigation map profile slots, persistence management, and session reset safeguards
+to the desktop dashboard. Operators can save, load, and switch discrete map profiles from
+`data/navigation/*.json` via a profile management bar, avoiding cross-camp topological contamination.
+The profile selector scans for valid `.json` maps and displays cell count summaries, while custom
+profile name inputs sanitize invalid Windows filename characters. Profile modifications are strictly
+gated to paused or stopped farming states (`FarmingMode.PAUSED` / `FarmingMode.EMERGENCY_STOPPED`).
+A modal reset safeguard confirms map clearing before purging in-memory spatial cells, edge graphs,
+and spawn weights, resetting the dead-reckoning tracker back to $(0.0, 0.0, 0.0^\circ)$. Continuous
+sessions auto-persist the active profile every 30 seconds of farming, on pause/emergency stop
+transitions, and upon window close (`MainWindow.closeEvent`), with complete German and English
+localization for all dialogs and notices.

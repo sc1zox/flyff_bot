@@ -102,5 +102,14 @@
   "ui.target_none": "Kein Ziel",
   "ui.target_annotation": "Ziel: {status} ({name})",
   "ui.mob_annotation": "{class_name} {confidence}",
-  "ui.no_target_name": "keines"
+  "ui.no_target_name": "keines",
+  "ui.profile_name_placeholder": "Profilname…",
+  "ui.profile_save": "Speichern",
+  "ui.profile_load": "Laden",
+  "ui.profile_reset": "Karte leeren",
+  "ui.profile_reset_title": "Navigationskarte zurücksetzen",
+  "ui.profile_reset_prompt": "Möchten Sie die aktuelle Navigationskarte wirklich zurücksetzen? Ungespeicherte Änderungen gehen verloren.",
+  "ui.profile_load_error_title": "Ladefehler",
+  "ui.profile_load_error_prompt": "Das ausgewählte Kartenprofil konnte nicht geladen werden: {reason}",
+  "ui.profile_cells_count": "{name} ({count} Kacheln)"
 }

@@ -7,7 +7,13 @@ from flyff_bot.features.navigation.pathing import (
     PathingDecision,
     PathingMode,
 )
-from flyff_bot.features.navigation.persistence import load_spatial_map, save_spatial_map
+from flyff_bot.features.navigation.persistence import (
+    NavigationProfileSummary,
+    list_navigation_profiles,
+    load_spatial_map,
+    sanitize_profile_name,
+    save_spatial_map,
+)
 from flyff_bot.features.navigation.planning import Route, RouteConfig, RoutePlanner
 from flyff_bot.features.navigation.spatial import (
     GridCell,
@@ -18,6 +24,7 @@ from flyff_bot.features.navigation.spatial import (
 
 __all__ = [
     "GridCell",
+    "NavigationProfileSummary",
     "PathingConfig",
     "PathingController",
     "PathingDecision",
@@ -30,6 +37,8 @@ __all__ = [
     "SpatialMap",
     "SpatialMapConfig",
     "WorldPoint",
+    "list_navigation_profiles",
     "load_spatial_map",
+    "sanitize_profile_name",
     "save_spatial_map",
 ]
