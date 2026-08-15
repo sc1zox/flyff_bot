@@ -224,7 +224,7 @@ def _prediction_rows(output: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]
         output = output[0]
     if output.ndim != 2:
         raise DetectionError(DetectionErrorCode.INVALID_MODEL_OUTPUT)
-    if output.shape[0] > output.shape[1]:
+    if output.shape[0] >= YOLO_BOX_VALUE_COUNT + 1 and output.shape[0] < output.shape[1]:
         output = output.transpose()
     if output.shape[1] <= YOLO_BOX_VALUE_COUNT:
         raise DetectionError(DetectionErrorCode.INVALID_MODEL_OUTPUT)
