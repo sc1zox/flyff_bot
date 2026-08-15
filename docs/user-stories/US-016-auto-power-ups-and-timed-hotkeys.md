@@ -1,12 +1,12 @@
 ---
-id: US-015
+id: US-016
 title: Auto power-ups and timed hotkeys with dynamic UI configuration and persistence
 status: draft
 created: 2026-08-15
 updated: 2026-08-15
 ---
 
-# US-015: Auto power-ups and timed hotkeys with dynamic UI configuration and persistence
+# US-016: Auto power-ups and timed hotkeys with dynamic UI configuration and persistence
 
 ## Story
 
