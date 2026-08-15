@@ -46,3 +46,8 @@ related:
   target status.
 - **Target status** — The verification result for the current target: `VALID_TARGET`,
   `WRONG_TARGET`, or `NO_TARGET`.
+- **Loot-log OCR** — Perception-only extraction of pickup notifications from a normalized central
+  client-area region. It preprocesses the crop for text recognition and parses supported German
+  and English pickup patterns into timestamped loot events.
+- **Loot event** — A typed record of one recognized pickup containing its timestamp, item name,
+  quantity, and original OCR text.

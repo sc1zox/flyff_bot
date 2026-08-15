@@ -13,6 +13,7 @@ related:
   - ../user-stories/completed/US-002-vision-frame-capture.md
   - ../user-stories/completed/US-003-mob-detection-yolo.md
   - ../user-stories/completed/US-004-target-mob-verification.md
+  - ../user-stories/completed/US-005-loot-log-ocr.md
 ---
 
 # Architecture
@@ -45,7 +46,10 @@ Game Client
      It returns structured client-space detections with a bounding box, confidence, class ID, and
      class name; the `Detector` protocol supports deterministic mock implementations.
    - **Template Matching:** Detection of fixed 2D UI elements and anchors.
-   - **ROI OCR:** Targeted text extraction from specific UI regions (e.g. central loot/system log).
+   - **ROI OCR:** `LootLogReader` extracts a configurable normalized central loot/system-log
+     region, applies CLAHE contrast enhancement and adaptive thresholding, and delegates text
+     recognition to an injectable engine. Its Tesseract adapter reads English and German text;
+     pickup parsing produces typed timestamped loot events without dispatching input.
   - **Frame capture:** `WindowsFrameSource` captures the foreground client's exact client area
      through documented Win32 GDI APIs and exposes contiguous BGR or RGB `numpy.ndarray` frames.
      Its `FrameSource` protocol is injectable for deterministic tests, and capture failures use

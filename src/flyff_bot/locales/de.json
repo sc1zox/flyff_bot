@@ -30,5 +30,10 @@
   "error.detection_options_required": "--detect-mobs erfordert --model und --labels.",
   "error.detection_failed": "Monstererkennung fehlgeschlagen: {reason}",
   "status.detection_summary": "Sichtbare Erkennungen: {count}",
-  "status.detection_line": "{class_name} Zuversicht={confidence} Feld=({x}, {y}, {width}, {height})"
+  "status.detection_line": "{class_name} Zuversicht={confidence} Feld=({x}, {y}, {width}, {height})",
+  "help.read_loot": "Ein Bild erfassen und Beute-Benachrichtigungen lesen",
+  "error.loot_ocr_engine_unavailable": "Beute-OCR benötigt die Tesseract-Anwendung mit englischen und deutschen Sprachdaten.",
+  "error.loot_ocr_failed": "Beute-OCR ist fehlgeschlagen.",
+  "status.loot_summary": "Beute-Benachrichtigungen: {count}",
+  "status.loot_line": "{timestamp} {item_name} x{count}"
 }

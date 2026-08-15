@@ -30,5 +30,10 @@
   "error.detection_options_required": "--detect-mobs requires --model and --labels.",
   "error.detection_failed": "Mob detection failed: {reason}",
   "status.detection_summary": "Visible detections: {count}",
-  "status.detection_line": "{class_name} confidence={confidence} box=({x}, {y}, {width}, {height})"
+  "status.detection_line": "{class_name} confidence={confidence} box=({x}, {y}, {width}, {height})",
+  "help.read_loot": "Capture one frame and read loot notifications",
+  "error.loot_ocr_engine_unavailable": "Loot OCR requires the Tesseract executable with English and German language data.",
+  "error.loot_ocr_failed": "Loot OCR failed.",
+  "status.loot_summary": "Loot notifications: {count}",
+  "status.loot_line": "{timestamp} {item_name} x{count}"
 }

@@ -24,7 +24,11 @@ from flyff_bot.features.input_control import (
 from flyff_bot.features.vision import (
     DetectionConfig,
     DetectionError,
+    LootLogReader,
+    LootOcrError,
+    LootOcrErrorCode,
     OpenCVDnnYoloDetector,
+    TesseractTextRecognizer,
     WindowsFrameSource,
 )
 from flyff_bot.i18n import Language, Message, Translator
@@ -77,6 +81,11 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         "--detect-mobs",
         action="store_true",
         help=translator.text(Message.HELP_DETECT_MOBS),
+    )
+    actions.add_argument(
+        "--read-loot",
+        action="store_true",
+        help=translator.text(Message.HELP_READ_LOOT),
     )
     parser.add_argument("--model", help=translator.text(Message.HELP_MODEL))
     parser.add_argument("--labels", help=translator.text(Message.HELP_LABELS))
@@ -143,7 +152,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
                     title=repr(window.title),
                 )
             )
-        if args.list or (args.key is None and args.click is None and not args.detect_mobs):
+        if args.list or (
+            args.key is None and args.click is None and not args.detect_mobs and not args.read_loot
+        ):
             return ExitCode.SUCCESS
 
         if args.detect_mobs:
@@ -176,6 +187,21 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 )
             return ExitCode.SUCCESS
 
+        if args.read_loot:
+            frame = WindowsFrameSource().capture(windows[0].handle)
+            events = LootLogReader(TesseractTextRecognizer()).read(frame)
+            print(translator.text(Message.LOOT_SUMMARY, count=len(events)))
+            for event in events:
+                print(
+                    translator.text(
+                        Message.LOOT_LINE,
+                        timestamp=event.timestamp.isoformat(),
+                        item_name=event.item_name,
+                        count=event.count,
+                    )
+                )
+            return ExitCode.SUCCESS
+
         window_handle = windows[0].handle
         delay_seconds = max(0.0, args.delay)
         print(translator.text(Message.COUNTDOWN, seconds=f"{delay_seconds:g}"))
@@ -197,6 +223,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
             controller.click_client(window_handle, *args.click)
         print(translator.text(Message.INPUT_SENT))
         return ExitCode.SUCCESS
+    except LootOcrError as error:
+        message = (
+            Message.LOOT_OCR_ENGINE_UNAVAILABLE
+            if error.code is LootOcrErrorCode.ENGINE_UNAVAILABLE
+            else Message.LOOT_OCR_FAILED
+        )
+        print(translator.text(message), file=sys.stderr)
+        return ExitCode.LOOT_OCR_FAILURE
     except (InputControlError, DetectionError, ValueError) as error:
         if isinstance(error, DetectionError | ValueError):
             print(translator.text(Message.DETECTION_FAILED, reason=error), file=sys.stderr)

@@ -1,7 +1,7 @@
 ---
 id: US-005
 title: Central loot and system log OCR extraction
-status: draft
+status: completed
 created: 2026-08-15
 updated: 2026-08-15
 ---
@@ -15,19 +15,20 @@ from the central screen log / system message area, so that picked-up loot and dr
 
 ## Context and assumptions
 
-- Source: [Computer vision and YOLO request](../sources/2026-08-15-computer-vision-and-yolo-request.md).
-- Depends on [US-002](completed/US-002-vision-frame-capture.md) for game frames.
+- Source: [Computer vision and YOLO request](../../sources/2026-08-15-computer-vision-and-yolo-request.md).
+- Depends on [US-002](US-002-vision-frame-capture.md) for game frames.
 - Flyff displays pickup notifications in the middle of the screen or in system chat (e.g. "[Item-Name] erhalten" in German, or "You received [Item-Name]" in English).
 - An OCR engine or font-template reader will extract message text from the preprocessed notification region.
+- Example screenshot(s) showing loot / pickup notifications are located in `data/eden/loot` (e.g. `data/eden/flame/loot/`).
 
 ## Acceptance criteria
 
-- [ ] Isolates and preprocesses the central notification / system log region of interest (ROI) from the game frame (e.g. thresholding, contrast enhancement).
-- [ ] Extracts text lines reliably from the preprocessed ROI.
-- [ ] Parses item pickup patterns for item name and quantity across supported languages (German and English).
-- [ ] Emits structured loot events (timestamp, item_name, count, raw_text).
-- [ ] Automated unit tests verify OCR/parsing pipeline with synthetic or fixture screenshot crops.
-- [ ] All user-visible logs and UI messages exist in German and English.
+- [x] Isolates and preprocesses the central notification / system log region of interest (ROI) from the game frame (e.g. thresholding, contrast enhancement).
+- [x] Extracts text lines reliably from the preprocessed ROI.
+- [x] Parses item pickup patterns for item name and quantity across supported languages (German and English).
+- [x] Emits structured loot events (timestamp, item_name, count, raw_text).
+- [x] Automated unit tests verify OCR/parsing pipeline with synthetic or fixture screenshot crops.
+- [x] All user-visible logs and UI messages exist in German and English.
 
 ## Out of scope
 

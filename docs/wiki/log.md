@@ -40,3 +40,9 @@ architecture and glossary; moved US-003 to the completed stories directory.
 Recorded the completed normalized target-header extraction, HP-colour and whitelisted
 name-template verification, typed target statuses, and perception-only safety boundary in the
 architecture and glossary; moved US-004 to the completed stories directory.
+
+## [2026-08-15] synthesis | Central loot and system log OCR (US-005)
+
+Recorded the completed configurable loot-log ROI, contrast and threshold preprocessing,
+injectable Tesseract recognition boundary, bilingual pickup parsing, and typed timestamped loot
+events in the architecture and glossary; moved US-005 to the completed stories directory.

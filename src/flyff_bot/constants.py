@@ -16,3 +16,4 @@ class ExitCode(IntEnum):
     ABORTED = 2
     INPUT_FAILURE = 3
     DETECTION_FAILURE = 4
+    LOOT_OCR_FAILURE = 5

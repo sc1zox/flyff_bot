@@ -50,6 +50,11 @@ class Message(StrEnum):
     DETECTION_FAILED = "error.detection_failed"
     DETECTION_SUMMARY = "status.detection_summary"
     DETECTION_LINE = "status.detection_line"
+    HELP_READ_LOOT = "help.read_loot"
+    LOOT_OCR_ENGINE_UNAVAILABLE = "error.loot_ocr_engine_unavailable"
+    LOOT_OCR_FAILED = "error.loot_ocr_failed"
+    LOOT_SUMMARY = "status.loot_summary"
+    LOOT_LINE = "status.loot_line"
 
 
 class Translator:

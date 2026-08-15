@@ -24,6 +24,8 @@ def test_each_language_contains_every_message() -> None:
                 y=0,
                 width=0,
                 height=0,
+                timestamp="x",
+                item_name="x",
             )
 
 
