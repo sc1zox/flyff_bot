@@ -93,3 +93,10 @@ paused-session orchestrator configuration path; moved US-014 to the completed st
 Recorded the staged no-mob recovery controller, localized timing and dashboard configuration,
 minimap red-dot selection, and foreground/END-guarded navigation boundary; moved US-015 to the
 completed stories directory.
+
+## [2026-08-16] synthesis | Intelligent pathing and topological spawn heatmap (US-019)
+
+Recorded the internal navigation feature: dead-reckoned relative position tracking, the decaying
+spawn heatmap and traversal graph, frame-difference stall detection with bounded cost penalties,
+safe-waypoint retreat and bypass planning, density-weighted patrol circuits, and versioned map
+persistence; moved US-019 to the completed stories directory.

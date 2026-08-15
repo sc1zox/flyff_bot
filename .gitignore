@@ -34,3 +34,6 @@ Entropia/
 # Locally trained detector artifacts
 models/*.onnx
 models/*.pt
+
+# Locally learned navigation maps and spawn heatmaps
+data/navigation/

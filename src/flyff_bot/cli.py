@@ -19,6 +19,7 @@ from flyff_bot.constants import (
     DEFAULT_KEY_DURATION_SECONDS,
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
+    DEFAULT_NAVIGATION_MAP_PATH,
     DEFAULT_PROCESS_NAME,
     DEFAULT_START_DELAY_SECONDS,
     DEFAULT_TRAINING_EPOCHS,
@@ -39,6 +40,8 @@ from flyff_bot.features.input_control import (
     WindowsInputController,
     parse_virtual_key,
 )
+from flyff_bot.features.navigation.pathing import PathingController
+from flyff_bot.features.navigation.persistence import load_spatial_map
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.training import TrainingError, train_and_export, validate_dataset
 from flyff_bot.features.vision import (
@@ -221,6 +224,11 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         type=float,
         default=1.0,
         help=translator.text(Message.HELP_SEARCH_MOVEMENT_DURATION, default=1.0),
+    )
+    parser.add_argument(
+        "--navigation-map",
+        default=DEFAULT_NAVIGATION_MAP_PATH,
+        help=translator.text(Message.HELP_NAVIGATION_MAP, default=DEFAULT_NAVIGATION_MAP_PATH),
     )
     parser.add_argument("--goal-item", help=translator.text(Message.HELP_GOAL_ITEM))
     parser.add_argument("--goal-count", type=int, help=translator.text(Message.HELP_GOAL_COUNT))
@@ -461,10 +469,14 @@ def _farming_orchestrator(
         TargetVerifier(templates, anchor),
         LootLogReader(TesseractTextRecognizer()),
     )
+    navigation_map_path = Path(args.navigation_map)
     return FarmingOrchestrator(
         pipeline,
         controller,
         window_handle,
+        pathing=PathingController(
+            load_spatial_map(navigation_map_path), map_path=navigation_map_path
+        ),
         config=FarmingConfig(
             combat=CombatConfig(
                 allowed_class_names=frozenset(args.class_name),

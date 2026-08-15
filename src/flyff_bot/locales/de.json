@@ -43,6 +43,7 @@
   "help.search_idle_timeout": "Leerlaufzeit bis zur gestuften Suche in Sekunden (Standard: {default})",
   "help.search_rotation_duration": "Dauer eines Kameradrehimpulses in Sekunden (Standard: {default})",
   "help.search_movement_duration": "Dauer eines Erkundungsbewegungsimpulses in Sekunden (Standard: {default})",
+  "help.navigation_map": "Pfad zur gelernten Navigationskarte und Spawn-Heatmap (Standard: {default})",
   "help.goal_item": "Zum Abschluss des Farmziels benötigter Gegenstand",
   "help.goal_count": "Zum Abschluss des Farmziels benötigte Gegenstandsmenge",
   "help.target_anchor": "Bildpfad für die Zielkopf-Ankerung",

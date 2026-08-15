@@ -16,11 +16,14 @@ from PySide6.QtWidgets import QApplication
 from flyff_bot.constants import (
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
+    DEFAULT_NAVIGATION_MAP_PATH,
     DEFAULT_PROCESS_NAME,
 )
 from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
+from flyff_bot.features.navigation.pathing import PathingController
+from flyff_bot.features.navigation.persistence import load_spatial_map
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision import (
     DetectionConfig,
@@ -113,6 +116,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     TargetVerifier({"Flame": flame_template}, anchor),
                     LootLogReader(TesseractTextRecognizer()),
                 )
+                navigation_map_path = Path(DEFAULT_NAVIGATION_MAP_PATH)
                 orchestrator = FarmingOrchestrator(
                     pipeline,
                     controller,
@@ -121,6 +125,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         combat=CombatConfig(rotation=(KeyBinding(window.attack_virtual_key),))
                     ),
                     dashboard_feed=feed,
+                    pathing=PathingController(
+                        load_spatial_map(navigation_map_path), map_path=navigation_map_path
+                    ),
                 )
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 connect_farming_controls(

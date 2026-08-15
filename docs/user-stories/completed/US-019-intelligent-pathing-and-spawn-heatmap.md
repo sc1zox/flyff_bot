@@ -1,7 +1,7 @@
 ---
 id: US-019
 title: Intelligent pathing and topological spawn heatmap for monster farming
-status: draft
+status: completed
 created: 2026-08-16
 updated: 2026-08-16
 ---
@@ -31,19 +31,19 @@ As a user of the autonomous farming system, I want the bot to automatically lear
 
 ## Acceptance criteria
 
-- [ ] Monster positions identified during active farming are recorded and accumulated into an internal spawn heatmap.
-- [ ] Successfully traversed movement paths are tracked to automatically construct an internal navigation graph / local map.
-- [ ] Previously visited locations and connecting pathways are recognized and annotated with a visit history.
-- [ ] Movement stalls and stuck situations are detected automatically.
-- [ ] Areas and pathways where movement stalls repeatedly occur receive an elevated pathing cost penalty and are avoided during future route planning.
-- [ ] Upon encountering a stuck situation, the bot can retreat to its last known safe navigation waypoint and compute an alternative bypass route.
-- [ ] Route calculation incorporates distance, stuck risk, and spawn density, prioritizing high-yield monster clusters over sparse areas.
-- [ ] The bot can automatically derive and execute recurring farming circuits between active spawn clusters.
-- [ ] Preferred farming routes dynamically adapt when local spawn densities change over time.
-- [ ] The entire mapping, heatmap, and path planning system operates internally without requiring any visual representation in the game client or dashboard UI.
-- [ ] Learned navigation graphs, spawn heatmaps, and cost weights are persisted to disk and restored across farming sessions.
-- [ ] Emergency stop (`END` key) and window focus loss immediately halt all pathing movements safely.
-- [ ] Automated unit tests in `tests/unit/` verify:
+- [x] Monster positions identified during active farming are recorded and accumulated into an internal spawn heatmap.
+- [x] Successfully traversed movement paths are tracked to automatically construct an internal navigation graph / local map.
+- [x] Previously visited locations and connecting pathways are recognized and annotated with a visit history.
+- [x] Movement stalls and stuck situations are detected automatically.
+- [x] Areas and pathways where movement stalls repeatedly occur receive an elevated pathing cost penalty and are avoided during future route planning.
+- [x] Upon encountering a stuck situation, the bot can retreat to its last known safe navigation waypoint and compute an alternative bypass route.
+- [x] Route calculation incorporates distance, stuck risk, and spawn density, prioritizing high-yield monster clusters over sparse areas.
+- [x] The bot can automatically derive and execute recurring farming circuits between active spawn clusters.
+- [x] Preferred farming routes dynamically adapt when local spawn densities change over time.
+- [x] The entire mapping, heatmap, and path planning system operates internally without requiring any visual representation in the game client or dashboard UI.
+- [x] Learned navigation graphs, spawn heatmaps, and cost weights are persisted to disk and restored across farming sessions.
+- [x] Emergency stop (`END` key) and window focus loss immediately halt all pathing movements safely.
+- [x] Automated unit tests in `tests/unit/` verify:
   - Spawn heatmap accumulation and decay.
   - Navigation graph construction from movement paths.
   - Pathing cost penalty assignment and avoidance on simulated stuck events.

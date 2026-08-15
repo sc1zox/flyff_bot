@@ -21,6 +21,7 @@ related:
   - ../user-stories/completed/US-013-autonomous-farming-loop-and-orchestration-engine.md
   - ../user-stories/completed/US-014-configurable-ui-attack-key.md
   - ../user-stories/completed/US-015-idle-timeout-and-search-navigation.md
+  - ../user-stories/completed/US-019-intelligent-pathing-and-spawn-heatmap.md
 ---
 
 # Architecture
@@ -162,3 +163,24 @@ evaluates the newest perception snapshot: a visible eligible mob resets search a
 returns to targeting. `SearchInputDispatcher` checks foreground focus and END before every search
 action, while the Windows guarded key hold releases on either condition; dashboard search statuses
 and CLI timing options are localized in English and German.
+
+US-019 adds `flyff_bot.features.navigation`, the internal spatial memory that sits behind staged
+search. `MovementTracker` dead-reckons a session-relative position and compass heading from the
+movement and camera keys that were actually dispatched, so no game memory or client modification is
+involved. `SpatialMap` folds those estimates into a grid: every tick records a cell visit and links
+consecutive cells into a traversal graph, mob sightings accumulate an exponentially decaying spawn
+weight, and stalls raise a bounded multiplicative cost on both the stalled cell and the edge that
+reached it, so a penalized area stays reachable instead of being hard-blocked. `StallDetector`
+supplies that stall evidence by comparing consecutive captured frames while forward movement was
+commanded, and its verdict also sets `WorldState.is_stuck`.
+
+`RoutePlanner` runs Dijkstra over the recorded edges and scores candidate goals by decayed spawn
+density per unit of travel cost, chaining the densest reachable clusters into a patrol circuit that
+returns to its start. `PathingController` owns the loop: it observes each snapshot, steers toward
+the next waypoint with camera-rotation and forward pulses, retreats to the last verified stall-free
+waypoint after a stall, and replans a bypass that avoids the blocked cell. `FarmingOrchestrator`
+consults it before the staged search stages and falls back to `SearchController` whenever the map
+is still too sparse to plan. `PathingInputDispatcher` re-checks foreground focus and END before
+every pathing key. Learned maps are persisted as versioned JSON (`--navigation-map`, default
+`data/navigation/spatial_map.json`) and restored on the next session; the whole subsystem is
+internal and renders nothing in the game client or dashboard.

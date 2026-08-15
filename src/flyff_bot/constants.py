@@ -10,6 +10,7 @@ DEFAULT_DATASET_MANIFEST_PATH = "data/datasets/mobs/data.yaml"
 DEFAULT_MOB_MODEL_PATH = "models/mob_detector.onnx"
 DEFAULT_MOB_LABELS_PATH = "models/labels.txt"
 DEFAULT_TRAINING_EPOCHS = 100
+DEFAULT_NAVIGATION_MAP_PATH = "data/navigation/spatial_map.json"
 
 
 class ExitCode(IntEnum):

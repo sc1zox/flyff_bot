@@ -97,3 +97,19 @@ related:
 - **Minimap radar** — A perception-only scan of the normalized top-right client region that selects
   the nearest sufficiently large red connected component and returns its client-relative centre as
   an optional staged-search navigation target.
+- **Spawn heatmap** — The internal per-cell accumulation of mob sightings on the relative
+  navigation grid, weighted by how often mobs were observed there and decayed by a configurable
+  half-life so abandoned areas lose priority over time.
+- **Navigation graph** — The internal map of grid cells linked by movement the bot actually
+  completed, annotated with visit counts, last-visit timestamps, and per-edge stall history.
+- **Dead reckoning** — Estimating a session-relative position and compass heading purely from the
+  movement and camera keys that were dispatched, without reading any game state.
+- **Stall detection** — Concluding that commanded forward movement produced no progress because
+  consecutive captured frames stayed visually unchanged for a configured number of samples.
+- **Pathing cost penalty** — The bounded multiplicative surcharge that recorded stalls add to a
+  cell and to the edge that reached it, so problematic terrain is avoided but never made
+  unreachable.
+- **Safe waypoint** — The last stall-free cell behind the bot's current one; the retreat target
+  from which an alternative bypass route is planned after a stuck situation.
+- **Patrol circuit** — A recurring route derived from the densest reachable spawn clusters that
+  returns to its starting cell, re-derived whenever spawn densities or path costs change.

@@ -27,6 +27,8 @@ from flyff_bot.features.automation.loot_execution import LootInputDispatcher
 from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
+from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
+from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
 from flyff_bot.features.vision.minimap_radar import MinimapRadar
 from flyff_bot.features.vision.models import CapturedFrame
@@ -49,7 +51,7 @@ class FarmingMode(StrEnum):
     EMERGENCY_STOPPED = "emergency_stopped"
 
 
-class FarmingInputAdapter(CombatInputAdapter, SearchInputAdapter, Protocol):
+class FarmingInputAdapter(CombatInputAdapter, SearchInputAdapter, PathingInputAdapter, Protocol):
     """The guarded platform operations needed by a farming session."""
 
 
@@ -107,6 +109,7 @@ class FarmingOrchestrator:
         supervisor: Supervisor | None = None,
         config: FarmingConfig | None = None,
         dashboard_feed: DashboardFeed | None = None,
+        pathing: PathingController | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._input_adapter = input_adapter
@@ -120,6 +123,8 @@ class FarmingOrchestrator:
         self._combat_dispatcher = CombatInputDispatcher(input_adapter, window_handle)
         self._loot_dispatcher = LootInputDispatcher(input_adapter, window_handle)
         self._search_dispatcher = SearchInputDispatcher(input_adapter, window_handle)
+        self._pathing = pathing
+        self._pathing_dispatcher = PathingInputDispatcher(input_adapter, window_handle)
         self._dashboard_feed = dashboard_feed
         self._mode = FarmingMode.PAUSED
         self._state = _initial_world_state()
@@ -143,11 +148,13 @@ class FarmingOrchestrator:
 
         if self._mode is not FarmingMode.EMERGENCY_STOPPED:
             self._mode = FarmingMode.PAUSED
+        self._persist_navigation()
 
     def emergency_stop(self) -> None:
         """Latch a session-local emergency stop until a new session is created."""
 
         self._mode = FarmingMode.EMERGENCY_STOPPED
+        self._persist_navigation()
 
     def configure_attack_key(self, virtual_key: int) -> None:
         """Apply one dashboard-selected attack key before a paused session starts."""
@@ -173,8 +180,12 @@ class FarmingOrchestrator:
         perception = self._pipeline.tick(self._window_handle, self._state)
         self._state = perception.state
         self._last_frame = perception.frame
+        if self._pathing is not None:
+            self._pathing.observe(self._state, self._last_frame)
+            self._state = replace(self._state, is_stuck=self._pathing.is_stalled)
         if self._goal_completed():
             self._mode = FarmingMode.COMPLETED
+            self._persist_navigation()
             return self._publish(False)
 
         dispatched = self._advance(perception)
@@ -203,6 +214,8 @@ class FarmingOrchestrator:
                 self._search.reset()
                 self._mode = FarmingMode.TARGETING
                 return self._combat_dispatcher.dispatch(combat)
+            if self._advance_pathing():
+                return True
             radar_position = self._radar.nearest_dot(self._last_frame)
             return self._search_dispatcher.dispatch(
                 self._search.step(self._state.observed_at_seconds, radar_position)
@@ -235,6 +248,22 @@ class FarmingOrchestrator:
             return False
 
         return False
+
+    def _advance_pathing(self) -> bool:
+        """Steer one learned-route step, or defer to the staged search stages."""
+
+        if self._pathing is None:
+            return False
+        decision = self._pathing.step(self._state.observed_at_seconds)
+        if not self._pathing_dispatcher.dispatch(decision):
+            return False
+        self._pathing.confirm(decision)
+        self._search.reset()
+        return True
+
+    def _persist_navigation(self) -> None:
+        if self._pathing is not None:
+            self._pathing.persist()
 
     def _advance_loot(self) -> bool:
         decision: LootDecision = self._loot.step(self._state, self._loot_combat)

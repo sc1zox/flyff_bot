@@ -43,6 +43,7 @@
   "help.search_idle_timeout": "Idle time before staged search begins in seconds (default: {default})",
   "help.search_rotation_duration": "Camera rotation pulse duration in seconds (default: {default})",
   "help.search_movement_duration": "Exploration movement pulse duration in seconds (default: {default})",
+  "help.navigation_map": "Path to the learned navigation map and spawn heatmap (default: {default})",
   "help.goal_item": "Item name required to complete the farm goal",
   "help.goal_count": "Item quantity required to complete the farm goal",
   "help.target_anchor": "Target-header anchor image path",

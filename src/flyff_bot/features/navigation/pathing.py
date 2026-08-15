@@ -1,0 +1,247 @@
+"""Reactive pathing controller over the learned spawn heatmap and navigation graph."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import StrEnum
+from pathlib import Path
+
+from flyff_bot.features.automation.controllers import (
+    VIRTUAL_KEY_LEFT,
+    VIRTUAL_KEY_RIGHT,
+    VIRTUAL_KEY_W,
+)
+from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.navigation.persistence import save_spatial_map
+from flyff_bot.features.navigation.planning import Route, RouteConfig, RoutePlanner
+from flyff_bot.features.navigation.spatial import GridCell, SpatialMap, WorldPoint
+from flyff_bot.features.navigation.tracking import (
+    MovementModel,
+    MovementTracker,
+    StallConfig,
+    StallDetector,
+    bearing_degrees,
+    distance_units,
+    heading_error_degrees,
+)
+from flyff_bot.features.vision.models import CapturedFrame
+
+DEFAULT_PATHING_STEP_DURATION_SECONDS = 0.6
+DEFAULT_PATHING_TURN_DURATION_SECONDS = 0.15
+DEFAULT_HEADING_TOLERANCE_DEGREES = 25.0
+DEFAULT_REPLAN_INTERVAL_SECONDS = 20.0
+ARRIVAL_RADIUS_CELL_FRACTION = 0.5
+
+
+class PathingMode(StrEnum):
+    """The observable phases of learned-route navigation."""
+
+    IDLE = "idle"
+    TRAVELING = "traveling"
+    RETREATING = "retreating"
+    BLOCKED = "blocked"
+
+
+@dataclass(frozen=True, slots=True)
+class PathingDecision:
+    """One interruptible movement request, if the current phase wants to move."""
+
+    mode: PathingMode
+    virtual_key: int | None = None
+    key_press_duration_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PathingConfig:
+    """Timing, steering tolerance, and sub-model settings for learned pathing."""
+
+    step_duration_seconds: float = DEFAULT_PATHING_STEP_DURATION_SECONDS
+    turn_duration_seconds: float = DEFAULT_PATHING_TURN_DURATION_SECONDS
+    heading_tolerance_degrees: float = DEFAULT_HEADING_TOLERANCE_DEGREES
+    replan_interval_seconds: float = DEFAULT_REPLAN_INTERVAL_SECONDS
+    movement: MovementModel = field(default_factory=MovementModel)
+    stall: StallConfig = field(default_factory=StallConfig)
+    route: RouteConfig = field(default_factory=RouteConfig)
+
+    def __post_init__(self) -> None:
+        if self.step_duration_seconds <= 0.0 or self.turn_duration_seconds <= 0.0:
+            raise ValueError("Pathing step durations must be positive.")
+        if not 0.0 < self.heading_tolerance_degrees < 180.0:
+            raise ValueError("Pathing heading tolerance must be between 0 and 180 degrees.")
+        if self.replan_interval_seconds <= 0.0:
+            raise ValueError("Pathing replan interval must be positive.")
+
+
+class PathingController:
+    """Learn spawn density and traversals, then steer along the best learned route."""
+
+    def __init__(
+        self,
+        spatial_map: SpatialMap | None = None,
+        *,
+        config: PathingConfig | None = None,
+        map_path: Path | None = None,
+    ) -> None:
+        self._config = config or PathingConfig()
+        self._map = spatial_map or SpatialMap()
+        self._planner = RoutePlanner(self._map, self._config.route)
+        self._tracker = MovementTracker(self._config.movement)
+        self._stalls = StallDetector(self._config.stall)
+        self._map_path = map_path
+        self._mode = PathingMode.IDLE
+        self._waypoints: tuple[GridCell, ...] = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds: float | None = None
+        self._safe_waypoint: WorldPoint | None = None
+        self._safe_cell: GridCell | None = None
+        self._avoided: frozenset[GridCell] = frozenset()
+        self._movement_commanded = False
+
+    @property
+    def mode(self) -> PathingMode:
+        """Return the current pathing phase."""
+
+        return self._mode
+
+    @property
+    def spatial_map(self) -> SpatialMap:
+        """Return the learned map so a session can inspect or persist it."""
+
+        return self._map
+
+    @property
+    def position(self) -> WorldPoint:
+        """Return the current dead-reckoned position estimate."""
+
+        return self._tracker.position
+
+    @property
+    def is_stalled(self) -> bool:
+        """Return whether commanded movement stopped producing visible progress."""
+
+        return self._stalls.is_stalled
+
+    @property
+    def safe_waypoint(self) -> WorldPoint | None:
+        """Return the last verified stall-free waypoint behind the current cell."""
+
+        return self._safe_waypoint
+
+    @property
+    def waypoints(self) -> tuple[GridCell, ...]:
+        """Return the cells of the current route that are still to be reached."""
+
+        return self._waypoints[self._waypoint_index :]
+
+    def observe(self, state: WorldState, frame: CapturedFrame | None = None) -> None:
+        """Record visit history, spawn sightings, and stall evidence for one tick."""
+
+        at_seconds = state.observed_at_seconds
+        position = self._tracker.position
+        cell = self._map.record_visit(position, at_seconds)
+        for _mob in state.visible_mobs:
+            self._map.record_spawn(position, at_seconds)
+        stalled = self._stalls.observe(frame, movement_commanded=self._movement_commanded)
+        if stalled and self._mode not in {PathingMode.RETREATING, PathingMode.BLOCKED}:
+            self._register_stall(position, at_seconds)
+        elif not stalled and self._map.stall_count(cell) == 0:
+            self._remember_safe_waypoint(cell, position)
+        self._movement_commanded = False
+
+    def step(self, at_seconds: float) -> PathingDecision:
+        """Return the next interruptible movement request without dispatching input."""
+
+        if self._mode is PathingMode.RETREATING:
+            return self._retreat(at_seconds)
+        if self._needs_route(at_seconds):
+            self._plan(at_seconds)
+        if not self._waypoints:
+            self._mode = PathingMode.IDLE
+            return PathingDecision(PathingMode.IDLE)
+        return self._follow_route(at_seconds)
+
+    def confirm(self, decision: PathingDecision) -> None:
+        """Fold one successfully dispatched pathing input into the position estimate."""
+
+        if decision.virtual_key is None or decision.key_press_duration_seconds is None:
+            return
+        self._tracker.apply(decision.virtual_key, decision.key_press_duration_seconds)
+        self._movement_commanded = decision.virtual_key == VIRTUAL_KEY_W
+
+    def persist(self) -> None:
+        """Write the learned map to its configured location, if one was provided."""
+
+        if self._map_path is not None:
+            save_spatial_map(self._map, self._map_path)
+
+    def _remember_safe_waypoint(self, cell: GridCell, position: WorldPoint) -> None:
+        """Keep the cell behind the current one as the verified retreat target."""
+
+        if cell == self._safe_cell:
+            return
+        self._safe_waypoint = (
+            position if self._safe_cell is None else self._map.center_of(self._safe_cell)
+        )
+        self._safe_cell = cell
+
+    def _register_stall(self, position: WorldPoint, at_seconds: float) -> None:
+        cell = self._map.record_stall(position, at_seconds)
+        self._avoided = self._avoided | {cell}
+        self._waypoints = ()
+        self._waypoint_index = 0
+        self._mode = PathingMode.RETREATING
+
+    def _retreat(self, at_seconds: float) -> PathingDecision:
+        target = self._safe_waypoint
+        if target is None:
+            self._mode = PathingMode.BLOCKED
+            return PathingDecision(PathingMode.BLOCKED)
+        if distance_units(self._tracker.position, target) <= self._arrival_radius:
+            self._stalls.reset()
+            self._plan(at_seconds)
+            if not self._waypoints:
+                self._mode = PathingMode.IDLE
+                return PathingDecision(PathingMode.IDLE)
+            return self._follow_route(at_seconds)
+        return self._steer(PathingMode.RETREATING, target)
+
+    def _follow_route(self, at_seconds: float) -> PathingDecision:
+        while self._waypoint_index < len(self._waypoints):
+            target = self._map.center_of(self._waypoints[self._waypoint_index])
+            if distance_units(self._tracker.position, target) > self._arrival_radius:
+                return self._steer(PathingMode.TRAVELING, target)
+            self._waypoint_index += 1
+        self._waypoints = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds = None
+        self._mode = PathingMode.IDLE
+        return PathingDecision(PathingMode.IDLE)
+
+    def _steer(self, mode: PathingMode, target: WorldPoint) -> PathingDecision:
+        self._mode = mode
+        error = heading_error_degrees(
+            self._tracker.heading_degrees, bearing_degrees(self._tracker.position, target)
+        )
+        if abs(error) > self._config.heading_tolerance_degrees:
+            rotation_key = VIRTUAL_KEY_RIGHT if error > 0.0 else VIRTUAL_KEY_LEFT
+            return PathingDecision(mode, rotation_key, self._config.turn_duration_seconds)
+        return PathingDecision(mode, VIRTUAL_KEY_W, self._config.step_duration_seconds)
+
+    def _needs_route(self, at_seconds: float) -> bool:
+        if not self._waypoints or self._planned_at_seconds is None:
+            return True
+        return at_seconds - self._planned_at_seconds >= self._config.replan_interval_seconds
+
+    def _plan(self, at_seconds: float) -> None:
+        start = self._map.cell_of(self._tracker.position)
+        route: Route = self._planner.circuit(start, at_seconds, avoided=self._avoided)
+        if route.is_empty:
+            route = self._planner.best_spawn_route(start, at_seconds, avoided=self._avoided)
+        self._waypoints = route.waypoints
+        self._waypoint_index = 0
+        self._planned_at_seconds = at_seconds
+        self._mode = PathingMode.TRAVELING if self._waypoints else PathingMode.IDLE
+
+    @property
+    def _arrival_radius(self) -> float:
+        return self._map.config.cell_size_units * ARRIVAL_RADIUS_CELL_FRACTION

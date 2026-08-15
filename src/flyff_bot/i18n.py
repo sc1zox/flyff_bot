@@ -62,6 +62,7 @@ class Message(StrEnum):
     HELP_SEARCH_IDLE_TIMEOUT = "help.search_idle_timeout"
     HELP_SEARCH_ROTATION_DURATION = "help.search_rotation_duration"
     HELP_SEARCH_MOVEMENT_DURATION = "help.search_movement_duration"
+    HELP_NAVIGATION_MAP = "help.navigation_map"
     HELP_GOAL_ITEM = "help.goal_item"
     HELP_GOAL_COUNT = "help.goal_count"
     HELP_TARGET_ANCHOR = "help.target_anchor"
