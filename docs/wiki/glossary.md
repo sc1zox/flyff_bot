@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-15
+updated: 2026-08-16
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -91,3 +91,9 @@ related:
 - **Attack key** — One supported virtual key (`A`–`Z`, `0`–`9`, Space, or `F1`–`F12`) that the
   dashboard captures as a single physical key press and supplies to the paused farming session's
   combat binding; its dashboard default is `F3`.
+- **Staged search** — The no-mob recovery sequence used by the farming orchestrator: a configurable
+  idle interval followed by alternating camera rotations, bounded directional roaming pulses, and
+  an optional minimap-radar click; it resets immediately when a visible eligible mob is detected.
+- **Minimap radar** — A perception-only scan of the normalized top-right client region that selects
+  the nearest sufficiently large red connected component and returns its client-relative centre as
+  an optional staged-search navigation target.

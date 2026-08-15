@@ -19,11 +19,16 @@ from flyff_bot.features.automation.controllers import (
     LootController,
     LootDecision,
     LootMode,
+    SearchConfig,
+    SearchController,
+    SearchMode,
 )
 from flyff_bot.features.automation.loot_execution import LootInputDispatcher
 from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
+from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
+from flyff_bot.features.vision.minimap_radar import MinimapRadar
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.ui.dashboard import BotStatus, DashboardFeed, DashboardUpdate, FarmingGoal
 
@@ -44,7 +49,7 @@ class FarmingMode(StrEnum):
     EMERGENCY_STOPPED = "emergency_stopped"
 
 
-class FarmingInputAdapter(CombatInputAdapter, Protocol):
+class FarmingInputAdapter(CombatInputAdapter, SearchInputAdapter, Protocol):
     """The guarded platform operations needed by a farming session."""
 
 
@@ -58,6 +63,7 @@ class FarmingConfig:
     goal: FarmingGoal | None = None
     tick_interval_seconds: float = DEFAULT_TICK_INTERVAL_SECONDS
     search_retry_seconds: float = DEFAULT_SEARCH_RETRY_SECONDS
+    search: SearchConfig = field(default_factory=SearchConfig)
 
     def __post_init__(self) -> None:
         if self.tick_interval_seconds <= 0.0:
@@ -109,13 +115,15 @@ class FarmingOrchestrator:
         self._config = config or FarmingConfig()
         self._combat = CombatController(self._config.combat)
         self._loot = LootController(self._config.loot)
+        self._search = SearchController(self._config.search)
+        self._radar = MinimapRadar()
         self._combat_dispatcher = CombatInputDispatcher(input_adapter, window_handle)
         self._loot_dispatcher = LootInputDispatcher(input_adapter, window_handle)
+        self._search_dispatcher = SearchInputDispatcher(input_adapter, window_handle)
         self._dashboard_feed = dashboard_feed
         self._mode = FarmingMode.PAUSED
         self._state = _initial_world_state()
         self._last_frame: CapturedFrame | None = None
-        self._search_retry_at_seconds = 0.0
         self._loot_combat = CombatDecision(CombatMode.FIGHTING)
 
     @property
@@ -190,20 +198,20 @@ class FarmingOrchestrator:
 
     def _advance(self, perception: PerceptionTick) -> bool:
         if self._mode is FarmingMode.SEARCHING:
-            if self._state.observed_at_seconds < self._search_retry_at_seconds:
-                return False
             combat = self._combat.step(self._state)
-            if combat.mode is CombatMode.IDLE:
-                self._search_retry_at_seconds = (
-                    self._state.observed_at_seconds + self._config.search_retry_seconds
-                )
-                return False
-            self._mode = FarmingMode.TARGETING
-            return self._combat_dispatcher.dispatch(combat)
+            if combat.mode is not CombatMode.IDLE:
+                self._search.reset()
+                self._mode = FarmingMode.TARGETING
+                return self._combat_dispatcher.dispatch(combat)
+            radar_position = self._radar.nearest_dot(self._last_frame)
+            return self._search_dispatcher.dispatch(
+                self._search.step(self._state.observed_at_seconds, radar_position)
+            )
 
         if self._mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:
             combat = self._combat.step(self._state)
             if combat.mode is CombatMode.IDLE:
+                self._search.reset()
                 self._mode = FarmingMode.SEARCHING
                 return False
             if combat.mode is CombatMode.TARGET_DEAD:
@@ -254,7 +262,10 @@ class FarmingOrchestrator:
             self._dashboard_feed.publish(
                 DashboardUpdate(
                     self._state,
-                    _dashboard_status(self._mode),
+                    _dashboard_status(
+                        self._mode,
+                        self._search.mode if self._mode is FarmingMode.SEARCHING else None,
+                    ),
                     self._config.goal,
                     frame=self._last_frame,
                 )
@@ -262,13 +273,19 @@ class FarmingOrchestrator:
         return tick
 
 
-def _dashboard_status(mode: FarmingMode) -> BotStatus:
+def _dashboard_status(mode: FarmingMode, search_mode: SearchMode | None = None) -> BotStatus:
     if mode is FarmingMode.RECONCILING:
         return BotStatus.RECONCILING
     if mode is FarmingMode.EMERGENCY_STOPPED:
         return BotStatus.EMERGENCY_STOPPED
     if mode in {FarmingMode.PAUSED, FarmingMode.COMPLETED}:
         return BotStatus.PAUSED
+    if mode is FarmingMode.SEARCHING:
+        return {
+            SearchMode.ROTATE: BotStatus.SEARCH_ROTATING,
+            SearchMode.ROAM_STEP: BotStatus.SEARCH_ROAMING,
+            SearchMode.MINIMAP_RADAR: BotStatus.SEARCH_MINIMAP,
+        }[search_mode or SearchMode.ROTATE]
     return BotStatus.ACTIVE
 
 

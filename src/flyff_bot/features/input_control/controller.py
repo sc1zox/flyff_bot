@@ -208,6 +208,31 @@ class WindowsInputController:
             if self._user32.SendInput(1, ctypes.byref(key_up), ctypes.sizeof(Input)) != 1:
                 raise ctypes.WinError(ctypes.get_last_error())
 
+    def send_key_while_guarded(
+        self, window_handle: int, virtual_key: int, duration_seconds: float
+    ) -> None:
+        """Hold a search key only while END is clear and the client stays foregrounded."""
+
+        key_down = Input(type=INPUT_TYPE_KEYBOARD, keyboard=KeyboardInput(wVk=virtual_key))
+        key_up = Input(
+            type=INPUT_TYPE_KEYBOARD,
+            keyboard=KeyboardInput(wVk=virtual_key, dwFlags=KEY_EVENT_KEY_UP),
+        )
+        if self._user32.SendInput(1, ctypes.byref(key_down), ctypes.sizeof(Input)) != 1:
+            raise ctypes.WinError(ctypes.get_last_error())
+        deadline = time.monotonic() + duration_seconds
+        try:
+            while (
+                time.monotonic() < deadline
+                and not self.is_aborted()
+                and self.is_foreground(window_handle)
+            ):
+                remaining = deadline - time.monotonic()
+                time.sleep(min(WAIT_POLL_SECONDS, max(0.0, remaining)))
+        finally:
+            if self._user32.SendInput(1, ctypes.byref(key_up), ctypes.sizeof(Input)) != 1:
+                raise ctypes.WinError(ctypes.get_last_error())
+
     def click_client(self, window_handle: int, x_coordinate: int, y_coordinate: int) -> None:
         """Send one left click at client-relative coordinates."""
 

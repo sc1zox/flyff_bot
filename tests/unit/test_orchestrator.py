@@ -57,6 +57,11 @@ class _InputAdapter:
     def send_key(self, virtual_key: int, duration_seconds: float) -> None:
         self.keys.append((virtual_key, duration_seconds))
 
+    def send_key_while_guarded(
+        self, _window_handle: int, virtual_key: int, duration_seconds: float
+    ) -> None:
+        self.keys.append((virtual_key, duration_seconds))
+
 
 def _state(
     time: float,
@@ -135,6 +140,21 @@ def test_search_waits_for_the_configured_retry_interval_without_input() -> None:
     assert not orchestrator.tick().dispatched
     assert adapter.keys == []
     assert adapter.clicks == []
+
+
+def test_search_interrupts_navigation_immediately_when_a_mob_appears() -> None:
+    adapter = _InputAdapter()
+    orchestrator = _orchestrator(
+        [_state(1.0), _state(6.0, mobs=(MOB,))],
+        adapter,
+    )
+    orchestrator.start()
+
+    assert orchestrator.tick().mode is FarmingMode.SEARCHING
+    result = orchestrator.tick()
+
+    assert result.mode is FarmingMode.TARGETING
+    assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
 
 
 def test_configured_attack_key_is_dispatched_for_target_engagement() -> None:

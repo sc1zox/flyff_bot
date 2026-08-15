@@ -287,6 +287,9 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.PAUSED: Message.UI_STATUS_PAUSED,
         BotStatus.EMERGENCY_STOPPED: Message.UI_STATUS_EMERGENCY_STOPPED,
         BotStatus.RECONCILING: Message.UI_STATUS_RECONCILING,
+        BotStatus.SEARCH_ROTATING: Message.UI_STATUS_SEARCH_ROTATING,
+        BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
+        BotStatus.SEARCH_MINIMAP: Message.UI_STATUS_SEARCH_MINIMAP,
     }[status]
 
 

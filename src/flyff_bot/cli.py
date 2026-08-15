@@ -25,7 +25,12 @@ from flyff_bot.constants import (
     MINIMUM_KEY_DURATION_SECONDS,
     ExitCode,
 )
-from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding, LootConfig
+from flyff_bot.features.automation.controllers import (
+    CombatConfig,
+    KeyBinding,
+    LootConfig,
+    SearchConfig,
+)
 from flyff_bot.features.automation.models import DesiredState
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
 from flyff_bot.features.input_control import (
@@ -198,6 +203,24 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         type=float,
         default=0.5,
         help=translator.text(Message.HELP_SEARCH_RETRY, default=0.5),
+    )
+    parser.add_argument(
+        "--search-idle-timeout",
+        type=float,
+        default=5.0,
+        help=translator.text(Message.HELP_SEARCH_IDLE_TIMEOUT, default=5.0),
+    )
+    parser.add_argument(
+        "--search-rotation-duration",
+        type=float,
+        default=0.4,
+        help=translator.text(Message.HELP_SEARCH_ROTATION_DURATION, default=0.4),
+    )
+    parser.add_argument(
+        "--search-movement-duration",
+        type=float,
+        default=1.0,
+        help=translator.text(Message.HELP_SEARCH_MOVEMENT_DURATION, default=1.0),
     )
     parser.add_argument("--goal-item", help=translator.text(Message.HELP_GOAL_ITEM))
     parser.add_argument("--goal-count", type=int, help=translator.text(Message.HELP_GOAL_COUNT))
@@ -455,6 +478,11 @@ def _farming_orchestrator(
             desired_state=DesiredState(),
             goal=goal,
             search_retry_seconds=args.search_retry,
+            search=SearchConfig(
+                idle_timeout_seconds=args.search_idle_timeout,
+                rotation_step_duration_seconds=args.search_rotation_duration,
+                movement_step_duration_seconds=args.search_movement_duration,
+            ),
         ),
     )
 

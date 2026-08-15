@@ -26,7 +26,15 @@ VIRTUAL_KEY_F12 = 0x7B
 DEFAULT_KEY_PRESS_DURATION_SECONDS = 0.05
 DEFAULT_ATTACK_COOLDOWN_SECONDS = 0.5
 VIRTUAL_KEY_F = 0x46
+VIRTUAL_KEY_A = 0x41
+VIRTUAL_KEY_D = 0x44
+VIRTUAL_KEY_W = 0x57
 DEFAULT_LOOT_PICKUP_WAIT_SECONDS = 2.0
+DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS = 5.0
+DEFAULT_SEARCH_ROTATION_DURATION_SECONDS = 0.4
+DEFAULT_SEARCH_MOVEMENT_DURATION_SECONDS = 1.0
+DEFAULT_SEARCH_ROTATION_STEPS = 8
+DEFAULT_SEARCH_ROAM_STEPS = 4
 
 
 class ControllerMode(StrEnum):
@@ -69,6 +77,53 @@ class LootMode(StrEnum):
     PICKING_UP = "picking_up"
     WAITING = "waiting"
     TIMED_OUT = "timed_out"
+
+
+class SearchMode(StrEnum):
+    """The ordered recovery stages used while no eligible mob is visible."""
+
+    ROTATE = "rotate"
+    ROAM_STEP = "roam_step"
+    MINIMAP_RADAR = "minimap_radar"
+
+
+class SearchInputKind(StrEnum):
+    """Safe search requests supported by the platform dispatcher."""
+
+    KEY = "key"
+    CLICK = "click"
+
+
+@dataclass(frozen=True, slots=True)
+class SearchConfig:
+    """Explicit timing and bounded stage sizes for spawn searching."""
+
+    idle_timeout_seconds: float = DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS
+    rotation_step_duration_seconds: float = DEFAULT_SEARCH_ROTATION_DURATION_SECONDS
+    movement_step_duration_seconds: float = DEFAULT_SEARCH_MOVEMENT_DURATION_SECONDS
+    rotation_steps: int = DEFAULT_SEARCH_ROTATION_STEPS
+    roam_steps: int = DEFAULT_SEARCH_ROAM_STEPS
+
+    def __post_init__(self) -> None:
+        if self.idle_timeout_seconds < 0.0:
+            raise ValueError("Search idle timeout must not be negative.")
+        if self.rotation_step_duration_seconds <= 0.0:
+            raise ValueError("Search rotation step duration must be positive.")
+        if self.movement_step_duration_seconds <= 0.0:
+            raise ValueError("Search movement step duration must be positive.")
+        if self.rotation_steps <= 0 or self.roam_steps <= 0:
+            raise ValueError("Search stage step counts must be positive.")
+
+
+@dataclass(frozen=True, slots=True)
+class SearchDecision:
+    """One interruptible staged-search action, if a stage is ready to act."""
+
+    mode: SearchMode
+    input_kind: SearchInputKind | None = None
+    virtual_key: int | None = None
+    key_press_duration_seconds: float | None = None
+    position: Position | None = None
 
 
 def _is_supported_combat_virtual_key(virtual_key: int) -> bool:
@@ -266,6 +321,87 @@ class NavigationController:
         if state.is_stuck:
             return ControllerDecision(ControllerMode.RECOVERING, ActionKind.RECOVER)
         return ControllerDecision(ControllerMode.ACTIVE, ActionKind.MOVE)
+
+
+class SearchController:
+    """Emit timed rotation, roaming, then minimap actions until a target is found."""
+
+    def __init__(self, config: SearchConfig | None = None) -> None:
+        self._config = config or SearchConfig()
+        self._mode = SearchMode.ROTATE
+        self._started_at_seconds: float | None = None
+        self._next_action_at_seconds = 0.0
+        self._rotation_index = 0
+        self._roam_index = 0
+
+    @property
+    def mode(self) -> SearchMode:
+        """Return the currently active recovery stage."""
+
+        return self._mode
+
+    def reset(self) -> None:
+        """Start the next no-mob interval with a fresh idle timeout."""
+
+        self._mode = SearchMode.ROTATE
+        self._started_at_seconds = None
+        self._next_action_at_seconds = 0.0
+        self._rotation_index = 0
+        self._roam_index = 0
+
+    def step(
+        self, observed_at_seconds: float, radar_position: Position | None = None
+    ) -> SearchDecision:
+        """Advance one non-blocking search tick using the latest perception timestamp."""
+
+        if self._started_at_seconds is None:
+            self._started_at_seconds = observed_at_seconds
+            self._next_action_at_seconds = observed_at_seconds + self._config.idle_timeout_seconds
+        if observed_at_seconds < self._next_action_at_seconds:
+            return SearchDecision(self._mode)
+
+        if self._mode is SearchMode.ROTATE:
+            if self._rotation_index >= self._config.rotation_steps:
+                self._mode = SearchMode.ROAM_STEP
+                return self.step(observed_at_seconds, radar_position)
+            virtual_key = (VIRTUAL_KEY_A, VIRTUAL_KEY_D)[self._rotation_index % 2]
+            self._rotation_index += 1
+            self._next_action_at_seconds = (
+                observed_at_seconds + self._config.rotation_step_duration_seconds
+            )
+            return SearchDecision(
+                SearchMode.ROTATE,
+                SearchInputKind.KEY,
+                virtual_key,
+                self._config.rotation_step_duration_seconds,
+            )
+
+        if self._mode is SearchMode.ROAM_STEP:
+            if self._roam_index >= self._config.roam_steps:
+                self._mode = SearchMode.MINIMAP_RADAR
+                return self.step(observed_at_seconds, radar_position)
+            virtual_key = (VIRTUAL_KEY_W, VIRTUAL_KEY_D, VIRTUAL_KEY_W, VIRTUAL_KEY_A)[
+                self._roam_index % 4
+            ]
+            self._roam_index += 1
+            self._next_action_at_seconds = (
+                observed_at_seconds + self._config.movement_step_duration_seconds
+            )
+            return SearchDecision(
+                SearchMode.ROAM_STEP,
+                SearchInputKind.KEY,
+                virtual_key,
+                self._config.movement_step_duration_seconds,
+            )
+
+        if radar_position is None:
+            return SearchDecision(SearchMode.MINIMAP_RADAR)
+        self._next_action_at_seconds = (
+            observed_at_seconds + self._config.movement_step_duration_seconds
+        )
+        return SearchDecision(
+            SearchMode.MINIMAP_RADAR, SearchInputKind.CLICK, position=radar_position
+        )
 
 
 class LootController:

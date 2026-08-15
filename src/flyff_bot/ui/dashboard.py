@@ -18,6 +18,9 @@ class BotStatus(StrEnum):
     PAUSED = "paused"
     EMERGENCY_STOPPED = "emergency_stopped"
     RECONCILING = "reconciling"
+    SEARCH_ROTATING = "search_rotating"
+    SEARCH_ROAMING = "search_roaming"
+    SEARCH_MINIMAP = "search_minimap"
 
 
 @dataclass(frozen=True, slots=True)

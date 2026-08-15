@@ -87,3 +87,9 @@ control/update boundary; moved US-013 to the completed stories directory.
 
 Recorded the dashboard's default-F3 physical-key capture, supported combat-key ranges, and
 paused-session orchestrator configuration path; moved US-014 to the completed stories directory.
+
+## [2026-08-16] synthesis | Idle timeout and staged search navigation (US-015)
+
+Recorded the staged no-mob recovery controller, localized timing and dashboard configuration,
+minimap red-dot selection, and foreground/END-guarded navigation boundary; moved US-015 to the
+completed stories directory.

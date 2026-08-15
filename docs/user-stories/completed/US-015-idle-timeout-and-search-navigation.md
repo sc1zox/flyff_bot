@@ -1,9 +1,9 @@
 ---
 id: US-015
 title: Idle timeout detection and staged search navigation
-status: draft
+status: completed
 created: 2026-08-15
-updated: 2026-08-15
+updated: 2026-08-16
 ---
 
 # US-015: Idle timeout detection and staged search navigation
@@ -24,16 +24,16 @@ As a player using autonomous farming, I want the bot to detect prolonged idle st
 
 ## Acceptance criteria
 
-- [ ] `SearchController` / `NavigationController` implements a staged search state machine: `ROTATE` -> `ROAM_STEP` -> `MINIMAP_RADAR` (stretch).
-- [ ] Configurable search parameters: idle timeout before search (e.g. 5.0s default), rotation step duration (e.g. 0.4s), and movement step duration (e.g. 1.0s).
-- [ ] Tier 1 (Rotation): When no mob is visible in `SEARCHING` mode, dispatches camera turn inputs to sweep the horizontal field of view.
-- [ ] Tier 2 (Directional movement): If camera sweep finds no target, dispatches short directional movement pulses to discover new spawn clusters.
-- [ ] Tier 3 (Minimap radar scanning - Stretch): Scans the top-right minimap region for red mob indicators and dispatches guarded navigation clicks if dots are detected outside viewport range.
-- [ ] Interruptibility: Every perception frame is evaluated during search ticks; if `state.visible_mobs` contains a valid target, all search input is stopped and control transitions immediately to `TARGETING`.
-- [ ] Dashboard displays search state in the UI status area (e.g. "Suchen: Kamera drehen" / "Suchen: Bewegung").
-- [ ] Emergency stop (`END`) and window blur immediately abort all navigation/search key presses.
-- [ ] All user-visible logs, CLI options, and dashboard statuses are synchronized in German and English.
-- [ ] Automated unit tests in `tests/unit/` verify search state transitions, timeout progression, instant mob interruption, and safety aborts.
+- [x] `SearchController` / `NavigationController` implements a staged search state machine: `ROTATE` -> `ROAM_STEP` -> `MINIMAP_RADAR` (stretch).
+- [x] Configurable search parameters: idle timeout before search (e.g. 5.0s default), rotation step duration (e.g. 0.4s), and movement step duration (e.g. 1.0s).
+- [x] Tier 1 (Rotation): When no mob is visible in `SEARCHING` mode, dispatches camera turn inputs to sweep the horizontal field of view.
+- [x] Tier 2 (Directional movement): If camera sweep finds no target, dispatches short directional movement pulses to discover new spawn clusters.
+- [x] Tier 3 (Minimap radar scanning - Stretch): Scans the top-right minimap region for red mob indicators and dispatches guarded navigation clicks if dots are detected outside viewport range.
+- [x] Interruptibility: Every perception frame is evaluated during search ticks; if `state.visible_mobs` contains a valid target, all search input is stopped and control transitions immediately to `TARGETING`.
+- [x] Dashboard displays search state in the UI status area (e.g. "Suchen: Kamera drehen" / "Suchen: Bewegung").
+- [x] Emergency stop (`END`) and window blur immediately abort all navigation/search key presses.
+- [x] All user-visible logs, CLI options, and dashboard statuses are synchronized in German and English.
+- [x] Automated unit tests in `tests/unit/` verify search state transitions, timeout progression, instant mob interruption, and safety aborts.
 
 ## Out of scope
 
