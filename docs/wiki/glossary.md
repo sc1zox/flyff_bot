@@ -30,3 +30,8 @@ related:
   into an abstract action request.
 - **Verified executor** — The execution boundary that accepts an action only after a matching,
   confirmed post-dispatch observation.
+- **Frame source** — A typed provider that captures a client-area image for a target window handle;
+  the Windows implementation validates foreground visibility and exposes an injectable seam for
+  deterministic tests.
+- **Captured frame** — A contiguous three-channel `uint8` image array paired with its exact client
+  dimensions and BGR or RGB pixel order.

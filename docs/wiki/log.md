@@ -18,3 +18,8 @@ page, created ADR-002, and filed user story US-006 for the target architecture b
 
 Recorded the completed US-006 implementation in the architecture and glossary pages, grounded in
 the target architecture proposal and ADR-002.
+
+## [2026-08-15] synthesis | Vision frame capture (US-002)
+
+Recorded the completed US-002 foreground client-area capture boundary, injectable frame-source
+contract, typed capture errors, and client-coordinate mapping in the architecture and glossary.

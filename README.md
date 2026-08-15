@@ -34,9 +34,6 @@ Press `END` to abort a waiting or running action. If the client runs elevated, t
 usually run elevated as well because Windows blocks lower-integrity processes from sending input to
 higher-integrity processes.
 
-The old entry point remains as `uv run python .\flyff_input.py ...` (or
-`python .\flyff_input.py ...` inside the activated `.venv`).
-
 ## Repository map
 
 ```text

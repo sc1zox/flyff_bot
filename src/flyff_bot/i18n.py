@@ -37,6 +37,10 @@ class Message(StrEnum):
     INPUT_SENT = "status.input_sent"
     UI_TITLE = "ui.title"
     UI_WORLD_STATUS = "ui.world_status"
+    FRAME_INVALID_WINDOW = "error.frame_invalid_window"
+    FRAME_MINIMIZED = "error.frame_minimized"
+    FRAME_OCCLUDED = "error.frame_occluded"
+    FRAME_CAPTURE_FAILED = "error.frame_capture_failed"
 
 
 class Translator:

@@ -17,5 +17,9 @@
   "status.aborted": "Aborted.",
   "status.input_sent": "Input sent.",
   "ui.title": "Flyff Bot",
-  "ui.world_status": "Visible mobs: {mob_count}"
+  "ui.world_status": "Visible mobs: {mob_count}",
+  "error.frame_invalid_window": "The Flyff window is no longer valid.",
+  "error.frame_minimized": "The Flyff window is minimized and cannot be captured.",
+  "error.frame_occluded": "The Flyff window must be in the foreground before capture.",
+  "error.frame_capture_failed": "The Flyff window could not be captured."
 }

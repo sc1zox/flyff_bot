@@ -10,6 +10,7 @@ related:
   - glossary.md
   - ../decisions/ADR-001-cli-before-http-server.md
   - ../decisions/ADR-002-target-architecture-and-pyside6.md
+  - ../user-stories/US-002-vision-frame-capture.md
 ---
 
 # Architecture
@@ -40,6 +41,10 @@ Game Client
    - **YOLO:** Detection of dynamic entities (mobs, players).
    - **Template Matching:** Detection of fixed 2D UI elements and anchors.
    - **ROI OCR:** Targeted text extraction from specific UI regions (e.g. central loot/system log).
+   - **Frame capture:** `WindowsFrameSource` captures the foreground client's exact client area
+     through documented Win32 GDI APIs and exposes contiguous BGR or RGB `numpy.ndarray` frames.
+     Its `FrameSource` protocol is injectable for deterministic tests, and capture failures use
+     typed error codes.
 2. **State & Supervisor:**
    - **World State:** Immutable snapshot representing current assumed game reality.
    - **Supervisor:** Closed-loop reconciliation comparing desired state vs. observed state; detects stalls and triggers self-healing (`NO_PROGRESS`, `NO_MOBS`, `STUCK`, `INVENTORY_MISMATCH`).
@@ -67,4 +72,6 @@ required observation.
 
 The desktop presentation is a small PySide6 application boundary (`flyff_bot.ui`) that renders a
 localized world-state summary. It introduces no web runtime. It is deliberately a bootstrap: real
-Win32 dispatch, perception providers, and production goals remain separate future work.
+Win32 input dispatch and production perception models remain separate future work. US-002 now
+provides the first production-facing perception adapter: foreground client-area capture with
+client-space coordinates preserved for downstream vision and input verification.

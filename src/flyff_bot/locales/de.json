@@ -17,5 +17,9 @@
   "status.aborted": "Abgebrochen.",
   "status.input_sent": "Eingabe gesendet.",
   "ui.title": "Flyff Bot",
-  "ui.world_status": "Sichtbare Monster: {mob_count}"
+  "ui.world_status": "Sichtbare Monster: {mob_count}",
+  "error.frame_invalid_window": "Das Flyff-Fenster ist nicht mehr gültig.",
+  "error.frame_minimized": "Das Flyff-Fenster ist minimiert und kann nicht erfasst werden.",
+  "error.frame_occluded": "Das Flyff-Fenster muss vor der Erfassung im Vordergrund sein.",
+  "error.frame_capture_failed": "Das Flyff-Fenster konnte nicht erfasst werden."
 }

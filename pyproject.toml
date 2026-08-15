@@ -30,7 +30,7 @@ packages = ["src/flyff_bot"]
 [tool.mypy]
 python_version = "3.14"
 strict = true
-files = ["src", "tests", "flyff_input.py"]
+files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers --cov=flyff_bot --cov-report=term-missing --cov-fail-under=60"
