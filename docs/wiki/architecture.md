@@ -21,6 +21,7 @@ related:
   - ../user-stories/completed/US-013-autonomous-farming-loop-and-orchestration-engine.md
   - ../user-stories/completed/US-014-configurable-ui-attack-key.md
   - ../user-stories/completed/US-015-idle-timeout-and-search-navigation.md
+  - ../user-stories/completed/US-018-multi-axis-camera-search-and-paced-scanning.md
   - ../user-stories/completed/US-019-intelligent-pathing-and-spawn-heatmap.md
 ---
 
@@ -161,8 +162,19 @@ idle timeout, `SearchController` dispatches camera-rotation arrow-key pulses (de
 red connected component in the normalized top-right minimap region. Every search tick first
 evaluates the newest perception snapshot: a visible eligible mob resets search and immediately
 returns to targeting. `SearchInputDispatcher` checks foreground focus and END before every search
-action, while the Windows guarded key hold releases on either condition; dashboard search statuses
+actions, while the Windows guarded key hold releases on either condition; dashboard search statuses
 and CLI timing options are localized in English and German.
+
+US-018 enhances staged search with multi-axis camera scanning and visual settle pauses.
+`SearchController` extends `SearchMode` with `SearchMode.TILT`, dispatching vertical pitch pulses
+(`VK_UP` or `VK_DOWN`) after horizontal rotation pulses (`VK_RIGHT` or `VK_LEFT`). Configurable
+pacing (`rotation_step_duration_seconds`, `tilt_step_duration_seconds`, and
+`rotation_settle_pause_seconds`) introduces observation pauses between key actions to ensure the
+perception pipeline processes unblurred frames and prevents spinning past spawns on slopes or
+elevations. Pitch adjustments are decoupled from horizontal heading, keeping `MovementTracker`
+dead-reckoning and `SpatialMap` coordinates accurate while broadening elevation FoV. Any newly visible
+mob instantly aborts search and transitions to targeting; arrow keys remain strictly guarded by
+foreground focus and the END emergency stop.
 
 US-019 adds `flyff_bot.features.navigation`, the internal spatial memory that sits behind staged
 search. `MovementTracker` dead-reckons a session-relative position and compass heading from the

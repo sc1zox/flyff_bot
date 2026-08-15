@@ -94,6 +94,14 @@ related:
 - **Staged search** — The no-mob recovery sequence used by the farming orchestrator: a configurable
   idle interval followed by alternating camera rotations, bounded directional roaming pulses, and
   an optional minimap-radar click; it resets immediately when a visible eligible mob is detected.
+- **Multi-axis camera search** — The enhanced staged search sequence that alternates horizontal
+  yaw rotations (`VK_LEFT`/`VK_RIGHT`) and vertical pitch tilts (`VK_UP`/`VK_DOWN`) separated by
+  visual settle pauses to discover spawns on uneven terrain or slopes.
+- **Visual settle pause** — A configurable observation interval (`rotation_settle_pause_seconds`)
+  between camera rotation and tilt pulses that allows perception to evaluate clean, unblurred
+  frames without overshooting candidate mobs.
+- **Vertical pitch tilt** — Camera elevation adjustments via Up/Down arrow keys during search mode
+  to gain bird's-eye or upward perspectives of monsters situated on slopes or hills.
 - **Minimap radar** — A perception-only scan of the normalized top-right client region that selects
   the nearest sufficiently large red connected component and returns its client-relative centre as
   an optional staged-search navigation target.

@@ -6,7 +6,10 @@ from typing import cast
 
 import pytest
 
-from flyff_bot.features.automation.controllers import VIRTUAL_KEY_F1
+from flyff_bot.features.automation.controllers import (
+    VIRTUAL_KEY_F1,
+    VIRTUAL_KEY_RIGHT,
+)
 from flyff_bot.features.automation.models import (
     InventoryEntry,
     Position,
@@ -154,6 +157,32 @@ def test_search_interrupts_navigation_immediately_when_a_mob_appears() -> None:
     result = orchestrator.tick()
 
     assert result.mode is FarmingMode.TARGETING
+    assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
+
+
+def test_search_interrupts_during_settle_pause_when_mob_appears() -> None:
+    adapter = _InputAdapter()
+    orchestrator = _orchestrator(
+        [
+            _state(0.0),  # Idle timeout start
+            _state(5.0),  # Dispatches ROTATE pulse (5.0s -> 5.2s key + 0.3s pause)
+            _state(5.3, mobs=(MOB,)),  # Settle pause tick: mob spotted!
+        ],
+        adapter,
+    )
+    orchestrator.start()
+
+    # Tick 1: starts search timer at t=0
+    assert orchestrator.tick().mode is FarmingMode.SEARCHING
+    # Tick 2: at t=5.0, dispatches search rotation key
+    tick2 = orchestrator.tick()
+    assert tick2.mode is FarmingMode.SEARCHING
+    assert tick2.dispatched
+    assert adapter.keys == [(VIRTUAL_KEY_RIGHT, 0.2)]
+
+    # Tick 3: at t=5.3 (within settle pause), mob enters view -> immediately targets!
+    tick3 = orchestrator.tick()
+    assert tick3.mode is FarmingMode.TARGETING
     assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
 
 

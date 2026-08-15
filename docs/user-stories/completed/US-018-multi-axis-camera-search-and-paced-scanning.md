@@ -1,7 +1,7 @@
 ---
 id: US-018
 title: Multi-axis camera search with vertical pitch tilt and paced scanning
-status: draft
+status: completed
 created: 2026-08-16
 updated: 2026-08-16
 ---
@@ -15,8 +15,8 @@ As a player using autonomous farming, I want the bot's search navigation to supp
 ## Context and assumptions
 
 - **Related Items & Architecture:**
-  - Extends [US-015](completed/US-015-idle-timeout-and-search-navigation.md) (`SearchController` and `FarmingOrchestrator` search loop) and incorporates lessons from [BUG-003](bugs/fixed/BUG-003-search-mode-camera-rotation-keys.md) (arrow-key camera control).
-  - Works cooperatively with [US-007](completed/US-007-perception-worldstate-feed.md) (`PerceptionPipeline`), [US-003](completed/US-003-mob-detection-yolo.md) (`OpenCVDnnYoloDetector`), and [US-008](completed/US-008-reactive-combat-controller.md) (`CombatController`).
+  - Extends [US-015](US-015-idle-timeout-and-search-navigation.md) (`SearchController` and `FarmingOrchestrator` search loop) and incorporates lessons from [BUG-003](../../bugs/fixed/BUG-003-search-mode-camera-rotation-keys.md) (arrow-key camera control).
+  - Works cooperatively with [US-007](US-007-perception-worldstate-feed.md) (`PerceptionPipeline`), [US-003](US-003-mob-detection-yolo.md) (`OpenCVDnnYoloDetector`), and [US-008](US-008-reactive-combat-controller.md) (`CombatController`).
 - **Flyff Camera Mechanics & Terrain Scanning:**
   - **Horizontal Yaw (Left/Right Arrow `VK_LEFT` / `VK_RIGHT`):** Rotates the camera 360 degrees horizontally.
   - **Vertical Pitch (Up/Down Arrow `VK_UP` / `VK_DOWN`):** Tilts the camera elevation angle (Up Arrow raises camera into bird's-eye view, Down Arrow lowers camera to look upward).
@@ -31,20 +31,20 @@ As a player using autonomous farming, I want the bot's search navigation to supp
 
 ## Acceptance criteria
 
-- [ ] `SearchController` supports multi-axis camera scanning stages:
+- [x] `SearchController` supports multi-axis camera scanning stages:
   - Horizontal rotation (`SearchMode.ROTATE` via `VK_RIGHT` or `VK_LEFT`)
   - Vertical tilt / pitch (`SearchMode.TILT` via `VK_UP` or `VK_DOWN`)
-- [ ] `SearchConfig` exposes configurable pacing and pitch parameters:
+- [x] `SearchConfig` exposes configurable pacing and pitch parameters:
   - `rotation_step_duration_seconds: float` (default `0.2s` for gentler rotation steps)
   - `rotation_settle_pause_seconds: float` (default `0.3s` observation pause between rotation pulses)
   - `tilt_step_duration_seconds: float` (default `0.2s` for vertical pitch adjustment)
   - `tilt_virtual_key: int` (default `VK_UP = 0x26`, supporting `VK_DOWN = 0x28`)
   - `tilt_steps: int` (default `2`)
-- [ ] During `SearchMode.ROTATE` and `SearchMode.TILT`, search pulses alternate between brief key presses and settle pauses to ensure clean perception frames without visual overshooting.
-- [ ] If perception detects a valid mob in `state.visible_mobs` at any point during rotation, tilt, or settle pause, search immediately aborts and control transitions to `TARGETING`.
-- [ ] Guarded key holds and emergency stop (`END`) immediately release any active arrow key and halt searching.
-- [ ] CLI arguments (`--search-tilt-duration`, `--search-settle-pause`, `--search-tilt-key`) and Dashboard status strings are localized in German and English (`de.json` / `en.json`).
-- [ ] Automated unit tests in `tests/unit/test_search_navigation.py` verify:
+- [x] During `SearchMode.ROTATE` and `SearchMode.TILT`, search pulses alternate between brief key presses and settle pauses to ensure clean perception frames without visual overshooting.
+- [x] If perception detects a valid mob in `state.visible_mobs` at any point during rotation, tilt, or settle pause, search immediately aborts and control transitions to `TARGETING`.
+- [x] Guarded key holds and emergency stop (`END`) immediately release any active arrow key and halt searching.
+- [x] CLI arguments (`--search-tilt-duration`, `--search-settle-pause`, `--search-tilt-key`) and Dashboard status strings are localized in German and English (`de.json` / `en.json`).
+- [x] Automated unit tests in `tests/unit/test_search_navigation.py` verify:
   - Transition sequence: `ROTATE` -> settle pause -> `TILT` -> `ROAM_STEP` -> `MINIMAP_RADAR`.
   - Pacing timers and duration enforcement.
   - Immediate interruption on perception detection.

@@ -107,3 +107,9 @@ Recorded the desktop dashboard navigation path and spawn heatmap inspector: Path
 2D canvas rendering of player position, heading, origin axes, leash boundary, color-scaled spawn
 heatmaps, traversal graph edges, stall markers, safe waypoints, and active patrol routes, fed via
 DashboardUpdate; moved US-020 to the completed stories directory.
+
+## [2026-08-16] synthesis | Multi-axis camera search and paced scanning (US-018)
+
+Recorded the multi-axis camera search stage, vertical pitch tilt controls (VK_UP/VK_DOWN),
+gentle rotation pacing with visual settle pauses, instant perception interruption, and dead-reckoning
+coordination in architecture and glossary; moved US-018 to the completed stories directory.

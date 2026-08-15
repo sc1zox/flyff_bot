@@ -330,6 +330,7 @@ def _dashboard_status(mode: FarmingMode, search_mode: SearchMode | None = None) 
     if mode is FarmingMode.SEARCHING:
         return {
             SearchMode.ROTATE: BotStatus.SEARCH_ROTATING,
+            SearchMode.TILT: BotStatus.SEARCH_TILTING,
             SearchMode.ROAM_STEP: BotStatus.SEARCH_ROAMING,
             SearchMode.MINIMAP_RADAR: BotStatus.SEARCH_MINIMAP,
         }[search_mode or SearchMode.ROTATE]
