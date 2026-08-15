@@ -110,6 +110,8 @@ class WindowsInputController:
         self._user32.ShowWindow.restype = wintypes.BOOL
         self._user32.SetForegroundWindow.argtypes = [wintypes.HWND]
         self._user32.SetForegroundWindow.restype = wintypes.BOOL
+        self._user32.GetForegroundWindow.argtypes = []
+        self._user32.GetForegroundWindow.restype = wintypes.HWND
         self._user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
         self._user32.GetAsyncKeyState.restype = ctypes.c_short
         self._user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
@@ -177,6 +179,11 @@ class WindowsInputController:
         """Return whether the emergency-stop key is currently held."""
 
         return bool(self._user32.GetAsyncKeyState(VIRTUAL_KEY_END) & KEY_IS_DOWN_MASK)
+
+    def is_foreground(self, window_handle: int) -> bool:
+        """Return whether a target window remains foregrounded for combat input."""
+
+        return int(self._user32.GetForegroundWindow()) == window_handle
 
     def send_key(self, virtual_key: int, duration_seconds: float) -> None:
         """Press and release one virtual key while honoring the emergency stop."""

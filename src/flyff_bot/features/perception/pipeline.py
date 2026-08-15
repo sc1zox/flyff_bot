@@ -14,6 +14,7 @@ from flyff_bot.features.automation.models import (
     RecentLoot,
     SelectedTarget,
     TargetState,
+    Viewport,
     VisibleMob,
     WorldState,
 )
@@ -125,6 +126,7 @@ class PerceptionPipeline:
             selected_target=selected_target,
             visible_mobs=visible_mobs,
             recent_loot=recent_loot,
+            viewport=Viewport(frame.client_size.width, frame.client_size.height),
         )
         return PerceptionTick(state, _events(previous_state, state), frozenset(failures))
 

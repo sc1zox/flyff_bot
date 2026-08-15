@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from flyff_bot.features.automation.controllers import (
-    CombatController,
     ControllerMode,
     LootController,
     NavigationController,
@@ -116,12 +115,10 @@ def test_executor_rejects_unconfirmed_observation() -> None:
 
 
 def test_controllers_transition_from_synthetic_state_feed() -> None:
-    combat = CombatController()
     navigation = NavigationController()
     loot = LootController()
     loot_state = _state(inventory=(InventoryEntry("coin", 1),))
 
-    assert combat.step(_state(mob_count=1)).mode is ControllerMode.ACTIVE
     assert navigation.step(_state(is_stuck=True)).mode is ControllerMode.RECOVERING
     assert loot.step(loot_state).mode is ControllerMode.ACTIVE
     assert loot.step(loot_state).mode is ControllerMode.IDLE

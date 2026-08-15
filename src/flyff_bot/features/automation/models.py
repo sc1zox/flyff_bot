@@ -50,6 +50,20 @@ class Position:
 
 
 @dataclass(frozen=True, slots=True)
+class Viewport:
+    """Dimensions of the client area that produced a world-state snapshot."""
+
+    width: int = 0
+    height: int = 0
+
+    @property
+    def has_size(self) -> bool:
+        """Return whether the client dimensions are available."""
+
+        return self.width > 0 and self.height > 0
+
+
+@dataclass(frozen=True, slots=True)
 class InventoryEntry:
     """An observed inventory count for one item."""
 
@@ -101,6 +115,7 @@ class WorldState:
     selected_target: SelectedTarget = SelectedTarget(TargetState.NONE, None, 0)
     visible_mobs: tuple[VisibleMob, ...] = ()
     recent_loot: tuple[RecentLoot, ...] = ()
+    viewport: Viewport = Viewport()
 
 
 @dataclass(frozen=True, slots=True)
