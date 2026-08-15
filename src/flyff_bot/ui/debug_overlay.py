@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect
+from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from flyff_bot.features.automation.models import SelectedTarget, TargetState, VisibleMob
 from flyff_bot.features.vision.models import CapturedFrame, PixelFormat
@@ -15,6 +16,67 @@ TARGET_WRONG_COLOR = QColor(220, 160, 0)
 TARGET_NONE_COLOR = QColor(200, 0, 0)
 OVERLAY_PEN_WIDTH = 2
 OVERLAY_FONT_POINT_SIZE = 10
+DEFAULT_PREVIEW_WIDTH = 640
+DEFAULT_PREVIEW_HEIGHT = 360
+MINIMUM_PREVIEW_WIDTH = 320
+MINIMUM_PREVIEW_HEIGHT = 180
+OVERLAY_BG_COLOR = QColor(17, 20, 28)
+
+
+class DebugOverlayWidget(QWidget):
+    """Render a scaled viewport debug overlay maintaining aspect ratio."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._pixmap: QPixmap | None = None
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumSize(MINIMUM_PREVIEW_WIDTH, MINIMUM_PREVIEW_HEIGHT)
+
+    def pixmap(self) -> QPixmap | None:
+        """Return the unscaled backing frame pixmap."""
+
+        return self._pixmap
+
+    def setPixmap(self, pixmap: QPixmap | None) -> None:
+        """Assign an updated frame pixmap and request repaint."""
+
+        self._pixmap = pixmap
+        self.update()
+
+    def sizeHint(self) -> QSize:
+        """Return a sensible default proportional preview dimension."""
+
+        if self._pixmap is not None and not self._pixmap.isNull():
+            return self._pixmap.size().scaled(
+                DEFAULT_PREVIEW_WIDTH,
+                DEFAULT_PREVIEW_HEIGHT,
+                Qt.AspectRatioMode.KeepAspectRatio,
+            )
+        return QSize(DEFAULT_PREVIEW_WIDTH, DEFAULT_PREVIEW_HEIGHT)
+
+    def paintEvent(self, _event: object) -> None:
+        """Draw the current pixmap scaled smoothly to the widget bounds."""
+
+        painter = QPainter(self)
+        width = self.width()
+        height = self.height()
+        painter.fillRect(0, 0, width, height, OVERLAY_BG_COLOR)
+
+        if self._pixmap is None or self._pixmap.isNull():
+            painter.end()
+            return
+
+        scaled_size = self._pixmap.size().scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio)
+        target_rect = QRect(
+            (width - scaled_size.width()) // 2,
+            (height - scaled_size.height()) // 2,
+            scaled_size.width(),
+            scaled_size.height(),
+        )
+
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawPixmap(target_rect, self._pixmap)
+        painter.end()
 
 
 def render_debug_overlay(

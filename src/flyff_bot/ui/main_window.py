@@ -19,7 +19,7 @@ from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.input_control import parse_virtual_key
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal
-from flyff_bot.ui.debug_overlay import render_debug_overlay
+from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 
 
@@ -37,7 +37,7 @@ class MainWindow(QMainWindow):
         self._latest_update: DashboardUpdate | None = None
         self._status_label = QLabel()
         self._goal_label = QLabel()
-        self._overlay_label = QLabel()
+        self._overlay_label = DebugOverlayWidget()
         self._overlay_label.setVisible(False)
         self._path_inspector = PathInspectorWidget(self._translator)
         self._path_inspector.setVisible(False)
@@ -56,6 +56,7 @@ class MainWindow(QMainWindow):
         self._connect_controls()
         self._retranslate()
         self.set_status(mob_count=0)
+        self._adapt_window_geometry()
 
     @property
     def start_button(self) -> QPushButton:
@@ -88,7 +89,7 @@ class MainWindow(QMainWindow):
         return self._goal_label
 
     @property
-    def overlay_label(self) -> QLabel:
+    def overlay_label(self) -> DebugOverlayWidget:
         """Expose the optional viewport for deterministic UI tests."""
 
         return self._overlay_label
@@ -165,10 +166,20 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _update_overlay_visibility(self, visible: bool) -> None:
         self._overlay_label.setVisible(visible and self._overlay_label.pixmap() is not None)
+        self._adapt_window_geometry()
 
     @Slot(bool)
     def _update_path_visibility(self, visible: bool) -> None:
         self._path_inspector.setVisible(visible)
+        self._adapt_window_geometry()
+
+    def _adapt_window_geometry(self) -> None:
+        central = self.centralWidget()
+        if central is not None:
+            layout = central.layout()
+            if layout is not None:
+                layout.activate()
+        self.adjustSize()
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Record one supported physical key while the attack-key button is active."""

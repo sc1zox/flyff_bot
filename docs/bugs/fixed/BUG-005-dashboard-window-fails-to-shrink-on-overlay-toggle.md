@@ -1,7 +1,7 @@
 ---
 id: BUG-005
 title: Dashboard window fails to shrink when toggling off debug overlay or path inspector
-status: reported
+status: resolved
 severity: medium
 created: 2026-08-16
 updated: 2026-08-16
@@ -40,6 +40,6 @@ Toggling visibility via `setVisible(False)` hides child widgets (`_overlay_label
 
 ## Regression verification
 
-- [ ] A failing automated test verifying that toggling off the debug overlay and path inspector triggers window size adjustment.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated test verifying that toggling off the debug overlay and path inspector triggers window size adjustment.
+- [x] The check passes after the fix.
+- [x] Related documentation is current.

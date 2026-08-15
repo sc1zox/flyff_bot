@@ -33,6 +33,7 @@ from flyff_bot.ui.dashboard import (
     FarmingGoal,
     NavigationSnapshot,
 )
+from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
 from flyff_bot.ui.main_window import MainWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 
@@ -272,6 +273,81 @@ def test_main_window_path_inspector_toggle_and_update() -> None:
 
     window.path_toggle.setChecked(False)
     assert window.path_inspector.isHidden()
+
+
+def test_debug_overlay_widget_renders_cleanly_with_aspect_scaling() -> None:
+    _application = QApplication.instance() or QApplication([])
+    widget = DebugOverlayWidget()
+    widget.resize(400, 300)
+    widget.render(widget)
+
+    pixmap = render_debug_overlay(
+        _frame(),
+        (),
+        SelectedTarget(TargetState.NONE, None, 0),
+        Translator(Language.ENGLISH),
+    )
+    widget.setPixmap(pixmap)
+    assert widget.pixmap() is pixmap
+    assert widget.sizeHint().width() > 0
+    assert widget.sizeHint().height() > 0
+    widget.render(widget)
+
+
+def test_main_window_debug_toggle_dynamically_adjusts_window_size() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.update_dashboard(
+        DashboardUpdate(
+            _world_state(),
+            BotStatus.ACTIVE,
+            FarmingGoal("Sunstones", 500),
+            _frame(),
+        )
+    )
+    window.show()
+    application.processEvents()
+    compact_height = window.height()
+
+    window._debug_toggle.setChecked(True)
+    application.processEvents()
+    expanded_height = window.height()
+    assert expanded_height > compact_height
+    assert not window.overlay_label.isHidden()
+
+    window._debug_toggle.setChecked(False)
+    application.processEvents()
+    assert window.overlay_label.isHidden()
+    assert window.height() < expanded_height
+
+
+def test_main_window_path_toggle_dynamically_adjusts_window_size() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    snapshot = NavigationSnapshot(
+        player_x=0.0,
+        player_y=0.0,
+        heading_degrees=90.0,
+        cells=(),
+        edges=(),
+        waypoints=(),
+        safe_waypoint=None,
+    )
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE, navigation=snapshot))
+    window.show()
+    application.processEvents()
+    compact_height = window.height()
+
+    window.path_toggle.setChecked(True)
+    application.processEvents()
+    expanded_height = window.height()
+    assert expanded_height > compact_height
+    assert not window.path_inspector.isHidden()
+
+    window.path_toggle.setChecked(False)
+    application.processEvents()
+    assert window.path_inspector.isHidden()
+    assert window.height() < expanded_height
 
 
 def _world_state() -> WorldState:
