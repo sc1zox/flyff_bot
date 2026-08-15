@@ -25,11 +25,13 @@ from flyff_bot.features.navigation.tracking import (
     heading_error_degrees,
 )
 from flyff_bot.features.vision.models import CapturedFrame
+from flyff_bot.ui.dashboard import CellSnapshot, EdgeSnapshot, NavigationSnapshot
 
 DEFAULT_PATHING_STEP_DURATION_SECONDS = 0.6
 DEFAULT_PATHING_TURN_DURATION_SECONDS = 0.15
 DEFAULT_HEADING_TOLERANCE_DEGREES = 25.0
 DEFAULT_REPLAN_INTERVAL_SECONDS = 20.0
+DEFAULT_LEASH_RADIUS_UNITS = 50.0
 ARRIVAL_RADIUS_CELL_FRACTION = 0.5
 
 
@@ -59,6 +61,7 @@ class PathingConfig:
     turn_duration_seconds: float = DEFAULT_PATHING_TURN_DURATION_SECONDS
     heading_tolerance_degrees: float = DEFAULT_HEADING_TOLERANCE_DEGREES
     replan_interval_seconds: float = DEFAULT_REPLAN_INTERVAL_SECONDS
+    leash_radius_units: float = DEFAULT_LEASH_RADIUS_UNITS
     movement: MovementModel = field(default_factory=MovementModel)
     stall: StallConfig = field(default_factory=StallConfig)
     route: RouteConfig = field(default_factory=RouteConfig)
@@ -70,6 +73,8 @@ class PathingConfig:
             raise ValueError("Pathing heading tolerance must be between 0 and 180 degrees.")
         if self.replan_interval_seconds <= 0.0:
             raise ValueError("Pathing replan interval must be positive.")
+        if self.leash_radius_units <= 0.0:
+            raise ValueError("Pathing leash radius must be positive.")
 
 
 class PathingController:
@@ -132,6 +137,57 @@ class PathingController:
         """Return the cells of the current route that are still to be reached."""
 
         return self._waypoints[self._waypoint_index :]
+
+    def snapshot(self, at_seconds: float = 0.0) -> NavigationSnapshot:
+        """Return an immutable snapshot of the current navigation and map state."""
+
+        cells = tuple(
+            CellSnapshot(
+                x=cell.x,
+                y=cell.y,
+                center_x=self._map.center_of(cell).x,
+                center_y=self._map.center_of(cell).y,
+                visits=self._map.visit_count(cell),
+                stalls=self._map.stall_count(cell),
+                spawn_weight=self._map.spawn_weight(cell, at_seconds),
+            )
+            for cell in self._map.known_cells()
+        )
+        edges: list[EdgeSnapshot] = []
+        for origin in self._map.known_cells():
+            for destination in self._map.neighbors(origin):
+                if (origin.x, origin.y) < (destination.x, destination.y):
+                    o_pt = self._map.center_of(origin)
+                    d_pt = self._map.center_of(destination)
+                    edges.append(
+                        EdgeSnapshot(
+                            origin_x=o_pt.x,
+                            origin_y=o_pt.y,
+                            destination_x=d_pt.x,
+                            destination_y=d_pt.y,
+                            stalls=self._map.edge_stall_count(origin, destination),
+                        )
+                    )
+        waypoints = tuple(
+            (self._map.center_of(cell).x, self._map.center_of(cell).y)
+            for cell in self._waypoints[self._waypoint_index :]
+        )
+        safe = (
+            (self._safe_waypoint.x, self._safe_waypoint.y)
+            if self._safe_waypoint is not None
+            else None
+        )
+        return NavigationSnapshot(
+            player_x=self._tracker.position.x,
+            player_y=self._tracker.position.y,
+            heading_degrees=self._tracker.heading_degrees,
+            cells=cells,
+            edges=tuple(edges),
+            waypoints=waypoints,
+            safe_waypoint=safe,
+            cell_size_units=self._map.config.cell_size_units,
+            leash_radius_units=self._config.leash_radius_units,
+        )
 
     def observe(self, state: WorldState, frame: CapturedFrame | None = None) -> None:
         """Record visit history, spawn sightings, and stall evidence for one tick."""

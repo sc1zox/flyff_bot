@@ -20,6 +20,7 @@ from flyff_bot.features.input_control import parse_virtual_key
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal
 from flyff_bot.ui.debug_overlay import render_debug_overlay
+from flyff_bot.ui.path_inspector import PathInspectorWidget
 
 
 class MainWindow(QMainWindow):
@@ -38,6 +39,8 @@ class MainWindow(QMainWindow):
         self._goal_label = QLabel()
         self._overlay_label = QLabel()
         self._overlay_label.setVisible(False)
+        self._path_inspector = PathInspectorWidget(self._translator)
+        self._path_inspector.setVisible(False)
         self._start_button = QPushButton()
         self._pause_button = QPushButton()
         self._emergency_stop_button = QPushButton()
@@ -47,6 +50,7 @@ class MainWindow(QMainWindow):
         self._attack_key_name = "F3"
         self._is_recording_attack_key = False
         self._debug_toggle = QCheckBox()
+        self._path_toggle = QCheckBox()
         self._language_selector = QComboBox()
         self._build_layout()
         self._connect_controls()
@@ -88,6 +92,18 @@ class MainWindow(QMainWindow):
         """Expose the optional viewport for deterministic UI tests."""
 
         return self._overlay_label
+
+    @property
+    def path_inspector(self) -> PathInspectorWidget:
+        """Expose the path inspector widget for testing and inspection."""
+
+        return self._path_inspector
+
+    @property
+    def path_toggle(self) -> QCheckBox:
+        """Expose the path toggle checkbox for testing."""
+
+        return self._path_toggle
 
     @property
     def attack_key_button(self) -> QPushButton:
@@ -150,6 +166,10 @@ class MainWindow(QMainWindow):
     def _update_overlay_visibility(self, visible: bool) -> None:
         self._overlay_label.setVisible(visible and self._overlay_label.pixmap() is not None)
 
+    @Slot(bool)
+    def _update_path_visibility(self, visible: bool) -> None:
+        self._path_inspector.setVisible(visible)
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Record one supported physical key while the attack-key button is active."""
 
@@ -171,12 +191,14 @@ class MainWindow(QMainWindow):
         controls.addWidget(self._attack_key_label)
         controls.addWidget(self._attack_key_button)
         controls.addWidget(self._debug_toggle)
+        controls.addWidget(self._path_toggle)
         controls.addWidget(self._language_selector)
         content = QVBoxLayout()
         content.addWidget(self._status_label)
         content.addWidget(self._goal_label)
         content.addLayout(controls)
         content.addWidget(self._overlay_label)
+        content.addWidget(self._path_inspector)
         container = QWidget()
         container.setLayout(content)
         self.setCentralWidget(container)
@@ -188,6 +210,7 @@ class MainWindow(QMainWindow):
         self._attack_key_button.clicked.connect(self._begin_attack_key_recording)
         self._attack_key_button.installEventFilter(self)
         self._debug_toggle.toggled.connect(self._update_overlay_visibility)
+        self._path_toggle.toggled.connect(self._update_path_visibility)
         self._language_selector.currentIndexChanged.connect(self._switch_language)
 
     def _retranslate(self) -> None:
@@ -203,6 +226,8 @@ class MainWindow(QMainWindow):
             else self._attack_key_name
         )
         self._debug_toggle.setText(self._translator.text(Message.UI_DEBUG_OVERLAY))
+        self._path_toggle.setText(self._translator.text(Message.UI_PATH_INSPECTOR))
+        self._path_inspector.set_translator(self._translator)
         previous_language = self._translator.language
         self._language_selector.blockSignals(True)
         self._language_selector.clear()
@@ -243,6 +268,7 @@ class MainWindow(QMainWindow):
                 status,
                 self._latest_update.goal,
                 self._latest_update.frame,
+                self._latest_update.navigation,
             )
         )
 
@@ -266,6 +292,8 @@ class MainWindow(QMainWindow):
                     self._translator,
                 )
             )
+        if update.navigation is not None:
+            self._path_inspector.set_navigation(update.navigation)
         self._update_overlay_visibility(self._debug_toggle.isChecked())
 
 

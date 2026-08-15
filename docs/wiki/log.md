@@ -100,3 +100,10 @@ Recorded the internal navigation feature: dead-reckoned relative position tracki
 spawn heatmap and traversal graph, frame-difference stall detection with bounded cost penalties,
 safe-waypoint retreat and bypass planning, density-weighted patrol circuits, and versioned map
 persistence; moved US-019 to the completed stories directory.
+
+## [2026-08-16] synthesis | Visual navigation path and heatmap inspector (US-020)
+
+Recorded the desktop dashboard navigation path and spawn heatmap inspector: PathInspectorWidget
+2D canvas rendering of player position, heading, origin axes, leash boundary, color-scaled spawn
+heatmaps, traversal graph edges, stall markers, safe waypoints, and active patrol routes, fed via
+DashboardUpdate; moved US-020 to the completed stories directory.

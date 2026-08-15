@@ -183,4 +183,12 @@ consults it before the staged search stages and falls back to `SearchController`
 is still too sparse to plan. `PathingInputDispatcher` re-checks foreground focus and END before
 every pathing key. Learned maps are persisted as versioned JSON (`--navigation-map`, default
 `data/navigation/spatial_map.json`) and restored on the next session; the whole subsystem is
-internal and renders nothing in the game client or dashboard.
+internal and renders nothing in the game client.
+
+US-020 adds `PathInspectorWidget` to the desktop dashboard boundary (`flyff_bot.ui.path_inspector`).
+Operators can toggle a 2D top-down canvas showing the character's live dead-reckoned position and
+compass facing, origin axes, leash boundary circle, color-shaded spawn heatmap cells, recorded
+traversal graph edges (with stall risk highlights), safe waypoint fallback anchors, and active
+patrol route polylines. `FarmingOrchestrator` delivers an immutable `NavigationSnapshot` on every
+published tick via `DashboardUpdate` without blocking worker threads. Localized labels in German and
+English explain all map elements and legend badges.

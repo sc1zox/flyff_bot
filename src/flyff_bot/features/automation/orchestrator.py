@@ -297,6 +297,11 @@ class FarmingOrchestrator:
                     ),
                     self._config.goal,
                     frame=self._last_frame,
+                    navigation=(
+                        self._pathing.snapshot(self._state.observed_at_seconds)
+                        if self._pathing is not None
+                        else None
+                    ),
                 )
             )
         return tick

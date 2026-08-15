@@ -206,9 +206,33 @@ def test_item_goal_completes_before_any_input_and_publishes_dashboard_update() -
         dashboard_feed=feed,
     )
     orchestrator.start()
-
     result = orchestrator.tick()
 
     assert result.mode is FarmingMode.COMPLETED
     assert adapter.keys == []
     assert updates[-1].goal == FarmingGoal("Sunstones", 3)
+
+
+def test_orchestrator_publishes_navigation_snapshot_when_pathing_is_configured() -> None:
+    from flyff_bot.features.navigation.pathing import PathingController
+
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+
+    pathing = PathingController()
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline([_state(1.0)])),
+        adapter,
+        WINDOW_HANDLE,
+        pathing=pathing,
+        dashboard_feed=feed,
+    )
+    orchestrator.start()
+    orchestrator.tick()
+
+    assert len(updates) == 1
+    assert updates[0].navigation is not None
+    assert updates[0].navigation.player_x == 0.0
+    assert updates[0].navigation.player_y == 0.0

@@ -38,6 +38,45 @@ class FarmingGoal:
 
 
 @dataclass(frozen=True, slots=True)
+class CellSnapshot:
+    """Immutable view of one spatial grid cell."""
+
+    x: int
+    y: int
+    center_x: float
+    center_y: float
+    visits: int
+    stalls: int
+    spawn_weight: float
+
+
+@dataclass(frozen=True, slots=True)
+class EdgeSnapshot:
+    """Immutable view of one navigation graph edge between two cell centers."""
+
+    origin_x: float
+    origin_y: float
+    destination_x: float
+    destination_y: float
+    stalls: int
+
+
+@dataclass(frozen=True, slots=True)
+class NavigationSnapshot:
+    """Immutable view of the learned spatial map, dead reckoning, and active route."""
+
+    player_x: float
+    player_y: float
+    heading_degrees: float
+    cells: tuple[CellSnapshot, ...]
+    edges: tuple[EdgeSnapshot, ...]
+    waypoints: tuple[tuple[float, float], ...] = ()
+    safe_waypoint: tuple[float, float] | None = None
+    cell_size_units: float = 40.0
+    leash_radius_units: float = 50.0
+
+
+@dataclass(frozen=True, slots=True)
 class DashboardUpdate:
     """One optional frame plus the matching immutable perception state."""
 
@@ -45,6 +84,7 @@ class DashboardUpdate:
     status: BotStatus
     goal: FarmingGoal | None = None
     frame: CapturedFrame | None = None
+    navigation: NavigationSnapshot | None = None
 
 
 class DashboardFeed(QObject):

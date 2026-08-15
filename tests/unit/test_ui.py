@@ -24,8 +24,17 @@ from flyff_bot.features.input_control import InputControlError, InputErrorCode
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.i18n import Language, Translator
 from flyff_bot.ui.app import connect_farming_controls, start_farming
-from flyff_bot.ui.dashboard import BotStatus, DashboardFeed, DashboardUpdate, FarmingGoal
+from flyff_bot.ui.dashboard import (
+    BotStatus,
+    CellSnapshot,
+    DashboardFeed,
+    DashboardUpdate,
+    EdgeSnapshot,
+    FarmingGoal,
+    NavigationSnapshot,
+)
 from flyff_bot.ui.main_window import MainWindow
+from flyff_bot.ui.path_inspector import PathInspectorWidget
 
 
 def test_main_window_receives_dashboard_signal_and_renders_overlay() -> None:
@@ -186,6 +195,83 @@ def test_start_farming_pauses_without_traceback_when_focus_fails() -> None:
     start_farming(Controller(), 42, Session())
 
     assert calls == ["pause"]
+
+
+def test_path_inspector_widget_renders_cleanly_with_populated_snapshot() -> None:
+    _application = QApplication.instance() or QApplication([])
+    translator = Translator(Language.ENGLISH)
+    widget = PathInspectorWidget(translator)
+    widget.resize(500, 350)
+
+    # Render without snapshot
+    widget.render(widget)
+
+    # Render with populated snapshot
+    cells = (
+        CellSnapshot(x=0, y=0, center_x=20.0, center_y=20.0, visits=5, stalls=0, spawn_weight=2.5),
+        CellSnapshot(x=1, y=0, center_x=60.0, center_y=20.0, visits=2, stalls=1, spawn_weight=0.0),
+        CellSnapshot(x=1, y=1, center_x=60.0, center_y=60.0, visits=1, stalls=0, spawn_weight=5.0),
+    )
+    edges = (
+        EdgeSnapshot(
+            origin_x=20.0, origin_y=20.0, destination_x=60.0, destination_y=20.0, stalls=1
+        ),
+        EdgeSnapshot(
+            origin_x=60.0, origin_y=20.0, destination_x=60.0, destination_y=60.0, stalls=0
+        ),
+    )
+    snapshot = NavigationSnapshot(
+        player_x=15.0,
+        player_y=25.0,
+        heading_degrees=45.0,
+        cells=cells,
+        edges=edges,
+        waypoints=((60.0, 60.0),),
+        safe_waypoint=(20.0, 20.0),
+        cell_size_units=40.0,
+        leash_radius_units=80.0,
+    )
+    widget.set_navigation(snapshot)
+    assert widget.snapshot == snapshot
+    widget.render(widget)
+
+    # Retranslate
+    widget.set_translator(Translator(Language.GERMAN))
+    widget.render(widget)
+
+
+def test_main_window_path_inspector_toggle_and_update() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    feed = DashboardFeed()
+    feed.update_available.connect(window.update_dashboard)
+
+    snapshot = NavigationSnapshot(
+        player_x=0.0,
+        player_y=0.0,
+        heading_degrees=90.0,
+        cells=(),
+        edges=(),
+        waypoints=(),
+        safe_waypoint=None,
+    )
+    feed.publish(
+        DashboardUpdate(
+            _world_state(),
+            BotStatus.ACTIVE,
+            navigation=snapshot,
+        )
+    )
+    application.processEvents()
+
+    assert window.path_inspector.snapshot == snapshot
+    assert window.path_inspector.isHidden()
+
+    window.path_toggle.setChecked(True)
+    assert not window.path_inspector.isHidden()
+
+    window.path_toggle.setChecked(False)
+    assert window.path_inspector.isHidden()
 
 
 def _world_state() -> WorldState:
