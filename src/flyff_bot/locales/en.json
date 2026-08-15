@@ -21,5 +21,14 @@
   "error.frame_invalid_window": "The Flyff window is no longer valid.",
   "error.frame_minimized": "The Flyff window is minimized and cannot be captured.",
   "error.frame_occluded": "The Flyff window must be in the foreground before capture.",
-  "error.frame_capture_failed": "The Flyff window could not be captured."
+  "error.frame_capture_failed": "The Flyff window could not be captured.",
+  "help.detect_mobs": "Capture one frame and detect visible mobs",
+  "help.model": "YOLO ONNX model path",
+  "help.labels": "UTF-8 class-label file path",
+  "help.confidence": "Minimum detection confidence (default: {default})",
+  "help.class_name": "Class name to include (may be repeated)",
+  "error.detection_options_required": "--detect-mobs requires --model and --labels.",
+  "error.detection_failed": "Mob detection failed: {reason}",
+  "status.detection_summary": "Visible detections: {count}",
+  "status.detection_line": "{class_name} confidence={confidence} box=({x}, {y}, {width}, {height})"
 }

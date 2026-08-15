@@ -21,5 +21,14 @@
   "error.frame_invalid_window": "Das Flyff-Fenster ist nicht mehr gültig.",
   "error.frame_minimized": "Das Flyff-Fenster ist minimiert und kann nicht erfasst werden.",
   "error.frame_occluded": "Das Flyff-Fenster muss vor der Erfassung im Vordergrund sein.",
-  "error.frame_capture_failed": "Das Flyff-Fenster konnte nicht erfasst werden."
+  "error.frame_capture_failed": "Das Flyff-Fenster konnte nicht erfasst werden.",
+  "help.detect_mobs": "Ein Bild erfassen und sichtbare Monster erkennen",
+  "help.model": "Pfad zum YOLO-ONNX-Modell",
+  "help.labels": "Pfad zur UTF-8-Klassendatei",
+  "help.confidence": "Minimale Erkennungszuversicht (Standard: {default})",
+  "help.class_name": "Einzuschließender Klassenname (mehrfach möglich)",
+  "error.detection_options_required": "--detect-mobs erfordert --model und --labels.",
+  "error.detection_failed": "Monstererkennung fehlgeschlagen: {reason}",
+  "status.detection_summary": "Sichtbare Erkennungen: {count}",
+  "status.detection_line": "{class_name} Zuversicht={confidence} Feld=({x}, {y}, {width}, {height})"
 }

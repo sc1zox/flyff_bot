@@ -15,3 +15,4 @@ class ExitCode(IntEnum):
     WINDOW_NOT_FOUND = 1
     ABORTED = 2
     INPUT_FAILURE = 3
+    DETECTION_FAILURE = 4

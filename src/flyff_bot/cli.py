@@ -6,6 +6,7 @@ import argparse
 import sys
 import time
 from collections.abc import Sequence
+from pathlib import Path
 
 from flyff_bot.constants import (
     DEFAULT_KEY_DURATION_SECONDS,
@@ -19,6 +20,12 @@ from flyff_bot.features.input_control import (
     InputErrorCode,
     WindowsInputController,
     parse_virtual_key,
+)
+from flyff_bot.features.vision import (
+    DetectionConfig,
+    DetectionError,
+    OpenCVDnnYoloDetector,
+    WindowsFrameSource,
 )
 from flyff_bot.i18n import Language, Message, Translator
 
@@ -65,6 +72,25 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         type=key_type,
         metavar="KEY",
         help=translator.text(Message.HELP_KEY),
+    )
+    actions.add_argument(
+        "--detect-mobs",
+        action="store_true",
+        help=translator.text(Message.HELP_DETECT_MOBS),
+    )
+    parser.add_argument("--model", help=translator.text(Message.HELP_MODEL))
+    parser.add_argument("--labels", help=translator.text(Message.HELP_LABELS))
+    parser.add_argument(
+        "--confidence",
+        type=float,
+        default=0.5,
+        help=translator.text(Message.HELP_CONFIDENCE, default=0.5),
+    )
+    parser.add_argument(
+        "--class-name",
+        action="append",
+        default=[],
+        help=translator.text(Message.HELP_CLASS_NAME),
     )
     actions.add_argument(
         "--click",
@@ -117,7 +143,37 @@ def main(arguments: Sequence[str] | None = None) -> int:
                     title=repr(window.title),
                 )
             )
-        if args.list or (args.key is None and args.click is None):
+        if args.list or (args.key is None and args.click is None and not args.detect_mobs):
+            return ExitCode.SUCCESS
+
+        if args.detect_mobs:
+            if args.model is None or args.labels is None:
+                print(translator.text(Message.DETECTION_OPTIONS_REQUIRED), file=sys.stderr)
+                return ExitCode.DETECTION_FAILURE
+            detector = OpenCVDnnYoloDetector.from_files(
+                Path(args.model),
+                Path(args.labels),
+                DetectionConfig(
+                    confidence_threshold=args.confidence,
+                    allowed_class_names=frozenset(args.class_name),
+                ),
+            )
+            frame = WindowsFrameSource().capture(windows[0].handle)
+            detections = detector.detect(frame)
+            print(translator.text(Message.DETECTION_SUMMARY, count=len(detections)))
+            for detection in detections:
+                box = detection.bounding_box
+                print(
+                    translator.text(
+                        Message.DETECTION_LINE,
+                        class_name=detection.class_name,
+                        confidence=f"{detection.confidence:.2f}",
+                        x=box.x,
+                        y=box.y,
+                        width=box.width,
+                        height=box.height,
+                    )
+                )
             return ExitCode.SUCCESS
 
         window_handle = windows[0].handle
@@ -141,7 +197,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
             controller.click_client(window_handle, *args.click)
         print(translator.text(Message.INPUT_SENT))
         return ExitCode.SUCCESS
-    except InputControlError as error:
+    except (InputControlError, DetectionError, ValueError) as error:
+        if isinstance(error, DetectionError | ValueError):
+            print(translator.text(Message.DETECTION_FAILED, reason=error), file=sys.stderr)
+            return ExitCode.DETECTION_FAILURE
         print(translator.text(_known_error_message(error)), file=sys.stderr)
         return ExitCode.INPUT_FAILURE
     except OSError as error:

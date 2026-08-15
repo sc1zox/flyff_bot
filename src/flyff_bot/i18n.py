@@ -41,6 +41,15 @@ class Message(StrEnum):
     FRAME_MINIMIZED = "error.frame_minimized"
     FRAME_OCCLUDED = "error.frame_occluded"
     FRAME_CAPTURE_FAILED = "error.frame_capture_failed"
+    HELP_DETECT_MOBS = "help.detect_mobs"
+    HELP_MODEL = "help.model"
+    HELP_LABELS = "help.labels"
+    HELP_CONFIDENCE = "help.confidence"
+    HELP_CLASS_NAME = "help.class_name"
+    DETECTION_OPTIONS_REQUIRED = "error.detection_options_required"
+    DETECTION_FAILED = "error.detection_failed"
+    DETECTION_SUMMARY = "status.detection_summary"
+    DETECTION_LINE = "status.detection_line"
 
 
 class Translator:

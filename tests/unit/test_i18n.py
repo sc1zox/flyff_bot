@@ -17,6 +17,13 @@ def test_each_language_contains_every_message() -> None:
                 title="x",
                 seconds="0",
                 mob_count=0,
+                count=0,
+                class_name="x",
+                confidence="0",
+                x=0,
+                y=0,
+                width=0,
+                height=0,
             )
 
 
