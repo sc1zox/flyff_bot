@@ -1,7 +1,7 @@
 ---
 id: US-010
 title: Native PySide6 dashboard and visual debug overlay
-status: draft
+status: completed
 created: 2026-08-15
 updated: 2026-08-15
 ---
@@ -14,18 +14,18 @@ As a bot user and operator, I want a desktop UI dashboard with live metrics, bot
 
 ## Context and assumptions
 
-- Source: [Target architecture proposal](../sources/2026-08-15-target-architecture-proposal.md) and [ADR-002](../decisions/ADR-002-target-architecture-and-pyside6.md).
-- Depends on [US-006](completed/US-006-target-architecture-bootstrap.md) (PySide6 Foundation) and [US-007](US-007-perception-worldstate-feed.md) (Perception Feed).
+- Source: [Target architecture proposal](../../sources/2026-08-15-target-architecture-proposal.md) and [ADR-002](../../decisions/ADR-002-target-architecture-and-pyside6.md).
+- Depends on [US-006](US-006-target-architecture-bootstrap.md) (PySide6 Foundation) and [US-007](US-007-perception-worldstate-feed.md) (Perception Feed).
 - UI runs on the Qt main thread; all bot loops and vision feeds communicate asynchronously via Qt signals and slots.
 
 ## Acceptance criteria
 
-- [ ] Displays live bot status (Active, Paused, Emergency Stopped, Healing/Reconciling).
-- [ ] Shows current farming recipe/goal progress (e.g. `124/500 Sunstones`).
-- [ ] Provides Start, Pause, and Emergency Stop action buttons in the UI.
-- [ ] Renders an optional visual debug viewport showing captured game frames with YOLO mob bounding boxes and target bar state overlay.
-- [ ] Supports dynamic language switching between German and English.
-- [ ] Automated unit tests verify UI widget initialization, signal reception, and status updates.
+- [x] Displays live bot status (Active, Paused, Emergency Stopped, Healing/Reconciling).
+- [x] Shows current farming recipe/goal progress (e.g. `124/500 Sunstones`).
+- [x] Provides Start, Pause, and Emergency Stop action buttons in the UI.
+- [x] Renders an optional visual debug viewport showing captured game frames with YOLO mob bounding boxes and target bar state overlay.
+- [x] Supports dynamic language switching between German and English.
+- [x] Automated unit tests verify UI widget initialization, signal reception, and status updates.
 
 ## Out of scope
 
