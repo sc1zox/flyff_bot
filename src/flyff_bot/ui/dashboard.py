@@ -72,7 +72,7 @@ class NavigationSnapshot:
     edges: tuple[EdgeSnapshot, ...]
     waypoints: tuple[tuple[float, float], ...] = ()
     safe_waypoint: tuple[float, float] | None = None
-    cell_size_units: float = 40.0
+    cell_size_units: float = 15.0
     leash_radius_units: float = 50.0
 
 

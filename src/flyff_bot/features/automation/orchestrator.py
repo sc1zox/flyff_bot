@@ -130,6 +130,7 @@ class FarmingOrchestrator:
         self._state = _initial_world_state()
         self._last_frame: CapturedFrame | None = None
         self._loot_combat = CombatDecision(CombatMode.FIGHTING)
+        self._last_persist_at_seconds = 0.0
 
     @property
     def mode(self) -> FarmingMode:
@@ -183,6 +184,9 @@ class FarmingOrchestrator:
         if self._pathing is not None:
             self._pathing.observe(self._state, self._last_frame)
             self._state = replace(self._state, is_stuck=self._pathing.is_stalled)
+            if self._state.observed_at_seconds - self._last_persist_at_seconds >= 30.0:
+                self._persist_navigation()
+                self._last_persist_at_seconds = self._state.observed_at_seconds
         if self._goal_completed():
             self._mode = FarmingMode.COMPLETED
             self._persist_navigation()

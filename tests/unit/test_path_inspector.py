@@ -130,12 +130,18 @@ def test_viewport_transform_handles_zero_leash_and_wide_aspect() -> None:
 
 
 def test_spawn_heat_color_interpolation() -> None:
-    low = PathInspectorWidget._spawn_heat_color(0.0)
-    mid = PathInspectorWidget._spawn_heat_color(0.5)
-    high = PathInspectorWidget._spawn_heat_color(1.0)
+    low = PathInspectorWidget._spawn_heat_center_color(0.0)
+    mid = PathInspectorWidget._spawn_heat_center_color(0.5)
+    high = PathInspectorWidget._spawn_heat_center_color(1.0)
 
     assert isinstance(low, QColor)
     assert isinstance(mid, QColor)
     assert isinstance(high, QColor)
     assert low.alpha() > 0
     assert high.alpha() > low.alpha()
+
+    edge_low = PathInspectorWidget._spawn_heat_edge_color(0.0)
+    edge_high = PathInspectorWidget._spawn_heat_edge_color(1.0)
+    assert isinstance(edge_low, QColor)
+    assert isinstance(edge_high, QColor)
+    assert edge_high.alpha() > edge_low.alpha()

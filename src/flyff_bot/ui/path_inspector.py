@@ -6,31 +6,47 @@ import math
 from collections.abc import Callable
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
+    QRadialGradient,
+)
 from PySide6.QtWidgets import QWidget
 
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import NavigationSnapshot
 
-BG_COLOR = QColor(22, 25, 34)
-GRID_LINE_COLOR = QColor(45, 55, 72, 100)
-AXIS_COLOR = QColor(74, 85, 104, 180)
-LEASH_COLOR = QColor(100, 116, 139, 150)
-EDGE_NORMAL_COLOR = QColor(64, 150, 255, 180)
-EDGE_STALL_COLOR = QColor(245, 34, 45, 200)
-NODE_COLOR = QColor(105, 192, 255)
-ROUTE_COLOR = QColor(179, 127, 235, 220)
+BG_COLOR = QColor(17, 20, 28)
+GRID_LINE_COLOR = QColor(36, 44, 60, 140)
+AXIS_COLOR = QColor(70, 85, 110, 180)
+AXIS_TEXT_COLOR = QColor(100, 120, 150, 160)
+LEASH_COLOR = QColor(80, 100, 130, 140)
+EDGE_NORMAL_COLOR = QColor(24, 144, 255, 200)
+EDGE_STALL_COLOR = QColor(255, 77, 79, 220)
+NODE_COLOR = QColor(64, 169, 255)
+ROUTE_COLOR = QColor(179, 127, 235, 240)
 SAFE_NODE_COLOR = QColor(82, 196, 26)
-PLAYER_COLOR = QColor(82, 196, 26)
+PLAYER_COLOR = QColor(0, 240, 255)
+PLAYER_CONE_COLOR = QColor(0, 240, 255, 30)
 PLAYER_ACCENT_COLOR = QColor(255, 255, 255)
-STALL_MARKER_COLOR = QColor(245, 34, 45, 220)
-TEXT_COLOR = QColor(226, 232, 240)
+STALL_MARKER_COLOR = QColor(255, 77, 79, 220)
+TEXT_COLOR = QColor(241, 245, 249)
 MUTED_TEXT_COLOR = QColor(148, 163, 184)
+HUD_BG_COLOR = QColor(15, 23, 42, 200)
+HUD_BORDER_COLOR = QColor(51, 65, 85, 160)
 
 PADDING_FRACTION = 0.2
-MINIMUM_VIEW_EXTENT = 60.0
+MINIMUM_VIEW_EXTENT = 50.0
 WIDGET_MIN_WIDTH = 360
 WIDGET_MIN_HEIGHT = 280
+GRID_STEP_UNITS = 20.0
+FOV_DEGREES = 60.0
+FOV_DISTANCE_UNITS = 25.0
 
 
 class PathInspectorWidget(QWidget):
@@ -88,22 +104,29 @@ class PathInspectorWidget(QWidget):
             painter.end()
             return
 
-        scale, offset_x, offset_y = self._calculate_viewport_transform(width, height)
+        scale, offset_x, offset_y, min_x, max_x, min_y, max_y = self._calculate_viewport_transform(
+            width, height
+        )
 
         def to_screen(wx: float, wy: float) -> QPointF:
             return QPointF(offset_x + wx * scale, offset_y - wy * scale)
 
-        self._draw_grid_and_axes(painter, width, height, to_screen)
+        self._draw_grid_and_axes(
+            painter, width, height, to_screen, min_x, max_x, min_y, max_y, scale
+        )
         self._draw_leash_boundary(painter, to_screen)
         self._draw_heatmap_cells(painter, to_screen, scale)
         self._draw_graph_edges(painter, to_screen)
         self._draw_active_route(painter, to_screen)
         self._draw_safe_waypoint(painter, to_screen)
-        self._draw_player_marker(painter, to_screen)
-        self._draw_overlay_hud(painter, width, height)
+        self._draw_player_marker(painter, to_screen, scale)
+        self._draw_overlay_hud(painter, width)
+        self._draw_legend(painter, width, height)
         painter.end()
 
-    def _calculate_viewport_transform(self, width: int, height: int) -> tuple[float, float, float]:
+    def _calculate_viewport_transform(
+        self, width: int, height: int
+    ) -> tuple[float, float, float, float, float, float, float]:
         snapshot = self._snapshot
         assert snapshot is not None
 
@@ -139,13 +162,13 @@ class PathInspectorWidget(QWidget):
         center_world_y = (min_y + max_y) / 2.0
 
         avail_w = max(10, width - 40)
-        avail_h = max(10, height - 70)
+        avail_h = max(10, height - 85)
         scale = min(avail_w / span_x, avail_h / span_y)
 
         screen_center_x = width / 2.0 - center_world_x * scale
-        screen_center_y = (height - 30) / 2.0 + center_world_y * scale
+        screen_center_y = (height - 35) / 2.0 + center_world_y * scale
 
-        return scale, screen_center_x, screen_center_y
+        return scale, screen_center_x, screen_center_y, min_x, max_x, min_y, max_y
 
     def _draw_standby_message(self, painter: QPainter, width: int, height: int) -> None:
         painter.setPen(QPen(MUTED_TEXT_COLOR))
@@ -160,11 +183,62 @@ class PathInspectorWidget(QWidget):
         width: int,
         height: int,
         to_screen: Callable[[float, float], QPointF],
+        min_x: float,
+        max_x: float,
+        min_y: float,
+        max_y: float,
+        scale: float,
     ) -> None:
+        start_x = math.floor(min_x / GRID_STEP_UNITS) * GRID_STEP_UNITS
+        end_x = math.ceil(max_x / GRID_STEP_UNITS) * GRID_STEP_UNITS
+        start_y = math.floor(min_y / GRID_STEP_UNITS) * GRID_STEP_UNITS
+        end_y = math.ceil(max_y / GRID_STEP_UNITS) * GRID_STEP_UNITS
+
+        painter.setFont(QFont("", 7))
+
+        gx = start_x
+        while gx <= end_x:
+            if abs(gx) > 0.1:
+                pt_top = to_screen(gx, max_y + 10.0)
+                pt_bottom = to_screen(gx, min_y - 10.0)
+                painter.setPen(QPen(GRID_LINE_COLOR, 1, Qt.PenStyle.DashLine))
+                painter.drawLine(
+                    QPointF(pt_top.x(), 0),
+                    QPointF(pt_bottom.x(), float(height)),
+                )
+                if scale > 1.2:
+                    painter.setPen(QPen(AXIS_TEXT_COLOR))
+                    painter.drawText(
+                        QPointF(pt_top.x() + 2, float(height) - 30),
+                        f"{gx:+.0f}m",
+                    )
+            gx += GRID_STEP_UNITS
+
+        gy = start_y
+        while gy <= end_y:
+            if abs(gy) > 0.1:
+                pt_left = to_screen(min_x - 10.0, gy)
+                pt_right = to_screen(max_x + 10.0, gy)
+                painter.setPen(QPen(GRID_LINE_COLOR, 1, Qt.PenStyle.DashLine))
+                painter.drawLine(
+                    QPointF(0, pt_left.y()),
+                    QPointF(float(width), pt_right.y()),
+                )
+                if scale > 1.2:
+                    painter.setPen(QPen(AXIS_TEXT_COLOR))
+                    painter.drawText(
+                        QPointF(10, pt_left.y() - 2),
+                        f"{gy:+.0f}m",
+                    )
+            gy += GRID_STEP_UNITS
+
         origin = to_screen(0.0, 0.0)
-        painter.setPen(QPen(AXIS_COLOR, 1, Qt.PenStyle.DashLine))
+        painter.setPen(QPen(AXIS_COLOR, 1, Qt.PenStyle.SolidLine))
         painter.drawLine(QPointF(0, origin.y()), QPointF(width, origin.y()))
         painter.drawLine(QPointF(origin.x(), 0), QPointF(origin.x(), height))
+
+        painter.setPen(QPen(AXIS_TEXT_COLOR))
+        painter.drawText(QPointF(origin.x() + 4, 18), "N (0°)")
 
     def _draw_leash_boundary(
         self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
@@ -201,17 +275,27 @@ class PathInspectorWidget(QWidget):
 
             if cell.spawn_weight > 0.0:
                 intensity = min(1.0, cell.spawn_weight / max_weight)
-                heat_color = self._spawn_heat_color(intensity)
-                painter.fillRect(rect, heat_color)
+                gradient = QRadialGradient(pt, cell_size_px * 0.7)
+                center_color = self._spawn_heat_center_color(intensity)
+                edge_color = self._spawn_heat_edge_color(intensity)
+                gradient.setColorAt(0.0, center_color)
+                gradient.setColorAt(0.8, edge_color)
+                gradient.setColorAt(1.0, QColor(0, 0, 0, 0))
+
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(gradient))
+                painter.drawEllipse(pt, cell_size_px * 0.7, cell_size_px * 0.7)
+            else:
+                painter.setPen(QPen(QColor(45, 55, 72, 80), 1))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(rect)
 
             if cell.stalls > 0:
                 painter.setPen(QPen(STALL_MARKER_COLOR, 1.5, Qt.PenStyle.DashLine))
-                painter.setBrush(QBrush(QColor(245, 34, 45, 40)))
+                painter.setBrush(QBrush(QColor(255, 77, 79, 45)))
                 painter.drawRect(rect)
-            elif cell.spawn_weight <= 0.0:
-                painter.setPen(QPen(GRID_LINE_COLOR, 1))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRect(rect)
+                painter.drawLine(rect.topLeft(), rect.bottomRight())
+                painter.drawLine(rect.topRight(), rect.bottomLeft())
 
     def _draw_graph_edges(
         self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
@@ -228,11 +312,11 @@ class PathInspectorWidget(QWidget):
                 painter.setPen(QPen(EDGE_NORMAL_COLOR, 1.5))
             painter.drawLine(p1, p2)
 
-        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setPen(QPen(QColor(15, 23, 42), 1))
         painter.setBrush(QBrush(NODE_COLOR))
         for cell in snapshot.cells:
             pt = to_screen(cell.center_x, cell.center_y)
-            painter.drawEllipse(pt, 3.0, 3.0)
+            painter.drawEllipse(pt, 3.5, 3.5)
 
     def _draw_active_route(
         self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
@@ -272,12 +356,23 @@ class PathInspectorWidget(QWidget):
             return
 
         pt = to_screen(snapshot.safe_waypoint[0], snapshot.safe_waypoint[1])
-        painter.setPen(QPen(SAFE_NODE_COLOR, 2))
-        painter.setBrush(QBrush(QColor(82, 196, 26, 120)))
-        painter.drawRect(QRectF(pt.x() - 4, pt.y() - 4, 8, 8))
+        painter.setPen(QPen(SAFE_NODE_COLOR, 1.5))
+        painter.setBrush(QBrush(QColor(82, 196, 26, 160)))
+        diamond = QPolygonF(
+            [
+                QPointF(pt.x(), pt.y() - 6),
+                QPointF(pt.x() + 6, pt.y()),
+                QPointF(pt.x(), pt.y() + 6),
+                QPointF(pt.x() - 6, pt.y()),
+            ]
+        )
+        painter.drawPolygon(diamond)
 
     def _draw_player_marker(
-        self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
+        self,
+        painter: QPainter,
+        to_screen: Callable[[float, float], QPointF],
+        scale: float,
     ) -> None:
         snapshot = self._snapshot
         assert snapshot is not None
@@ -287,58 +382,116 @@ class PathInspectorWidget(QWidget):
         dx = math.sin(heading_rad)
         dy = math.cos(heading_rad)
 
-        size = 8.0
-        front = QPointF(pt.x() + dx * size * 1.5, pt.y() - dy * size * 1.5)
-        left = QPointF(pt.x() - dy * size - dx * size * 0.6, pt.y() - dx * size + dy * size * 0.6)
-        right = QPointF(pt.x() + dy * size - dx * size * 0.6, pt.y() + dx * size + dy * size * 0.6)
+        fov_dist_px = FOV_DISTANCE_UNITS * scale
+        half_fov_rad = math.radians(FOV_DEGREES / 2.0)
+        left_angle = heading_rad - half_fov_rad
+        right_angle = heading_rad + half_fov_rad
+
+        cone_left = QPointF(
+            pt.x() + math.sin(left_angle) * fov_dist_px,
+            pt.y() - math.cos(left_angle) * fov_dist_px,
+        )
+        cone_right = QPointF(
+            pt.x() + math.sin(right_angle) * fov_dist_px,
+            pt.y() - math.cos(right_angle) * fov_dist_px,
+        )
+
+        cone_path = QPainterPath()
+        cone_path.moveTo(pt)
+        cone_path.lineTo(cone_left)
+        cone_path.lineTo(cone_right)
+        cone_path.closeSubpath()
+
+        painter.setPen(QPen(QColor(0, 240, 255, 60), 1, Qt.PenStyle.DashLine))
+        painter.setBrush(QBrush(PLAYER_CONE_COLOR))
+        painter.drawPath(cone_path)
+
+        size = 9.0
+        front = QPointF(pt.x() + dx * size * 1.6, pt.y() - dy * size * 1.6)
+        left = QPointF(pt.x() - dy * size - dx * size * 0.5, pt.y() - dx * size + dy * size * 0.5)
+        right = QPointF(pt.x() + dy * size - dx * size * 0.5, pt.y() + dx * size + dy * size * 0.5)
 
         painter.setPen(QPen(PLAYER_ACCENT_COLOR, 1.5))
         painter.setBrush(QBrush(PLAYER_COLOR))
         painter.drawPolygon(QPolygonF([front, left, pt, right]))
+
+        painter.setPen(QPen(QColor(15, 23, 42), 1.5))
+        painter.setBrush(QBrush(PLAYER_ACCENT_COLOR))
         painter.drawEllipse(pt, 3.5, 3.5)
 
-    def _draw_overlay_hud(self, painter: QPainter, width: int, height: int) -> None:
+    def _draw_overlay_hud(self, painter: QPainter, width: int) -> None:
         snapshot = self._snapshot
         assert snapshot is not None
 
-        painter.setFont(QFont("", 9))
+        compass = _heading_to_compass(snapshot.heading_degrees)
+        hud_w = min(float(width - 20), 420.0)
+        hud_rect = QRectF(10, 8, hud_w, 24)
+
+        painter.setPen(QPen(HUD_BORDER_COLOR, 1))
+        painter.setBrush(QBrush(HUD_BG_COLOR))
+        painter.drawRoundedRect(hud_rect, 4.0, 4.0)
+
+        painter.setFont(QFont("", 8))
         painter.setPen(QPen(TEXT_COLOR))
         status_line = (
-            f"Pos: ({snapshot.player_x:.1f}, {snapshot.player_y:.1f})  "
-            f"Facing: {snapshot.heading_degrees:.0f}°  "
+            f"Pos: ({snapshot.player_x:+.1f}, {snapshot.player_y:+.1f})  "
+            f"Facing: {snapshot.heading_degrees:.0f}° ({compass})  "
             f"Cells: {len(snapshot.cells)}  "
             f"Route: {len(snapshot.waypoints)}"
         )
-        painter.drawText(QRectF(10, 8, width - 20, 20), Qt.AlignmentFlag.AlignLeft, status_line)
+        painter.drawText(
+            QRectF(16, 8, hud_w - 12, 24),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            status_line,
+        )
 
+    def _draw_legend(self, painter: QPainter, width: int, height: int) -> None:
         legend_y = height - 22
+        painter.setFont(QFont("", 8))
+
         legend_items = [
-            (PLAYER_COLOR, Message.UI_NAV_LEGEND_PLAYER),
-            (QColor(250, 173, 20), Message.UI_NAV_LEGEND_SPAWN),
-            (EDGE_NORMAL_COLOR, Message.UI_NAV_LEGEND_PATH),
-            (STALL_MARKER_COLOR, Message.UI_NAV_LEGEND_OBSTACLE),
-            (ROUTE_COLOR, Message.UI_NAV_LEGEND_ROUTE),
+            ("▲", PLAYER_COLOR, Message.UI_NAV_LEGEND_PLAYER),
+            ("●", QColor(250, 140, 22), Message.UI_NAV_LEGEND_SPAWN),
+            ("━", EDGE_NORMAL_COLOR, Message.UI_NAV_LEGEND_PATH),
+            ("⛝", STALL_MARKER_COLOR, Message.UI_NAV_LEGEND_OBSTACLE),
+            ("━", ROUTE_COLOR, Message.UI_NAV_LEGEND_ROUTE),
+            ("◆", SAFE_NODE_COLOR, Message.UI_NAV_LEGEND_SAFE),
         ]
+
         cur_x = 10.0
-        for color, msg in legend_items:
-            painter.fillRect(QRectF(cur_x, legend_y + 3, 10, 10), color)
-            cur_x += 14
+        for symbol, color, msg in legend_items:
+            painter.setPen(QPen(color))
+            painter.drawText(QPointF(cur_x, legend_y + 12), symbol)
+            cur_x += painter.fontMetrics().horizontalAdvance(symbol) + 4
+
             label = self._translator.text(msg)
             painter.setPen(QPen(MUTED_TEXT_COLOR))
             painter.drawText(QPointF(cur_x, legend_y + 12), label)
-            cur_x += painter.fontMetrics().horizontalAdvance(label) + 12
+            cur_x += painter.fontMetrics().horizontalAdvance(label) + 10
+            if cur_x > width - 30:
+                break
 
     @staticmethod
-    def _spawn_heat_color(intensity: float) -> QColor:
+    def _spawn_heat_center_color(intensity: float) -> QColor:
         clamped = max(0.0, min(1.0, intensity))
-        if clamped < 0.5:
-            fraction = clamped / 0.5
-            red = int(82 + (250 - 82) * fraction)
-            green = int(196 + (173 - 196) * fraction)
-            blue = int(26 + (20 - 26) * fraction)
-        else:
-            fraction = (clamped - 0.5) / 0.5
-            red = int(250 + (245 - 250) * fraction)
-            green = int(173 + (34 - 173) * fraction)
-            blue = int(20 + (45 - 20) * fraction)
-        return QColor(red, green, blue, int(60 + clamped * 120))
+        red = 255
+        green = int(197 - clamped * 120)
+        blue = int(61 - clamped * 40)
+        alpha = int(90 + clamped * 130)
+        return QColor(red, green, blue, alpha)
+
+    @staticmethod
+    def _spawn_heat_edge_color(intensity: float) -> QColor:
+        clamped = max(0.0, min(1.0, intensity))
+        red = int(250 + clamped * 5)
+        green = int(140 - clamped * 80)
+        blue = int(22 + clamped * 20)
+        alpha = int(30 + clamped * 50)
+        return QColor(red, green, blue, alpha)
+
+
+def _heading_to_compass(heading: float) -> str:
+    norm = (heading % 360.0 + 360.0) % 360.0
+    directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    index = int((norm + 22.5) / 45.0) % 8
+    return directions[index]

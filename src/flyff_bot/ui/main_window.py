@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal, Slot
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -295,6 +295,12 @@ class MainWindow(QMainWindow):
         if update.navigation is not None:
             self._path_inspector.set_navigation(update.navigation)
         self._update_overlay_visibility(self._debug_toggle.isChecked())
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Ensure the session is paused and navigation data is persisted upon window close."""
+
+        self.pause_requested.emit()
+        super().closeEvent(event)
 
 
 def _key_label(key: int) -> str | None:

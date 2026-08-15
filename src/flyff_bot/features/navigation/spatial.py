@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
-DEFAULT_CELL_SIZE_UNITS = 40.0
+DEFAULT_CELL_SIZE_UNITS = 15.0
 DEFAULT_SPAWN_HALF_LIFE_SECONDS = 600.0
 DEFAULT_SPAWN_WEIGHT_PER_SIGHTING = 1.0
 DEFAULT_STALL_COST_PENALTY = 3.0
