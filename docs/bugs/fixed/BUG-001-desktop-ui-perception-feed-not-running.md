@@ -1,7 +1,7 @@
 ---
 id: BUG-001
 title: Desktop UI does not run perception or detection feed when started
-status: reported
+status: resolved
 severity: high
 created: 2026-08-15
 updated: 2026-08-15
@@ -25,7 +25,7 @@ updated: 2026-08-15
 
 ## Expected behavior
 
-Per [US-010](../user-stories/completed/US-010-pyside6-dashboard-and-overlay.md) and [US-013](../user-stories/US-013-autonomous-farming-loop-and-orchestration-engine.md), launching the desktop UI and clicking "Starten" should attach to the foreground game window, periodically capture frames, run YOLO mob detection and target verification, update the visible monster count on the dashboard, and display the live video stream with green bounding boxes when the debug overlay is enabled.
+Per [US-010](../../user-stories/completed/US-010-pyside6-dashboard-and-overlay.md) and [US-013](../../user-stories/US-013-autonomous-farming-loop-and-orchestration-engine.md), launching the desktop UI and clicking "Starten" should attach to the foreground game window, periodically capture frames, run YOLO mob detection and target verification, update the visible monster count on the dashboard, and display the live video stream with green bounding boxes when the debug overlay is enabled.
 
 ## Actual behavior
 
@@ -40,6 +40,6 @@ Per [US-010](../user-stories/completed/US-010-pyside6-dashboard-and-overlay.md) 
 
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists reproducing UI lifecycle failure without active worker.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated test or deterministic manual check exists reproducing UI lifecycle failure without active worker.
+- [x] The check passes after the fix.
+- [x] Related documentation is current.

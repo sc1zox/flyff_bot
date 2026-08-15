@@ -18,9 +18,10 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
+from flyff_bot.features.input_control import InputControlError, InputErrorCode
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.i18n import Language, Translator
-from flyff_bot.ui.app import connect_farming_controls
+from flyff_bot.ui.app import connect_farming_controls, start_farming
 from flyff_bot.ui.dashboard import BotStatus, DashboardFeed, DashboardUpdate, FarmingGoal
 from flyff_bot.ui.main_window import MainWindow
 
@@ -107,6 +108,51 @@ def test_farming_controls_connect_dashboard_intent() -> None:
     application.processEvents()
 
     assert session.requests == ["start", "pause", "stop"]
+
+
+def test_start_farming_focuses_the_game_before_starting_the_session() -> None:
+    calls: list[str] = []
+
+    class Controller:
+        def focus_window(self, window_handle: int) -> None:
+            assert window_handle == 42
+            calls.append("focus")
+
+    class Session:
+        def start(self) -> None:
+            calls.append("start")
+
+        def pause(self) -> None:
+            calls.append("pause")
+
+        def emergency_stop(self) -> None:
+            return None
+
+    start_farming(Controller(), 42, Session())
+
+    assert calls == ["focus", "start"]
+
+
+def test_start_farming_pauses_without_traceback_when_focus_fails() -> None:
+    calls: list[str] = []
+
+    class Controller:
+        def focus_window(self, _window_handle: int) -> None:
+            raise InputControlError(InputErrorCode.FOCUS_FAILED)
+
+    class Session:
+        def start(self) -> None:
+            calls.append("start")
+
+        def pause(self) -> None:
+            calls.append("pause")
+
+        def emergency_stop(self) -> None:
+            return None
+
+    start_farming(Controller(), 42, Session())
+
+    assert calls == ["pause"]
 
 
 def _world_state() -> WorldState:

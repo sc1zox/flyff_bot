@@ -117,6 +117,7 @@ def test_tick_aggregates_one_shared_frame_into_a_new_world_state() -> None:
     assert tick.state.visible_mobs[0].class_name == "Aibatt"
     assert tick.state.selected_target == SelectedTarget(TargetState.VALID, "Aibatt", 20)
     assert tick.state.recent_loot[0].item_name == "Sword"
+    assert tick.frame is FRAME
     assert frame_source.handles == [WINDOW_HANDLE]
     assert detector.frames == verifier.frames == loot_reader.frames == [FRAME]
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 import cv2
+import numpy as np
+import numpy.typing as npt
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
@@ -17,7 +19,7 @@ from flyff_bot.constants import (
     DEFAULT_PROCESS_NAME,
 )
 from flyff_bot.features.automation.orchestrator import FarmingOrchestrator
-from flyff_bot.features.input_control import WindowsInputController
+from flyff_bot.features.input_control import InputControlError, WindowsInputController
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision import (
     DetectionConfig,
@@ -42,12 +44,36 @@ class FarmingControls(Protocol):
     def emergency_stop(self) -> None: ...
 
 
-def connect_farming_controls(window: MainWindow, orchestrator: FarmingControls) -> None:
+class WindowFocusControls(Protocol):
+    """The foreground handoff required before a farming session can run."""
+
+    def focus_window(self, window_handle: int) -> None: ...
+
+
+def connect_farming_controls(
+    window: MainWindow,
+    orchestrator: FarmingControls,
+    *,
+    on_start: Callable[[], None] | None = None,
+) -> None:
     """Connect dashboard intent signals to the small orchestration control surface."""
 
-    window.start_requested.connect(orchestrator.start)
+    window.start_requested.connect(on_start or orchestrator.start)
     window.pause_requested.connect(orchestrator.pause)
     window.emergency_stop_requested.connect(orchestrator.emergency_stop)
+
+
+def start_farming(
+    controller: WindowFocusControls, window_handle: int, orchestrator: FarmingControls
+) -> None:
+    """Return focus to the game before allowing guarded farming ticks to resume."""
+
+    try:
+        controller.focus_window(window_handle)
+    except InputControlError:
+        orchestrator.pause()
+        return
+    orchestrator.start()
 
 
 def run_desktop(arguments: Sequence[str] | None = None) -> int:
@@ -73,29 +99,42 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
             and anchor_path.is_file()
             and flame_template_path.is_file()
         ):
-            anchor = cv2.imread(str(anchor_path))
-            flame_template = cv2.imread(str(flame_template_path))
-            templates = {"Flame": flame_template} if flame_template is not None else {}
-            pipeline = PerceptionPipeline(
-                WindowsFrameSource(),
-                OpenCVDnnYoloDetector.from_files(
-                    model_path,
-                    labels_path,
-                    DetectionConfig(confidence_threshold=0.3),
-                ),
-                TargetVerifier(templates, anchor),
-                LootLogReader(TesseractTextRecognizer()),
-            )
-            orchestrator = FarmingOrchestrator(
-                pipeline,
-                controller,
-                window_handle,
-                dashboard_feed=feed,
-            )
-            connect_farming_controls(window, orchestrator)
-            timer = QTimer(window)
-            timer.timeout.connect(orchestrator.tick)
-            timer.start(100)
+            anchor = _read_template(anchor_path)
+            flame_template = _read_template(flame_template_path)
+            if anchor is not None and flame_template is not None:
+                pipeline = PerceptionPipeline(
+                    WindowsFrameSource(),
+                    OpenCVDnnYoloDetector.from_files(
+                        model_path,
+                        labels_path,
+                        DetectionConfig(confidence_threshold=0.3),
+                    ),
+                    TargetVerifier({"Flame": flame_template}, anchor),
+                    LootLogReader(TesseractTextRecognizer()),
+                )
+                orchestrator = FarmingOrchestrator(
+                    pipeline,
+                    controller,
+                    window_handle,
+                    dashboard_feed=feed,
+                )
+                connect_farming_controls(
+                    window,
+                    orchestrator,
+                    on_start=lambda: start_farming(controller, window_handle, orchestrator),
+                )
+                timer = QTimer(window)
+                timer.timeout.connect(orchestrator.tick)
+                timer.start(100)
 
     window.show()
     return application.exec()
+
+
+def _read_template(path: Path) -> npt.NDArray[np.uint8] | None:
+    """Read one BGR UI template when its image data is valid."""
+
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if image is None:
+        return None
+    return cast("npt.NDArray[np.uint8]", image)

@@ -76,6 +76,7 @@ class PerceptionTick:
     state: WorldState
     events: tuple[PerceptionEvent, ...]
     failures: frozenset[PerceptionFailure]
+    frame: CapturedFrame | None = None
 
 
 class PerceptionPipeline:
@@ -138,7 +139,7 @@ class PerceptionPipeline:
             recent_loot=recent_loot,
             viewport=Viewport(frame.client_size.width, frame.client_size.height),
         )
-        return PerceptionTick(state, _events(previous_state, state), frozenset(failures))
+        return PerceptionTick(state, _events(previous_state, state), frozenset(failures), frame)
 
     def _new_loot_events(self, observed_loot: tuple[LootEvent, ...]) -> tuple[LootEvent, ...]:
         """Return notifications newly visible since the preceding successful OCR read."""
