@@ -15,6 +15,7 @@ related:
   - ../user-stories/completed/US-004-target-mob-verification.md
   - ../user-stories/completed/US-005-loot-log-ocr.md
   - ../user-stories/completed/US-008-reactive-combat-controller.md
+  - ../user-stories/completed/US-009-reactive-loot-controller.md
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
   - ../user-stories/completed/US-012-real-world-vision-refactoring.md
 ---
@@ -116,6 +117,13 @@ cooldowns. It requires a valid target-header observation before attacking, detec
 decreases as progress, and reaches `TARGET_DEAD` when the target clears or has zero HP. Its
 `CombatInputDispatcher` is the only platform dispatch boundary: it sends no input unless the game
 window remains foregrounded and the END emergency stop is clear.
+
+US-009 implements the reactive loot boundary. `LootController` begins one configured pickup-key
+attempt from explicit combat-death evidence, waits for newly emitted OCR loot confirmation, and
+requests patrol movement once when that confirmation window expires. `PerceptionPipeline`
+de-duplicates still-visible OCR notifications before updating immutable inventory counts and the
+recipe-progress marker, then emits loot-collected perception events. `LootInputDispatcher` sends
+the pickup key only while the game window is foregrounded and the END emergency stop is clear.
 
 US-011 adds the offline operational path for custom mob models. The repository supplies the empty
 multi-class YOLO layout at `data/datasets/mobs/` and its `data.yaml` class registry. The CLI can

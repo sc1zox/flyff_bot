@@ -67,10 +67,19 @@ related:
   and English pickup patterns into timestamped loot events.
 - **Loot event** — A typed record of one recognized pickup containing its timestamp, item name,
   quantity, and original OCR text.
+- **Loot controller** — The reactive state machine that starts one configured pickup-key attempt
+  after explicit combat-death evidence, waits for newly emitted OCR loot confirmation, and requests
+  patrol movement once if the confirmation window expires.
+- **Loot input dispatcher** — The Win32-facing loot boundary that dispatches a pickup key only
+  while the specified game window is foregrounded and the END emergency stop is not active.
+- **Loot de-duplication** — Treating an OCR pickup notification as new only when its item, count,
+  and original text were absent from the preceding successful OCR read, so a notification that
+  remains visible does not increment inventory or recipe progress again.
 - **Perception pipeline** — The application service that captures one frame, independently
   aggregates mob, target, and loot observations into a new immutable world-state snapshot, and
   reports material state changes and non-fatal feed failures.
 - **Perception event** — A typed notification emitted by a perception tick when the selected
-  target changes or a previously unseen visible mob appears.
+  target changes, a previously unseen visible mob appears, or a newly confirmed loot pickup is
+  recorded.
 - **Perception failure** — A typed, non-fatal indication that detection, target verification, or
   loot reading failed for a tick; the snapshot retains that feed's prior value.

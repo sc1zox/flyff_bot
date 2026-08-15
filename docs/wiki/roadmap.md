@@ -38,7 +38,7 @@ Phase 1 (Bootstrap & Architecture) ──► Phase 2 (Perception Pipeline) ─�
 ### Phase 3: Closed-Loop Execution & Reactive Controllers
 - **US-007:** Perception to WorldState feed integration (Connecting CV pipelines to the central `WorldState` snapshot).
 - **US-008:** Reactive combat controller and target engagement (Attack sequencing with post-action visual verification).
-- **US-009:** Reactive loot collector and drop accounting (Item pickup sequence and recipe progress tracking).
+- **US-009 (Completed):** Reactive loot collector and drop accounting (Item pickup sequence and recipe progress tracking).
 
 ### Phase 4: Desktop UI & Visual Debugging
 - **US-010:** Native PySide6 dashboard and visual debug overlay (Live monitoring, YOLO box overlay, killswitch controls).

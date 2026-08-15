@@ -26,7 +26,7 @@ stories are moved to `docs/user-stories/completed/`.
 
 ### Phase 3: Closed-Loop Execution & Reactive Controllers
 - [x] [**US-008: Reactive combat controller and target engagement**](completed/US-008-reactive-combat-controller.md) — Target selection, skill rotation, and post-action visual verification.
-- [ ] [**US-009: Reactive loot collector and drop accounting**](US-009-reactive-loot-controller.md) — Automated item pickup routines and drop counting.
+- [x] [**US-009: Reactive loot collector and drop accounting**](completed/US-009-reactive-loot-controller.md) — Automated item pickup routines and drop counting.
 
 ### Phase 4: Desktop UI & Visual Debugging
 - [ ] [**US-010: Native PySide6 dashboard and visual debug overlay**](US-010-pyside6-dashboard-and-overlay.md) — Desktop monitoring, live YOLO overlay, recipe progress, and killswitch controls.

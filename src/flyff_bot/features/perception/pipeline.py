@@ -11,6 +11,7 @@ from typing import Protocol
 import cv2
 
 from flyff_bot.features.automation.models import (
+    InventoryEntry,
     RecentLoot,
     SelectedTarget,
     TargetState,
@@ -55,6 +56,7 @@ class PerceptionEventKind(StrEnum):
 
     TARGET_CHANGED = "target_changed"
     MOB_APPEARED = "mob_appeared"
+    LOOT_COLLECTED = "loot_collected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +66,7 @@ class PerceptionEvent:
     kind: PerceptionEventKind
     target: SelectedTarget | None = None
     mob: VisibleMob | None = None
+    loot: RecentLoot | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +94,7 @@ class PerceptionPipeline:
         self._target_verifier = target_verifier
         self._loot_log_reader = loot_log_reader
         self._clock = clock
+        self._visible_loot_fingerprints: frozenset[tuple[str, int, str]] = frozenset()
 
     def tick(self, window_handle: int, previous_state: WorldState) -> PerceptionTick:
         """Build a new snapshot, retaining a feed's prior data if that feed fails."""
@@ -100,6 +104,7 @@ class PerceptionPipeline:
         visible_mobs = previous_state.visible_mobs
         selected_target = previous_state.selected_target
         recent_loot = previous_state.recent_loot
+        confirmed_loot: tuple[LootEvent, ...] = ()
 
         try:
             visible_mobs = tuple(
@@ -112,16 +117,21 @@ class PerceptionPipeline:
         except ValueError, cv2.error:
             failures.add(PerceptionFailure.TARGET_VERIFICATION)
         try:
-            recent_loot = tuple(_recent_loot(event) for event in self._loot_log_reader.read(frame))
+            observed_loot = self._loot_log_reader.read(frame)
+            confirmed_loot = self._new_loot_events(observed_loot)
+            recent_loot = tuple(_recent_loot(event) for event in confirmed_loot)
         except LootOcrError:
             failures.add(PerceptionFailure.LOOT_READING)
+
+        inventory = _apply_loot(previous_state.inventory, confirmed_loot)
 
         state = WorldState(
             observed_at_seconds=self._clock(),
             position=previous_state.position,
             nearby_mob_count=len(visible_mobs),
-            inventory=previous_state.inventory,
-            progress_marker=previous_state.progress_marker,
+            inventory=inventory,
+            progress_marker=previous_state.progress_marker
+            + sum(event.count for event in confirmed_loot),
             is_stuck=previous_state.is_stuck,
             selected_target=selected_target,
             visible_mobs=visible_mobs,
@@ -129,6 +139,18 @@ class PerceptionPipeline:
             viewport=Viewport(frame.client_size.width, frame.client_size.height),
         )
         return PerceptionTick(state, _events(previous_state, state), frozenset(failures))
+
+    def _new_loot_events(self, observed_loot: tuple[LootEvent, ...]) -> tuple[LootEvent, ...]:
+        """Return notifications newly visible since the preceding successful OCR read."""
+
+        fingerprints = frozenset(_loot_fingerprint(event) for event in observed_loot)
+        new_events = tuple(
+            event
+            for event in observed_loot
+            if _loot_fingerprint(event) not in self._visible_loot_fingerprints
+        )
+        self._visible_loot_fingerprints = fingerprints
+        return new_events
 
 
 def _visible_mob(detection: Detection) -> VisibleMob:
@@ -157,6 +179,19 @@ def _recent_loot(event: LootEvent) -> RecentLoot:
     return RecentLoot(event.item_name, event.count, event.raw_text)
 
 
+def _loot_fingerprint(event: LootEvent) -> tuple[str, int, str]:
+    return (event.item_name, event.count, event.raw_text)
+
+
+def _apply_loot(
+    inventory: tuple[InventoryEntry, ...], loot_events: tuple[LootEvent, ...]
+) -> tuple[InventoryEntry, ...]:
+    quantities = {entry.item: entry.quantity for entry in inventory}
+    for event in loot_events:
+        quantities[event.item_name] = quantities.get(event.item_name, 0) + event.count
+    return tuple(InventoryEntry(item, quantity) for item, quantity in quantities.items())
+
+
 def _events(previous_state: WorldState, state: WorldState) -> tuple[PerceptionEvent, ...]:
     events: list[PerceptionEvent] = []
     if state.selected_target != previous_state.selected_target:
@@ -168,5 +203,10 @@ def _events(previous_state: WorldState, state: WorldState) -> tuple[PerceptionEv
         PerceptionEvent(PerceptionEventKind.MOB_APPEARED, mob=mob)
         for mob in state.visible_mobs
         if mob not in previous_mobs
+    )
+    events.extend(
+        PerceptionEvent(PerceptionEventKind.LOOT_COLLECTED, loot=loot)
+        for loot in state.recent_loot
+        if loot not in previous_state.recent_loot
     )
     return tuple(events)

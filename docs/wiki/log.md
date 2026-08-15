@@ -70,3 +70,9 @@ moved US-008 to the completed stories directory.
 Recorded the anchor-gated target-header verification, dedicated HP-bar percentage measurement, and
 real Flyff screenshot coverage for empty, whitelisted, and non-whitelisted target states; moved
 US-012 to the completed stories directory.
+
+## [2026-08-15] synthesis | Reactive loot collector and drop accounting (US-009)
+
+Recorded the completed one-attempt pickup state machine, newly visible OCR loot accounting,
+inventory and recipe-progress updates, timeout patrol recovery, and foreground/END-guarded loot
+input boundary; moved US-009 to the completed stories directory.

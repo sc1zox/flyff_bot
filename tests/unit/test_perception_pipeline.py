@@ -111,7 +111,8 @@ def test_tick_aggregates_one_shared_frame_into_a_new_world_state() -> None:
     assert tick.state is not _previous_state()
     assert tick.state.observed_at_seconds == OBSERVED_AT_SECONDS
     assert tick.state.position == Position(3, 4)
-    assert tick.state.inventory == (InventoryEntry("potion", 2),)
+    assert tick.state.inventory == (InventoryEntry("potion", 2), InventoryEntry("Sword", 1))
+    assert tick.state.progress_marker == 10
     assert tick.state.nearby_mob_count == 1
     assert tick.state.visible_mobs[0].class_name == "Aibatt"
     assert tick.state.selected_target == SelectedTarget(TargetState.VALID, "Aibatt", 20)
@@ -160,3 +161,54 @@ def test_tick_isolates_target_verification_failure() -> None:
 
     assert tick.failures == frozenset({PerceptionFailure.TARGET_VERIFICATION})
     assert tick.state.selected_target == SelectedTarget(TargetState.NONE, None, 0)
+
+
+def test_tick_counts_new_loot_only_once_until_the_notification_clears() -> None:
+    reader = _LootLogReader(
+        (LootEvent(datetime(2026, 8, 15, tzinfo=UTC), "Sword", 2, "You received 2 Sword."),)
+    )
+    pipeline = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        reader,
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+
+    first = pipeline.tick(WINDOW_HANDLE, _previous_state())
+    repeated = pipeline.tick(WINDOW_HANDLE, first.state)
+    reader.result = ()
+    cleared = pipeline.tick(WINDOW_HANDLE, repeated.state)
+    reader.result = (
+        LootEvent(datetime(2026, 8, 15, tzinfo=UTC), "Sword", 2, "You received 2 Sword."),
+    )
+    after_clear = pipeline.tick(WINDOW_HANDLE, cleared.state)
+
+    assert first.state.inventory == (InventoryEntry("potion", 2), InventoryEntry("Sword", 2))
+    assert first.state.progress_marker == 11
+    assert repeated.state.inventory == first.state.inventory
+    assert repeated.state.progress_marker == first.state.progress_marker
+    assert cleared.state.recent_loot == ()
+    assert after_clear.state.inventory == (InventoryEntry("potion", 2), InventoryEntry("Sword", 4))
+    assert after_clear.state.progress_marker == 13
+
+
+def test_loot_read_failure_retains_prior_inventory_and_progress() -> None:
+    previous = WorldState(
+        observed_at_seconds=1.0,
+        position=Position(3, 4),
+        nearby_mob_count=0,
+        inventory=(InventoryEntry("Sword", 3),),
+        progress_marker=3,
+    )
+
+    tick = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        _LootLogReader(LootOcrError(LootOcrErrorCode.RECOGNITION_FAILED)),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    ).tick(WINDOW_HANDLE, previous)
+
+    assert tick.state.inventory == previous.inventory
+    assert tick.state.progress_marker == previous.progress_marker
