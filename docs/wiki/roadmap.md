@@ -29,8 +29,8 @@ Phase 1 (Bootstrap & Architecture) ──► Phase 2 (Perception Pipeline) ─�
 
 ### Phase 2: Perception & Computer Vision Pipeline (Active)
 - **US-002 (Completed):** Screen and client frame capture (`FrameProvider` producing `numpy.ndarray`).
-- **US-003:** Mob detection with YOLO and OpenCV (Dynamic entity detection and bounding boxes).
-- **US-004:** Target mob verification and inspection (Target-bar ROI extraction, name matching, HP bar inspection).
+- **US-003 (Completed):** Mob detection with YOLO and OpenCV (Dynamic entity detection and bounding boxes).
+- **US-004 (Completed):** Target mob verification and inspection (Target-bar ROI extraction, name matching, HP bar inspection).
 - **US-005:** Central loot and system log OCR extraction (Drop notification parsing into structured events).
 
 ### Phase 3: Closed-Loop Execution & Reactive Controllers
