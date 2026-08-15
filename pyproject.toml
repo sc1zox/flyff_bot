@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flyff-bot"
+version = "0.1.0"
+description = "Windows-first automation tooling for an explicitly permitted Flyff client."
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+  "PySide6>=6.10,<6.11",
+]
+
+[project.scripts]
+flyff-bot = "flyff_bot.cli:main"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.17",
+  "pytest>=8.4",
+  "pytest-cov>=6.2",
+  "ruff>=0.12",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flyff_bot"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src", "tests", "flyff_input.py"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers --cov=flyff_bot --cov-report=term-missing --cov-fail-under=60"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF", "ANN"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN201"]

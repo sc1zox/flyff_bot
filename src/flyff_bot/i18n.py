@@ -1,0 +1,66 @@
+"""Small resource-bundle based internationalization layer."""
+
+from __future__ import annotations
+
+import json
+import locale
+from enum import StrEnum
+from importlib.resources import files
+
+
+class Language(StrEnum):
+    """Languages shipped with the application."""
+
+    GERMAN = "de"
+    ENGLISH = "en"
+
+
+class Message(StrEnum):
+    """Stable identifiers for every user-visible application message."""
+
+    APP_DESCRIPTION = "app.description"
+    HELP_PROCESS = "help.process"
+    HELP_LIST = "help.list"
+    HELP_KEY = "help.key"
+    HELP_CLICK = "help.click"
+    HELP_DURATION = "help.duration"
+    HELP_DELAY = "help.delay"
+    HELP_LANGUAGE = "help.language"
+    INVALID_KEY = "error.invalid_key"
+    WINDOWS_ONLY = "error.windows_only"
+    NO_WINDOW = "error.no_window"
+    FOCUS_FAILED = "error.focus_failed"
+    INPUT_FAILED = "error.input_failed"
+    WINDOW_LINE = "status.window_line"
+    COUNTDOWN = "status.countdown"
+    ABORTED = "status.aborted"
+    INPUT_SENT = "status.input_sent"
+    UI_TITLE = "ui.title"
+    UI_WORLD_STATUS = "ui.world_status"
+
+
+class Translator:
+    """Load and format one locale resource bundle."""
+
+    def __init__(self, language: Language) -> None:
+        resource = files("flyff_bot.locales").joinpath(f"{language.value}.json")
+        raw_messages: object = json.loads(resource.read_text(encoding="utf-8"))
+        if not isinstance(raw_messages, dict):
+            msg = f"Invalid locale bundle: {resource.name}"
+            raise TypeError(msg)
+        self._messages = {str(key): str(value) for key, value in raw_messages.items()}
+        self.language = language
+
+    @classmethod
+    def from_environment(cls) -> Translator:
+        """Select German for German environments and English otherwise."""
+
+        locale_name = locale.getlocale()[0] or ""
+        language = Language.GERMAN if locale_name.lower().startswith("de") else Language.ENGLISH
+        return cls(language)
+
+    def text(self, message: Message, **values: object) -> str:
+        """Return a formatted message and fail loudly for incomplete bundles."""
+
+        template = self._messages[message.value]
+        return template.format(**values)

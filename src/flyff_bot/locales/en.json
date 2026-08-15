@@ -1,0 +1,21 @@
+{
+  "app.description": "Sends simple input to the visible Flyff client.",
+  "help.process": "Client process (default: {default})",
+  "help.list": "Only list matching windows",
+  "help.key": "Press a key, for example W or F1",
+  "help.click": "Click client-relative coordinates",
+  "help.duration": "Key duration in seconds (default: {default})",
+  "help.delay": "Delay before input (default: {default})",
+  "help.language": "User interface language (de or en)",
+  "error.invalid_key": "Key: A-Z, 0-9, F1-F12, space, tab, enter, or escape",
+  "error.windows_only": "This application only works on Windows.",
+  "error.no_window": "No visible window for {process} was found.",
+  "error.focus_failed": "The Flyff window could not be focused.",
+  "error.input_failed": "The input could not be sent: {reason}",
+  "status.window_line": "[{index}] HWND={handle} title={title}",
+  "status.countdown": "Input in {seconds} seconds; END aborts.",
+  "status.aborted": "Aborted.",
+  "status.input_sent": "Input sent.",
+  "ui.title": "Flyff Bot",
+  "ui.world_status": "Visible mobs: {mob_count}"
+}

@@ -1,0 +1,21 @@
+{
+  "app.description": "Sendet einfache Eingaben an den sichtbaren Flyff-Client.",
+  "help.process": "Client-Prozess (Standard: {default})",
+  "help.list": "Passende Fenster nur auflisten",
+  "help.key": "Taste drücken, z. B. W oder F1",
+  "help.click": "Client-Koordinaten anklicken",
+  "help.duration": "Tastendauer in Sekunden (Standard: {default})",
+  "help.delay": "Verzögerung vor der Eingabe (Standard: {default})",
+  "help.language": "Sprache der Oberfläche (de oder en)",
+  "error.invalid_key": "Taste: A-Z, 0-9, F1-F12, space, tab, enter oder escape",
+  "error.windows_only": "Diese Anwendung funktioniert nur unter Windows.",
+  "error.no_window": "Kein sichtbares Fenster von {process} gefunden.",
+  "error.focus_failed": "Das Flyff-Fenster konnte nicht fokussiert werden.",
+  "error.input_failed": "Die Eingabe konnte nicht gesendet werden: {reason}",
+  "status.window_line": "[{index}] HWND={handle} Titel={title}",
+  "status.countdown": "Eingabe in {seconds} Sekunden; END bricht ab.",
+  "status.aborted": "Abgebrochen.",
+  "status.input_sent": "Eingabe gesendet.",
+  "ui.title": "Flyff Bot",
+  "ui.world_status": "Sichtbare Monster: {mob_count}"
+}
