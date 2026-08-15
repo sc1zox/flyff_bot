@@ -51,3 +51,10 @@ related:
   and English pickup patterns into timestamped loot events.
 - **Loot event** — A typed record of one recognized pickup containing its timestamp, item name,
   quantity, and original OCR text.
+- **Perception pipeline** — The application service that captures one frame, independently
+  aggregates mob, target, and loot observations into a new immutable world-state snapshot, and
+  reports material state changes and non-fatal feed failures.
+- **Perception event** — A typed notification emitted by a perception tick when the selected
+  target changes or a previously unseen visible mob appears.
+- **Perception failure** — A typed, non-fatal indication that detection, target verification, or
+  loot reading failed for a tick; the snapshot retains that feed's prior value.

@@ -46,3 +46,9 @@ architecture and glossary; moved US-004 to the completed stories directory.
 Recorded the completed configurable loot-log ROI, contrast and threshold preprocessing,
 injectable Tesseract recognition boundary, bilingual pickup parsing, and typed timestamped loot
 events in the architecture and glossary; moved US-005 to the completed stories directory.
+
+## [2026-08-15] synthesis | Perception to WorldState feed integration (US-007)
+
+Recorded the completed shared-frame perception pipeline, immutable world-state aggregation,
+target and new-mob events, and isolated feed-failure behavior in the architecture and glossary;
+moved US-007 to the completed stories directory.

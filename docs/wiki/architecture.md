@@ -57,6 +57,10 @@ Game Client
    - **Target verification:** `TargetVerifier` extracts a normalized target-header region from a
      captured frame, detects the configured HP-bar colour, and template-matches a whitelisted name.
      It returns `VALID_TARGET`, `WRONG_TARGET`, or `NO_TARGET` without dispatching any input.
+   - **Perception pipeline:** `PerceptionPipeline` captures one frame per tick and passes that
+     shared frame to mob detection, target verification, and loot-log OCR. It maps their outputs
+     into a fresh immutable `WorldState`, emits target-change and newly-visible-mob events, and
+     records feed-specific failures while retaining the prior value for a failed feed.
 2. **State & Supervisor:**
    - **World State:** Immutable snapshot representing current assumed game reality.
    - **Supervisor:** Closed-loop reconciliation comparing desired state vs. observed state; detects stalls and triggers self-healing (`NO_PROGRESS`, `NO_MOBS`, `STUCK`, `INVENTORY_MISMATCH`).
@@ -89,3 +93,8 @@ with client-space coordinates preserved for downstream vision and input verifica
 the first production-facing model adapter for YOLO object detection. US-004 adds target-header
 verification as a pure perception component: a target must have sufficient configured HP-colour
 pixels and match a configured name template before it is reported as valid.
+
+US-007 connects the capture and vision components at the application boundary. Its
+`PerceptionPipeline` produces a timestamped snapshot on every successful capture, preserving the
+non-perception state carried from the previous snapshot. Individual detection, target-verification,
+and loot-reading failures are non-fatal and are exposed alongside the resulting state.

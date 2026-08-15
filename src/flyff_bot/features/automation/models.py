@@ -33,6 +33,14 @@ class ObservationKind(StrEnum):
     RECOVERY_COMPLETE = "recovery_complete"
 
 
+class TargetState(StrEnum):
+    """The observed state of the client target header."""
+
+    VALID = "valid"
+    WRONG = "wrong"
+    NONE = "none"
+
+
 @dataclass(frozen=True, slots=True)
 class Position:
     """A two-dimensional position in the current game view."""
@@ -50,6 +58,37 @@ class InventoryEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class VisibleMob:
+    """A mob located in client-space by the perception pipeline."""
+
+    class_id: int
+    class_name: str
+    confidence: float
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+@dataclass(frozen=True, slots=True)
+class SelectedTarget:
+    """The latest target-header observation."""
+
+    state: TargetState
+    name: str | None
+    hp_pixel_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RecentLoot:
+    """One pickup carried into a world-state snapshot."""
+
+    item_name: str
+    count: int
+    raw_text: str
+
+
+@dataclass(frozen=True, slots=True)
 class WorldState:
     """One immutable perception snapshot used by all decision layers."""
 
@@ -59,6 +98,9 @@ class WorldState:
     inventory: tuple[InventoryEntry, ...]
     progress_marker: int
     is_stuck: bool = False
+    selected_target: SelectedTarget = SelectedTarget(TargetState.NONE, None, 0)
+    visible_mobs: tuple[VisibleMob, ...] = ()
+    recent_loot: tuple[RecentLoot, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
