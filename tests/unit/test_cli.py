@@ -8,6 +8,11 @@ from _pytest.monkeypatch import MonkeyPatch
 import flyff_bot.cli as cli
 from flyff_bot.constants import ExitCode
 from flyff_bot.features.input_control.models import WindowRef
+from flyff_bot.features.vision import (
+    FrameCaptureError,
+    FrameCaptureErrorCode,
+    OpenCVDnnYoloDetector,
+)
 
 
 class FakeController:
@@ -111,3 +116,35 @@ def test_validate_dataset_does_not_access_a_game_window(
 
     assert exit_code == ExitCode.SUCCESS
     assert "Mob dataset is valid" in capsys.readouterr().out
+
+
+def test_detect_mobs_handles_minimized_window_gracefully(
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    controller = FakeController([WindowRef(handle=42, title="Flyff")])
+    _use_controller(monkeypatch, controller)
+
+    class FailingFrameSource:
+        def capture(self, _handle: int) -> None:
+            raise FrameCaptureError(FrameCaptureErrorCode.MINIMIZED)
+
+    monkeypatch.setattr(cli, "WindowsFrameSource", FailingFrameSource)
+    monkeypatch.setattr(OpenCVDnnYoloDetector, "from_files", lambda *args, **kwargs: object())
+
+    exit_code = cli.main(
+        [
+            "--language",
+            "de",
+            "--detect-mobs",
+            "--model",
+            "dummy.onnx",
+            "--labels",
+            "dummy.txt",
+            "--delay",
+            "0",
+        ]
+    )
+
+    assert exit_code == ExitCode.DETECTION_FAILURE
+    assert "Das Flyff-Fenster ist minimiert" in capsys.readouterr().err

@@ -31,6 +31,11 @@ def test_each_language_contains_every_message() -> None:
                 path="x",
                 model="x",
                 labels="x",
+                status="x",
+                current=0,
+                required=0,
+                item="x",
+                name="x",
             )
 
 

@@ -29,6 +29,8 @@ from flyff_bot.features.training import TrainingError, train_and_export, validat
 from flyff_bot.features.vision import (
     DetectionConfig,
     DetectionError,
+    FrameCaptureError,
+    FrameCaptureErrorCode,
     LootLogReader,
     LootOcrError,
     LootOcrErrorCode,
@@ -217,6 +219,22 @@ def main(arguments: Sequence[str] | None = None) -> int:
         ):
             return ExitCode.SUCCESS
 
+        window_handle = windows[0].handle
+        delay_seconds = max(0.0, args.delay)
+        if delay_seconds > 0.0:
+            print(translator.text(Message.COUNTDOWN, seconds=f"{delay_seconds:g}"))
+            deadline = time.monotonic() + delay_seconds
+            while time.monotonic() < deadline:
+                if controller.is_aborted():
+                    print(translator.text(Message.ABORTED))
+                    return ExitCode.ABORTED
+                time.sleep(COUNTDOWN_POLL_SECONDS)
+
+        controller.focus_window(window_handle)
+        if controller.is_aborted():
+            print(translator.text(Message.ABORTED))
+            return ExitCode.ABORTED
+
         if args.detect_mobs:
             if args.model is None or args.labels is None:
                 print(translator.text(Message.DETECTION_OPTIONS_REQUIRED), file=sys.stderr)
@@ -229,7 +247,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                     allowed_class_names=frozenset(args.class_name),
                 ),
             )
-            frame = WindowsFrameSource().capture(windows[0].handle)
+            frame = WindowsFrameSource().capture(window_handle)
             detections = detector.detect(frame)
             print(translator.text(Message.DETECTION_SUMMARY, count=len(detections)))
             for detection in detections:
@@ -248,7 +266,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return ExitCode.SUCCESS
 
         if args.read_loot:
-            frame = WindowsFrameSource().capture(windows[0].handle)
+            frame = WindowsFrameSource().capture(window_handle)
             events = LootLogReader(TesseractTextRecognizer()).read(frame)
             print(translator.text(Message.LOOT_SUMMARY, count=len(events)))
             for event in events:
@@ -262,27 +280,22 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 )
             return ExitCode.SUCCESS
 
-        window_handle = windows[0].handle
-        delay_seconds = max(0.0, args.delay)
-        print(translator.text(Message.COUNTDOWN, seconds=f"{delay_seconds:g}"))
-        deadline = time.monotonic() + delay_seconds
-        while time.monotonic() < deadline:
-            if controller.is_aborted():
-                print(translator.text(Message.ABORTED))
-                return ExitCode.ABORTED
-            time.sleep(COUNTDOWN_POLL_SECONDS)
-
-        controller.focus_window(window_handle)
-        if controller.is_aborted():
-            print(translator.text(Message.ABORTED))
-            return ExitCode.ABORTED
-
         if args.key is not None:
             controller.send_key(args.key, max(MINIMUM_KEY_DURATION_SECONDS, args.duration))
         else:
             controller.click_client(window_handle, *args.click)
         print(translator.text(Message.INPUT_SENT))
         return ExitCode.SUCCESS
+    except FrameCaptureError as error:
+        capture_messages = {
+            FrameCaptureErrorCode.INVALID_WINDOW: Message.FRAME_INVALID_WINDOW,
+            FrameCaptureErrorCode.MINIMIZED: Message.FRAME_MINIMIZED,
+            FrameCaptureErrorCode.OCCLUDED: Message.FRAME_OCCLUDED,
+            FrameCaptureErrorCode.CAPTURE_FAILED: Message.FRAME_CAPTURE_FAILED,
+            FrameCaptureErrorCode.UNSUPPORTED_PLATFORM: Message.WINDOWS_ONLY,
+        }
+        print(translator.text(capture_messages[error.code]), file=sys.stderr)
+        return ExitCode.DETECTION_FAILURE
     except LootOcrError as error:
         message = (
             Message.LOOT_OCR_ENGINE_UNAVAILABLE
