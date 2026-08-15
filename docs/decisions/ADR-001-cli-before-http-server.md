@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-08-15
-- Related story: [US-001](../user-stories/US-001-agentic-repository-bootstrap.md)
+- Related story: [US-001](../user-stories/completed/US-001-agentic-repository-bootstrap.md)
 
 ## Context
 

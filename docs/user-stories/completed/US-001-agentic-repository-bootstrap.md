@@ -15,7 +15,7 @@ Markdown work-item workflows, so that future Codex sessions can implement featur
 
 ## Context and assumptions
 
-- Source: [repository bootstrap request](../sources/2026-08-15-repository-bootstrap-request.md).
+- Source: [repository bootstrap request](../../sources/2026-08-15-repository-bootstrap-request.md).
 - `AGENTS.md` is used instead of `agent.md` because Codex discovers the canonical plural filename.
 - The current input PoC remains available through a thin compatibility entry point.
 

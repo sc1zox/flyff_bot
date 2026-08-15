@@ -16,7 +16,7 @@ so that long-term farming goals can be planned, executed, observed, and self-hea
 
 ## Context and assumptions
 
-- Source: [Target architecture proposal](../sources/2026-08-15-target-architecture-proposal.md).
+- Source: [Target architecture proposal](../../sources/2026-08-15-target-architecture-proposal.md).
 - Python remains the core runtime to support YOLO, OpenCV, and OCR natively.
 - PySide6 is chosen for the native Windows UI to avoid the complexity and overhead of web stacks (Node/Angular).
 - CV combines YOLO (dynamic entities/mobs), Template Matching (static UI/anchors), and targeted ROI OCR (loot log/chat).
