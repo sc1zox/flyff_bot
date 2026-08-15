@@ -35,5 +35,15 @@
   "error.loot_ocr_engine_unavailable": "Beute-OCR benötigt die Tesseract-Anwendung mit englischen und deutschen Sprachdaten.",
   "error.loot_ocr_failed": "Beute-OCR ist fehlgeschlagen.",
   "status.loot_summary": "Beute-Benachrichtigungen: {count}",
-  "status.loot_line": "{timestamp} {item_name} x{count}"
+  "status.loot_line": "{timestamp} {item_name} x{count}",
+  "help.validate_mob_dataset": "YOLO-Monsterdatensatz ohne Zugriff auf den Spiel-Client prüfen",
+  "help.train_mob_detector": "Benutzerdefinierten YOLO-Monsterdetektor trainieren und exportieren",
+  "help.dataset": "Pfad zum YOLO-Datensatzmanifest (Standard: {default})",
+  "help.output_model": "Pfad des exportierten ONNX-Modells (Standard: {default})",
+  "help.epochs": "Trainingsdurchläufe (Standard: {default})",
+  "help.base_model": "Ultralytics-Basismodell (Standard: yolo11n.pt)",
+  "status.dataset_valid": "Monsterdatensatz ist gültig: {dataset}",
+  "status.dataset_issue": "Datensatzproblem ({code}): {path}",
+  "status.training_complete": "Monsterdetektor nach {model} exportiert; Labels in {labels} geschrieben",
+  "error.training_failed": "Training des Monsterdetektors fehlgeschlagen: {reason}"
 }

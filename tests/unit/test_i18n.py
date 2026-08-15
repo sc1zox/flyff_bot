@@ -26,6 +26,11 @@ def test_each_language_contains_every_message() -> None:
                 height=0,
                 timestamp="x",
                 item_name="x",
+                dataset="x",
+                code="x",
+                path="x",
+                model="x",
+                labels="x",
             )
 
 

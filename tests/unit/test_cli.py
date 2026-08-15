@@ -97,3 +97,17 @@ def test_emergency_stop_aborts_before_input(monkeypatch: MonkeyPatch) -> None:
 
     assert exit_code == ExitCode.ABORTED
     assert controller.sent_key is None
+
+
+def test_validate_dataset_does_not_access_a_game_window(
+    monkeypatch: MonkeyPatch, capsys: CaptureFixture[str]
+) -> None:
+    _use_controller(monkeypatch, FakeController())
+    monkeypatch.setattr(
+        cli, "validate_dataset", lambda _path: type("Result", (), {"is_valid": True})()
+    )
+
+    exit_code = cli.main(["--language", "en", "--validate-mob-dataset"])
+
+    assert exit_code == ExitCode.SUCCESS
+    assert "Mob dataset is valid" in capsys.readouterr().out

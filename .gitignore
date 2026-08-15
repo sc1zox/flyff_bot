@@ -30,3 +30,7 @@ dist/
 # Local game installation and runtime artifacts (about 20 GB)
 Entropia/
 *.log
+
+# Locally trained detector artifacts
+models/*.onnx
+models/*.pt

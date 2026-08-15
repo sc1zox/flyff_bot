@@ -34,6 +34,31 @@ Press `END` to abort a waiting or running action. If the client runs elevated, t
 usually run elevated as well because Windows blocks lower-integrity processes from sending input to
 higher-integrity processes.
 
+## Mob-detector training
+
+Place annotated screenshots in the standard YOLO dataset at `data/datasets/mobs/`: images and their
+matching `.txt` annotations belong in the corresponding `images/train`, `images/val`,
+`labels/train`, and `labels/val` directories. Each annotation line is
+`class_id center_x center_y width height`, with normalized coordinates. Add each monster to the
+numeric `names` registry in `data/datasets/mobs/data.yaml`; registry order becomes the model's
+label order.
+
+Validate the dataset before training. Training is an optional local dependency and writes the model
+artifacts `models/mob_detector.onnx` and `models/labels.txt`.
+
+```powershell
+uv run flyff-bot --validate-mob-dataset
+uv sync --extra training
+uv run flyff-bot --train-mob-detector --epochs 100
+```
+
+The validation and training commands do not access or control a game window. To use the exported
+model with live detection, supply both artifact paths to the existing detection command.
+
+```powershell
+uv run flyff-bot --detect-mobs --model models/mob_detector.onnx --labels models/labels.txt
+```
+
 ## Repository map
 
 ```text

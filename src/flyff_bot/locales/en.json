@@ -35,5 +35,15 @@
   "error.loot_ocr_engine_unavailable": "Loot OCR requires the Tesseract executable with English and German language data.",
   "error.loot_ocr_failed": "Loot OCR failed.",
   "status.loot_summary": "Loot notifications: {count}",
-  "status.loot_line": "{timestamp} {item_name} x{count}"
+  "status.loot_line": "{timestamp} {item_name} x{count}",
+  "help.validate_mob_dataset": "Validate the mob YOLO dataset without accessing the game client",
+  "help.train_mob_detector": "Train and export the custom mob YOLO detector",
+  "help.dataset": "YOLO dataset manifest path (default: {default})",
+  "help.output_model": "Exported ONNX model path (default: {default})",
+  "help.epochs": "Training epochs (default: {default})",
+  "help.base_model": "Ultralytics base model (default: yolo11n.pt)",
+  "status.dataset_valid": "Mob dataset is valid: {dataset}",
+  "status.dataset_issue": "Dataset issue ({code}): {path}",
+  "status.training_complete": "Mob detector exported to {model}; labels written to {labels}",
+  "error.training_failed": "Mob-detector training failed: {reason}"
 }

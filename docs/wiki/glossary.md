@@ -47,6 +47,13 @@ related:
   ID, and ordered label name.
 - **YOLO label contract** — A UTF-8 text file with one non-empty class name per line; line order
   defines the numeric class IDs emitted by the model.
+- **YOLO dataset manifest** — The `data.yaml` file defining dataset root, training and validation
+  image locations, and a contiguous numeric monster-name registry; its registry order is exported
+  as the YOLO label contract.
+- **Dataset validation** — Offline checks that a YOLO dataset has the required split layout,
+  readable images, paired annotations, valid normalized YOLO boxes, and no orphan labels.
+- **Mob-model export** — Optional local training that produces an ONNX detector and ordered UTF-8
+  labels for `OpenCVDnnYoloDetector`, without accessing the game client.
 - **Target verification** — Perception-only inspection of a normalized target-header region that
   combines HP-bar colour presence with whitelisted name-template matching and reports a typed
   target status.

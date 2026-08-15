@@ -10,12 +10,18 @@ readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
   "numpy>=2.5.2",
-  "opencv-python-headless>=5.0.0.93",
+  "opencv-python>=5.0.0.93",
   "PySide6>=6.10,<6.11",
+  "pyyaml>=6.0.3",
 ]
 
 [project.scripts]
 flyff-bot = "flyff_bot.cli:main"
+
+[project.optional-dependencies]
+training = [
+    "ultralytics>=8.4.120",
+]
 
 [dependency-groups]
 dev = [
@@ -23,6 +29,7 @@ dev = [
   "pytest>=8.4",
   "pytest-cov>=6.2",
   "ruff>=0.12",
+  "types-PyYAML>=6.0.12",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -32,6 +39,10 @@ packages = ["src/flyff_bot"]
 python_version = "3.14"
 strict = true
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["cv2", "ultralytics"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers --cov=flyff_bot --cov-report=term-missing --cov-fail-under=60"

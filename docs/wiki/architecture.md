@@ -15,6 +15,7 @@ related:
   - ../user-stories/completed/US-004-target-mob-verification.md
   - ../user-stories/completed/US-005-loot-log-ocr.md
   - ../user-stories/completed/US-008-reactive-combat-controller.md
+  - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
 ---
 
 # Architecture
@@ -62,6 +63,12 @@ Game Client
      shared frame to mob detection, target verification, and loot-log OCR. It maps their outputs
      into a fresh immutable `WorldState`, emits target-change and newly-visible-mob events, and
      records feed-specific failures while retaining the prior value for a failed feed.
+   - **Training dataset:** `flyff_bot.features.training` provides an offline standard-YOLO
+     dataset validator and an optional Ultralytics training/export adapter. The validator checks
+     the train/validation image-label layout, image readability, matching label files, normalized
+     annotations, and a contiguous numeric class registry. The adapter exports an ONNX model and
+     ordered UTF-8 labels compatible with `OpenCVDnnYoloDetector`; neither path accesses the game
+     client.
 2. **State & Supervisor:**
    - **World State:** Immutable snapshot representing current assumed game reality.
    - **Supervisor:** Closed-loop reconciliation comparing desired state vs. observed state; detects stalls and triggers self-healing (`NO_PROGRESS`, `NO_MOBS`, `STUCK`, `INVENTORY_MISMATCH`).
@@ -107,3 +114,8 @@ cooldowns. It requires a valid target-header observation before attacking, detec
 decreases as progress, and reaches `TARGET_DEAD` when the target clears or has zero HP. Its
 `CombatInputDispatcher` is the only platform dispatch boundary: it sends no input unless the game
 window remains foregrounded and the END emergency stop is clear.
+
+US-011 adds the offline operational path for custom mob models. The repository supplies the empty
+multi-class YOLO layout at `data/datasets/mobs/` and its `data.yaml` class registry. The CLI can
+validate it without a game window, or—with the optional `training` dependency—train `yolo11n.pt`
+by default and export `models/mob_detector.onnx` plus its matching `models/labels.txt`.

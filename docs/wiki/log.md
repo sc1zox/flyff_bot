@@ -53,6 +53,12 @@ Recorded the completed shared-frame perception pipeline, immutable world-state a
 target and new-mob events, and isolated feed-failure behavior in the architecture and glossary;
 moved US-007 to the completed stories directory.
 
+## [2026-08-15] synthesis | Multi-mob training dataset pipeline (US-011)
+
+Recorded the completed offline YOLO dataset layout and validator, optional local Ultralytics
+training/export adapter, and ordered ONNX-label artifact contract in the architecture and glossary;
+moved US-011 to the completed stories directory.
+
 ## [2026-08-15] synthesis | Reactive combat controller (US-008)
 
 Recorded the completed deterministic target-selection and attack-rotation state machine,

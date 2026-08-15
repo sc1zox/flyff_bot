@@ -55,6 +55,16 @@ class Message(StrEnum):
     LOOT_OCR_FAILED = "error.loot_ocr_failed"
     LOOT_SUMMARY = "status.loot_summary"
     LOOT_LINE = "status.loot_line"
+    HELP_VALIDATE_MOB_DATASET = "help.validate_mob_dataset"
+    HELP_TRAIN_MOB_DETECTOR = "help.train_mob_detector"
+    HELP_DATASET = "help.dataset"
+    HELP_OUTPUT_MODEL = "help.output_model"
+    HELP_EPOCHS = "help.epochs"
+    HELP_BASE_MODEL = "help.base_model"
+    DATASET_VALID = "status.dataset_valid"
+    DATASET_ISSUE = "status.dataset_issue"
+    TRAINING_COMPLETE = "status.training_complete"
+    TRAINING_FAILED = "error.training_failed"
 
 
 class Translator:

@@ -9,9 +9,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from flyff_bot.constants import (
+    DEFAULT_DATASET_MANIFEST_PATH,
     DEFAULT_KEY_DURATION_SECONDS,
+    DEFAULT_MOB_LABELS_PATH,
+    DEFAULT_MOB_MODEL_PATH,
     DEFAULT_PROCESS_NAME,
     DEFAULT_START_DELAY_SECONDS,
+    DEFAULT_TRAINING_EPOCHS,
     MINIMUM_KEY_DURATION_SECONDS,
     ExitCode,
 )
@@ -21,6 +25,7 @@ from flyff_bot.features.input_control import (
     WindowsInputController,
     parse_virtual_key,
 )
+from flyff_bot.features.training import TrainingError, train_and_export, validate_dataset
 from flyff_bot.features.vision import (
     DetectionConfig,
     DetectionError,
@@ -77,6 +82,33 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         metavar="KEY",
         help=translator.text(Message.HELP_KEY),
     )
+    actions.add_argument(
+        "--validate-mob-dataset",
+        action="store_true",
+        help=translator.text(Message.HELP_VALIDATE_MOB_DATASET),
+    )
+    actions.add_argument(
+        "--train-mob-detector",
+        action="store_true",
+        help=translator.text(Message.HELP_TRAIN_MOB_DETECTOR),
+    )
+    parser.add_argument(
+        "--dataset",
+        default=DEFAULT_DATASET_MANIFEST_PATH,
+        help=translator.text(Message.HELP_DATASET, default=DEFAULT_DATASET_MANIFEST_PATH),
+    )
+    parser.add_argument(
+        "--output-model",
+        default=DEFAULT_MOB_MODEL_PATH,
+        help=translator.text(Message.HELP_OUTPUT_MODEL, default=DEFAULT_MOB_MODEL_PATH),
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=DEFAULT_TRAINING_EPOCHS,
+        help=translator.text(Message.HELP_EPOCHS, default=DEFAULT_TRAINING_EPOCHS),
+    )
+    parser.add_argument("--base-model", help=translator.text(Message.HELP_BASE_MODEL))
     actions.add_argument(
         "--detect-mobs",
         action="store_true",
@@ -137,6 +169,34 @@ def main(arguments: Sequence[str] | None = None) -> int:
     args = _argument_parser(translator).parse_args(arguments)
 
     try:
+        dataset_path = Path(args.dataset)
+        if args.validate_mob_dataset:
+            result = validate_dataset(dataset_path)
+            if result.is_valid:
+                print(translator.text(Message.DATASET_VALID, dataset=dataset_path))
+                return ExitCode.SUCCESS
+            for issue in result.issues:
+                print(
+                    translator.text(Message.DATASET_ISSUE, code=issue.code, path=issue.path),
+                    file=sys.stderr,
+                )
+            return ExitCode.DATASET_FAILURE
+        if args.train_mob_detector:
+            train_and_export(
+                dataset_path,
+                Path(args.output_model),
+                Path(DEFAULT_MOB_LABELS_PATH),
+                base_model=args.base_model or "yolo11n.pt",
+                epochs=args.epochs,
+            )
+            print(
+                translator.text(
+                    Message.TRAINING_COMPLETE,
+                    model=Path(args.output_model),
+                    labels=Path(DEFAULT_MOB_LABELS_PATH),
+                )
+            )
+            return ExitCode.SUCCESS
         controller = WindowsInputController()
         windows = controller.find_windows(args.process)
         if not windows:
@@ -231,6 +291,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
         )
         print(translator.text(message), file=sys.stderr)
         return ExitCode.LOOT_OCR_FAILURE
+    except TrainingError as error:
+        print(translator.text(Message.TRAINING_FAILED, reason=error), file=sys.stderr)
+        return ExitCode.TRAINING_FAILURE
     except (InputControlError, DetectionError, ValueError) as error:
         if isinstance(error, DetectionError | ValueError):
             print(translator.text(Message.DETECTION_FAILED, reason=error), file=sys.stderr)
