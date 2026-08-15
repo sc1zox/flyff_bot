@@ -18,6 +18,7 @@ related:
   - ../user-stories/completed/US-009-reactive-loot-controller.md
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
   - ../user-stories/completed/US-012-real-world-vision-refactoring.md
+  - ../user-stories/completed/US-013-autonomous-farming-loop-and-orchestration-engine.md
 ---
 
 # Architecture
@@ -135,3 +136,12 @@ screenshots. A configured header-anchor template must match before the dedicated
 measured; a missing anchor is `NO_TARGET`, while an anchored header with an unrecognized whitelist
 name is `WRONG_TARGET`. Real cropped fixtures cover empty, whitelisted `Flame`, and non-whitelisted
 target cases.
+
+US-013 adds `FarmingOrchestrator`, a cooperative, sequential session loop over the perception
+pipeline, combat and loot controllers, and supervisor. Its typed lifecycle moves from searching
+through target selection, combat, loot, and reconciliation; a configurable retry delays a new
+search when no mob is visible. It exposes foreground- and END-guarded dispatch through the existing
+combat and loot dispatchers, pauses on lost focus, latches an emergency stop, and completes an
+optional inventory goal. The `--farm`/`--auto` CLI path configures model, target, rotation, loot,
+search, and goal inputs. An optional `DashboardFeed` publishes immutable `DashboardUpdate` values,
+and the Qt signal adapter connects dashboard start, pause, and emergency-stop intents to a session.

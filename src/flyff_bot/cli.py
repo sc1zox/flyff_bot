@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
+
+import cv2
+import numpy as np
+import numpy.typing as npt
 
 from flyff_bot.constants import (
     DEFAULT_DATASET_MANIFEST_PATH,
@@ -19,12 +25,16 @@ from flyff_bot.constants import (
     MINIMUM_KEY_DURATION_SECONDS,
     ExitCode,
 )
+from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding, LootConfig
+from flyff_bot.features.automation.models import DesiredState
+from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
 from flyff_bot.features.input_control import (
     InputControlError,
     InputErrorCode,
     WindowsInputController,
     parse_virtual_key,
 )
+from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.training import TrainingError, train_and_export, validate_dataset
 from flyff_bot.features.vision import (
     DetectionConfig,
@@ -35,12 +45,22 @@ from flyff_bot.features.vision import (
     LootOcrError,
     LootOcrErrorCode,
     OpenCVDnnYoloDetector,
+    TargetVerifier,
     TesseractTextRecognizer,
     WindowsFrameSource,
 )
 from flyff_bot.i18n import Language, Message, Translator
+from flyff_bot.ui.dashboard import FarmingGoal
 
 COUNTDOWN_POLL_SECONDS = 0.05
+
+
+class FarmingConfigurationError(ValueError):
+    """A localized configuration problem that prevents starting a farm session."""
+
+    def __init__(self, message: Message) -> None:
+        super().__init__(message.value)
+        self.message = message
 
 
 def _selected_language(arguments: Sequence[str] | None) -> Language:
@@ -121,6 +141,12 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         action="store_true",
         help=translator.text(Message.HELP_READ_LOOT),
     )
+    actions.add_argument(
+        "--farm",
+        "--auto",
+        action="store_true",
+        help=translator.text(Message.HELP_FARM),
+    )
     parser.add_argument("--model", help=translator.text(Message.HELP_MODEL))
     parser.add_argument("--labels", help=translator.text(Message.HELP_LABELS))
     parser.add_argument(
@@ -147,6 +173,42 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_KEY_DURATION_SECONDS,
         help=translator.text(Message.HELP_DURATION, default=DEFAULT_KEY_DURATION_SECONDS),
+    )
+    parser.add_argument(
+        "--rotation-key",
+        type=key_type,
+        action="append",
+        default=[],
+        help=translator.text(Message.HELP_ROTATION_KEY),
+    )
+    parser.add_argument(
+        "--attack-cooldown",
+        type=float,
+        default=0.5,
+        help=translator.text(Message.HELP_ATTACK_COOLDOWN, default=0.5),
+    )
+    parser.add_argument(
+        "--loot-wait",
+        type=float,
+        default=2.0,
+        help=translator.text(Message.HELP_LOOT_WAIT, default=2.0),
+    )
+    parser.add_argument(
+        "--search-retry",
+        type=float,
+        default=0.5,
+        help=translator.text(Message.HELP_SEARCH_RETRY, default=0.5),
+    )
+    parser.add_argument("--goal-item", help=translator.text(Message.HELP_GOAL_ITEM))
+    parser.add_argument("--goal-count", type=int, help=translator.text(Message.HELP_GOAL_COUNT))
+    parser.add_argument("--target-anchor", help=translator.text(Message.HELP_TARGET_ANCHOR))
+    parser.add_argument(
+        "--target-template",
+        nargs=2,
+        metavar=("NAME", "PATH"),
+        action="append",
+        default=[],
+        help=translator.text(Message.HELP_TARGET_TEMPLATE),
     )
     parser.add_argument(
         "--delay",
@@ -215,7 +277,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 )
             )
         if args.list or (
-            args.key is None and args.click is None and not args.detect_mobs and not args.read_loot
+            args.key is None
+            and args.click is None
+            and not args.detect_mobs
+            and not args.read_loot
+            and not args.farm
         ):
             return ExitCode.SUCCESS
 
@@ -234,6 +300,17 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if controller.is_aborted():
             print(translator.text(Message.ABORTED))
             return ExitCode.ABORTED
+
+        if args.farm:
+            orchestrator = _farming_orchestrator(args, controller, window_handle)
+            print(translator.text(Message.FARM_STARTED))
+            orchestrator.start()
+            asyncio.run(orchestrator.run())
+            if orchestrator.mode.name == "EMERGENCY_STOPPED":
+                print(translator.text(Message.ABORTED))
+                return ExitCode.ABORTED
+            print(translator.text(Message.FARM_STOPPED))
+            return ExitCode.SUCCESS
 
         if args.detect_mobs:
             if args.model is None or args.labels is None:
@@ -307,6 +384,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
     except TrainingError as error:
         print(translator.text(Message.TRAINING_FAILED, reason=error), file=sys.stderr)
         return ExitCode.TRAINING_FAILURE
+    except FarmingConfigurationError as error:
+        print(translator.text(error.message), file=sys.stderr)
+        return ExitCode.DETECTION_FAILURE
     except (InputControlError, DetectionError, ValueError) as error:
         if isinstance(error, DetectionError | ValueError):
             print(translator.text(Message.DETECTION_FAILED, reason=error), file=sys.stderr)
@@ -316,3 +396,71 @@ def main(arguments: Sequence[str] | None = None) -> int:
     except OSError as error:
         print(translator.text(Message.INPUT_FAILED, reason=error), file=sys.stderr)
         return ExitCode.INPUT_FAILURE
+
+
+def _farming_orchestrator(
+    args: argparse.Namespace, controller: WindowsInputController, window_handle: int
+) -> FarmingOrchestrator:
+    model_path = args.model or DEFAULT_MOB_MODEL_PATH
+    labels_path = args.labels or DEFAULT_MOB_LABELS_PATH
+    target_anchor = args.target_anchor or (
+        "models/target_anchor.png" if Path("models/target_anchor.png").is_file() else None
+    )
+    target_templates = args.target_template or (
+        [("Flame", "models/target_flame.png")] if Path("models/target_flame.png").is_file() else []
+    )
+    if (
+        not Path(model_path).is_file()
+        or not Path(labels_path).is_file()
+        or target_anchor is None
+        or not target_templates
+    ):
+        raise FarmingConfigurationError(Message.FARM_OPTIONS_REQUIRED)
+    if (args.goal_item is None) != (args.goal_count is None):
+        raise FarmingConfigurationError(Message.FARM_GOAL_REQUIRED)
+    anchor = _load_template(target_anchor)
+    templates = {name: _load_template(path) for name, path in target_templates}
+    rotation = tuple(
+        KeyBinding(virtual_key, args.attack_cooldown)
+        for virtual_key in (args.rotation_key or [0x20])
+    )
+    goal = FarmingGoal(args.goal_item, args.goal_count) if args.goal_item is not None else None
+    pipeline = PerceptionPipeline(
+        WindowsFrameSource(),
+        OpenCVDnnYoloDetector.from_files(
+            Path(model_path),
+            Path(labels_path),
+            DetectionConfig(
+                confidence_threshold=args.confidence,
+                allowed_class_names=frozenset(args.class_name),
+            ),
+        ),
+        TargetVerifier(templates, anchor),
+        LootLogReader(TesseractTextRecognizer()),
+    )
+    return FarmingOrchestrator(
+        pipeline,
+        controller,
+        window_handle,
+        config=FarmingConfig(
+            combat=CombatConfig(
+                allowed_class_names=frozenset(args.class_name),
+                rotation=rotation,
+                key_press_duration_seconds=max(MINIMUM_KEY_DURATION_SECONDS, args.duration),
+            ),
+            loot=LootConfig(
+                key_press_duration_seconds=max(MINIMUM_KEY_DURATION_SECONDS, args.duration),
+                pickup_wait_seconds=args.loot_wait,
+            ),
+            desired_state=DesiredState(),
+            goal=goal,
+            search_retry_seconds=args.search_retry,
+        ),
+    )
+
+
+def _load_template(path: str) -> npt.NDArray[np.uint8]:
+    image = cv2.imread(path, cv2.IMREAD_COLOR)
+    if image is None:
+        raise FarmingConfigurationError(Message.FARM_TEMPLATE_UNREADABLE)
+    return cast("npt.NDArray[np.uint8]", image)

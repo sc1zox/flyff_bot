@@ -20,6 +20,7 @@ from flyff_bot.features.automation.models import (
 )
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.i18n import Language, Translator
+from flyff_bot.ui.app import connect_farming_controls
 from flyff_bot.ui.dashboard import BotStatus, DashboardFeed, DashboardUpdate, FarmingGoal
 from flyff_bot.ui.main_window import MainWindow
 
@@ -79,6 +80,33 @@ def test_language_switch_retranslates_cached_dashboard() -> None:
     assert window.windowTitle() == "Flyff Bot"
     assert window.status_label.text() == "Bot-Status: Aktiv"
     assert window.start_button.text() == "Starten"
+
+
+def test_farming_controls_connect_dashboard_intent() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    class Session:
+        def __init__(self) -> None:
+            self.requests: list[str] = []
+
+        def start(self) -> None:
+            self.requests.append("start")
+
+        def pause(self) -> None:
+            self.requests.append("pause")
+
+        def emergency_stop(self) -> None:
+            self.requests.append("stop")
+
+    session = Session()
+    connect_farming_controls(window, session)
+    window.start_button.click()
+    window.pause_button.click()
+    window.emergency_stop_button.click()
+    application.processEvents()
+
+    assert session.requests == ["start", "pause", "stop"]
 
 
 def _world_state() -> WorldState:

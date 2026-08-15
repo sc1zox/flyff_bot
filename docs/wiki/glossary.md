@@ -83,3 +83,8 @@ related:
   recorded.
 - **Perception failure** — A typed, non-fatal indication that detection, target verification, or
   loot reading failed for a tick; the snapshot retains that feed's prior value.
+- **Farming orchestrator** — A cooperative session state machine that performs one perception,
+  control, and guarded-dispatch cycle per tick across `SEARCHING`, `TARGETING`, `COMBAT`,
+  `LOOTING`, and `RECONCILING`; it pauses on lost foreground focus and latches emergency stops.
+- **Farming goal** — An optional item name and required inventory quantity that completes a farming
+  session when the immutable world-state inventory reaches the target.

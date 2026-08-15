@@ -1,7 +1,7 @@
 ---
 id: US-013
 title: Autonomous farming loop and orchestration engine
-status: draft
+status: completed
 created: 2026-08-15
 updated: 2026-08-15
 ---
@@ -22,17 +22,17 @@ As a player using permitted automation, I want a unified closed-loop orchestrati
 
 ## Acceptance criteria
 
-- [ ] `FarmingOrchestrator` implements an asynchronous/non-blocking loop that coordinates `PerceptionPipeline`, `CombatController`, `LootController`, and `Supervisor`.
-- [ ] State transitions smoothly through the complete lifecycle: `SEARCHING` -> `TARGETING` -> `COMBAT` -> `LOOTING` -> `RECONCILING` -> `SEARCHING`.
-- [ ] In `SEARCHING` state: When no target mob is visible, executes configurable search actions (e.g. camera rotation or brief pause) before retrying perception.
-- [ ] In `COMBAT` state: Selects and targets valid mobs, executes attack rotation, monitors mob HP, and detects mob defeat (`TARGET_DEAD`).
-- [ ] In `LOOTING` state: Executes loot pickup key sequence (`F`), processes OCR loot notifications, updates loot counters, and handles loot timeout.
-- [ ] In `RECONCILING` state: Uses `Supervisor` to check for stuck states or lack of progress and applies recovery strategies or pauses.
-- [ ] Provides CLI command (`--farm` or `--auto`) with configurable parameters (mob class whitelist, rotation keys/cooldowns, loot key/cooldowns, search policy, target item/kill count goal).
-- [ ] Integrates with PySide6 desktop dashboard by responding to start/pause/killswitch signals and continuously emitting `DashboardUpdate` payloads for UI rendering.
-- [ ] Instantly stops or pauses execution upon `END` key press, UI emergency stop button, or when target game window loses foreground focus.
-- [ ] Automated unit tests verify orchestration loop transitions, recovery behavior, safety abortion, and goal completion using synthetic feeds.
-- [ ] All user-visible logs, CLI outputs, error messages, and dashboard text exist in German and English without string assembly.
+- [x] `FarmingOrchestrator` implements an asynchronous/non-blocking loop that coordinates `PerceptionPipeline`, `CombatController`, `LootController`, and `Supervisor`.
+- [x] State transitions smoothly through the complete lifecycle: `SEARCHING` -> `TARGETING` -> `COMBAT` -> `LOOTING` -> `RECONCILING` -> `SEARCHING`.
+- [x] In `SEARCHING` state: When no target mob is visible, executes configurable search actions (e.g. camera rotation or brief pause) before retrying perception.
+- [x] In `COMBAT` state: Selects and targets valid mobs, executes attack rotation, monitors mob HP, and detects mob defeat (`TARGET_DEAD`).
+- [x] In `LOOTING` state: Executes loot pickup key sequence (`F`), processes OCR loot notifications, updates loot counters, and handles loot timeout.
+- [x] In `RECONCILING` state: Uses `Supervisor` to check for stuck states or lack of progress and applies recovery strategies or pauses.
+- [x] Provides CLI command (`--farm` or `--auto`) with configurable parameters (mob class whitelist, rotation keys/cooldowns, loot key/cooldowns, search policy, target item/kill count goal).
+- [x] Integrates with PySide6 desktop dashboard by responding to start/pause/killswitch signals and continuously emitting `DashboardUpdate` payloads for UI rendering.
+- [x] Instantly stops or pauses execution upon `END` key press, UI emergency stop button, or when target game window loses foreground focus.
+- [x] Automated unit tests verify orchestration loop transitions, recovery behavior, safety abortion, and goal completion using synthetic feeds.
+- [x] All user-visible logs, CLI outputs, error messages, and dashboard text exist in German and English without string assembly.
 
 ## Out of scope
 
@@ -42,4 +42,4 @@ As a player using permitted automation, I want a unified closed-loop orchestrati
 ## Verification
 
 - Automated: Unit tests in `tests/unit/` testing `FarmingOrchestrator` state machine, loop ticking, cancellation upon emergency stop / lost focus, and error handling; `./scripts/check.ps1`.
-- Manual (Windows): Run `uv run flyff-bot --farm --model models/mob_detector.onnx --labels models/labels.txt` or start via `python -m flyff_bot ui`, verify full cycle (search -> target -> combat -> loot -> next mob) on live client.
+- Manual (Windows): Run `uv run flyff-bot --farm --model models/mob_detector.onnx --labels models/labels.txt --target-anchor <anchor.png> --target-template Flame <flame.png>` or start via `python -m flyff_bot ui`, verify full cycle (search -> target -> combat -> loot -> next mob) on the foreground live client.

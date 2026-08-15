@@ -7,6 +7,7 @@ from _pytest.monkeypatch import MonkeyPatch
 
 import flyff_bot.cli as cli
 from flyff_bot.constants import ExitCode
+from flyff_bot.features.automation.orchestrator import FarmingMode
 from flyff_bot.features.input_control.models import WindowRef
 from flyff_bot.features.vision import (
     FrameCaptureError,
@@ -148,3 +149,28 @@ def test_detect_mobs_handles_minimized_window_gracefully(
 
     assert exit_code == ExitCode.DETECTION_FAILURE
     assert "Das Flyff-Fenster ist minimiert" in capsys.readouterr().err
+
+
+def test_auto_alias_starts_the_farming_orchestrator(monkeypatch: MonkeyPatch) -> None:
+    controller = FakeController([WindowRef(handle=42, title="Flyff")])
+    _use_controller(monkeypatch, controller)
+
+    class FakeOrchestrator:
+        mode = FarmingMode.COMPLETED
+
+        def __init__(self) -> None:
+            self.started = False
+
+        def start(self) -> None:
+            self.started = True
+
+        async def run(self) -> None:
+            return None
+
+    orchestrator = FakeOrchestrator()
+    monkeypatch.setattr(cli, "_farming_orchestrator", lambda *_args: orchestrator)
+
+    exit_code = cli.main(["--language", "en", "--auto", "--delay", "0"])
+
+    assert exit_code == ExitCode.SUCCESS
+    assert orchestrator.started

@@ -76,3 +76,9 @@ US-012 to the completed stories directory.
 Recorded the completed one-attempt pickup state machine, newly visible OCR loot accounting,
 inventory and recipe-progress updates, timeout patrol recovery, and foreground/END-guarded loot
 input boundary; moved US-009 to the completed stories directory.
+
+## [2026-08-15] synthesis | Autonomous farming loop and orchestration engine (US-013)
+
+Recorded the completed cooperative farming session lifecycle, guarded perception-to-controller
+dispatch, reconciliation and goal completion behavior, CLI configuration path, and dashboard
+control/update boundary; moved US-013 to the completed stories directory.
