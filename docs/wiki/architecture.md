@@ -155,7 +155,7 @@ key parser support `A`–`Z`, `0`–`9`, Space, and `F1`–`F12`; dispatch, defe
 and foreground/END safeguards remain on their existing paths.
 
 US-015 adds staged, non-blocking no-mob recovery to `FarmingOrchestrator`. After a configurable
-idle timeout, `SearchController` alternates `A`/`D` camera-rotation pulses, then bounded
+idle timeout, `SearchController` dispatches camera-rotation arrow-key pulses (default `Right Arrow`), then bounded
 `W`/`A`/`D` roaming pulses, and finally requests a client-relative click on the nearest qualifying
 red connected component in the normalized top-right minimap region. Every search tick first
 evaluates the newest perception snapshot: a visible eligible mob resets search and immediately

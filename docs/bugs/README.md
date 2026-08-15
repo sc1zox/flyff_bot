@@ -12,10 +12,10 @@ bugs are moved to `docs/bugs/fixed/`.
 ## Active Defect Backlog
 
 - [ ] [**BUG-002: TypeError on null foreground window handle during guarded search key dispatch**](BUG-002-null-foreground-window-type-error.md)
-- [ ] [**BUG-003: Search mode camera rotation uses character movement keys instead of camera arrow keys**](BUG-003-search-mode-camera-rotation-keys.md)
 
 ## Fixed Defects
 
 - [x] [**BUG-001: Desktop UI does not run perception or detection feed when started**](fixed/BUG-001-desktop-ui-perception-feed-not-running.md)
+- [x] [**BUG-003: Search mode camera rotation uses character movement keys instead of camera arrow keys**](fixed/BUG-003-search-mode-camera-rotation-keys.md)
 
 

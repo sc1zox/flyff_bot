@@ -7,7 +7,15 @@ from flyff_bot.features.input_control.keymap import parse_virtual_key
 
 @pytest.mark.parametrize(
     ("label", "expected"),
-    [("W", ord("W")), ("5", ord("5")), ("space", 0x20), ("F1", 0x70), ("f12", 0x7B)],
+    [
+        ("W", ord("W")),
+        ("5", ord("5")),
+        ("space", 0x20),
+        ("left", 0x25),
+        ("right", 0x27),
+        ("F1", 0x70),
+        ("f12", 0x7B),
+    ],
 )
 def test_parse_virtual_key_accepts_supported_labels(label: str, expected: int) -> None:
     assert parse_virtual_key(label) == expected

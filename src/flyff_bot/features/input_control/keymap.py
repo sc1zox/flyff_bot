@@ -8,6 +8,10 @@ NAMED_VIRTUAL_KEYS = MappingProxyType(
         "tab": 0x09,
         "enter": 0x0D,
         "escape": 0x1B,
+        "left": 0x25,
+        "up": 0x26,
+        "right": 0x27,
+        "down": 0x28,
     }
 )
 FUNCTION_KEY_PREFIX = "f"

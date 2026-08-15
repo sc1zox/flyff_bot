@@ -5,8 +5,9 @@ from __future__ import annotations
 import numpy as np
 
 from flyff_bot.features.automation.controllers import (
-    VIRTUAL_KEY_A,
     VIRTUAL_KEY_D,
+    VIRTUAL_KEY_LEFT,
+    VIRTUAL_KEY_RIGHT,
     VIRTUAL_KEY_W,
     SearchConfig,
     SearchController,
@@ -46,14 +47,25 @@ def test_search_progresses_from_idle_rotation_to_roaming_then_radar() -> None:
 
     assert search.step(0.0).input_kind is None
     assert search.step(0.9).input_kind is None
-    assert search.step(1.0).virtual_key == VIRTUAL_KEY_A
-    assert search.step(1.4).virtual_key == VIRTUAL_KEY_D
+    assert search.step(1.0).virtual_key == VIRTUAL_KEY_RIGHT
+    assert search.step(1.4).virtual_key == VIRTUAL_KEY_RIGHT
     assert search.step(1.8).virtual_key == VIRTUAL_KEY_W
     assert search.step(2.8).virtual_key == VIRTUAL_KEY_D
     assert search.step(3.8).mode is SearchMode.MINIMAP_RADAR
     decision = search.step(3.8, Position(80, 20))
     assert decision.input_kind is SearchInputKind.CLICK
     assert decision.position == Position(80, 20)
+
+
+def test_search_uses_configured_rotation_virtual_key() -> None:
+    search = SearchController(
+        SearchConfig(
+            idle_timeout_seconds=0.0, rotation_steps=1, rotation_virtual_key=VIRTUAL_KEY_LEFT
+        )
+    )
+    decision = search.step(0.0)
+    assert decision.mode is SearchMode.ROTATE
+    assert decision.virtual_key == VIRTUAL_KEY_LEFT
 
 
 def test_search_dispatch_is_aborted_or_paused_before_any_navigation_input() -> None:

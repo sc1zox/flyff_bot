@@ -1,7 +1,7 @@
 ---
 id: BUG-003
 title: Search mode camera rotation uses character movement keys instead of camera arrow keys
-status: reported
+status: resolved
 severity: medium
 created: 2026-08-16
 updated: 2026-08-16
@@ -41,6 +41,6 @@ In Flyff, `A` and `D` are character turning/strafing keys rather than camera orb
 
 ## Regression verification
 
-- [ ] A failing automated test verifying `SearchController` emits camera arrow keys (`VK_RIGHT` or `VK_LEFT`) during `SearchMode.ROTATE`.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated test verifying `SearchController` emits camera arrow keys (`VK_RIGHT` or `VK_LEFT`) during `SearchMode.ROTATE`.
+- [x] The check passes after the fix.
+- [x] Related documentation is current.

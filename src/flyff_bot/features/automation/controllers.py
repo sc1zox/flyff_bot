@@ -29,12 +29,15 @@ VIRTUAL_KEY_F = 0x46
 VIRTUAL_KEY_A = 0x41
 VIRTUAL_KEY_D = 0x44
 VIRTUAL_KEY_W = 0x57
+VIRTUAL_KEY_LEFT = 0x25
+VIRTUAL_KEY_RIGHT = 0x27
 DEFAULT_LOOT_PICKUP_WAIT_SECONDS = 2.0
 DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS = 5.0
 DEFAULT_SEARCH_ROTATION_DURATION_SECONDS = 0.4
 DEFAULT_SEARCH_MOVEMENT_DURATION_SECONDS = 1.0
 DEFAULT_SEARCH_ROTATION_STEPS = 8
 DEFAULT_SEARCH_ROAM_STEPS = 4
+DEFAULT_SEARCH_ROTATION_VIRTUAL_KEY = VIRTUAL_KEY_RIGHT
 
 
 class ControllerMode(StrEnum):
@@ -103,6 +106,7 @@ class SearchConfig:
     movement_step_duration_seconds: float = DEFAULT_SEARCH_MOVEMENT_DURATION_SECONDS
     rotation_steps: int = DEFAULT_SEARCH_ROTATION_STEPS
     roam_steps: int = DEFAULT_SEARCH_ROAM_STEPS
+    rotation_virtual_key: int = DEFAULT_SEARCH_ROTATION_VIRTUAL_KEY
 
     def __post_init__(self) -> None:
         if self.idle_timeout_seconds < 0.0:
@@ -113,6 +117,8 @@ class SearchConfig:
             raise ValueError("Search movement step duration must be positive.")
         if self.rotation_steps <= 0 or self.roam_steps <= 0:
             raise ValueError("Search stage step counts must be positive.")
+        if self.rotation_virtual_key not in {VIRTUAL_KEY_LEFT, VIRTUAL_KEY_RIGHT}:
+            raise ValueError("Search rotation key must be a valid left or right arrow key.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,7 +370,7 @@ class SearchController:
             if self._rotation_index >= self._config.rotation_steps:
                 self._mode = SearchMode.ROAM_STEP
                 return self.step(observed_at_seconds, radar_position)
-            virtual_key = (VIRTUAL_KEY_A, VIRTUAL_KEY_D)[self._rotation_index % 2]
+            virtual_key = self._config.rotation_virtual_key
             self._rotation_index += 1
             self._next_action_at_seconds = (
                 observed_at_seconds + self._config.rotation_step_duration_seconds
