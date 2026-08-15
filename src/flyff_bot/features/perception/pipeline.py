@@ -12,6 +12,7 @@ import cv2
 
 from flyff_bot.features.automation.models import (
     InventoryEntry,
+    PlayerVitals,
     RecentLoot,
     SelectedTarget,
     TargetState,
@@ -27,6 +28,7 @@ from flyff_bot.features.vision.target_verification import (
     TargetStatus,
     TargetVerificationResult,
 )
+from flyff_bot.features.vision.vitals import PlayerVitalsFeed, PlayerVitalsReader
 
 
 class PerceptionFailure(StrEnum):
@@ -35,6 +37,7 @@ class PerceptionFailure(StrEnum):
     DETECTION = "detection"
     TARGET_VERIFICATION = "target_verification"
     LOOT_READING = "loot_reading"
+    VITALS_READING = "vitals_reading"
 
 
 class TargetVerificationFeed(Protocol):
@@ -57,6 +60,7 @@ class PerceptionEventKind(StrEnum):
     TARGET_CHANGED = "target_changed"
     MOB_APPEARED = "mob_appeared"
     LOOT_COLLECTED = "loot_collected"
+    VITALS_CHANGED = "vitals_changed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +71,7 @@ class PerceptionEvent:
     target: SelectedTarget | None = None
     mob: VisibleMob | None = None
     loot: RecentLoot | None = None
+    vitals: PlayerVitals | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,12 +94,14 @@ class PerceptionPipeline:
         target_verifier: TargetVerificationFeed,
         loot_log_reader: LootFeed,
         clock: Callable[[], float] = monotonic,
+        vitals_reader: PlayerVitalsFeed | None = None,
     ) -> None:
         self._frame_source = frame_source
         self._detector = detector
         self._target_verifier = target_verifier
         self._loot_log_reader = loot_log_reader
         self._clock = clock
+        self._vitals_reader = vitals_reader or PlayerVitalsReader()
         self._visible_loot_fingerprints: frozenset[tuple[str, int, str]] = frozenset()
 
     def tick(self, window_handle: int, previous_state: WorldState) -> PerceptionTick:
@@ -105,6 +112,7 @@ class PerceptionPipeline:
         visible_mobs = previous_state.visible_mobs
         selected_target = previous_state.selected_target
         recent_loot = previous_state.recent_loot
+        player_vitals = previous_state.player_vitals
         confirmed_loot: tuple[LootEvent, ...] = ()
 
         try:
@@ -123,6 +131,10 @@ class PerceptionPipeline:
             recent_loot = tuple(_recent_loot(event) for event in confirmed_loot)
         except LootOcrError:
             failures.add(PerceptionFailure.LOOT_READING)
+        try:
+            player_vitals = self._vitals_reader.read(frame)
+        except ValueError, cv2.error:
+            failures.add(PerceptionFailure.VITALS_READING)
 
         inventory = _apply_loot(previous_state.inventory, confirmed_loot)
 
@@ -138,6 +150,7 @@ class PerceptionPipeline:
             visible_mobs=visible_mobs,
             recent_loot=recent_loot,
             viewport=Viewport(frame.client_size.width, frame.client_size.height),
+            player_vitals=player_vitals,
         )
         return PerceptionTick(state, _events(previous_state, state), frozenset(failures), frame)
 
@@ -198,6 +211,10 @@ def _events(previous_state: WorldState, state: WorldState) -> tuple[PerceptionEv
     if state.selected_target != previous_state.selected_target:
         events.append(
             PerceptionEvent(PerceptionEventKind.TARGET_CHANGED, target=state.selected_target)
+        )
+    if state.player_vitals != previous_state.player_vitals:
+        events.append(
+            PerceptionEvent(PerceptionEventKind.VITALS_CHANGED, vitals=state.player_vitals)
         )
     previous_mobs = set(previous_state.visible_mobs)
     events.extend(

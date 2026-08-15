@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -17,11 +18,16 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from flyff_bot.features.automation.models import (
     InventoryEntry,
+    PlayerVitals,
     Position,
     SelectedTarget,
     TargetState,
     VisibleMob,
     WorldState,
+)
+from flyff_bot.features.automation.vitals_controller import (
+    VitalsTriggerConfig,
+    VitalTriggerType,
 )
 from flyff_bot.features.input_control import InputControlError, InputErrorCode
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
@@ -154,6 +160,9 @@ def test_farming_controls_connect_dashboard_intent() -> None:
 
         def reset_navigation_map(self) -> None:
             self.requests.append("reset")
+
+        def configure_vitals(self, config: VitalsTriggerConfig) -> None:
+            self.requests.append("vitals")
 
     session = Session()
     connect_farming_controls(window, session)
@@ -467,6 +476,43 @@ def test_main_window_close_event_emits_pause_requested() -> None:
     event = QCloseEvent()
     window.closeEvent(event)
     assert pause_calls == [True]
+
+
+def test_main_window_renders_live_vitals() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    state = replace(
+        _world_state(),
+        player_vitals=PlayerVitals(hp_percentage=85.5, mp_percentage=60.0, fp_percentage=42.3),
+    )
+    window.update_dashboard(DashboardUpdate(state, BotStatus.ACTIVE))
+    application.processEvents()
+
+    assert "HP 85.5%" in window.vitals_label.text()
+    assert "MP 60.0%" in window.vitals_label.text()
+    assert "FP 42.3%" in window.vitals_label.text()
+
+
+def test_main_window_vitals_panel_toggle_and_config_signals(tmp_path: Path) -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH), vitals_config_path=tmp_path / "vitals.json")
+
+    assert window.vitals_panel.isHidden()
+    window.vitals_toggle.setChecked(True)
+    assert not window.vitals_panel.isHidden()
+
+    configs: list[VitalsTriggerConfig] = []
+    window.vitals_config_changed.connect(configs.append)
+
+    window.hp_threshold_spin.setValue(85)
+    application.processEvents()
+
+    assert len(configs) >= 1
+    latest = configs[-1]
+    hp_rule = latest.rule_for(VitalTriggerType.HP)
+    assert hp_rule is not None
+    assert hp_rule.threshold_percentage == 85.0
 
 
 def _world_state() -> WorldState:

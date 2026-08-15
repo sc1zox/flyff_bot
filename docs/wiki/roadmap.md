@@ -40,7 +40,10 @@ Phase 1 (Bootstrap & Architecture) ──► Phase 2 (Perception Pipeline) ─�
 - **US-008 (Completed):** Reactive combat controller and target engagement (Attack sequencing with post-action visual verification).
 - **US-009 (Completed):** Reactive loot collector and drop accounting (Item pickup sequence and recipe progress tracking).
 - **US-013 (Completed):** Autonomous farming loop and orchestration engine (Unified closed-loop session coordinating perception, combat, looting, and recovery).
+- **US-017 (Completed):** Player vital gauges perception and threshold-based auto-consumable triggers (Pure pixel-color HP/MP/FP perception, debounce cooldown, low-HP recovery priority).
 - **US-018 (Completed):** Multi-axis camera search and paced scanning (Vertical pitch tilt, visual settling pauses, terrain discovery).
 
 ### Phase 4: Desktop UI & Visual Debugging (Completed)
 - **US-010 (Completed):** Native PySide6 dashboard and visual debug overlay (Live monitoring, YOLO box overlay, killswitch controls).
+- **US-020 (Completed):** Visual navigation path and heatmap inspector (2D canvas inspector, topology graph, spawn density heatmap).
+- **US-021 (Completed):** Navigation map profiles and session reset safeguards (Multi-profile persistence, dirty session safeguards, auto-save).

@@ -111,5 +111,16 @@
   "ui.profile_reset_prompt": "Möchten Sie die aktuelle Navigationskarte wirklich zurücksetzen? Ungespeicherte Änderungen gehen verloren.",
   "ui.profile_load_error_title": "Ladefehler",
   "ui.profile_load_error_prompt": "Das ausgewählte Kartenprofil konnte nicht geladen werden: {reason}",
-  "ui.profile_cells_count": "{name} ({count} Kacheln)"
+  "ui.profile_cells_count": "{name} ({count} Kacheln)",
+  "ui.vitals_status": "Spieler-Werte: HP {hp}% | MP {mp}% | FP {fp}%",
+  "ui.vitals_annotation": "HP: {hp}% | MP: {mp}% | FP: {fp}%",
+  "ui.vitals_toggle": "Werte & Tränke",
+  "ui.vitals_title": "Automatische Tränke & Verbrauchsgegenstände",
+  "ui.vitals_hp": "HP (Leben)",
+  "ui.vitals_mp": "MP (Mana)",
+  "ui.vitals_fp": "FP (Fokus)",
+  "ui.vitals_threshold": "Grenzwert",
+  "ui.vitals_hotkey": "Taste",
+  "ui.vitals_debounce": "Abklingzeit (ms)",
+  "ui.vitals_active": "Aktiv"
 }

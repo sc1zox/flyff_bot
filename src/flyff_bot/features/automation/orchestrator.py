@@ -28,6 +28,12 @@ from flyff_bot.features.automation.loot_execution import LootInputDispatcher
 from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
+from flyff_bot.features.automation.vitals_controller import (
+    VitalsInputAdapter,
+    VitalsInputDispatcher,
+    VitalsTriggerConfig,
+    VitalsTriggerController,
+)
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
@@ -52,7 +58,9 @@ class FarmingMode(StrEnum):
     EMERGENCY_STOPPED = "emergency_stopped"
 
 
-class FarmingInputAdapter(CombatInputAdapter, SearchInputAdapter, PathingInputAdapter, Protocol):
+class FarmingInputAdapter(
+    CombatInputAdapter, SearchInputAdapter, PathingInputAdapter, VitalsInputAdapter, Protocol
+):
     """The guarded platform operations needed by a farming session."""
 
 
@@ -67,6 +75,7 @@ class FarmingConfig:
     tick_interval_seconds: float = DEFAULT_TICK_INTERVAL_SECONDS
     search_retry_seconds: float = DEFAULT_SEARCH_RETRY_SECONDS
     search: SearchConfig = field(default_factory=SearchConfig)
+    vitals: VitalsTriggerConfig = field(default_factory=VitalsTriggerConfig)
 
     def __post_init__(self) -> None:
         if self.tick_interval_seconds <= 0.0:
@@ -121,9 +130,11 @@ class FarmingOrchestrator:
         self._loot = LootController(self._config.loot)
         self._search = SearchController(self._config.search)
         self._radar = MinimapRadar()
+        self._vitals = VitalsTriggerController(self._config.vitals)
         self._combat_dispatcher = CombatInputDispatcher(input_adapter, window_handle)
         self._loot_dispatcher = LootInputDispatcher(input_adapter, window_handle)
         self._search_dispatcher = SearchInputDispatcher(input_adapter, window_handle)
+        self._vitals_dispatcher = VitalsInputDispatcher(input_adapter, window_handle)
         self._pathing = pathing
         self._pathing_dispatcher = PathingInputDispatcher(input_adapter, window_handle)
         self._dashboard_feed = dashboard_feed
@@ -166,6 +177,17 @@ class FarmingOrchestrator:
         combat = replace(self._config.combat, rotation=(KeyBinding(virtual_key),))
         self._config = replace(self._config, combat=combat)
         self._combat = CombatController(combat)
+
+    def configure_vitals(self, config: VitalsTriggerConfig) -> None:
+        """Apply vitals trigger configuration before or during a session."""
+
+        self._config = replace(self._config, vitals=config)
+        self._vitals.update_config(config)
+
+    def reset_vitals(self) -> None:
+        """Reset vitals debounce cooldowns."""
+
+        self._vitals.reset()
 
     def save_navigation_profile(self, path: Path) -> None:
         """Persist the active spatial map to a specific profile file."""
@@ -219,6 +241,12 @@ class FarmingOrchestrator:
             self._mode = FarmingMode.COMPLETED
             self._persist_navigation()
             return self._publish(False)
+
+        vitals_decision = self._vitals.step(self._state)
+        if vitals_decision.triggered:
+            dispatched = self._vitals_dispatcher.dispatch(vitals_decision)
+            if dispatched:
+                return self._publish(True)
 
         dispatched = self._advance(perception)
         return self._publish(dispatched)

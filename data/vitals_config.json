@@ -1,0 +1,28 @@
+{
+  "rules": [
+    {
+      "vital_type": "hp",
+      "threshold_percentage": 85.0,
+      "virtual_key": 112,
+      "debounce_seconds": 0.8,
+      "enabled": false,
+      "key_press_duration_seconds": 0.05
+    },
+    {
+      "vital_type": "mp",
+      "threshold_percentage": 30.0,
+      "virtual_key": 113,
+      "debounce_seconds": 0.8,
+      "enabled": false,
+      "key_press_duration_seconds": 0.05
+    },
+    {
+      "vital_type": "fp",
+      "threshold_percentage": 20.0,
+      "virtual_key": 114,
+      "debounce_seconds": 0.8,
+      "enabled": false,
+      "key_press_duration_seconds": 0.05
+    }
+  ]
+}

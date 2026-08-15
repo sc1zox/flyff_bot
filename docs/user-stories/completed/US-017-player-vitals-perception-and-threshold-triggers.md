@@ -1,9 +1,9 @@
 ---
 id: US-017
 title: Player vital gauges perception and threshold-based auto-consumable triggers
-status: draft
+status: completed
 created: 2026-08-15
-updated: 2026-08-15
+updated: 2026-08-16
 ---
 
 # US-017: Player vital gauges perception and threshold-based auto-consumable triggers
@@ -15,10 +15,10 @@ As a player using the bot and desktop dashboard, I want the bot to extract my ch
 ## Context and assumptions
 
 - **Architectural Dependencies:**
-  - Depends on [US-002](completed/US-002-vision-frame-capture.md) (`WindowsFrameSource` / `FrameSource` protocol) for raw client-space numpy frames.
-  - Depends on [US-007](completed/US-007-perception-worldstate-feed.md) (`PerceptionPipeline` / `WorldState`) to inject a typed `PlayerVitals` object into `WorldState.player_vitals`.
-  - Depends on [US-014](US-014-configurable-ui-attack-key.md) and [US-016](US-016-auto-power-ups-and-timed-hotkeys.md) for hotkey configuration, persistence, and key-press dispatching.
-  - Extends the farming orchestration loop in [US-013](completed/US-013-autonomous-farming-loop-and-orchestration-engine.md).
+  - Depends on [US-002](US-002-vision-frame-capture.md) (`WindowsFrameSource` / `FrameSource` protocol) for raw client-space numpy frames.
+  - Depends on [US-007](US-007-perception-worldstate-feed.md) (`PerceptionPipeline` / `WorldState`) to inject a typed `PlayerVitals` object into `WorldState.player_vitals`.
+  - Depends on [US-014](US-014-configurable-ui-attack-key.md) for hotkey configuration, persistence, and key-press dispatching.
+  - Extends the farming orchestration loop in [US-013](US-013-autonomous-farming-loop-and-orchestration-engine.md).
 - **HUD Layout & Perception (Flyff Top-Left Vitals Orb):**
   - In Flyff (v7–v22 and Flyff Universe), the player's status orb is anchored in the top-left corner of the window.
   - It contains three horizontal color gauge bars:
@@ -30,7 +30,7 @@ As a player using the bot and desktop dashboard, I want the bot to extract my ch
 - **Trigger Logic, Debounce & Safety:**
   - Users can configure threshold triggers for HP, MP, and FP (e.g. HP < 70% -> press `F1` (Food/Potion), MP < 30% -> press `F2` (Refresher), FP < 20% -> press `F3` (Vital Drink)).
   - To prevent input spamming, each trigger enforces a configurable debounce cooldown (default 800 ms) before the same hotkey can be triggered again while the gauge remains below threshold.
-  - **Priority:** Critical HP recovery takes precedence over routine attack rotations ([US-008](completed/US-008-reactive-combat-controller.md)) and periodic timed buffs ([US-016](US-016-auto-power-ups-and-timed-hotkeys.md)).
+  - **Priority:** Critical HP recovery takes precedence over routine attack rotations ([US-008](US-008-reactive-combat-controller.md)) and periodic timed buffs.
   - **Safety boundaries:** Keystrokes are dispatched only when the Flyff client window is foregrounded and the emergency stop (`END` key) is not active.
 - **UI & Localization:**
   - The dashboard UI exposes threshold configuration (enabled, target vital HP/MP/FP, threshold percentage slider/spinbox, hotkey, and debounce cooldown).
@@ -38,19 +38,20 @@ As a player using the bot and desktop dashboard, I want the bot to extract my ch
 
 ## Acceptance criteria
 
-- [ ] `PlayerVitalsVerifier` (or `PlayerVitalsReader`) extracts HP, MP, and FP percentages from the top-left status orb region of captured client frames using pure pixel-color thresholding.
-- [ ] `WorldState` includes a typed `player_vitals: PlayerVitals` field with `hp_percentage: float`, `mp_percentage: float`, `fp_percentage: float` (each bounded `0.0` to `100.0%`).
-- [ ] Perception pipeline integrates `PlayerVitalsVerifier` into the per-frame capture cycle and updates `WorldState` snapshot deterministically.
-- [ ] `VitalsTriggerController` (or integration in `PowerUpManager` / `ConsumablesController`) evaluates `WorldState.player_vitals` against configured rules:
+- [x] `PlayerVitalsReader` extracts HP, MP, and FP percentages from the top-left status orb region of captured client frames using pure pixel-color thresholding.
+- [x] `WorldState` includes a typed `player_vitals: PlayerVitals` field with `hp_percentage: float`, `mp_percentage: float`, `fp_percentage: float` (each bounded `0.0` to `100.0%`).
+- [x] Perception pipeline integrates `PlayerVitalsReader` into the per-frame capture cycle and updates `WorldState` snapshot deterministically.
+- [x] `VitalsTriggerController` evaluates `WorldState.player_vitals` against configured rules:
   - Trigger when `hp_percentage <= configured_threshold`
   - Trigger when `mp_percentage <= configured_threshold`
   - Trigger when `fp_percentage <= configured_threshold`
-- [ ] Configurable debounce / spam-protection timer (default 800 ms) per slot prevents repeated key hammering while below the threshold.
-- [ ] Priority handling: low-HP emergency triggers are prioritized ahead of attack rotation skills and timed buffs.
-- [ ] Keystrokes are guarded by window focus verification and the `END` emergency stop; inputs are dropped or deferred safely if focus is lost.
-- [ ] Dashboard UI provides configuration controls (vital type, threshold %, hotkey, cooldown ms, enabled toggle) with persistent disk storage.
-- [ ] All UI labels, tooltips, and status strings are synchronized in German and English (`de.json` and `en.json`).
-- [ ] Automated unit tests in `tests/unit/` verify:
+- [x] Configurable debounce / spam-protection timer (default 800 ms) per slot prevents repeated key hammering while below the threshold.
+- [x] Priority handling: low-HP emergency triggers are prioritized ahead of attack rotation skills and timed buffs.
+- [x] Keystrokes are guarded by window focus verification and the `END` emergency stop; inputs are dropped or deferred safely if focus is lost.
+- [x] Dashboard UI and debug overlay provide real-time visualization of detected vital gauge values (HP, MP, FP percentage readouts) for operator feedback and debugging.
+- [x] Dashboard UI provides configuration controls (vital type, threshold %, hotkey, cooldown ms, enabled toggle) with persistent disk storage.
+- [x] All UI labels, tooltips, and status strings are synchronized in German and English (`de.json` and `en.json`).
+- [x] Automated unit tests in `tests/unit/` verify:
   - Pixel measurement on synthetic/fixture images of full, half, empty, and edge-case HP/MP/FP bars.
   - Trigger firing on threshold drop, debounce cooldown enforcement, and state recovery.
   - Focus loss and emergency stop prevention.

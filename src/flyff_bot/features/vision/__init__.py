@@ -40,6 +40,13 @@ from flyff_bot.features.vision.target_verification import (
     TargetVerifier,
     extract_target_region,
 )
+from flyff_bot.features.vision.vitals import (
+    GaugeRegion,
+    PlayerVitalsConfig,
+    PlayerVitalsFeed,
+    PlayerVitalsReader,
+    VitalGaugeType,
+)
 
 __all__ = [
     "BoundingBox",
@@ -54,6 +61,7 @@ __all__ = [
     "FrameCaptureError",
     "FrameCaptureErrorCode",
     "FrameSource",
+    "GaugeRegion",
     "LootEvent",
     "LootLogReader",
     "LootLogRegion",
@@ -62,6 +70,9 @@ __all__ = [
     "LootOcrErrorCode",
     "OpenCVDnnYoloDetector",
     "PixelFormat",
+    "PlayerVitalsConfig",
+    "PlayerVitalsFeed",
+    "PlayerVitalsReader",
     "TargetRegion",
     "TargetStatus",
     "TargetVerificationConfig",
@@ -69,6 +80,7 @@ __all__ = [
     "TargetVerifier",
     "TesseractTextRecognizer",
     "TextRecognizer",
+    "VitalGaugeType",
     "WindowsFrameSource",
     "extract_loot_region",
     "extract_target_region",

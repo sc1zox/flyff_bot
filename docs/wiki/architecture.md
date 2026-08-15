@@ -218,3 +218,16 @@ and spawn weights, resetting the dead-reckoning tracker back to $(0.0, 0.0, 0.0^
 sessions auto-persist the active profile every 30 seconds of farming, on pause/emergency stop
 transitions, and upon window close (`MainWindow.closeEvent`), with complete German and English
 localization for all dialogs and notices.
+
+US-017 adds `flyff_bot.features.vision.vitals` and `flyff_bot.features.automation.vitals_controller`,
+providing pure pixel-color perception of player vital gauges (HP, MP, FP) from the top-left HUD orb
+and reactive threshold-triggered consumable dispatching. `PlayerVitalsReader` extracts the top-left HUD
+region from captured frames and column-scans calibrated horizontal gauge bars (HP in Red, MP in Blue,
+FP in Green), measuring the furthest filled column to compute accurate fill percentages (0.0% to 100.0%)
+even when overlaid with black or white digit text. The measured values populate `PlayerVitals` on `WorldState`.
+`VitalsTriggerController` evaluates configurable per-vital threshold rules (`hp_percentage <= threshold`),
+enforcing debounce cooldowns (default 800ms) and prioritizing low-HP emergency recovery over combat rotations.
+`VitalsInputDispatcher` executes consumable hotkeys while strictly enforcing foreground window focus and END
+emergency stop. The PySide6 dashboard exposes live vitals readouts, overlay annotations, and a configurable
+vitals trigger panel with automatic disk persistence to `data/vitals_config.json` and synchronized German/English
+translations.

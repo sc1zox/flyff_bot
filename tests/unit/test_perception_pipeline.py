@@ -8,6 +8,7 @@ import numpy as np
 
 from flyff_bot.features.automation.models import (
     InventoryEntry,
+    PlayerVitals,
     Position,
     SelectedTarget,
     TargetState,
@@ -89,6 +90,7 @@ def _previous_state() -> WorldState:
         nearby_mob_count=0,
         inventory=(InventoryEntry("potion", 2),),
         progress_marker=9,
+        player_vitals=PlayerVitals(0.0, 0.0, 0.0),
     )
 
 
@@ -213,3 +215,49 @@ def test_loot_read_failure_retains_prior_inventory_and_progress() -> None:
 
     assert tick.state.inventory == previous.inventory
     assert tick.state.progress_marker == previous.progress_marker
+
+
+class _VitalsReader:
+    def __init__(self, result: PlayerVitals | Exception) -> None:
+        self.result = result
+        self.frames: list[CapturedFrame] = []
+
+    def read(self, frame: CapturedFrame) -> PlayerVitals:
+        self.frames.append(frame)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def test_tick_reads_player_vitals_and_emits_event() -> None:
+    vitals = PlayerVitals(hp_percentage=60.0, mp_percentage=40.0, fp_percentage=80.0)
+    vitals_feed = _VitalsReader(vitals)
+    pipeline = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        _LootLogReader(()),
+        vitals_reader=vitals_feed,
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+
+    tick = pipeline.tick(WINDOW_HANDLE, _previous_state())
+    assert tick.state.player_vitals == PlayerVitals(60.0, 40.0, 80.0)
+    assert any(event.kind is PerceptionEventKind.VITALS_CHANGED for event in tick.events)
+
+
+def test_tick_isolates_vitals_reading_failure() -> None:
+    vitals_feed = _VitalsReader(ValueError("vitals parse failed"))
+    previous = _previous_state()
+    pipeline = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        _LootLogReader(()),
+        vitals_reader=vitals_feed,
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+
+    tick = pipeline.tick(WINDOW_HANDLE, previous)
+    assert PerceptionFailure.VITALS_READING in tick.failures
+    assert tick.state.player_vitals == previous.player_vitals

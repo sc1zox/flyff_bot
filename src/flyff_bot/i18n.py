@@ -131,6 +131,17 @@ class Message(StrEnum):
     UI_PROFILE_LOAD_ERROR_TITLE = "ui.profile_load_error_title"
     UI_PROFILE_LOAD_ERROR_PROMPT = "ui.profile_load_error_prompt"
     UI_PROFILE_CELLS_COUNT = "ui.profile_cells_count"
+    UI_VITALS_STATUS = "ui.vitals_status"
+    UI_VITALS_ANNOTATION = "ui.vitals_annotation"
+    UI_VITALS_TOGGLE = "ui.vitals_toggle"
+    UI_VITALS_TITLE = "ui.vitals_title"
+    UI_VITALS_HP = "ui.vitals_hp"
+    UI_VITALS_MP = "ui.vitals_mp"
+    UI_VITALS_FP = "ui.vitals_fp"
+    UI_VITALS_THRESHOLD = "ui.vitals_threshold"
+    UI_VITALS_HOTKEY = "ui.vitals_hotkey"
+    UI_VITALS_DEBOUNCE = "ui.vitals_debounce"
+    UI_VITALS_ACTIVE = "ui.vitals_active"
 
 
 class Translator:

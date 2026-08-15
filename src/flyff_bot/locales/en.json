@@ -111,5 +111,16 @@
   "ui.profile_reset_prompt": "Are you sure you want to reset the current navigation map? Unsaved changes will be lost.",
   "ui.profile_load_error_title": "Load Error",
   "ui.profile_load_error_prompt": "The selected map profile could not be loaded: {reason}",
-  "ui.profile_cells_count": "{name} ({count} tiles)"
+  "ui.profile_cells_count": "{name} ({count} tiles)",
+  "ui.vitals_status": "Player Vitals: HP {hp}% | MP {mp}% | FP {fp}%",
+  "ui.vitals_annotation": "HP: {hp}% | MP: {mp}% | FP: {fp}%",
+  "ui.vitals_toggle": "Vitals & Potions",
+  "ui.vitals_title": "Auto Consumables & Vitals Triggers",
+  "ui.vitals_hp": "HP (Health)",
+  "ui.vitals_mp": "MP (Mana)",
+  "ui.vitals_fp": "FP (Fatigue)",
+  "ui.vitals_threshold": "Threshold",
+  "ui.vitals_hotkey": "Key",
+  "ui.vitals_debounce": "Cooldown (ms)",
+  "ui.vitals_active": "Active"
 }

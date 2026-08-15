@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -12,6 +13,7 @@ from flyff_bot.features.automation.controllers import (
 )
 from flyff_bot.features.automation.models import (
     InventoryEntry,
+    PlayerVitals,
     Position,
     SelectedTarget,
     TargetState,
@@ -265,3 +267,19 @@ def test_orchestrator_publishes_navigation_snapshot_when_pathing_is_configured()
     assert updates[0].navigation is not None
     assert updates[0].navigation.player_x == 0.0
     assert updates[0].navigation.player_y == 0.0
+
+
+def test_orchestrator_prioritizes_vitals_trigger_ahead_of_combat() -> None:
+    adapter = _InputAdapter()
+    low_hp_state = _state(
+        1.0,
+        mobs=(MOB,),
+    )
+    low_hp_state = replace(low_hp_state, player_vitals=PlayerVitals(hp_percentage=50.0))
+
+    orchestrator = _orchestrator([low_hp_state], adapter)
+    orchestrator.start()
+    tick = orchestrator.tick()
+
+    assert tick.dispatched is True
+    assert (0x70, 0.05) in adapter.keys

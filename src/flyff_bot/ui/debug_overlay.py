@@ -6,7 +6,12 @@ from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from flyff_bot.features.automation.models import SelectedTarget, TargetState, VisibleMob
+from flyff_bot.features.automation.models import (
+    PlayerVitals,
+    SelectedTarget,
+    TargetState,
+    VisibleMob,
+)
 from flyff_bot.features.vision.models import CapturedFrame, PixelFormat
 from flyff_bot.i18n import Message, Translator
 
@@ -91,6 +96,7 @@ def render_debug_overlay(
     mobs: tuple[VisibleMob, ...],
     target: SelectedTarget,
     translator: Translator,
+    vitals: PlayerVitals | None = None,
 ) -> QPixmap:
     """Return a copied pixmap with client-space mob and target annotations."""
 
@@ -130,6 +136,18 @@ def render_debug_overlay(
             name=target.name or translator.text(Message.UI_NO_TARGET_NAME),
         ),
     )
+    if vitals is not None:
+        painter.setPen(QPen(QColor(240, 240, 240), OVERLAY_PEN_WIDTH))
+        painter.drawText(
+            OVERLAY_PEN_WIDTH,
+            (OVERLAY_FONT_POINT_SIZE + OVERLAY_PEN_WIDTH) * 2 + 4,
+            translator.text(
+                Message.UI_VITALS_ANNOTATION,
+                hp=f"{vitals.hp_percentage:.1f}",
+                mp=f"{vitals.mp_percentage:.1f}",
+                fp=f"{vitals.fp_percentage:.1f}",
+            ),
+        )
     painter.end()
     return QPixmap.fromImage(image)
 

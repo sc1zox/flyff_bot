@@ -36,6 +36,9 @@ def test_each_language_contains_every_message() -> None:
                 required=0,
                 item="x",
                 name="x",
+                hp="100.0",
+                mp="100.0",
+                fp="100.0",
             )
 
 
