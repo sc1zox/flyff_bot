@@ -217,9 +217,18 @@ class FarmingOrchestrator:
             if self._advance_pathing():
                 return True
             radar_position = self._radar.nearest_dot(self._last_frame)
-            return self._search_dispatcher.dispatch(
-                self._search.step(self._state.observed_at_seconds, radar_position)
-            )
+            search_decision = self._search.step(self._state.observed_at_seconds, radar_position)
+            dispatched = self._search_dispatcher.dispatch(search_decision)
+            if (
+                dispatched
+                and self._pathing is not None
+                and search_decision.virtual_key is not None
+                and search_decision.key_press_duration_seconds is not None
+            ):
+                self._pathing.integrate_movement(
+                    search_decision.virtual_key, search_decision.key_press_duration_seconds
+                )
+            return dispatched
 
         if self._mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:
             combat = self._combat.step(self._state)

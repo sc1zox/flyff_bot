@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -11,7 +12,7 @@ from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_RIGHT,
     VIRTUAL_KEY_W,
 )
-from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.automation.models import Viewport, VisibleMob, WorldState
 from flyff_bot.features.navigation.persistence import save_spatial_map
 from flyff_bot.features.navigation.planning import Route, RouteConfig, RoutePlanner
 from flyff_bot.features.navigation.spatial import GridCell, SpatialMap, WorldPoint
@@ -195,14 +196,25 @@ class PathingController:
         at_seconds = state.observed_at_seconds
         position = self._tracker.position
         cell = self._map.record_visit(position, at_seconds)
-        for _mob in state.visible_mobs:
-            self._map.record_spawn(position, at_seconds)
+        for mob in state.visible_mobs:
+            mob_point = self._estimate_mob_position(
+                position, self._tracker.heading_degrees, mob, state.viewport
+            )
+            self._map.record_spawn(mob_point, at_seconds)
         stalled = self._stalls.observe(frame, movement_commanded=self._movement_commanded)
         if stalled and self._mode not in {PathingMode.RETREATING, PathingMode.BLOCKED}:
             self._register_stall(position, at_seconds)
         elif not stalled and self._map.stall_count(cell) == 0:
             self._remember_safe_waypoint(cell, position)
         self._movement_commanded = False
+
+    def integrate_movement(self, virtual_key: int, duration_seconds: float) -> None:
+        """Integrate an external movement or camera-rotation pulse into the position estimate."""
+
+        if duration_seconds <= 0.0:
+            return
+        self._tracker.apply(virtual_key, duration_seconds)
+        self._movement_commanded = virtual_key == VIRTUAL_KEY_W
 
     def step(self, at_seconds: float) -> PathingDecision:
         """Return the next interruptible movement request without dispatching input."""
@@ -221,14 +233,42 @@ class PathingController:
 
         if decision.virtual_key is None or decision.key_press_duration_seconds is None:
             return
-        self._tracker.apply(decision.virtual_key, decision.key_press_duration_seconds)
-        self._movement_commanded = decision.virtual_key == VIRTUAL_KEY_W
+        self.integrate_movement(decision.virtual_key, decision.key_press_duration_seconds)
 
     def persist(self) -> None:
         """Write the learned map to its configured location, if one was provided."""
 
         if self._map_path is not None:
             save_spatial_map(self._map, self._map_path)
+
+    def _estimate_mob_position(
+        self,
+        player_pos: WorldPoint,
+        heading_degrees: float,
+        mob: VisibleMob,
+        viewport: Viewport | None,
+    ) -> WorldPoint:
+        if viewport is None or viewport.width <= 0 or viewport.height <= 0:
+            rad = math.radians(heading_degrees)
+            return WorldPoint(
+                player_pos.x + math.sin(rad) * 30.0,
+                player_pos.y + math.cos(rad) * 30.0,
+            )
+
+        screen_cx = viewport.width / 2.0
+        mob_cx = mob.x + mob.width / 2.0
+        rel_x = max(-1.0, min(1.0, (mob_cx - screen_cx) / screen_cx))
+        bearing = (heading_degrees + rel_x * 30.0) % 360.0
+
+        mob_bottom = mob.y + mob.height
+        dist_factor = max(0.0, min(1.0, 1.0 - (mob_bottom / viewport.height)))
+        distance = 15.0 + dist_factor * 35.0
+
+        rad = math.radians(bearing)
+        return WorldPoint(
+            player_pos.x + math.sin(rad) * distance,
+            player_pos.y + math.cos(rad) * distance,
+        )
 
     def _remember_safe_waypoint(self, cell: GridCell, position: WorldPoint) -> None:
         """Keep the cell behind the current one as the verified retreat target."""
