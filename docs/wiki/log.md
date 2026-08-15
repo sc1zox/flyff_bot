@@ -82,3 +82,8 @@ input boundary; moved US-009 to the completed stories directory.
 Recorded the completed cooperative farming session lifecycle, guarded perception-to-controller
 dispatch, reconciliation and goal completion behavior, CLI configuration path, and dashboard
 control/update boundary; moved US-013 to the completed stories directory.
+
+## [2026-08-15] synthesis | Configurable UI attack key (US-014)
+
+Recorded the dashboard's default-F3 physical-key capture, supported combat-key ranges, and
+paused-session orchestrator configuration path; moved US-014 to the completed stories directory.

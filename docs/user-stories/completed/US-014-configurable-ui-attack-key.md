@@ -1,7 +1,7 @@
 ---
 id: US-014
 title: Configurable attack key in UI with key capture and F3 default
-status: draft
+status: completed
 created: 2026-08-15
 updated: 2026-08-15
 ---
@@ -21,14 +21,14 @@ As a player using the desktop dashboard, I want to configure the attack key dire
 
 ## Acceptance criteria
 
-- [ ] `CombatController` and `KeyBinding` accept function keys (`VK_F1`–`VK_F12`), number keys (`0`–`9`), `Space`, and alpha keys (`A`–`Z`).
-- [ ] Desktop dashboard UI ([`MainWindow`](../../src/flyff_bot/ui/main_window.py)) includes an attack key configuration control that defaults to `F3`.
-- [ ] The key configuration control allows pressing a physical keyboard key to automatically detect and assign the attack key (e.g. `F3`, `F1`, `1`, `Space`).
-- [ ] When farming is started from the UI, `FarmingOrchestrator` uses the configured attack key for target engagements.
-- [ ] After targeting a valid mob, the configured attack key is dispatched to initiate combat, followed by monitoring for target defeat (`hp_pixel_count == 0` or target loss) and loot OCR confirmation before transitioning to the next mob.
-- [ ] The CLI `--farm` / `--auto` and `--rotation-key` options also support function keys (e.g. `--rotation-key F3`).
-- [ ] All user-visible UI labels, tooltips, and log messages are fully synchronized in German and English (`de.json` and `en.json`).
-- [ ] Automated unit tests in `tests/unit/` verify function key validation, UI key recording, orchestrator combat dispatch, and error handling.
+- [x] `CombatController` and `KeyBinding` accept function keys (`VK_F1`–`VK_F12`), number keys (`0`–`9`), `Space`, and alpha keys (`A`–`Z`).
+- [x] Desktop dashboard UI ([`MainWindow`](../../src/flyff_bot/ui/main_window.py)) includes an attack key configuration control that defaults to `F3`.
+- [x] The key configuration control allows pressing a physical keyboard key to automatically detect and assign the attack key (e.g. `F3`, `F1`, `1`, `Space`).
+- [x] When farming is started from the UI, `FarmingOrchestrator` uses the configured attack key for target engagements.
+- [x] After targeting a valid mob, the configured attack key is dispatched to initiate combat, followed by monitoring for target defeat (`hp_pixel_count == 0` or target loss) and loot OCR confirmation before transitioning to the next mob.
+- [x] The CLI `--farm` / `--auto` and `--rotation-key` options also support function keys (e.g. `--rotation-key F3`).
+- [x] All user-visible UI labels, tooltips, and log messages are fully synchronized in German and English (`de.json` and `en.json`).
+- [x] Automated unit tests in `tests/unit/` verify function key validation, UI key recording, orchestrator combat dispatch, and error handling.
 
 ## Out of scope
 

@@ -19,6 +19,7 @@ related:
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
   - ../user-stories/completed/US-012-real-world-vision-refactoring.md
   - ../user-stories/completed/US-013-autonomous-farming-loop-and-orchestration-engine.md
+  - ../user-stories/completed/US-014-configurable-ui-attack-key.md
 ---
 
 # Architecture
@@ -145,3 +146,9 @@ combat and loot dispatchers, pauses on lost focus, latches an emergency stop, an
 optional inventory goal. The `--farm`/`--auto` CLI path configures model, target, rotation, loot,
 search, and goal inputs. An optional `DashboardFeed` publishes immutable `DashboardUpdate` values,
 and the Qt signal adapter connects dashboard start, pause, and emergency-stop intents to a session.
+
+US-014 makes the combat attack key configurable at the desktop boundary. The dashboard captures a
+single supported physical key, displays `F3` by default, and passes its virtual-key code into a
+paused `FarmingOrchestrator` before a session starts. Combat bindings and the existing CLI rotation
+key parser support `A`–`Z`, `0`–`9`, Space, and `F1`–`F12`; dispatch, defeat monitoring, loot OCR,
+and foreground/END safeguards remain on their existing paths.

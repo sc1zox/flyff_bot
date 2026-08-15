@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import cast
 
+import pytest
+
+from flyff_bot.features.automation.controllers import VIRTUAL_KEY_F1
 from flyff_bot.features.automation.models import (
     InventoryEntry,
     Position,
@@ -132,6 +135,31 @@ def test_search_waits_for_the_configured_retry_interval_without_input() -> None:
     assert not orchestrator.tick().dispatched
     assert adapter.keys == []
     assert adapter.clicks == []
+
+
+def test_configured_attack_key_is_dispatched_for_target_engagement() -> None:
+    adapter = _InputAdapter()
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    orchestrator = _orchestrator(
+        [_state(1.0, mobs=(MOB,)), _state(2.0, target=valid), _state(3.0, target=valid)],
+        adapter,
+    )
+    orchestrator.configure_attack_key(VIRTUAL_KEY_F1)
+    orchestrator.start()
+
+    orchestrator.tick()
+    orchestrator.tick()
+    orchestrator.tick()
+
+    assert [key for key, _duration in adapter.keys] == [VIRTUAL_KEY_F1]
+
+
+def test_configuring_attack_key_while_active_is_rejected() -> None:
+    orchestrator = _orchestrator([_state(1.0)], _InputAdapter())
+    orchestrator.start()
+
+    with pytest.raises(RuntimeError):
+        orchestrator.configure_attack_key(VIRTUAL_KEY_F1)
 
 
 def test_end_or_lost_foreground_pauses_without_perception_or_input() -> None:

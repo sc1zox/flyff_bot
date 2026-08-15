@@ -18,7 +18,8 @@ from flyff_bot.constants import (
     DEFAULT_MOB_MODEL_PATH,
     DEFAULT_PROCESS_NAME,
 )
-from flyff_bot.features.automation.orchestrator import FarmingOrchestrator
+from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding
+from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision import (
@@ -116,8 +117,12 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     pipeline,
                     controller,
                     window_handle,
+                    config=FarmingConfig(
+                        combat=CombatConfig(rotation=(KeyBinding(window.attack_virtual_key),))
+                    ),
                     dashboard_feed=feed,
                 )
+                window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 connect_farming_controls(
                     window,
                     orchestrator,

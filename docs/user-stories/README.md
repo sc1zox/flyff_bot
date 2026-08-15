@@ -30,7 +30,7 @@ stories are moved to `docs/user-stories/completed/`.
 
 ### Phase 4: Desktop UI & Visual Debugging
 - [x] [**US-010: Native PySide6 dashboard and visual debug overlay**](completed/US-010-pyside6-dashboard-and-overlay.md) — Desktop monitoring, live YOLO overlay, recipe progress, and killswitch controls.
-- [ ] [**US-014: Configurable UI attack key with key capture**](US-014-configurable-ui-attack-key.md) — Dynamic combat hotkey configuration with F3 default and persistence.
+- [x] [**US-014: Configurable UI attack key with key capture**](completed/US-014-configurable-ui-attack-key.md) — Dynamic combat hotkey configuration with F3 default.
 - [ ] [**US-015: Idle timeout detection and staged search navigation**](US-015-idle-timeout-and-search-navigation.md) — Camera rotation and staged exploration when no mobs are in view.
 - [ ] [**US-016: Auto power-ups and timed hotkeys**](US-016-auto-power-ups-and-timed-hotkeys.md) — Timed recurring buff and utility hotkey scheduler with UI management.
 - [ ] [**US-017: Player vital gauges perception and threshold-based auto-consumables**](US-017-player-vitals-perception-and-threshold-triggers.md) — Top-left HP/MP/FP pixel extraction with configurable threshold triggers.

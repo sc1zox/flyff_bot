@@ -8,6 +8,8 @@ import numpy as np
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from flyff_bot.features.automation.models import (
@@ -81,6 +83,37 @@ def test_language_switch_retranslates_cached_dashboard() -> None:
     assert window.windowTitle() == "Flyff Bot"
     assert window.status_label.text() == "Bot-Status: Aktiv"
     assert window.start_button.text() == "Starten"
+
+
+def test_attack_key_capture_defaults_to_f3_and_records_supported_keys() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    selected: list[int] = []
+    window.attack_key_changed.connect(selected.append)
+
+    assert window.attack_virtual_key == 0x72
+    assert window.attack_key_button.text() == "F3"
+
+    window.attack_key_button.click()
+    QTest.keyClick(window.attack_key_button, Qt.Key.Key_F1)
+    application.processEvents()
+
+    assert window.attack_virtual_key == 0x70
+    assert window.attack_key_button.text() == "F1"
+    assert selected == [0x70]
+
+
+def test_attack_key_capture_rejects_unsupported_key_without_changing_selection() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    window.attack_key_button.click()
+    QTest.keyClick(window.attack_key_button, Qt.Key.Key_Shift)
+    application.processEvents()
+
+    assert window.attack_virtual_key == 0x72
+    assert window.attack_key_button.text() == "F3"
+    assert "Unsupported attack key" in window.attack_key_button.toolTip()
 
 
 def test_farming_controls_connect_dashboard_intent() -> None:

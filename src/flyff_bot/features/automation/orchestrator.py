@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Protocol
 
@@ -14,6 +14,7 @@ from flyff_bot.features.automation.controllers import (
     CombatController,
     CombatDecision,
     CombatMode,
+    KeyBinding,
     LootConfig,
     LootController,
     LootDecision,
@@ -139,6 +140,15 @@ class FarmingOrchestrator:
         """Latch a session-local emergency stop until a new session is created."""
 
         self._mode = FarmingMode.EMERGENCY_STOPPED
+
+    def configure_attack_key(self, virtual_key: int) -> None:
+        """Apply one dashboard-selected attack key before a paused session starts."""
+
+        if self._mode is not FarmingMode.PAUSED:
+            raise RuntimeError("Attack key can only be configured while farming is paused.")
+        combat = replace(self._config.combat, rotation=(KeyBinding(virtual_key),))
+        self._config = replace(self._config, combat=combat)
+        self._combat = CombatController(combat)
 
     def tick(self) -> FarmingTick:
         """Perform at most one perception, decision, and guarded-dispatch cycle."""

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from flyff_bot.features.automation.combat_execution import CombatInputDispatcher
 from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_1,
     VIRTUAL_KEY_C,
+    VIRTUAL_KEY_F1,
     CombatConfig,
     CombatController,
     CombatInputKind,
@@ -112,6 +115,16 @@ def test_rejects_unverified_target_and_empty_candidates() -> None:
         controller.step(_state(target=SelectedTarget(TargetState.WRONG, None, 100))).mode
         is CombatMode.IDLE
     )
+
+
+@pytest.mark.parametrize("virtual_key", [ord("0"), ord("A"), VIRTUAL_KEY_F1])
+def test_key_binding_accepts_all_configured_attack_key_categories(virtual_key: int) -> None:
+    assert KeyBinding(virtual_key).virtual_key == virtual_key
+
+
+def test_key_binding_rejects_unsupported_virtual_key() -> None:
+    with pytest.raises(ValueError):
+        KeyBinding(0x10)
 
 
 class _InputAdapter:

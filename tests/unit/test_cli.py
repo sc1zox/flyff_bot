@@ -14,6 +14,7 @@ from flyff_bot.features.vision import (
     FrameCaptureErrorCode,
     OpenCVDnnYoloDetector,
 )
+from flyff_bot.i18n import Language, Translator
 
 
 class FakeController:
@@ -83,6 +84,14 @@ def test_key_action_focuses_window_and_sends_parsed_key(monkeypatch: MonkeyPatch
     assert exit_code == ExitCode.SUCCESS
     assert controller.focused_handle == 42
     assert controller.sent_key == (0x71, 0.2)
+
+
+def test_farm_rotation_key_accepts_function_keys() -> None:
+    arguments = cli._argument_parser(Translator(Language.ENGLISH)).parse_args(
+        ["--farm", "--rotation-key", "F3"]
+    )
+
+    assert arguments.rotation_key == [0x72]
 
 
 def test_click_action_sends_client_coordinates(monkeypatch: MonkeyPatch) -> None:

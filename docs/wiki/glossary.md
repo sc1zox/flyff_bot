@@ -88,3 +88,6 @@ related:
   `LOOTING`, and `RECONCILING`; it pauses on lost foreground focus and latches emergency stops.
 - **Farming goal** — An optional item name and required inventory quantity that completes a farming
   session when the immutable world-state inventory reaches the target.
+- **Attack key** — One supported virtual key (`A`–`Z`, `0`–`9`, Space, or `F1`–`F12`) that the
+  dashboard captures as a single physical key press and supplies to the paused farming session's
+  combat binding; its dashboard default is `F3`.

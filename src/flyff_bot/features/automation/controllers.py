@@ -14,9 +14,15 @@ from flyff_bot.features.automation.models import (
 )
 
 VIRTUAL_KEY_SPACE = 0x20
-VIRTUAL_KEY_C = 0x43
-VIRTUAL_KEY_1 = 0x31
-VIRTUAL_KEY_9 = 0x39
+VIRTUAL_KEY_DIGIT_MINIMUM = 0x30
+VIRTUAL_KEY_DIGIT_MAXIMUM = 0x39
+VIRTUAL_KEY_ALPHA_MINIMUM = 0x41
+VIRTUAL_KEY_ALPHA_MAXIMUM = 0x5A
+VIRTUAL_KEY_C = ord("C")
+VIRTUAL_KEY_1 = ord("1")
+VIRTUAL_KEY_9 = ord("9")
+VIRTUAL_KEY_F1 = 0x70
+VIRTUAL_KEY_F12 = 0x7B
 DEFAULT_KEY_PRESS_DURATION_SECONDS = 0.05
 DEFAULT_ATTACK_COOLDOWN_SECONDS = 0.5
 VIRTUAL_KEY_F = 0x46
@@ -65,6 +71,17 @@ class LootMode(StrEnum):
     TIMED_OUT = "timed_out"
 
 
+def _is_supported_combat_virtual_key(virtual_key: int) -> bool:
+    return virtual_key == VIRTUAL_KEY_SPACE or any(
+        minimum <= virtual_key <= maximum
+        for minimum, maximum in (
+            (VIRTUAL_KEY_DIGIT_MINIMUM, VIRTUAL_KEY_DIGIT_MAXIMUM),
+            (VIRTUAL_KEY_ALPHA_MINIMUM, VIRTUAL_KEY_ALPHA_MAXIMUM),
+            (VIRTUAL_KEY_F1, VIRTUAL_KEY_F12),
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class KeyBinding:
     """One attack or skill key and the minimum interval before it may repeat."""
@@ -73,11 +90,8 @@ class KeyBinding:
     cooldown_seconds: float = DEFAULT_ATTACK_COOLDOWN_SECONDS
 
     def __post_init__(self) -> None:
-        if not VIRTUAL_KEY_1 <= self.virtual_key <= VIRTUAL_KEY_9 and self.virtual_key not in {
-            VIRTUAL_KEY_C,
-            VIRTUAL_KEY_SPACE,
-        }:
-            raise ValueError("Combat bindings must use 1-9, C, or Space.")
+        if not _is_supported_combat_virtual_key(self.virtual_key):
+            raise ValueError("Combat bindings must use A-Z, 0-9, F1-F12, or Space.")
         if self.cooldown_seconds < 0.0:
             raise ValueError("Combat binding cooldown must not be negative.")
 
