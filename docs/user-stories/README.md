@@ -35,3 +35,4 @@ stories are moved to `docs/user-stories/completed/`.
 - [ ] [**US-016: Auto power-ups and timed hotkeys**](US-016-auto-power-ups-and-timed-hotkeys.md) — Timed recurring buff and utility hotkey scheduler with UI management.
 - [ ] [**US-017: Player vital gauges perception and threshold-based auto-consumables**](US-017-player-vitals-perception-and-threshold-triggers.md) — Top-left HP/MP/FP pixel extraction with configurable threshold triggers.
 - [ ] [**US-018: Multi-axis camera search with vertical pitch tilt and paced scanning**](US-018-multi-axis-camera-search-and-paced-scanning.md) — Multi-axis camera scanning with vertical pitch adjustment and paced settling.
+- [ ] [**US-019: Topological spawn heatmap and dead-reckoning grid pathing**](US-019-topological-spawn-heatmap-and-grid-pathing.md) — 2D spatial grid map with kill frequency weights, A* pathing, and JSON persistence.
