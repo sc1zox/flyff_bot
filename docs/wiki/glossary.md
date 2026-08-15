@@ -41,3 +41,8 @@ related:
   ID, and ordered label name.
 - **YOLO label contract** — A UTF-8 text file with one non-empty class name per line; line order
   defines the numeric class IDs emitted by the model.
+- **Target verification** — Perception-only inspection of a normalized target-header region that
+  combines HP-bar colour presence with whitelisted name-template matching and reports a typed
+  target status.
+- **Target status** — The verification result for the current target: `VALID_TARGET`,
+  `WRONG_TARGET`, or `NO_TARGET`.

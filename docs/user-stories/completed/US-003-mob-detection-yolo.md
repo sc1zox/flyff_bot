@@ -33,7 +33,7 @@ using YOLO and OpenCV, so that the bot knows where potential targets are located
 
 - Training or labeling custom YOLO datasets (dataset preparation is a separate operational task).
 - Auto-targeting, navigation, or issuing combat inputs.
-- Verifying the targeted mob's exact nameplate/HP bar (covered in [US-004](../US-004-target-mob-verification.md)).
+- Verifying the targeted mob's exact nameplate/HP bar (covered in [US-004](US-004-target-mob-verification.md)).
 
 ## Verification
 

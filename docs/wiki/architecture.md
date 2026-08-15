@@ -12,6 +12,7 @@ related:
   - ../decisions/ADR-002-target-architecture-and-pyside6.md
   - ../user-stories/completed/US-002-vision-frame-capture.md
   - ../user-stories/completed/US-003-mob-detection-yolo.md
+  - ../user-stories/completed/US-004-target-mob-verification.md
 ---
 
 # Architecture
@@ -45,10 +46,13 @@ Game Client
      class name; the `Detector` protocol supports deterministic mock implementations.
    - **Template Matching:** Detection of fixed 2D UI elements and anchors.
    - **ROI OCR:** Targeted text extraction from specific UI regions (e.g. central loot/system log).
-   - **Frame capture:** `WindowsFrameSource` captures the foreground client's exact client area
+  - **Frame capture:** `WindowsFrameSource` captures the foreground client's exact client area
      through documented Win32 GDI APIs and exposes contiguous BGR or RGB `numpy.ndarray` frames.
      Its `FrameSource` protocol is injectable for deterministic tests, and capture failures use
      typed error codes.
+   - **Target verification:** `TargetVerifier` extracts a normalized target-header region from a
+     captured frame, detects the configured HP-bar colour, and template-matches a whitelisted name.
+     It returns `VALID_TARGET`, `WRONG_TARGET`, or `NO_TARGET` without dispatching any input.
 2. **State & Supervisor:**
    - **World State:** Immutable snapshot representing current assumed game reality.
    - **Supervisor:** Closed-loop reconciliation comparing desired state vs. observed state; detects stalls and triggers self-healing (`NO_PROGRESS`, `NO_MOBS`, `STUCK`, `INVENTORY_MISMATCH`).
@@ -78,4 +82,6 @@ The desktop presentation is a small PySide6 application boundary (`flyff_bot.ui`
 localized world-state summary. It introduces no web runtime. It is deliberately a bootstrap: real
 Win32 input dispatch remains separate future work. US-002 provides foreground client-area capture
 with client-space coordinates preserved for downstream vision and input verification; US-003 adds
-the first production-facing model adapter for YOLO object detection.
+the first production-facing model adapter for YOLO object detection. US-004 adds target-header
+verification as a pure perception component: a target must have sufficient configured HP-colour
+pixels and match a configured name template before it is reported as valid.

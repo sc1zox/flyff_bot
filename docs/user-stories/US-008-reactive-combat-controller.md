@@ -16,14 +16,14 @@ As a player using permitted automation, I want the bot to select valid target mo
 
 - Source: [Target architecture proposal](../sources/2026-08-15-target-architecture-proposal.md).
 - Depends on [US-006](completed/US-006-target-architecture-bootstrap.md) (Architecture/Controllers) and [US-007](US-007-perception-worldstate-feed.md) (WorldState Feed).
-- Win32 `SendInput` is used for target selection (e.g. `TAB` or screen click) and attack actions (e.g. `1`-`9` hotkeys).
-- Post-action visual verification: attacks are confirmed by observing target HP decrease or combat animations.
+- Flyff target selection is performed by dispatching a Win32 mouse click to the detected monster's screen coordinates `(x + width/2, y + height/2)` from `WorldState.visible_mobs`.
+- Post-action visual verification: selection is confirmed by observing the target bar appearance (`TargetStatus.VALID_TARGET`), and attack progress is confirmed by target HP decrease.
 
 ## Acceptance criteria
 
-- [ ] `CombatController` selects the best candidate mob from `WorldState.visible_mobs` (closest / valid type).
-- [ ] Issues target selection action and verifies target lock via `TargetStatus.VALID_TARGET`.
-- [ ] Executes attack/skill actions mapped to key bindings with configurable cooldowns.
+- [ ] `CombatController` selects the best candidate mob from `WorldState.visible_mobs` (e.g. closest distance to screen center / valid whitelist type).
+- [ ] Dispatches a mouse click action to the target mob's bounding-box center coordinates and verifies target lock via `TargetStatus.VALID_TARGET`.
+- [ ] Executes attack/skill actions (hotkeys `1`-`9`, `C`, or `Space` action slot) mapped to key bindings with configurable cooldowns.
 - [ ] Verifies ongoing combat progress; transitions to idle when target HP drops to 0 or target is cleared.
 - [ ] Honors emergency stop (`END` key) and focus loss immediately by halting combat inputs.
 - [ ] Automated unit tests verify combat state machine transitions under synthetic world state feeds.

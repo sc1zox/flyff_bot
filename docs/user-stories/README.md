@@ -17,9 +17,9 @@ stories are moved to `docs/user-stories/completed/`.
 
 ### Phase 2: Perception & Computer Vision Pipeline (Active)
 - [x] [**US-002: Screen and client frame capture**](completed/US-002-vision-frame-capture.md) — Fast Win32 window client capture into standard numpy image arrays.
-- [x] [**US-003: Mob detection with YOLO and OpenCV**](completed/US-003-mob-detection-yolo.md) `[Priority 1]` — Object detection for dynamic monsters with bounding boxes and confidence scores.
-- [ ] [**US-004: Target mob verification and inspection**](US-004-target-mob-verification.md) `[Priority 2]` — Target-bar analysis (mob name match, level, HP percentage).
-- [ ] [**US-005: Central loot and system log OCR extraction**](US-005-loot-log-ocr.md) `[Priority 3]` — Targeted OCR for drop notifications and loot events.
+- [x] [**US-003: Mob detection with YOLO and OpenCV**](completed/US-003-mob-detection-yolo.md) — Object detection for dynamic monsters with bounding boxes and confidence scores.
+- [x] [**US-004: Target mob verification and inspection**](completed/US-004-target-mob-verification.md) — Target-bar analysis (mob name match, level, HP percentage).
+- [ ] [**US-005: Central loot and system log OCR extraction**](US-005-loot-log-ocr.md) `[Priority 1]` — Targeted OCR for drop notifications and loot events.
 
 ### Phase 3: Closed-Loop Execution & Reactive Controllers
 - [ ] [**US-007: Perception to WorldState feed integration**](US-007-perception-worldstate-feed.md) — Unified perception pipeline updating the immutable `WorldState`.

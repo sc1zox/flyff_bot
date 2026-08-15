@@ -15,7 +15,7 @@ As a bot developer, I want the outputs from the perception pipeline (frame captu
 ## Context and assumptions
 
 - Source: [Target architecture proposal](../sources/2026-08-15-target-architecture-proposal.md).
-- Depends on [US-002](completed/US-002-vision-frame-capture.md), [US-003](US-003-mob-detection-yolo.md), [US-004](US-004-target-mob-verification.md), and [US-005](US-005-loot-log-ocr.md).
+- Depends on [US-002](completed/US-002-vision-frame-capture.md), [US-003](completed/US-003-mob-detection-yolo.md), [US-004](completed/US-004-target-mob-verification.md), and [US-005](US-005-loot-log-ocr.md).
 - Integrates with the foundational architecture created in [US-006](completed/US-006-target-architecture-bootstrap.md).
 - `WorldState` remains immutable; each perception cycle produces a new timestamped snapshot.
 

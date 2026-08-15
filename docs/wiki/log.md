@@ -34,3 +34,9 @@ indexed in docs/wiki/roadmap.md and organized the user story backlog.
 Recorded the completed OpenCV DNN YOLO adapter, structured client-space detection contract,
 configurable filtering, injectable detector seam, and UTF-8 label-file convention in the
 architecture and glossary; moved US-003 to the completed stories directory.
+
+## [2026-08-15] synthesis | Target mob verification (US-004)
+
+Recorded the completed normalized target-header extraction, HP-colour and whitelisted
+name-template verification, typed target statuses, and perception-only safety boundary in the
+architecture and glossary; moved US-004 to the completed stories directory.

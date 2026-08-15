@@ -19,6 +19,14 @@ from flyff_bot.features.vision.models import (
     FrameCaptureErrorCode,
     PixelFormat,
 )
+from flyff_bot.features.vision.target_verification import (
+    TargetRegion,
+    TargetStatus,
+    TargetVerificationConfig,
+    TargetVerificationResult,
+    TargetVerifier,
+    extract_target_region,
+)
 
 __all__ = [
     "BoundingBox",
@@ -35,6 +43,12 @@ __all__ = [
     "FrameSource",
     "OpenCVDnnYoloDetector",
     "PixelFormat",
+    "TargetRegion",
+    "TargetStatus",
+    "TargetVerificationConfig",
+    "TargetVerificationResult",
+    "TargetVerifier",
     "WindowsFrameSource",
+    "extract_target_region",
     "load_class_names",
 ]
