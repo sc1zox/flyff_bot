@@ -22,7 +22,7 @@ stories are moved to `docs/user-stories/completed/`.
 - [x] [**US-005: Central loot and system log OCR extraction**](completed/US-005-loot-log-ocr.md) — Targeted OCR for drop notifications and loot events.
 - [x] [**US-007: Perception to WorldState feed integration**](completed/US-007-perception-worldstate-feed.md) — Unified perception pipeline updating the immutable `WorldState`.
 - [x] [**US-011: Multi-mob training dataset pipeline and custom YOLO model training**](completed/US-011-multi-mob-training-dataset-pipeline.md) — Manual annotation pipeline, dataset manifest, and lightweight ONNX export.
-- [ ] [**US-012: Real-world vision refactoring for robust target verification and multi-mob detection**](US-012-real-world-vision-refactoring.md) `[Priority 2]` — Sky/cloud-immune target-bar verification and multi-mob fixtures from real game data.
+- [x] [**US-012: Real-world vision refactoring for robust target verification and multi-mob detection**](completed/US-012-real-world-vision-refactoring.md) — Sky/cloud-immune target-bar verification and multi-mob fixtures from real game data.
 
 ### Phase 3: Closed-Loop Execution & Reactive Controllers
 - [x] [**US-008: Reactive combat controller and target engagement**](completed/US-008-reactive-combat-controller.md) — Target selection, skill rotation, and post-action visual verification.

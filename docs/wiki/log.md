@@ -64,3 +64,9 @@ moved US-011 to the completed stories directory.
 Recorded the completed deterministic target-selection and attack-rotation state machine,
 target-header/HP progress verification, and foreground/END-guarded Win32 combat-input boundary;
 moved US-008 to the completed stories directory.
+
+## [2026-08-15] synthesis | Real-world target-verification refactoring (US-012)
+
+Recorded the anchor-gated target-header verification, dedicated HP-bar percentage measurement, and
+real Flyff screenshot coverage for empty, whitelisted, and non-whitelisted target states; moved
+US-012 to the completed stories directory.

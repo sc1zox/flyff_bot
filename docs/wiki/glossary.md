@@ -54,9 +54,10 @@ related:
   readable images, paired annotations, valid normalized YOLO boxes, and no orphan labels.
 - **Mob-model export** — Optional local training that produces an ONNX detector and ordered UTF-8
   labels for `OpenCVDnnYoloDetector`, without accessing the game client.
-- **Target verification** — Perception-only inspection of a normalized target-header region that
-  combines HP-bar colour presence with whitelisted name-template matching and reports a typed
-  target status.
+- **Target verification** — Perception-only inspection that first template-matches a target-header
+  anchor, then measures HP colour and percentage strictly in a configured target-bar sub-region and
+  matches a name against the active whitelist; it reports a typed target status without dispatching
+  input.
 - **Target status** — The verification result for the current target: `VALID_TARGET`,
   `WRONG_TARGET`, or `NO_TARGET`.
 - **Viewport** — The client-area width and height carried with a world-state snapshot, used to

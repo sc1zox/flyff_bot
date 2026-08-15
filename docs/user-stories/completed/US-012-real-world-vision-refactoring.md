@@ -1,7 +1,7 @@
 ---
 id: US-012
 title: Real-world vision refactoring for robust target verification and multi-mob detection
-status: draft
+status: completed
 created: 2026-08-15
 updated: 2026-08-15
 ---
@@ -21,13 +21,13 @@ As a bot developer, I want to refactor `TargetVerifier` and integrate real-world
 
 ## Acceptance criteria
 
-- [ ] `TargetVerifier` checks for header anchor existence (element box or header frame match) before measuring HP pixels.
-- [ ] Correctly returns `TargetStatus.NO_TARGET` on screenshots with red/orange sky/cloud backgrounds without a selected target (e.g. `Screenshot ...203618.png`).
-- [ ] Correctly returns `TargetStatus.VALID_TARGET` with target name `Flame` and valid HP percentage on targeted screenshots (e.g. `Screenshot ...204002.png`).
-- [ ] Correctly returns `TargetStatus.WRONG_TARGET` when a target is selected whose name is not in the active monster whitelist.
-- [ ] Measures HP percentage strictly within the dedicated target-bar sub-rectangle rather than the entire sky ROI.
-- [ ] Fast automated unit tests verify detection using real cropped image fixtures from `data/eden/flame/`.
-- [ ] All user-visible logs, status codes, and error messages exist in German and English.
+- [x] `TargetVerifier` checks for header anchor existence (element box or header frame match) before measuring HP pixels.
+- [x] Correctly returns `TargetStatus.NO_TARGET` on screenshots with red/orange sky/cloud backgrounds without a selected target (e.g. `Screenshot ...203618.png`).
+- [x] Correctly returns `TargetStatus.VALID_TARGET` with target name `Flame` and valid HP percentage on targeted screenshots (e.g. `Screenshot ...204002.png`).
+- [x] Correctly returns `TargetStatus.WRONG_TARGET` when a target is selected whose name is not in the active monster whitelist.
+- [x] Measures HP percentage strictly within the dedicated target-bar sub-rectangle rather than the entire sky ROI.
+- [x] Fast automated unit tests verify detection using real cropped image fixtures from `data/eden/flame/`.
+- [x] All user-visible logs, status codes, and error messages exist in German and English.
 
 ## Out of scope
 

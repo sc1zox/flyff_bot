@@ -16,10 +16,11 @@ DEFAULT_TARGET_REGION_X = 0.25
 DEFAULT_TARGET_REGION_Y = 0.0
 DEFAULT_TARGET_REGION_WIDTH = 0.5
 DEFAULT_TARGET_REGION_HEIGHT = 0.15
-DEFAULT_HP_COLOR_LOWER_BOUND = (0, 0, 100)
-DEFAULT_HP_COLOR_UPPER_BOUND = (100, 100, 255)
+DEFAULT_HP_COLOR_LOWER_BOUND = (100, 100, 220)
+DEFAULT_HP_COLOR_UPPER_BOUND = (140, 180, 255)
 DEFAULT_MINIMUM_HP_PIXEL_COUNT = 10
 DEFAULT_NAME_MATCH_THRESHOLD = 0.9
+DEFAULT_ANCHOR_MATCH_THRESHOLD = 0.9
 
 
 class TargetStatus(StrEnum):
@@ -53,16 +54,24 @@ class TargetVerificationConfig:
     """Configurable visual characteristics of a Flyff target header."""
 
     region: TargetRegion = field(default_factory=TargetRegion)
+    hp_region: TargetRegion = field(
+        default_factory=lambda: TargetRegion(x=0.34, y=0.5, width=0.32, height=0.12)
+    )
+    name_region: TargetRegion = field(
+        default_factory=lambda: TargetRegion(x=0.4, y=0.2, width=0.3, height=0.25)
+    )
     hp_color_lower_bound: tuple[int, int, int] = DEFAULT_HP_COLOR_LOWER_BOUND
     hp_color_upper_bound: tuple[int, int, int] = DEFAULT_HP_COLOR_UPPER_BOUND
     minimum_hp_pixel_count: int = DEFAULT_MINIMUM_HP_PIXEL_COUNT
     name_match_threshold: float = DEFAULT_NAME_MATCH_THRESHOLD
+    anchor_match_threshold: float = DEFAULT_ANCHOR_MATCH_THRESHOLD
 
     def __post_init__(self) -> None:
         if self.minimum_hp_pixel_count <= 0:
             raise ValueError("Minimum HP pixel count must be positive.")
-        if not 0.0 <= self.name_match_threshold <= 1.0:
-            raise ValueError("Name match threshold must be between zero and one.")
+        for threshold in (self.name_match_threshold, self.anchor_match_threshold):
+            if not 0.0 <= threshold <= 1.0:
+                raise ValueError("Target match thresholds must be between zero and one.")
         for lower, upper in zip(self.hp_color_lower_bound, self.hp_color_upper_bound, strict=True):
             if not 0 <= lower <= upper <= 255:
                 raise ValueError("HP color bounds must be ordered byte values.")
@@ -75,6 +84,7 @@ class TargetVerificationResult:
     status: TargetStatus
     target_name: str | None
     hp_pixel_count: int
+    hp_percentage: float = 0.0
 
     @property
     def is_alive(self) -> bool:
@@ -102,6 +112,7 @@ class TargetVerifier:
     def __init__(
         self,
         name_templates: Mapping[str, npt.NDArray[np.uint8]],
+        header_anchor_template: npt.NDArray[np.uint8],
         config: TargetVerificationConfig | None = None,
     ) -> None:
         self._name_templates = dict(name_templates)
@@ -113,18 +124,34 @@ class TargetVerifier:
             for template in self._name_templates.values()
         ):
             raise ValueError("Target name templates must be uint8 colour images.")
+        if header_anchor_template.dtype != np.uint8 or header_anchor_template.ndim != 3:
+            raise ValueError("Target header anchor template must be a uint8 colour image.")
+        self._header_anchor_template = header_anchor_template
 
     def verify(self, frame: CapturedFrame) -> TargetVerificationResult:
         """Classify the selected target from its header region in a captured frame."""
 
         target_region = extract_target_region(frame, self._config.region)
-        hp_pixel_count = self._hp_pixel_count(target_region.pixels)
+        if not self._has_header_anchor(target_region.pixels):
+            return TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)
+        hp_pixels = extract_target_region(target_region, self._config.hp_region).pixels
+        hp_pixel_count = self._hp_pixel_count(hp_pixels)
         if hp_pixel_count < self._config.minimum_hp_pixel_count:
-            status = TargetStatus.NO_TARGET if hp_pixel_count == 0 else TargetStatus.WRONG_TARGET
-            return TargetVerificationResult(status, None, hp_pixel_count)
-        target_name = self._matching_target_name(target_region.pixels)
+            return TargetVerificationResult(TargetStatus.WRONG_TARGET, None, hp_pixel_count)
+        target_name = self._matching_target_name(
+            extract_target_region(target_region, self._config.name_region).pixels
+        )
         status = TargetStatus.VALID_TARGET if target_name is not None else TargetStatus.WRONG_TARGET
-        return TargetVerificationResult(status, target_name, hp_pixel_count)
+        return TargetVerificationResult(
+            status, target_name, hp_pixel_count, self._hp_percentage(hp_pixels)
+        )
+
+    def _has_header_anchor(self, pixels: npt.NDArray[np.uint8]) -> bool:
+        template = self._header_anchor_template
+        if template.shape[0] > pixels.shape[0] or template.shape[1] > pixels.shape[1]:
+            return False
+        score = float(cv2.minMaxLoc(cv2.matchTemplate(pixels, template, cv2.TM_CCOEFF_NORMED))[1])
+        return score >= self._config.anchor_match_threshold
 
     def _hp_pixel_count(self, pixels: npt.NDArray[np.uint8]) -> int:
         lower = np.array(self._config.hp_color_lower_bound, dtype=np.uint8)
@@ -141,6 +168,13 @@ class TargetVerifier:
             if score >= self._config.name_match_threshold:
                 return name
         return None
+
+    def _hp_percentage(self, pixels: npt.NDArray[np.uint8]) -> float:
+        lower = np.array(self._config.hp_color_lower_bound, dtype=np.uint8)
+        upper = np.array(self._config.hp_color_upper_bound, dtype=np.uint8)
+        mask = np.all((pixels >= lower) & (pixels <= upper), axis=2)
+        filled_columns = int(np.count_nonzero(np.any(mask, axis=0)))
+        return float(100.0 * filled_columns / pixels.shape[1])
 
 
 def _region_bounds(size: ClientSize, region: TargetRegion) -> tuple[int, int, int, int]:

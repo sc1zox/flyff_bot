@@ -16,6 +16,7 @@ related:
   - ../user-stories/completed/US-005-loot-log-ocr.md
   - ../user-stories/completed/US-008-reactive-combat-controller.md
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
+  - ../user-stories/completed/US-012-real-world-vision-refactoring.md
 ---
 
 # Architecture
@@ -56,9 +57,10 @@ Game Client
      through documented Win32 GDI APIs and exposes contiguous BGR or RGB `numpy.ndarray` frames.
      Its `FrameSource` protocol is injectable for deterministic tests, and capture failures use
      typed error codes.
-   - **Target verification:** `TargetVerifier` extracts a normalized target-header region from a
-     captured frame, detects the configured HP-bar colour, and template-matches a whitelisted name.
-     It returns `VALID_TARGET`, `WRONG_TARGET`, or `NO_TARGET` without dispatching any input.
+   - **Target verification:** `TargetVerifier` template-matches a configured header anchor before
+     inspecting the configured target-bar sub-region for HP colour and template-matching a
+     whitelisted name. It returns `VALID_TARGET`, `WRONG_TARGET`, or `NO_TARGET`, including an
+     HP percentage calculated only from the target-bar sub-region, without dispatching any input.
    - **Perception pipeline:** `PerceptionPipeline` captures one frame per tick and passes that
      shared frame to mob detection, target verification, and loot-log OCR. It maps their outputs
      into a fresh immutable `WorldState`, emits target-change and newly-visible-mob events, and
@@ -119,3 +121,9 @@ US-011 adds the offline operational path for custom mob models. The repository s
 multi-class YOLO layout at `data/datasets/mobs/` and its `data.yaml` class registry. The CLI can
 validate it without a game window, or—with the optional `training` dependency—train `yolo11n.pt`
 by default and export `models/mob_detector.onnx` plus its matching `models/labels.txt`.
+
+US-012 hardens target verification against visually similar sky and cloud colours in real Flyff
+screenshots. A configured header-anchor template must match before the dedicated HP-bar region is
+measured; a missing anchor is `NO_TARGET`, while an anchored header with an unrecognized whitelist
+name is `WRONG_TARGET`. Real cropped fixtures cover empty, whitelisted `Flame`, and non-whitelisted
+target cases.

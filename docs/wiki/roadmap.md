@@ -33,7 +33,7 @@ Phase 1 (Bootstrap & Architecture) ──► Phase 2 (Perception Pipeline) ─�
 - **US-004 (Completed):** Target mob verification skeleton (Target-bar ROI extraction, name matching, HP bar inspection).
 - **US-005 (Completed):** Central loot and system log OCR extraction (Drop notification parsing into structured events).
 - **US-011:** Multi-mob training dataset pipeline and custom YOLO model training (Manual labeling workflow, dataset manifest, ONNX export).
-- **US-012:** Real-world vision refactoring for robust target verification and multi-mob detection (Header-anchor validation, sky-color immunity, real game fixtures).
+- **US-012 (Completed):** Real-world vision refactoring for robust target verification and multi-mob detection (Header-anchor validation, sky-color immunity, real game fixtures).
 
 ### Phase 3: Closed-Loop Execution & Reactive Controllers
 - **US-007:** Perception to WorldState feed integration (Connecting CV pipelines to the central `WorldState` snapshot).
