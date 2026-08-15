@@ -52,3 +52,9 @@ events in the architecture and glossary; moved US-005 to the completed stories d
 Recorded the completed shared-frame perception pipeline, immutable world-state aggregation,
 target and new-mob events, and isolated feed-failure behavior in the architecture and glossary;
 moved US-007 to the completed stories directory.
+
+## [2026-08-15] synthesis | Reactive combat controller (US-008)
+
+Recorded the completed deterministic target-selection and attack-rotation state machine,
+target-header/HP progress verification, and foreground/END-guarded Win32 combat-input boundary;
+moved US-008 to the completed stories directory.

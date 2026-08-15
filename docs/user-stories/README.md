@@ -25,7 +25,7 @@ stories are moved to `docs/user-stories/completed/`.
 - [ ] [**US-012: Real-world vision refactoring for robust target verification and multi-mob detection**](US-012-real-world-vision-refactoring.md) `[Priority 2]` — Sky/cloud-immune target-bar verification and multi-mob fixtures from real game data.
 
 ### Phase 3: Closed-Loop Execution & Reactive Controllers
-- [ ] [**US-008: Reactive combat controller and target engagement**](US-008-reactive-combat-controller.md) — Target selection, skill rotation, and post-action visual verification.
+- [x] [**US-008: Reactive combat controller and target engagement**](completed/US-008-reactive-combat-controller.md) — Target selection, skill rotation, and post-action visual verification.
 - [ ] [**US-009: Reactive loot collector and drop accounting**](US-009-reactive-loot-controller.md) — Automated item pickup routines and drop counting.
 
 ### Phase 4: Desktop UI & Visual Debugging

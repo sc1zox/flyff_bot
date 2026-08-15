@@ -28,6 +28,12 @@ related:
   and add/delete effects to satisfy a goal.
 - **Reactive controller** — A focused domain state machine that turns one world-state snapshot
   into an abstract action request.
+- **Combat controller** — The reactive controller that selects an allowed visible mob nearest the
+  client viewport centre, verifies target lock before a configured attack rotation, and detects
+  target death or cleared targeting from subsequent world-state snapshots.
+- **Combat input dispatcher** — The Win32-facing combat boundary that dispatches a controller
+  click or key request only while the specified game window is foregrounded and the END emergency
+  stop is not active.
 - **Verified executor** — The execution boundary that accepts an action only after a matching,
   confirmed post-dispatch observation.
 - **Frame source** — A typed provider that captures a client-area image for a target window handle;
@@ -46,6 +52,8 @@ related:
   target status.
 - **Target status** — The verification result for the current target: `VALID_TARGET`,
   `WRONG_TARGET`, or `NO_TARGET`.
+- **Viewport** — The client-area width and height carried with a world-state snapshot, used to
+  choose the visible target nearest the screen centre.
 - **Loot-log OCR** — Perception-only extraction of pickup notifications from a normalized central
   client-area region. It preprocesses the crop for text recognition and parses supported German
   and English pickup patterns into timestamped loot events.

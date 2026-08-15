@@ -14,6 +14,7 @@ related:
   - ../user-stories/completed/US-003-mob-detection-yolo.md
   - ../user-stories/completed/US-004-target-mob-verification.md
   - ../user-stories/completed/US-005-loot-log-ocr.md
+  - ../user-stories/completed/US-008-reactive-combat-controller.md
 ---
 
 # Architecture
@@ -98,3 +99,11 @@ US-007 connects the capture and vision components at the application boundary. I
 `PerceptionPipeline` produces a timestamped snapshot on every successful capture, preserving the
 non-perception state carried from the previous snapshot. Individual detection, target-verification,
 and loot-reading failures are non-fatal and are exposed alongside the resulting state.
+
+US-008 implements the reactive combat boundary. `CombatController` deterministically filters
+whitelisted visible mobs and chooses the closest to the captured client viewport centre, then
+emits client-relative clicks and configured `1`-`9`, `C`, or Space rotations with per-binding
+cooldowns. It requires a valid target-header observation before attacking, detects HP-pixel
+decreases as progress, and reaches `TARGET_DEAD` when the target clears or has zero HP. Its
+`CombatInputDispatcher` is the only platform dispatch boundary: it sends no input unless the game
+window remains foregrounded and the END emergency stop is clear.
