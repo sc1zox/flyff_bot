@@ -165,7 +165,7 @@ class MainWindow(QMainWindow):
 
     @Slot(bool)
     def _update_overlay_visibility(self, visible: bool) -> None:
-        self._overlay_label.setVisible(visible and self._overlay_label.pixmap() is not None)
+        self._overlay_label.setVisible(visible)
         self._adapt_window_geometry()
 
     @Slot(bool)

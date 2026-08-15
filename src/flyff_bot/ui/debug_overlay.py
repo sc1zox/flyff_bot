@@ -63,6 +63,13 @@ class DebugOverlayWidget(QWidget):
         painter.fillRect(0, 0, width, height, OVERLAY_BG_COLOR)
 
         if self._pixmap is None or self._pixmap.isNull():
+            painter.setPen(QPen(QColor(148, 163, 184)))
+            painter.setFont(QFont("", 10))
+            painter.drawText(
+                QRect(0, 0, width, height),
+                Qt.AlignmentFlag.AlignCenter,
+                "Warten auf Spielfenster-Frame…",
+            )
             painter.end()
             return
 
