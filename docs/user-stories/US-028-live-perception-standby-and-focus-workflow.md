@@ -21,7 +21,7 @@ so that **I can inspect and verify all vision/vitals readings before launching a
 - Clicking the "Starten" button can result in an immediate, silent transition back to `PAUSED` if the game window is not yet foregrounded, giving the user the appearance that clicking "Starten" has no effect.
 - Read-only perception (capturing frames, detecting mobs, reading HUD vitals, evaluating target verification) sends zero mouse or keyboard inputs to the game window and can safely execute in the background or standby mode.
 - Links:
-  - [BUG-007: Start button causes silent pause loop on focus mismatch and standby perception is completely bypassed](file:///i:/coding%20projects/flyff_bot/docs/bugs/BUG-007-start-button-silent-pause-and-standby-perception-bypass.md)
+  - [BUG-007: Start button causes silent pause loop on focus mismatch and standby perception is completely bypassed](file:///i:/coding%20projects/flyff_bot/docs/bugs/fixed/BUG-007-start-button-silent-pause-and-standby-perception-bypass.md)
   - [Architecture](file:///i:/coding%20projects/flyff_bot/docs/wiki/architecture.md)
   - [US-010: Native PySide6 dashboard and visual debug overlay](file:///i:/coding%20projects/flyff_bot/docs/user-stories/completed/US-010-pyside6-dashboard-and-overlay.md)
   - [US-013: Autonomous farming loop and orchestration engine](file:///i:/coding%20projects/flyff_bot/docs/user-stories/completed/US-013-autonomous-farming-loop-and-orchestration-engine.md)

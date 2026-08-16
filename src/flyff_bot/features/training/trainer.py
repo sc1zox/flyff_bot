@@ -30,7 +30,7 @@ def train_and_export(
     if epochs <= 0:
         raise TrainingError("epochs_invalid")
     try:
-        from ultralytics import YOLO
+        from ultralytics import YOLO  # type: ignore[attr-defined]
     except ImportError as error:
         raise TrainingError("training_extra_required") from error
     try:
