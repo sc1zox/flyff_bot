@@ -40,7 +40,6 @@ so that **HP gauges and mob name templates are accurately extracted regardless o
 
 ## Out of scope
 
-- Modifying YOLO object detector confidence settings (configured at 0.30).
 - Automatic OCR training or custom font generation.
 - Dispatching input to the game client when target status is not `VALID_TARGET`.
 

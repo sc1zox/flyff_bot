@@ -11,6 +11,7 @@ from ctypes import wintypes
 from flyff_bot.features.input_control.models import (
     InputControlError,
     InputErrorCode,
+    ScreenRect,
     WindowRef,
 )
 
@@ -26,6 +27,17 @@ KEY_IS_DOWN_MASK = 0x8000
 MAXIMUM_PROCESS_PATH_LENGTH = 32_768
 FOCUS_SETTLE_SECONDS = 0.25
 WAIT_POLL_SECONDS = 0.02
+
+
+class ClientRect(ctypes.Structure):
+    """Win32 RECT structure holding a client area in client coordinates."""
+
+    _fields_ = [
+        ("left", ctypes.c_long),
+        ("top", ctypes.c_long),
+        ("right", ctypes.c_long),
+        ("bottom", ctypes.c_long),
+    ]
 
 
 class KeyboardInput(ctypes.Structure):
@@ -102,6 +114,12 @@ class WindowsInputController:
         self._user32.GetWindowThreadProcessId.restype = wintypes.DWORD
         self._user32.IsWindowVisible.argtypes = [wintypes.HWND]
         self._user32.IsWindowVisible.restype = wintypes.BOOL
+        self._user32.IsWindow.argtypes = [wintypes.HWND]
+        self._user32.IsWindow.restype = wintypes.BOOL
+        self._user32.IsIconic.argtypes = [wintypes.HWND]
+        self._user32.IsIconic.restype = wintypes.BOOL
+        self._user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(ClientRect)]
+        self._user32.GetClientRect.restype = wintypes.BOOL
         self._user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
         self._user32.GetWindowTextLengthW.restype = ctypes.c_int
         self._user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
@@ -186,6 +204,27 @@ class WindowsInputController:
             and not self.is_foreground(window_handle)
         ):
             raise InputControlError(InputErrorCode.FOCUS_FAILED)
+
+    def client_screen_bounds(self, window_handle: int) -> ScreenRect | None:
+        """Return the target's client area in desktop pixels, or None when unavailable."""
+
+        if not self._user32.IsWindow(window_handle) or not self._user32.IsWindowVisible(
+            window_handle
+        ):
+            return None
+        if self._user32.IsIconic(window_handle):
+            return None
+        rect = ClientRect()
+        if not self._user32.GetClientRect(window_handle, ctypes.byref(rect)):
+            return None
+        origin = wintypes.POINT(rect.left, rect.top)
+        if not self._user32.ClientToScreen(window_handle, ctypes.byref(origin)):
+            return None
+        width = rect.right - rect.left
+        height = rect.bottom - rect.top
+        if width <= 0 or height <= 0:
+            return None
+        return ScreenRect(left=origin.x, top=origin.y, width=width, height=height)
 
     def is_aborted(self) -> bool:
         """Return whether the emergency-stop key is currently held."""

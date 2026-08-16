@@ -173,3 +173,11 @@ the bot-status badge (`BotStatus.STANDBY` / `BotStatus.COMBAT` added) from dedic
 target-state, vitals, and goal chips. Updated architecture and glossary; moved US-028 to the
 completed stories directory and BUG-007 to fixed bugs.
 
+## [2026-08-17] synthesis | In-game placement guide overlay (BUG-008)
+
+Recorded the desktop placement guide overlay: the non-activating click-through
+`PlacementOverlayWindow`, the `client_screen_bounds()` Win32 geometry lookup with timer-based
+tracking and hide-on-unavailable behavior, the `logical_geometry()` device-pixel-ratio conversion,
+the shared pure `PlacementGuide` model behind both the overlay and the dashboard preview, and the
+`CAPTUREBLT` tradeoff of drawing over the captured client area. Updated architecture; moved BUG-008
+to fixed bugs.

@@ -42,10 +42,11 @@ from flyff_bot.features.navigation.persistence import (
 )
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig
 from flyff_bot.i18n import Language, Message, Translator
-from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal
+from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal, WindowStatus
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
+from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
 from flyff_bot.ui.theme import apply_theme
 
 HOTKEY_CHOICES = [
@@ -118,6 +119,13 @@ class MainWindow(QMainWindow):
         # Status & Metrics
         self._status_label = QLabel()
         self._status_label.setObjectName("StatusBadge")
+        self._window_label = QLabel()
+        self._window_label.setObjectName("StatChip")
+        self._window_status = WindowStatus.NOT_FOUND
+        self._mob_label = QLabel()
+        self._mob_label.setObjectName("StatChip")
+        self._target_label = QLabel()
+        self._target_label.setObjectName("StatChip")
         self._goal_label = QLabel()
         self._goal_label.setObjectName("StatChip")
         self._vitals_label = QLabel()
@@ -126,6 +134,9 @@ class MainWindow(QMainWindow):
         # Debug Overlay Viewport
         self._overlay_label = DebugOverlayWidget()
         self._overlay_label.setVisible(False)
+
+        # Transparent in-game placement guide overlay
+        self._placement_overlay = PlacementOverlayWindow(self._translator)
 
         # Navigation Map & Inspector
         self._path_inspector = PathInspectorWidget(self._translator)
@@ -267,6 +278,24 @@ class MainWindow(QMainWindow):
         return self._goal_label
 
     @property
+    def window_label(self) -> QLabel:
+        """Expose the game-window condition chip for lightweight integrations."""
+
+        return self._window_label
+
+    @property
+    def mob_label(self) -> QLabel:
+        """Expose the visible-mob count chip for lightweight integrations."""
+
+        return self._mob_label
+
+    @property
+    def target_label(self) -> QLabel:
+        """Expose the target-state chip for lightweight integrations."""
+
+        return self._target_label
+
+    @property
     def overlay_label(self) -> DebugOverlayWidget:
         """Expose the optional viewport for deterministic UI tests."""
 
@@ -289,6 +318,17 @@ class MainWindow(QMainWindow):
         """Expose the Placements visual guide toggle checkbox for testing."""
 
         return self._placements_toggle
+
+    @property
+    def placement_overlay(self) -> PlacementOverlayWindow:
+        """Expose the transparent in-game guide overlay for testing."""
+
+        return self._placement_overlay
+
+    def attach_placement_target(self, provider: ClientGeometryProvider, window_handle: int) -> None:
+        """Bind the placement guide overlay to the discovered game window."""
+
+        self._placement_overlay.attach_target(provider, window_handle)
 
     @property
     def profile_bar(self) -> QWidget:
@@ -666,14 +706,9 @@ class MainWindow(QMainWindow):
     def set_status(self, mob_count: int) -> None:
         """Retain the bootstrap summary API for callers without a full update."""
 
-        self._status_label.setText(
-            self._translator.text(Message.UI_WORLD_STATUS, mob_count=mob_count)
-        )
-        self._status_label.setProperty("status", "paused")
-        style = self._status_label.style()
-        if style is not None:
-            style.unpolish(self._status_label)
-            style.polish(self._status_label)
+        self._render_status_badge(BotStatus.PAUSED)
+        self._mob_label.setText(self._translator.text(Message.UI_WORLD_STATUS, mob_count=mob_count))
+        self._target_label.setText(self._translator.text(Message.UI_TARGET_NONE))
         self._goal_label.setText(self._translator.text(Message.UI_NO_GOAL))
         self._vitals_label.setText(
             self._translator.text(
@@ -683,6 +718,13 @@ class MainWindow(QMainWindow):
                 fp="100.0",
             )
         )
+        self._render_window_status()
+
+    def set_window_status(self, status: WindowStatus) -> None:
+        """Display a game-window condition observed outside the perception pipeline."""
+
+        self._window_status = status
+        self._render_window_status()
 
     def update_state(self, state: WorldState) -> None:
         """Update the display from a state feed without a configured goal."""
@@ -717,9 +759,12 @@ class MainWindow(QMainWindow):
         if not isinstance(language_value, str):
             raise TypeError("Language selector must contain Language values.")
         self._translator = Translator(Language(language_value))
+        self._placement_overlay.set_translator(self._translator)
         self._retranslate()
         if self._latest_update is not None:
             self._render_update()
+        else:
+            self.set_status(mob_count=0)
 
     @Slot(bool)
     def _update_overlay_visibility(self, visible: bool) -> None:
@@ -772,7 +817,8 @@ class MainWindow(QMainWindow):
         self._dock_map()
 
     @Slot(bool)
-    def _on_placements_toggled(self, _checked: bool) -> None:
+    def _on_placements_toggled(self, checked: bool) -> None:
+        self._placement_overlay.set_guides_visible(checked)
         if self._latest_update is not None:
             self._render_update()
 
@@ -834,12 +880,15 @@ class MainWindow(QMainWindow):
         status_layout = QVBoxLayout()
         status_top = QHBoxLayout()
         status_top.addWidget(self._status_label)
+        status_top.addWidget(self._window_label)
         status_top.addStretch()
         status_layout.addLayout(status_top)
 
         metrics_row = QHBoxLayout()
-        metrics_row.addWidget(self._goal_label)
+        metrics_row.addWidget(self._mob_label)
+        metrics_row.addWidget(self._target_label)
         metrics_row.addWidget(self._vitals_label)
+        metrics_row.addWidget(self._goal_label)
         status_layout.addLayout(metrics_row)
         self._status_card.setLayout(status_layout)
 
@@ -1085,25 +1134,41 @@ class MainWindow(QMainWindow):
                 self._latest_update.goal,
                 self._latest_update.frame,
                 self._latest_update.navigation,
+                self._latest_update.window,
             )
+        )
+
+    def _render_status_badge(self, status: BotStatus) -> None:
+        self._status_label.setText(
+            self._translator.text(
+                Message.UI_BOT_STATUS,
+                status=self._translator.text(_status_message(status)),
+            )
+        )
+        self._status_label.setProperty("status", _status_category(status))
+        style = self._status_label.style()
+        if style is not None:
+            style.unpolish(self._status_label)
+            style.polish(self._status_label)
+
+    def _render_window_status(self) -> None:
+        self._window_label.setText(
+            self._translator.text(_window_status_message(self._window_status))
         )
 
     def _render_update(self) -> None:
         if self._latest_update is None:
             return
         update = self._latest_update
-        self._status_label.setText(
-            self._translator.text(
-                Message.UI_BOT_STATUS,
-                status=self._translator.text(_status_message(update.status)),
-            )
+        self._render_status_badge(update.status)
+        self._window_status = update.window
+        self._render_window_status()
+        self._mob_label.setText(
+            self._translator.text(Message.UI_WORLD_STATUS, mob_count=update.state.nearby_mob_count)
         )
-        self._status_label.setProperty("status", _status_category(update.status))
-        style = self._status_label.style()
-        if style is not None:
-            style.unpolish(self._status_label)
-            style.polish(self._status_label)
-
+        self._target_label.setText(
+            self._translator.text(_target_state_message(update.state.selected_target.state))
+        )
         self._goal_label.setText(_goal_text(self._translator, update.state, update.goal))
         vitals = update.state.player_vitals
         self._vitals_label.setText(
@@ -1183,6 +1248,7 @@ class MainWindow(QMainWindow):
         self.pause_requested.emit()
         if self._map_window is not None:
             self._map_window.close()
+        self._placement_overlay.stop()
         super().closeEvent(event)
 
 
@@ -1215,6 +1281,8 @@ def _virtual_key_name(virtual_key: int) -> str:
 def _status_message(status: BotStatus) -> Message:
     return {
         BotStatus.ACTIVE: Message.UI_STATUS_ACTIVE,
+        BotStatus.STANDBY: Message.UI_STATUS_STANDBY,
+        BotStatus.COMBAT: Message.UI_STATUS_COMBAT,
         BotStatus.PAUSED: Message.UI_STATUS_PAUSED,
         BotStatus.EMERGENCY_STOPPED: Message.UI_STATUS_EMERGENCY_STOPPED,
         BotStatus.RECONCILING: Message.UI_STATUS_RECONCILING,
@@ -1225,9 +1293,23 @@ def _status_message(status: BotStatus) -> Message:
     }[status]
 
 
+def _window_status_message(status: WindowStatus) -> Message:
+    return {
+        WindowStatus.OK: Message.UI_WINDOW_OK,
+        WindowStatus.NOT_FOREGROUND: Message.UI_WINDOW_NOT_FOREGROUND,
+        WindowStatus.MINIMIZED: Message.UI_WINDOW_MINIMIZED,
+        WindowStatus.NOT_FOUND: Message.UI_WINDOW_NOT_FOUND,
+        WindowStatus.CAPTURE_FAILED: Message.UI_WINDOW_CAPTURE_FAILED,
+    }[status]
+
+
 def _status_category(status: BotStatus) -> str:
     if status == BotStatus.ACTIVE:
         return "active"
+    if status == BotStatus.STANDBY:
+        return "standby"
+    if status == BotStatus.COMBAT:
+        return "combat"
     if status == BotStatus.PAUSED:
         return "paused"
     if status == BotStatus.EMERGENCY_STOPPED:

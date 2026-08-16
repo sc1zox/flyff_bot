@@ -12,11 +12,10 @@ from flyff_bot.features.automation.models import (
     TargetState,
     VisibleMob,
 )
-from flyff_bot.features.vision.models import CapturedFrame, ClientSize, PixelFormat
-from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
-from flyff_bot.features.vision.target_verification import compute_target_header_bounds
-from flyff_bot.features.vision.vitals import compute_vitals_layout
+from flyff_bot.features.vision.models import CapturedFrame, PixelFormat
+from flyff_bot.features.vision.monster_stats import MonsterStatsConfig
 from flyff_bot.i18n import Message, Translator
+from flyff_bot.ui.placement_overlay import compute_placement_guides, draw_placement_guides
 
 MOB_BOX_COLOR = QColor(0, 255, 0)
 TARGET_VALID_COLOR = QColor(0, 200, 0)
@@ -29,14 +28,6 @@ DEFAULT_PREVIEW_HEIGHT = 360
 MINIMUM_PREVIEW_WIDTH = 320
 MINIMUM_PREVIEW_HEIGHT = 180
 OVERLAY_BG_COLOR = QColor(17, 20, 28)
-MONSTER_STATS_GUIDE_COLOR = QColor(0, 200, 200)
-MONSTER_STATS_GUIDE_PEN_WIDTH = 2
-PLACEMENTS_VITALS_COLOR = QColor(255, 215, 0)
-PLACEMENTS_HP_COLOR = QColor(255, 80, 80)
-PLACEMENTS_MP_COLOR = QColor(80, 140, 255)
-PLACEMENTS_FP_COLOR = QColor(80, 255, 120)
-PLACEMENTS_TARGET_COLOR = QColor(180, 120, 255)
-PLACEMENTS_GUIDE_PEN_WIDTH = 2
 
 
 class DebugOverlayWidget(QWidget):
@@ -161,71 +152,13 @@ def render_debug_overlay(
                 fp=f"{vitals.fp_percentage:.1f}",
             ),
         )
-    if show_placements and monster_stats_config is not None:
-        left, top, right, bottom = compute_monster_stats_roi(
-            frame.client_size.width, frame.client_size.height, monster_stats_config
-        )
-        guide_pen = QPen(MONSTER_STATS_GUIDE_COLOR, MONSTER_STATS_GUIDE_PEN_WIDTH)
-        guide_pen.setStyle(Qt.PenStyle.DashLine)
-        painter.setPen(guide_pen)
-        painter.drawRect(QRect(left, top, right - left, bottom - top))
-        painter.setPen(QPen(MONSTER_STATS_GUIDE_COLOR, OVERLAY_PEN_WIDTH))
-        painter.drawText(
-            left,
-            max(OVERLAY_FONT_POINT_SIZE, top - OVERLAY_PEN_WIDTH),
-            translator.text(Message.UI_MONSTER_STATS_GUIDE),
-        )
     if show_placements:
-        _draw_vitals_placement_guide(painter, translator)
-        _draw_target_placement_guide(painter, frame.client_size, translator)
+        draw_placement_guides(
+            painter,
+            compute_placement_guides(frame.client_size, translator, monster_stats_config),
+        )
     painter.end()
     return QPixmap.fromImage(image)
-
-
-def _draw_vitals_placement_guide(painter: QPainter, translator: Translator) -> None:
-    layout = compute_vitals_layout()
-    left, top, right, bottom = layout.hud
-    guide_pen = QPen(PLACEMENTS_VITALS_COLOR, PLACEMENTS_GUIDE_PEN_WIDTH)
-    guide_pen.setStyle(Qt.PenStyle.DashLine)
-    painter.setPen(guide_pen)
-    painter.drawRect(QRect(left, top, right - left, bottom - top))
-    painter.setPen(QPen(PLACEMENTS_VITALS_COLOR, OVERLAY_PEN_WIDTH))
-    painter.drawText(
-        left,
-        max(OVERLAY_FONT_POINT_SIZE, top - OVERLAY_PEN_WIDTH),
-        translator.text(Message.UI_PLACEMENTS_VITALS_LABEL),
-    )
-    for rect, color in (
-        (layout.hp, PLACEMENTS_HP_COLOR),
-        (layout.mp, PLACEMENTS_MP_COLOR),
-        (layout.fp, PLACEMENTS_FP_COLOR),
-    ):
-        gauge_left, gauge_top, gauge_right, gauge_bottom = rect
-        painter.setPen(QPen(color, OVERLAY_PEN_WIDTH))
-        painter.drawRect(
-            QRect(gauge_left, gauge_top, gauge_right - gauge_left, gauge_bottom - gauge_top)
-        )
-
-
-def _draw_target_placement_guide(
-    painter: QPainter, client_size: ClientSize, translator: Translator
-) -> None:
-    try:
-        left, top, right, bottom = compute_target_header_bounds(
-            client_size.width, client_size.height
-        )
-    except ValueError:
-        return
-    guide_pen = QPen(PLACEMENTS_TARGET_COLOR, PLACEMENTS_GUIDE_PEN_WIDTH)
-    guide_pen.setStyle(Qt.PenStyle.DashLine)
-    painter.setPen(guide_pen)
-    painter.drawRect(QRect(left, top, right - left, bottom - top))
-    painter.setPen(QPen(PLACEMENTS_TARGET_COLOR, OVERLAY_PEN_WIDTH))
-    painter.drawText(
-        left,
-        max(OVERLAY_FONT_POINT_SIZE, top - OVERLAY_PEN_WIDTH),
-        translator.text(Message.UI_PLACEMENTS_TARGET_LABEL),
-    )
 
 
 def _target_color(state: TargetState) -> QColor:

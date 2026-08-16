@@ -30,7 +30,7 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerType,
 )
-from flyff_bot.features.input_control import InputControlError, InputErrorCode
+from flyff_bot.features.input_control import InputControlError, InputErrorCode, ScreenRect
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.i18n import Language, Translator
@@ -43,11 +43,18 @@ from flyff_bot.ui.dashboard import (
     EdgeSnapshot,
     FarmingGoal,
     NavigationSnapshot,
+    WindowStatus,
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
 from flyff_bot.ui.main_window import MainWindow
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
+from flyff_bot.ui.placement_overlay import (
+    GuideStyle,
+    PlacementOverlayWindow,
+    compute_placement_guides,
+    logical_geometry,
+)
 from flyff_bot.ui.theme import apply_theme, load_theme_stylesheet
 
 
@@ -834,6 +841,187 @@ def test_main_window_status_badge_dynamic_property() -> None:
 
     window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.SEARCH_ROTATING))
     assert window.status_label.property("status") == "search"
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.STANDBY))
+    assert window.status_label.property("status") == "standby"
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.COMBAT))
+    assert window.status_label.property("status") == "combat"
+
+
+def test_main_window_separates_bot_status_from_mob_and_target_telemetry() -> None:
+    """Regression for BUG-007: the badge must not be overwritten by the mob count."""
+
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert window.status_label.text() == "Bot status: Paused"
+    assert window.mob_label.text() == "Visible mobs: 0"
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.STANDBY))
+
+    assert window.status_label.text() == "Bot status: Ready (live preview)"
+    assert window.mob_label.text() == "Visible mobs: 1"
+    assert window.target_label.text() == "Valid target"
+    assert window.goal_label.text() == "Goal: none configured"
+
+
+def test_main_window_reports_the_game_window_state() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert window.window_label.text() == "Game window not found"
+
+    window.set_window_status(WindowStatus.MINIMIZED)
+    assert window.window_label.text() == "Game window minimized"
+
+    window.update_dashboard(
+        DashboardUpdate(_world_state(), BotStatus.STANDBY, window=WindowStatus.NOT_FOREGROUND)
+    )
+    assert window.window_label.text() == "Game window: not in foreground"
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE))
+    assert window.window_label.text() == "Game window: in foreground"
+
+
+def test_main_window_keeps_the_window_state_across_local_status_changes() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.update_dashboard(
+        DashboardUpdate(_world_state(), BotStatus.STANDBY, window=WindowStatus.NOT_FOREGROUND)
+    )
+
+    window.start_button.click()
+
+    assert window.window_label.text() == "Game window: not in foreground"
+
+
+def test_main_window_localizes_the_window_state_for_german_operators() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.GERMAN))
+
+    window.set_window_status(WindowStatus.NOT_FOUND)
+
+    assert window.window_label.text() == "Spielfenster nicht gefunden"
+    assert window.status_label.text() == "Bot-Status: Pausiert"
+
+
+def test_placement_guides_cover_the_vitals_gauges_target_and_monster_stats_regions() -> None:
+    client_size = ClientSize(1920, 1080)
+
+    guides = compute_placement_guides(
+        client_size, Translator(Language.ENGLISH), MonsterStatsConfig()
+    )
+
+    assert len(guides) == 6
+    labeled = [guide for guide in guides if guide.label is not None]
+    assert len(labeled) == 3
+    assert all(guide.style is GuideStyle.DASHED for guide in labeled)
+    assert all(guide.style is GuideStyle.SOLID for guide in guides if guide.label is None)
+    for guide in guides:
+        assert 0 <= guide.left < guide.right <= client_size.width
+        assert 0 <= guide.top < guide.bottom <= client_size.height
+
+
+def test_placement_guides_omit_the_monster_stats_box_without_a_configuration() -> None:
+    guides = compute_placement_guides(ClientSize(1920, 1080), Translator(Language.ENGLISH))
+
+    assert len(guides) == 5
+    assert [guide.label for guide in guides].count(None) == 3
+
+
+def test_logical_geometry_converts_physical_pixels_for_scaled_displays() -> None:
+    bounds = ScreenRect(left=100, top=200, width=1920, height=1080)
+
+    assert logical_geometry(bounds, 1.0) == (100, 200, 1920, 1080)
+    assert logical_geometry(bounds, 1.5) == (67, 133, 1280, 720)
+    assert logical_geometry(bounds, 2.0) == (50, 100, 960, 540)
+    assert logical_geometry(bounds, 0.0) == (100, 200, 1920, 1080)
+
+
+def test_placement_overlay_tracks_client_geometry_and_hides_when_unavailable() -> None:
+    _application = QApplication.instance() or QApplication([])
+    provider = _FakeGeometryProvider(ScreenRect(left=40, top=60, width=800, height=600))
+    overlay = PlacementOverlayWindow(Translator(Language.ENGLISH))
+
+    overlay.attach_target(provider, 4242)
+    assert overlay.isHidden()
+
+    overlay.set_guides_visible(True)
+    assert provider.requested_handles == [4242]
+    assert overlay.isVisible()
+    assert overlay.geometry().left() == 40
+    assert overlay.geometry().top() == 60
+    assert overlay.client_size == ClientSize(800, 600)
+    overlay.render(overlay)
+
+    provider.bounds = None
+    overlay.refresh_geometry()
+    assert overlay.isHidden()
+
+    provider.bounds = ScreenRect(left=0, top=0, width=1024, height=768)
+    overlay.refresh_geometry()
+    assert overlay.isVisible()
+
+    overlay.set_guides_visible(False)
+    assert overlay.isHidden()
+    overlay.stop()
+
+
+def test_placement_overlay_never_takes_focus_from_the_game_window() -> None:
+    _application = QApplication.instance() or QApplication([])
+    overlay = PlacementOverlayWindow(Translator(Language.ENGLISH))
+
+    flags = overlay.windowFlags()
+
+    assert flags & Qt.WindowType.WindowTransparentForInput
+    assert flags & Qt.WindowType.WindowStaysOnTopHint
+    assert flags & Qt.WindowType.FramelessWindowHint
+    assert overlay.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+    assert overlay.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    overlay.stop()
+
+
+def test_main_window_placements_toggle_drives_the_desktop_guide_overlay() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    provider = _FakeGeometryProvider(ScreenRect(left=10, top=20, width=1280, height=720))
+    window.attach_placement_target(provider, 77)
+
+    window.placements_toggle.setChecked(True)
+    application.processEvents()
+    assert window.placement_overlay.isVisible()
+    assert window.placement_overlay.client_size == ClientSize(1280, 720)
+
+    window.placements_toggle.setChecked(False)
+    application.processEvents()
+    assert window.placement_overlay.isHidden()
+
+    window.close()
+
+
+def test_main_window_close_event_stops_the_placement_overlay() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    provider = _FakeGeometryProvider(ScreenRect(left=0, top=0, width=640, height=480))
+    window.attach_placement_target(provider, 5)
+    window.placements_toggle.setChecked(True)
+
+    window.closeEvent(QCloseEvent())
+
+    assert window.placement_overlay.isHidden()
+
+
+class _FakeGeometryProvider:
+    """Deterministic client-geometry source standing in for the Win32 adapter."""
+
+    def __init__(self, bounds: ScreenRect | None) -> None:
+        self.bounds = bounds
+        self.requested_handles: list[int] = []
+
+    def client_screen_bounds(self, window_handle: int) -> ScreenRect | None:
+        self.requested_handles.append(window_handle)
+        return self.bounds
 
 
 def _world_state() -> WorldState:

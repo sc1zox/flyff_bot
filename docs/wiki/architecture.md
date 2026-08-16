@@ -297,6 +297,25 @@ default; `--read-loot` remains an explicit opt-in diagnostic path unaffected by 
 
 US-026 hardens player vitals extraction and monster stats window detection against arbitrary client resolutions and screen layouts, fixing BUG-006. `PlayerVitalsReader` switches from normalized relative window fractions to fixed-pixel top-left anchoring (`0..260` width, `0..113` height), ensuring gauge bar column-sampling (HP in Red, MP in Blue, FP in Green) operates strictly on the 2D HUD orb across any resolution (720p, 1080p, 1440p, 4K) without sampling dynamic 3D world scenery or causing false 0% consumable spam. `MonsterStatsReader` is hardened with template-matched anchoring (`cv2.matchTemplate`), dynamically searching the frame for the session stats window header and extracting the relative `Monster Kills:` text ROI regardless of where the operator positions the window on screen, gracefully returning `None` if the window is closed. At the presentation boundary, the desktop UI adds a "Placements" ("Platzierungshilfen") visual guide toggle that renders color-coded, labeled ROI overlay boxes (Player Vitals orb, Target Header bar, and Monster Stats OCR crop) proportionally scaled over the live viewport preview, allowing operators to visually calibrate and align in-game HUD elements with complete precision.
 
+BUG-008 moves the placement guides out of the dashboard thumbnail and onto the desktop.
+`PlacementOverlayWindow` (`flyff_bot.ui.placement_overlay`) is a frameless, translucent,
+always-on-top `Qt.Tool` window drawn directly over the game client area. It is click-through and
+never activates (`Qt.WindowType.WindowTransparentForInput`, `WA_ShowWithoutActivating`, and no
+`raise_()`/`activateWindow()` call), because an overlay that took foreground would pause the guarded
+session and make the client register as occluded for frame capture. `WindowsInputController` gains
+`client_screen_bounds()`, which returns the client area in desktop pixels (`GetClientRect` plus
+`ClientToScreen`) or `None` when the window is invalid, hidden, or minimized; the overlay polls it
+on a Qt timer while enabled and hides itself whenever the bounds are unavailable. Physical pixels
+are converted into Qt logical units once, in the pure `logical_geometry()` helper, so scaled
+displays stay aligned. The guides themselves are pure client-space `PlacementGuide` values produced
+by `compute_placement_guides()` and drawn by `draw_placement_guides()`, shared by the desktop
+overlay and the dashboard preview so both surfaces cannot drift apart; the overlay scales them by
+its own width relative to the tracked client width. `MainWindow.attach_placement_target()` binds the
+overlay to the discovered window handle, and `run_desktop` calls it before the model-file guard, so
+placement calibration works even with no detection model installed and no preview frame. Because
+`WindowsFrameSource` blits with `CAPTUREBLT`, an overlay drawn over the HUD can appear in captured
+frames; the overlay is operator-toggled and intended for calibration rather than continuous farming.
+
 US-028 makes read-only perception a continuous standby service and separates bot status from
 telemetry at the dashboard, fixing BUG-007. `FarmingOrchestrator.tick()` no longer returns before
 perception while paused, completed, or emergency-stopped: those `STANDBY_MODES` now run

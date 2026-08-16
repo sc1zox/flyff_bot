@@ -12,6 +12,16 @@ class WindowRef:
     title: str
 
 
+@dataclass(frozen=True, slots=True)
+class ScreenRect:
+    """A window client area expressed in physical desktop pixels."""
+
+    left: int
+    top: int
+    width: int
+    height: int
+
+
 class InputErrorCode(StrEnum):
     """Stable failures mapped to localized text at the UI boundary."""
 

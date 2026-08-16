@@ -35,9 +35,11 @@ from flyff_bot.features.vision import (
 )
 from flyff_bot.features.vision.monster_stats import MonsterStatsReader
 from flyff_bot.i18n import Message, Translator
-from flyff_bot.ui.dashboard import DashboardFeed
+from flyff_bot.ui.dashboard import DashboardFeed, WindowStatus
 from flyff_bot.ui.main_window import MainWindow
 from flyff_bot.ui.theme import apply_theme
+
+STANDBY_TICK_INTERVAL_MILLISECONDS = 100
 
 
 class FarmingControls(Protocol):
@@ -124,7 +126,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
     controller = WindowsInputController()
     windows = controller.find_windows(DEFAULT_PROCESS_NAME)
     if windows:
+        window.set_window_status(WindowStatus.NOT_FOREGROUND)
         window_handle = windows[0].handle
+        window.attach_placement_target(controller, window_handle)
         model_path = Path(DEFAULT_MOB_MODEL_PATH)
         labels_path = Path(DEFAULT_MOB_LABELS_PATH)
         anchor_path = Path("models/target_anchor.png")
@@ -140,7 +144,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
             flame_template = _read_template(flame_template_path)
             if anchor is not None and flame_template is not None:
                 pipeline = PerceptionPipeline(
-                    WindowsFrameSource(),
+                    WindowsFrameSource(require_foreground=False),
                     OpenCVDnnYoloDetector.from_files(
                         model_path,
                         labels_path,
@@ -177,7 +181,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 )
                 timer = QTimer(window)
                 timer.timeout.connect(orchestrator.tick)
-                timer.start(100)
+                timer.start(STANDBY_TICK_INTERVAL_MILLISECONDS)
+    else:
+        window.set_window_status(WindowStatus.NOT_FOUND)
 
     window.show()
     return application.exec()

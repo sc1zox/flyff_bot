@@ -1,10 +1,10 @@
 ---
 id: BUG-008
 title: Placement guides render only inside internal dashboard preview instead of directly over the game window
-status: reported
+status: resolved
 severity: medium
 created: 2026-08-16
-updated: 2026-08-16
+updated: 2026-08-17
 ---
 
 # BUG-008: Placement guides render only inside internal dashboard preview instead of directly over the game window
@@ -43,7 +43,28 @@ Per user expectation and [US-026](../user-stories/completed/US-026-static-hud-an
 
 ## Regression verification
 
-- [ ] A dedicated transparent overlay window (`PlacementOverlayWindow`) or viewport is created and positioned over the target game client HWND coordinates.
-- [ ] Toggling "Platzierungshilfen" displays the transparent guide overlay over the game window with correct client-coordinate ROI bounding boxes.
-- [ ] Automated tests in `tests/unit/test_ui.py` verify placement overlay window lifecycle, geometry tracking, and toggle signals.
-- [ ] Related documentation is current.
+- [x] A dedicated transparent overlay window (`PlacementOverlayWindow`) or viewport is created and positioned over the target game client HWND coordinates.
+- [x] Toggling "Platzierungshilfen" displays the transparent guide overlay over the game window with correct client-coordinate ROI bounding boxes.
+- [x] Automated tests in `tests/unit/test_ui.py` verify placement overlay window lifecycle, geometry tracking, and toggle signals.
+- [x] Related documentation is current.
+
+## Resolution
+
+`PlacementOverlayWindow` (`src/flyff_bot/ui/placement_overlay.py`) is a frameless, translucent,
+always-on-top `Qt.Tool` window that draws the guides directly over the game client. It carries
+`Qt.WindowType.WindowTransparentForInput` and `WA_ShowWithoutActivating`, so it is click-through and
+never becomes the foreground window — taking focus would pause the guarded session and make the
+client register as occluded for frame capture.
+
+`WindowsInputController.client_screen_bounds()` returns the client area in desktop pixels
+(`GetClientRect` + `ClientToScreen`), or `None` when the window is gone, hidden, or minimized. The
+overlay polls it every 250 ms while enabled, hides itself whenever the bounds are unavailable, and
+converts physical pixels into Qt logical units through the pure `logical_geometry()` helper so
+scaled displays stay aligned. Guides are computed once as client-space `PlacementGuide` values by
+`compute_placement_guides()` and are shared with the dashboard preview, which keeps both surfaces
+identical; the overlay scales them by its own width relative to the tracked client width.
+
+`MainWindow.attach_placement_target()` binds the overlay to the discovered game window, and
+`run_desktop` calls it as soon as the window is found — before the model-file guard — so the guides
+also work when no detection model is installed and no frame preview exists. `closeEvent` stops the
+poll timer and closes the overlay.
