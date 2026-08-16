@@ -293,8 +293,7 @@ class FarmingOrchestrator:
                 return self._combat_dispatcher.dispatch(combat)
             if self._advance_pathing():
                 return True
-            radar_position = self._radar.nearest_dot(self._last_frame)
-            search_decision = self._search.step(self._state.observed_at_seconds, radar_position)
+            search_decision = self._search.step(self._state.observed_at_seconds)
             dispatched = self._search_dispatcher.dispatch(search_decision)
             if (
                 dispatched

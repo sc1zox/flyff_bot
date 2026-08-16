@@ -14,7 +14,6 @@ from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_W,
     SearchConfig,
     SearchController,
-    SearchInputKind,
     SearchMode,
 )
 from flyff_bot.features.automation.models import Position
@@ -43,7 +42,7 @@ class _Adapter:
         self.clicks.append((handle, x_coordinate, y_coordinate))
 
 
-def test_search_progresses_from_idle_rotation_to_tilt_then_roaming_then_radar() -> None:
+def test_search_progresses_from_idle_rotation_to_tilt_then_roaming_and_cycles() -> None:
     search = SearchController(
         SearchConfig(
             idle_timeout_seconds=1.0,
@@ -110,12 +109,11 @@ def test_search_progresses_from_idle_rotation_to_tilt_then_roaming_then_radar() 
     assert step6.mode is SearchMode.ROAM_STEP
     assert step6.virtual_key == VIRTUAL_KEY_D
 
-    # Step 7: MINIMAP_RADAR stage
-    assert search.step(5.0).mode is SearchMode.MINIMAP_RADAR
-    decision = search.step(5.0, Position(80, 20))
-    assert decision.mode is SearchMode.MINIMAP_RADAR
-    assert decision.input_kind is SearchInputKind.CLICK
-    assert decision.position == Position(80, 20)
+    # Step 7: Completed roaming cycle resets back to ROTATE for continuous sweeping
+    step7 = search.step(5.0)
+    assert step7.mode is SearchMode.ROTATE
+    assert step7.virtual_key == VIRTUAL_KEY_RIGHT
+    assert step7.key_press_duration_seconds == 0.2
 
 
 def test_search_uses_configured_rotation_virtual_key() -> None:

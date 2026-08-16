@@ -160,13 +160,13 @@ key parser support `A`–`Z`, `0`–`9`, Space, and `F1`–`F12`; dispatch, defe
 and foreground/END safeguards remain on their existing paths.
 
 US-015 adds staged, non-blocking no-mob recovery to `FarmingOrchestrator`. After a configurable
-idle timeout, `SearchController` dispatches camera-rotation arrow-key pulses (default `Right Arrow`), then bounded
-`W`/`A`/`D` roaming pulses, and finally requests a client-relative click on the nearest qualifying
-red connected component in the normalized top-right minimap region. Every search tick first
-evaluates the newest perception snapshot: a visible eligible mob resets search and immediately
-returns to targeting. `SearchInputDispatcher` checks foreground focus and END before every search
-actions, while the Windows guarded key hold releases on either condition; dashboard search statuses
-and CLI timing options are localized in English and German.
+idle timeout, `SearchController` dispatches camera-rotation arrow-key pulses (default `Right Arrow`),
+followed by pitch tilt pulses (US-018) and bounded `W`/`A`/`D` roaming pulses, continuously cycling back
+to sweeping rotation without executing uncalibrated minimap clicks. (Minimap radar navigation is isolated
+for future calibrated enhancement in US-027). Every search tick first evaluates the newest perception snapshot:
+a visible eligible mob resets search and immediately returns to targeting. `SearchInputDispatcher` checks
+foreground focus and END before every search action, while the Windows guarded key hold releases on either condition;
+dashboard search statuses and CLI timing options are localized in English and German.
 
 US-018 enhances staged search with multi-axis camera scanning and visual settle pauses.
 `SearchController` extends `SearchMode` with `SearchMode.TILT`, dispatching vertical pitch pulses

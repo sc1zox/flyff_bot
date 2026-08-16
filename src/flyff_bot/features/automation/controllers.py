@@ -495,7 +495,10 @@ class SearchController:
 
         if self._mode is SearchMode.ROAM_STEP:
             if self._roam_index >= self._config.roam_steps:
-                self._mode = SearchMode.MINIMAP_RADAR
+                self._mode = SearchMode.ROTATE
+                self._rotation_index = 0
+                self._tilt_index = 0
+                self._roam_index = 0
                 return self.step(observed_at_seconds, radar_position)
             virtual_key = (VIRTUAL_KEY_W, VIRTUAL_KEY_D, VIRTUAL_KEY_W, VIRTUAL_KEY_A)[
                 self._roam_index % 4
@@ -511,14 +514,7 @@ class SearchController:
                 self._config.movement_step_duration_seconds,
             )
 
-        if radar_position is None:
-            return SearchDecision(SearchMode.MINIMAP_RADAR)
-        self._next_action_at_seconds = (
-            observed_at_seconds + self._config.movement_step_duration_seconds
-        )
-        return SearchDecision(
-            SearchMode.MINIMAP_RADAR, SearchInputKind.CLICK, position=radar_position
-        )
+        return SearchDecision(self._mode)
 
 
 class LootController:
