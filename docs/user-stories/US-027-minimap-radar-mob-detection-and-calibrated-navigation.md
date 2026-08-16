@@ -34,9 +34,13 @@ Two findings from the calibration spike are worth keeping, should this ever be r
 - All five minimap buttons (collapse, close, help, zoom in, zoom out) sit *on* the decorative ring
   at radius 77–79 px, so a circular mask inset to the inner map surface already excludes them; the
   explicit UI exclusion zones this story specifies would be a second, redundant layer.
-- The prescribed dot thresholds (`Red >= 150`, `Green <= 120`, `Blue <= 120`) match reddish terrain
-  inside the reference minimap, producing 763 qualifying pixels in components of up to 50 px with
-  no monster dots present. The `>= 4` pixel minimum alone does not reject them.
+- Inside the reference minimap's navigable surface, the prescribed dot thresholds (`Red >= 150`,
+  `Green <= 120`, `Blue <= 120`) select 763 pixels forming connected components of up to 50 px.
+  Those components were never classified, so it is unknown how many are monster dots and how many
+  are reddish terrain — note that the minimap markers distinguishable by eye in that frame are
+  orange, not red, even though five Flame mobs are visible in the viewport. Either way the `>= 4`
+  pixel minimum does not discriminate between them, so both the threshold triple and the dot
+  geometry need calibrating against a frame with confirmed monster dots before this is trusted.
 
 `MinimapRadar` and `SearchMode.MINIMAP_RADAR` remain in the codebase as the uncalibrated,
 never-dispatched components US-015 left behind; `SearchController` still cycles from roaming back to

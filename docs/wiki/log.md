@@ -192,4 +192,5 @@ architecture note and both glossary entries that described the minimap-radar cli
 search stage or as pending US-027 work; `MinimapRadar` and `SearchMode.MINIMAP_RADAR` remain
 unreachable leftovers from US-015. Preserved the calibration spike findings (fixed-pixel top-right
 anchoring at 88/104 px with an 82 px ring and 67 px inner surface, buttons sitting on the ring at
-radius 77-79 px, and reddish terrain matching the prescribed red thresholds) in the story file.
+radius 77-79 px, and 763 unclassified pixels matching the prescribed red thresholds in a frame whose
+visible minimap markers are orange) in the story file.
