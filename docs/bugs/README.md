@@ -14,6 +14,7 @@ bugs are moved to `docs/bugs/fixed/`.
 - [ ] [**BUG-004: Navigation map visualization confusing player color with spawn cells and missing close-event persistence**](BUG-004-navigation-map-visualization-and-persistence-clarity.md)
 - [ ] [**BUG-008: Placement guides in-game overlay**](BUG-008-placement-guides-in-game-overlay.md)
 - [ ] [**BUG-009: WASD movement tracking heading error and obstacle stall detection failure against terrain**](BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md)
+- [ ] [**BUG-010: Combat targeting thrashing, false floor clicks, and missing stuck engagement break timeout**](BUG-010-combat-targeting-thrashing-and-stuck-engagement-timeout.md)
 
 
 ## Fixed Defects
