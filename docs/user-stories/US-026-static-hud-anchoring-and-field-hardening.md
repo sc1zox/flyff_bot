@@ -10,7 +10,7 @@ updated: 2026-08-16
 
 ## Story
 
-As a **bot operator running the game at various resolutions (e.g. 1080p, 1440p, 4K)**, I want **the player vitals gauge extraction to use resolution-independent fixed top-left pixel anchoring, and the monster stats reader to reliably locate the HUD window via template matching**, so that **vital gauges (HP/MP/FP) are read with zero false drops and zero consumable spam across any screen resolution, and session kill statistics are reliably anchored regardless of HUD window position**.
+As a **bot operator running the game at various resolutions (e.g. 1080p, 1440p, 4K)**, I want **the player vitals gauge extraction to use resolution-independent fixed top-left pixel anchoring, the monster stats reader to reliably locate the HUD window via template matching, and a "Placements" visual guide toggle in the UI that draws expected ROI overlay boxes over the game window**, so that **vital gauges (HP/MP/FP) are read with zero false drops across any screen resolution, and operators can easily align and verify in-game HUD elements against the bot's expected detection areas**.
 
 ## Context and assumptions
 
@@ -19,6 +19,7 @@ As a **bot operator running the game at various resolutions (e.g. 1080p, 1440p, 
 - Switching `PlayerVitalsReader` to fixed top-left pixel bounding (`0..260` width, `0..113` height from `(0,0)` across all frame resolutions $\ge 260\times 113$) solves resolution drift cleanly without introducing unnecessary template matching overhead on every frame.
 - [US-023](completed/US-023-reliable-combat-targeting-and-kill-verification.md) introduced `MonsterStatsReader` with normalized screen coordinates calibrated against a single 1600x900 window. If an operator moves the in-game session stats HUD window or runs at a different resolution, OCR sampling fails.
 - Hardening `MonsterStatsReader` with a lightweight template-match anchor for the session stats window header (similar to `TargetVerifier`'s header anchor pattern) dynamically and reliably extracts the exact relative text sub-ROI (`Monster Kills: <int>`) wherever the window is placed on screen.
+- To eliminate any guesswork regarding HUD placement and screen scaling, the desktop UI provides a dedicated **"Placements" ("Platzierungshilfen")** toggle button. When enabled, the live preview overlay renders color-coded, labeled bounding boxes over the captured game frame showing exactly where each vision/OCR component expects HUD elements (Vitals orb, Stats window, Target bar).
 - All user-facing strings, debug overlay guides, and error messages must remain synchronized in German and English (`de.json` and `en.json`).
 
 ## Acceptance criteria
@@ -31,14 +32,18 @@ As a **bot operator running the game at various resolutions (e.g. 1080p, 1440p, 
   - `MonsterStatsReader` searches the captured client frame for a session stats header template (or anchor icon) using normalized correlation (`cv2.matchTemplate`).
   - When the stats window header anchor is found above the configured threshold (default $\ge 0.85$), the relative `Monster Kills:` text region is cropped relative to the anchor's matched position and parsed via OCR.
   - When the stats window is closed or not present on screen, `MonsterStatsReader.read()` returns `None` gracefully without throwing exceptions or blocking the pipeline.
-- [ ] **Debug overlay and UI calibration alignment:**
-  - The desktop debug overlay draws the fixed top-left vitals bounding box accurately aligned to the `260x113` pixel region.
-  - The debug overlay highlights the detected monster stats window bounding box in real time when active.
+- [ ] **UI "Placements" visual guide toggle & ROI calibration overlay:**
+  - The desktop UI provides a prominent **"Placements" ("Platzierungshilfen")** toggle button in the diagnostics/overlay controls.
+  - When toggled ON, the visual preview overlay renders distinct, color-coded, and labeled bounding boxes over the game frame:
+    - *Player Vitals:* Top-left dashed box (`260x113` px) with internal HP/MP/FP gauge scan bars.
+    - *Monster Stats OCR:* Highlighted search zone or matched window bounding box showing the exact `Monster Kills:` text extraction ROI.
+    - *Target Header:* Top-center target bar and name-match verification region.
+  - These placement guide boxes automatically scale proportionally with the live viewport preview, allowing operators to visually align their in-game windows with 100% precision.
 - [ ] **Safety, localization, and error handling:**
   - Frames smaller than `260x113` handle boundary clipping gracefully without index errors.
   - All user-visible labels, tooltips, and status texts are synchronized in German and English.
 - [ ] **Automated verification:**
-  - Automated unit tests in `tests/unit/test_vitals.py` and `tests/unit/test_monster_stats.py` verify static vitals extraction across multiple simulated resolution fixtures (720p, 1080p, 1440p) and template-anchored stats window detection.
+  - Automated unit tests in `tests/unit/test_vitals.py`, `tests/unit/test_monster_stats.py`, and `tests/unit/test_ui.py` verify static vitals extraction across multiple simulated resolution fixtures (720p, 1080p, 1440p), template-anchored stats window detection, and placement guide rendering.
   - `./scripts/check.ps1` (ruff, mypy, pytest) passes cleanly.
 
 ## Out of scope
@@ -53,5 +58,6 @@ As a **bot operator running the game at various resolutions (e.g. 1080p, 1440p, 
   - `./scripts/check.ps1`
 - Manual (Windows):
   1. Launch `uv run python -m flyff_bot ui` with the game running at 1920x1080.
-  2. Verify top-left vitals read accurate ~100% values and do not trigger food/potions at full health.
-  3. Open the in-game monster stats window, move it to an arbitrary position, and verify kill counts are detected via the template anchor.
+  2. Toggle the **"Placements"** button; verify clearly visible guide boxes overlaying the top-left vitals orb and monster stats regions.
+  3. Verify top-left vitals read accurate ~100% values and do not trigger food/potions at full health.
+  4. Move the in-game monster stats window and verify the placement guide and OCR dynamically follow the window anchor.

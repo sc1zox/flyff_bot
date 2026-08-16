@@ -35,7 +35,7 @@ As a **bot operator**, I want **a visually polished, modern dark-themed dashboar
     - *Status & Metrics Card:* Displays live bot state with colored status pill badges (`ACTIVE`, `PAUSED`, `EMERGENCY_STOP`) and concise stat chips (mob count, goal progress) rather than raw multiline text labels.
     - *Action Controls Card:* Prominent Start, Pause, Emergency Stop buttons, attack key configuration button with tooltip, and language selector.
     - *Navigation & Profiles Card:* Compact profile selection combo box, sanitized name input, and icon/action buttons for Save, Load, and Reset.
-    - *Telemetry & Diagnostics Toolbar:* Compact toggle switches/buttons for debug overlay and path inspector.
+    - *Telemetry & Diagnostics Toolbar:* Compact toggle switches/buttons for debug overlay, "Placements" ROI guide overlay, and path inspector.
 - [ ] **Pop-out navigation map window:**
   - Given the path inspector is opened, when the operator clicks a pop-out button or checkbox, then the `PathInspectorWidget` can be displayed inside a separate standalone top-level window (`NavigationMapWindow`), keeping the main controller window compact.
   - When the pop-out window is closed or toggled back, the state is cleanly synced without interrupting farming or navigation telemetry updates.

@@ -37,8 +37,9 @@ As a **bot operator farming in sparse or wide spawn zones**, I want **the bot to
   - When radar navigation triggers in search mode, the dispatcher verifies that the target click coordinates lie strictly within the valid circular radar interior.
   - Clicks are dispatched via standard foreground- and END-guarded platform adapters.
   - A configurable travel debounce (default 2.5s) prevents click spamming while the character moves toward the target coordinate.
-- [ ] **Configurable UI toggle:**
+- [ ] **Configurable UI toggle & Placements overlay:**
   - The desktop dashboard provides an explicit opt-in toggle (`"Minimap-Radar Navigation aktivieren"` / `"Enable Minimap Radar Navigation"`, default: `false`).
+  - When the dashboard's **"Placements"** guide toggle is enabled, the circular minimap boundary and active UI exclusion zones are rendered directly onto the live viewport preview, allowing operators to verify minimap position and scaling at a glance.
   - When disabled, staged search relies entirely on camera rotations, pitch tilting, roaming steps, and topological pathing.
 - [ ] **Immediate combat preemption:**
   - Any newly visible target mob detected by the perception pipeline immediately aborts radar navigation and hands over control to `TARGETING` -> `COMBAT`.

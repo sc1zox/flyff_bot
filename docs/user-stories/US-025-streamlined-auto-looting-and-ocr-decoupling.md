@@ -30,6 +30,7 @@ As a **bot operator**, I want **the farming loop to seamlessly transition direct
 - [ ] **Loot-Log OCR decoupling from default perception pipeline:**
   - Given the standard perception pipeline running during farming, `LootLogReader` and Tesseract OCR sub-processes are not invoked on every capture tick, eliminating disk I/O and CPU overhead.
   - `PerceptionPipeline` gracefully operates without an active `LootFeed` (or with a no-op feed by default), ensuring `tick()` does not raise OCR failures or spawn external processes.
+  - If loot log diagnostics are inspected, its expected notification region is cleanly integrated into the dashboard "Placements" overlay.
 - [ ] **Farming goals and progress decoupling:**
   - Given session progress tracking, progress metrics and session completion are driven by mob kill verification ([US-023](completed/US-023-reliable-combat-targeting-and-kill-verification.md)) rather than OCR inventory parsing.
   - Existing `WorldState` snapshot structures remain typed and backwards compatible (`recent_loot` and `inventory` default to empty tuples when no OCR feed is attached).
