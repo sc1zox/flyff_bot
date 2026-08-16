@@ -35,11 +35,13 @@ from flyff_bot.features.vision.models import (
     TargetVerificationMetrics,
 )
 from flyff_bot.features.vision.target_verification import (
+    AnchorOffsetRegion,
     TargetRegion,
     TargetStatus,
     TargetVerificationConfig,
     TargetVerificationResult,
     TargetVerifier,
+    extract_anchor_relative_region,
     extract_target_region,
 )
 from flyff_bot.features.vision.vitals import (
@@ -51,6 +53,7 @@ from flyff_bot.features.vision.vitals import (
 )
 
 __all__ = [
+    "AnchorOffsetRegion",
     "BoundingBox",
     "CapturedFrame",
     "ClientPoint",
@@ -86,6 +89,7 @@ __all__ = [
     "TextRecognizer",
     "VitalGaugeType",
     "WindowsFrameSource",
+    "extract_anchor_relative_region",
     "extract_loot_region",
     "extract_target_region",
     "load_class_names",

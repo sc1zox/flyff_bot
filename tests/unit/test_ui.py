@@ -33,6 +33,7 @@ from flyff_bot.features.automation.vitals_controller import (
 from flyff_bot.features.input_control import InputControlError, InputErrorCode, ScreenRect
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
+from flyff_bot.features.vision.target_verification import TargetVerifier
 from flyff_bot.i18n import Language, Translator
 from flyff_bot.ui.app import connect_farming_controls, start_farming
 from flyff_bot.ui.dashboard import (
@@ -650,6 +651,8 @@ def test_main_window_target_debug_panel_toggle_and_renders_failure_metrics() -> 
             anchor_threshold=0.9,
             anchor_passed=True,
             minimum_hp_pixel_count=10,
+            hp_pixel_count=3,
+            hp_percentage=15.0,
             hp_passed=False,
             name_candidate=None,
             name_score=0.0,
@@ -667,6 +670,85 @@ def test_main_window_target_debug_panel_toggle_and_renders_failure_metrics() -> 
     assert window.target_name_value.text() == "FAIL 'none' 0.00 / 0.90"
     assert window.target_state_value.text() == "Wrong target"
     assert window.target_reason_value.text() == "HP bar below minimum pixel threshold"
+
+
+def test_main_window_target_threshold_controls_emit_live_configuration() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert window.anchor_threshold_spin.value() == pytest.approx(0.75)
+    assert window.name_threshold_spin.value() == pytest.approx(0.75)
+    assert window.anchor_threshold_spin.minimum() == pytest.approx(0.3)
+    assert window.name_threshold_spin.maximum() == pytest.approx(1.0)
+
+    thresholds: list[tuple[float, float]] = []
+    window.target_thresholds_changed.connect(lambda anchor, name: thresholds.append((anchor, name)))
+
+    window.anchor_threshold_spin.setValue(0.6)
+    window.name_threshold_spin.setValue(0.55)
+    application.processEvents()
+
+    assert thresholds[-1][0] == pytest.approx(0.6)
+    assert thresholds[-1][1] == pytest.approx(0.55)
+
+
+def test_target_threshold_controls_reconfigure_a_running_verifier() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    template = np.full((2, 2, 3), 7, dtype=np.uint8)
+    verifier = TargetVerifier({"Flame": template}, template)
+    window.target_thresholds_changed.connect(verifier.update_thresholds)
+
+    window.anchor_threshold_spin.setValue(0.55)
+    window.name_threshold_spin.setValue(0.45)
+    application.processEvents()
+
+    assert verifier.config.anchor_match_threshold == pytest.approx(0.55)
+    assert verifier.config.name_match_threshold == pytest.approx(0.45)
+
+
+def test_main_window_target_threshold_labels_localized() -> None:
+    _application = QApplication.instance() or QApplication([])
+
+    window_en = MainWindow(Translator(Language.ENGLISH))
+    window_de = MainWindow(Translator(Language.GERMAN))
+
+    assert window_en.anchor_threshold_spin.toolTip().startswith("Minimum template match score")
+    assert window_de.name_threshold_spin.toolTip().startswith("Mindestwert der Vorlagen")
+
+
+def test_main_window_target_debug_shows_measured_metrics_without_an_accepted_anchor() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    target = SelectedTarget(
+        TargetState.NONE,
+        None,
+        0,
+        0.0,
+        TargetVerificationMetrics(
+            anchor_score=0.72,
+            anchor_threshold=0.75,
+            anchor_passed=False,
+            minimum_hp_pixel_count=10,
+            hp_pixel_count=1049,
+            hp_percentage=100.0,
+            hp_passed=True,
+            name_candidate="Flame",
+            name_score=0.81,
+            name_threshold=0.75,
+            name_passed=True,
+        ),
+    )
+    window.update_dashboard(
+        DashboardUpdate(replace(_world_state(), selected_target=target), BotStatus.ACTIVE)
+    )
+    application.processEvents()
+
+    assert window.target_anchor_value.text() == "FAIL 0.72 / 0.75"
+    assert window.target_hp_value.text() == "PASS 1049 px (100.0%)"
+    assert window.target_name_value.text() == "PASS 'Flame' 0.81 / 0.75"
+    assert window.target_reason_value.text() == "Header anchor not detected"
 
 
 def test_main_window_target_debug_renders_valid_target_criteria_met() -> None:

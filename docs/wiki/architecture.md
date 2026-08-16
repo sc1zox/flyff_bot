@@ -30,6 +30,7 @@ related:
   - ../user-stories/completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md
   - ../user-stories/completed/US-026-static-hud-anchoring-and-field-hardening.md
   - ../user-stories/completed/US-028-live-perception-standby-and-focus-workflow.md
+  - ../user-stories/completed/US-029-configurable-target-verification-thresholds.md
 ---
 
 # Architecture
@@ -71,10 +72,11 @@ Game Client
      Its `FrameSource` protocol is injectable for deterministic tests, and capture failures use
      typed error codes. `require_foreground=False` relaxes only the foreground precondition for
      read-only standby previews (US-028); closed and minimized windows still fail.
-   - **Target verification:** `TargetVerifier` template-matches a configured header anchor before
-     inspecting the configured target-bar sub-region for HP colour and template-matching a
-     whitelisted name. It returns `VALID_TARGET`, `WRONG_TARGET`, or `NO_TARGET`, including an
-     HP percentage calculated only from the target-bar sub-region, without dispatching any input.
+   - **Target verification:** `TargetVerifier` template-matches a configured header anchor, then
+     crops the HP-bar and mob-name rectangles at fixed pixel offsets from that match position and
+     measures HP colour and the best whitelisted name template. It returns `VALID_TARGET`,
+     `WRONG_TARGET`, or `NO_TARGET`, including an HP percentage calculated only from the HP-bar
+     crop, without dispatching any input.
    - **Perception pipeline:** `PerceptionPipeline` captures one frame per tick and passes that
      shared frame to mob detection, target verification, and an optional loot-log OCR feed, which
      defaults to a no-op reader that performs no subprocess or disk I/O when none is attached. It
@@ -339,6 +341,30 @@ visible-mob count into the status badge and instead renders dedicated mob-count,
 vitals, and goal chips beside a badge that only ever shows bot status. Start remains the existing
 focus-then-start handoff with no artificial countdown: when foreground focus cannot be acquired the
 session stays paused and the next standby publish states the focus condition on the window chip.
+
+US-029 makes target verification anchor-relative, tunable, and fully instrumented. `TargetVerifier`
+no longer crops the HP bar and mob name from fixed normalized fractions of the broad top-centre
+header region: `TargetVerificationConfig` replaces `hp_region`/`name_region` with `hp_offset` and
+`name_offset`, typed `AnchorOffsetRegion` pixel rectangles measured from the top-left corner of the
+matched header anchor (`extract_anchor_relative_region`, clipped to the region bounds). The shipped
+defaults — HP `(dx=5, dy=27, 150x12)` and name `(dx=40, dy=-4, 125x35)` relative to the 30x26
+`models/target_anchor.png` — track the header wherever it is drawn inside the searched region, which
+is what previously made the HP crop miss the gauge entirely and report `0 px (0.0%)`. Like US-026's
+fixed-pixel vitals anchoring, this assumes the Flyff HUD is drawn at a fixed pixel size on every
+client resolution; `cv2.matchTemplate` is not scale invariant, so the mechanism buys translation
+invariance rather than accuracy under arbitrary scaling. `verify()` drops its short-circuit
+returns and measures every criterion on every tick, so the debug panel keeps showing HP pixels and
+the best name candidate even when the anchor score falls just below its threshold. The raw
+measurements live in `TargetVerificationMetrics.hp_pixel_count`/`.hp_percentage`, which the panel
+renders; the identically named fields on `TargetVerificationResult` and `SelectedTarget` stay zero
+unless the anchor passed, because `CombatController` reads them as kill evidence and they take part
+in the `SelectedTarget` equality that raises `PerceptionEventKind.TARGET_CHANGED`. The HP percentage
+divides by the configured gauge width rather than the cropped width, so a header clipped by the
+region edge cannot report a falsely full bar. Default anchor and name thresholds drop from `0.90` to
+`0.75`, and the dashboard combat panel adds two `0.30`-`1.00` spin boxes whose
+`target_thresholds_changed` signal is connected in `run_desktop` straight to
+`TargetVerifier.update_thresholds`, applying live without touching controller state; labels and
+tooltips are localized in German and English.
 
 US-022 overhauls the desktop dashboard boundary (`flyff_bot.ui`) with a cohesive Dark Slate Qt Style Sheet (QSS) theme, card-based panel grouping, streamlined visual hierarchy, a standalone pop-out navigation map window (`NavigationMapWindow`), and an `Escape` key emergency stop shortcut. All UI windows, inputs, buttons, and modal dialogs adopt dark slate styling with emerald green (Start), amber (Pause), and danger crimson (Emergency Stop) action accents alongside responsive hover/pressed states. Dashboard controls are organized into logical card panels—*Status & Metrics Card* (with colored status pill badges and metric chips), *Action Controls Card*, *Navigation & Profiles Card*, and *Telemetry & Diagnostics Toolbar*—eliminating redundant text clutter. Operators can pop out `PathInspectorWidget` into a secondary standalone window (`NavigationMapWindow`) to maintain a compact controller dashboard while monitoring live 2D pathing and heatmap telemetry on a separate display. Pressing `Escape` (`Qt.Key.Key_Escape`) while any UI window has focus instantly triggers an emergency stop (`emergency_stop_requested.emit()`), matching the physical UI button and the global Win32 `END` key safeguard. All user-visible strings, badge labels, and tooltips are localized across German and English.
 

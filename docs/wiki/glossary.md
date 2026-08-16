@@ -141,3 +141,13 @@ related:
 - **Window status** — The typed condition of the game client behind perception (`OK`,
   `NOT_FOREGROUND`, `MINIMIZED`, `NOT_FOUND`, `CAPTURE_FAILED`), published with every dashboard
   update so the operator sees why a preview is live, degraded, or absent.
+- **Anchor-relative ROI** — An `AnchorOffsetRegion` pixel rectangle cropped from the top-left corner
+  of the matched target-header anchor rather than from fixed fractions of the searched region, so
+  the HP-bar and mob-name crops follow the header wherever it is drawn.
+- **Match threshold** — The minimum `TM_CCOEFF_NORMED` template score required to accept the target
+  header anchor or a whitelisted mob name; both default to `0.75` and are operator-adjustable
+  between `0.30` and `1.00` live from the combat panel.
+- **Diagnostic metric** — A `TargetVerificationMetrics` measurement taken on every tick regardless
+  of whether an earlier criterion passed, so the target debug panel never blanks; the matching
+  fields on `TargetVerificationResult` stay gated on the header anchor being accepted, because
+  combat control and target-change events read those.

@@ -201,3 +201,15 @@ Removed unreachable US-015 minimap radar leftovers following the US-027 rejectio
 `src/flyff_bot/features/vision/minimap_radar.py` and its unit tests, removed `SearchMode.MINIMAP_RADAR`
 and unused radar parameters from `SearchController`, removed `BotStatus.SEARCH_MINIMAP`, and removed the
 `ui.status_search_minimap` locale entry pair. Updated architecture and glossary.
+
+## [2026-08-17] synthesis | Anchor-relative target verification (US-029)
+
+Recorded the anchor-relative target-header geometry, the full per-tick diagnostic metrics, and the
+operator-tunable match thresholds delivered by US-029. Replaced the architecture claim that the HP
+and name crops come from a configured target-bar sub-region with the `AnchorOffsetRegion` offsets
+measured from the matched anchor, and noted the fixed-pixel HUD assumption this shares with US-026:
+`cv2.matchTemplate` is not scale invariant, so the mechanism gives translation invariance only.
+Documented why the raw HP measurements live on `TargetVerificationMetrics` while the fields on
+`TargetVerificationResult` stay anchor-gated (`CombatController` kill evidence and `SelectedTarget`
+equality behind `TARGET_CHANGED`). Added glossary entries for anchor-relative ROI, match threshold,
+and diagnostic metric.

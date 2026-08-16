@@ -29,6 +29,7 @@ from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision import (
     DetectionConfig,
     OpenCVDnnYoloDetector,
+    TargetVerificationConfig,
     TargetVerifier,
     TesseractTextRecognizer,
     WindowsFrameSource,
@@ -143,6 +144,14 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
             anchor = _read_template(anchor_path)
             flame_template = _read_template(flame_template_path)
             if anchor is not None and flame_template is not None:
+                target_verifier = TargetVerifier(
+                    {"Flame": flame_template},
+                    anchor,
+                    TargetVerificationConfig(
+                        anchor_match_threshold=window.anchor_threshold_spin.value(),
+                        name_match_threshold=window.name_threshold_spin.value(),
+                    ),
+                )
                 pipeline = PerceptionPipeline(
                     WindowsFrameSource(require_foreground=False),
                     OpenCVDnnYoloDetector.from_files(
@@ -150,7 +159,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         labels_path,
                         DetectionConfig(confidence_threshold=0.3),
                     ),
-                    TargetVerifier({"Flame": flame_template}, anchor),
+                    target_verifier,
                     monster_stats_reader=MonsterStatsReader(TesseractTextRecognizer()),
                 )
                 navigation_map_path = Path(DEFAULT_NAVIGATION_MAP_PATH)
@@ -174,6 +183,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
                 window.kill_verification_changed.connect(orchestrator.configure_kill_verification)
+                window.target_thresholds_changed.connect(target_verifier.update_thresholds)
                 connect_farming_controls(
                     window,
                     orchestrator,

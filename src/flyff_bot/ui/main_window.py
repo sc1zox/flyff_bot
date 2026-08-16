@@ -41,6 +41,12 @@ from flyff_bot.features.navigation.persistence import (
     sanitize_profile_name,
 )
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig
+from flyff_bot.features.vision.target_verification import (
+    DEFAULT_ANCHOR_MATCH_THRESHOLD,
+    DEFAULT_NAME_MATCH_THRESHOLD,
+    MAXIMUM_MATCH_THRESHOLD,
+    MINIMUM_MATCH_THRESHOLD,
+)
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal, WindowStatus
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
@@ -48,6 +54,9 @@ from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
 from flyff_bot.ui.theme import apply_theme
+
+MATCH_THRESHOLD_STEP = 0.05
+MATCH_THRESHOLD_DECIMALS = 2
 
 HOTKEY_CHOICES = [
     "F1",
@@ -87,6 +96,7 @@ class MainWindow(QMainWindow):
     vitals_config_changed = Signal(object)
     combat_grace_changed = Signal(float)
     kill_verification_changed = Signal(bool)
+    target_thresholds_changed = Signal(float, float)
     save_profile_requested = Signal(Path)
     load_profile_requested = Signal(Path)
     reset_navigation_requested = Signal()
@@ -193,6 +203,10 @@ class MainWindow(QMainWindow):
         self._target_grace_spin.setSuffix(" s")
         self._kill_verification_label = QLabel()
         self._kill_verification_toggle = QCheckBox()
+        self._anchor_threshold_label = QLabel()
+        self._anchor_threshold_spin = _match_threshold_spin(DEFAULT_ANCHOR_MATCH_THRESHOLD)
+        self._name_threshold_label = QLabel()
+        self._name_threshold_spin = _match_threshold_spin(DEFAULT_NAME_MATCH_THRESHOLD)
 
         # Target verification debug panel
         self._target_debug_panel = QGroupBox()
@@ -469,6 +483,18 @@ class MainWindow(QMainWindow):
         return self._kill_verification_toggle
 
     @property
+    def anchor_threshold_spin(self) -> QDoubleSpinBox:
+        """Expose the header-anchor match threshold spin box."""
+
+        return self._anchor_threshold_spin
+
+    @property
+    def name_threshold_spin(self) -> QDoubleSpinBox:
+        """Expose the name-template match threshold spin box."""
+
+        return self._name_threshold_spin
+
+    @property
     def target_debug_toggle(self) -> QCheckBox:
         """Expose the target verification debug panel toggle control."""
 
@@ -613,6 +639,14 @@ class MainWindow(QMainWindow):
         kill_row.addWidget(self._kill_verification_label)
         kill_row.addWidget(self._kill_verification_toggle)
         combat_layout.addLayout(kill_row)
+        for threshold_label, threshold_spin in (
+            (self._anchor_threshold_label, self._anchor_threshold_spin),
+            (self._name_threshold_label, self._name_threshold_spin),
+        ):
+            threshold_row = QHBoxLayout()
+            threshold_row.addWidget(threshold_label)
+            threshold_row.addWidget(threshold_spin)
+            combat_layout.addLayout(threshold_row)
         self._combat_panel.setLayout(combat_layout)
 
     def _init_target_debug_widgets(self) -> None:
@@ -845,6 +879,12 @@ class MainWindow(QMainWindow):
     def _on_kill_verification_changed(self, enabled: bool) -> None:
         self.kill_verification_changed.emit(enabled)
 
+    @Slot()
+    def _on_target_thresholds_changed(self) -> None:
+        self.target_thresholds_changed.emit(
+            self._anchor_threshold_spin.value(), self._name_threshold_spin.value()
+        )
+
     def _adapt_window_geometry(self) -> None:
         central = self.centralWidget()
         if central is not None:
@@ -971,6 +1011,8 @@ class MainWindow(QMainWindow):
         self._combat_toggle.toggled.connect(self._update_combat_visibility)
         self._target_grace_spin.valueChanged.connect(self._on_combat_grace_changed)
         self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
+        for threshold_spin in (self._anchor_threshold_spin, self._name_threshold_spin):
+            threshold_spin.valueChanged.connect(self._on_target_thresholds_changed)
         self._target_debug_toggle.toggled.connect(self._update_target_debug_visibility)
 
     def refresh_profiles(self, select_path: Path | None = None) -> None:
@@ -1068,6 +1110,14 @@ class MainWindow(QMainWindow):
         self._kill_verification_label.setText(self._translator.text(Message.UI_KILL_VERIFICATION))
         self._kill_verification_toggle.setToolTip(
             self._translator.text(Message.UI_KILL_VERIFICATION_TOOLTIP)
+        )
+        self._anchor_threshold_label.setText(self._translator.text(Message.UI_ANCHOR_THRESHOLD))
+        self._anchor_threshold_spin.setToolTip(
+            self._translator.text(Message.UI_ANCHOR_THRESHOLD_TOOLTIP)
+        )
+        self._name_threshold_label.setText(self._translator.text(Message.UI_NAME_THRESHOLD))
+        self._name_threshold_spin.setToolTip(
+            self._translator.text(Message.UI_NAME_THRESHOLD_TOOLTIP)
         )
         self._target_debug_toggle.setText(self._translator.text(Message.UI_TARGET_DEBUG_TOGGLE))
         self._target_debug_panel.setTitle(self._translator.text(Message.UI_TARGET_DEBUG_TITLE))
@@ -1223,8 +1273,8 @@ class MainWindow(QMainWindow):
             self._translator.text(
                 Message.UI_TARGET_DEBUG_HP_VALUE,
                 status=_pass_fail_text(self._translator, metrics.hp_passed),
-                pixels=target.hp_pixel_count,
-                percentage=f"{target.hp_percentage:.1f}",
+                pixels=metrics.hp_pixel_count,
+                percentage=f"{metrics.hp_percentage:.1f}",
             )
         )
         self._target_name_value.setText(
@@ -1249,6 +1299,17 @@ class MainWindow(QMainWindow):
             self._map_window.close()
         self._placement_overlay.stop()
         super().closeEvent(event)
+
+
+def _match_threshold_spin(default_value: float) -> QDoubleSpinBox:
+    """Build one template-match threshold control over the supported score range."""
+
+    spin = QDoubleSpinBox()
+    spin.setRange(MINIMUM_MATCH_THRESHOLD, MAXIMUM_MATCH_THRESHOLD)
+    spin.setSingleStep(MATCH_THRESHOLD_STEP)
+    spin.setDecimals(MATCH_THRESHOLD_DECIMALS)
+    spin.setValue(default_value)
+    return spin
 
 
 def _key_label(key: int) -> str | None:

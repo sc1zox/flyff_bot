@@ -80,12 +80,20 @@ class FrameCaptureError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class TargetVerificationMetrics:
-    """Per-criterion thresholds and pass/fail outcomes for one target verification."""
+    """Per-criterion thresholds and pass/fail outcomes for one target verification.
+
+    Every field is a raw measurement taken on the current frame, independent of whether
+    an earlier criterion passed. `hp_pixel_count` and `hp_percentage` are therefore the
+    diagnostic readings sampled at the best anchor match, while the same fields on
+    `TargetVerificationResult` stay zero unless the header anchor itself was accepted.
+    """
 
     anchor_score: float = 0.0
     anchor_threshold: float = 0.0
     anchor_passed: bool = False
     minimum_hp_pixel_count: int = 0
+    hp_pixel_count: int = 0
+    hp_percentage: float = 0.0
     hp_passed: bool = False
     name_candidate: str | None = None
     name_score: float = 0.0

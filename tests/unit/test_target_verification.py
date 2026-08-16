@@ -11,15 +11,20 @@ import numpy.typing as npt
 import pytest
 
 from flyff_bot.features.vision import (
+    AnchorOffsetRegion,
     CapturedFrame,
     ClientSize,
     TargetRegion,
     TargetStatus,
     TargetVerificationConfig,
     TargetVerifier,
+    extract_anchor_relative_region,
     extract_target_region,
 )
-from flyff_bot.features.vision.target_verification import DEFAULT_ANCHOR_MATCH_THRESHOLD
+from flyff_bot.features.vision.target_verification import (
+    DEFAULT_ANCHOR_MATCH_THRESHOLD,
+    DEFAULT_NAME_MATCH_THRESHOLD,
+)
 
 HP_BAR_COLOR = (0, 0, 220)
 HEADER_ANCHOR_TEMPLATE = np.array(
@@ -28,39 +33,51 @@ HEADER_ANCHOR_TEMPLATE = np.array(
 NAME_TEMPLATE = np.array(
     [[[255, 255, 255], [20, 40, 60]], [[60, 40, 20], [255, 255, 255]]], dtype=np.uint8
 )
+# A dimmed name and a lightened anchor pixel stand in for anti-aliased in-game rendering:
+# both stay the best match at the header, but score below a strict threshold.
+WORN_NAME_TEMPLATE = np.array(
+    [[[255, 255, 255], [20, 40, 60]], [[60, 40, 20], [135, 135, 135]]], dtype=np.uint8
+)
+WEAK_ANCHOR_PIXEL = (30, 31, 32)
 TARGET_REGION = TargetRegion(x=0.25, y=0.0, width=0.5, height=0.5)
+HP_OFFSET = AnchorOffsetRegion(dx=2, dy=6, width=10, height=2)
+NAME_OFFSET = AnchorOffsetRegion(dx=3, dy=2, width=2, height=2)
 REAL_FIXTURE_DIRECTORY = Path("data/eden/flame")
 REAL_FIXTURE_CROP = (slice(20, 90), slice(520, 750))
 REAL_ANCHOR_CROP = (slice(12, 38), slice(15, 45))
 REAL_NAME_CROP = (slice(10, 40), slice(60, 175))
-REAL_HP_REGION = TargetRegion(x=20 / 230, y=39 / 70, width=150 / 230, height=12 / 70)
-REAL_NAME_REGION = TargetRegion(x=55 / 230, y=8 / 70, width=125 / 230, height=35 / 70)
 
 
-def _frame(*, include_hp: bool, name_template: np.ndarray | None = NAME_TEMPLATE) -> CapturedFrame:
+def _frame(
+    *,
+    include_hp: bool,
+    name_template: np.ndarray | None = NAME_TEMPLATE,
+    header_left: int = 0,
+    header_top: int = 0,
+) -> CapturedFrame:
+    """Draw a synthetic target header at an arbitrary place inside the target region."""
+
     pixels = np.zeros((20, 40, 3), dtype=np.uint8)
     region = pixels[0:10, 10:30]
     if include_hp:
-        region[6:8, 2:12] = HP_BAR_COLOR
+        region[header_top + 6 : header_top + 8, header_left + 2 : header_left + 12] = HP_BAR_COLOR
     if name_template is not None:
-        region[2:4, 3:5] = name_template
-    region[0:2, 0:2] = HEADER_ANCHOR_TEMPLATE
+        region[header_top + 2 : header_top + 4, header_left + 3 : header_left + 5] = name_template
+    region[header_top : header_top + 2, header_left : header_left + 2] = HEADER_ANCHOR_TEMPLATE
     return CapturedFrame(pixels, ClientSize(40, 20))
 
 
-def _verifier() -> TargetVerifier:
-    return TargetVerifier(
-        {"Aibatt": NAME_TEMPLATE},
-        HEADER_ANCHOR_TEMPLATE,
-        TargetVerificationConfig(
-            region=TARGET_REGION,
-            hp_region=TargetRegion(x=0.0, y=0.6, width=1.0, height=0.4),
-            name_region=TargetRegion(x=0.0, y=0.0, width=1.0, height=0.6),
-            hp_color_lower_bound=(0, 0, 100),
-            hp_color_upper_bound=(100, 100, 255),
-            minimum_hp_pixel_count=10,
-        ),
+def _verifier(**overrides: object) -> TargetVerifier:
+    config = TargetVerificationConfig(
+        region=TARGET_REGION,
+        hp_offset=HP_OFFSET,
+        name_offset=NAME_OFFSET,
+        hp_color_lower_bound=(0, 0, 100),
+        hp_color_upper_bound=(100, 100, 255),
+        minimum_hp_pixel_count=10,
+        **cast("dict[str, float]", overrides),
     )
+    return TargetVerifier({"Aibatt": NAME_TEMPLATE}, HEADER_ANCHOR_TEMPLATE, config)
 
 
 def test_extract_target_region_uses_normalized_client_coordinates() -> None:
@@ -71,6 +88,39 @@ def test_extract_target_region_uses_normalized_client_coordinates() -> None:
     assert tuple(extracted.pixels[6, 2]) == HP_BAR_COLOR
 
 
+def test_extract_anchor_relative_region_clips_to_the_frame_bounds() -> None:
+    pixels = np.arange(6 * 8 * 3, dtype=np.uint8).reshape((6, 8, 3))
+
+    clipped = extract_anchor_relative_region(
+        pixels, 1, 1, AnchorOffsetRegion(dx=-3, dy=-3, width=6, height=6)
+    )
+
+    assert clipped.shape == (4, 4, 3)
+    assert np.array_equal(clipped, pixels[0:4, 0:4])
+
+
+def test_extract_anchor_relative_region_returns_empty_pixels_outside_the_frame() -> None:
+    pixels = np.zeros((4, 4, 3), dtype=np.uint8)
+
+    outside = extract_anchor_relative_region(
+        pixels, 3, 3, AnchorOffsetRegion(dx=5, dy=5, width=2, height=2)
+    )
+
+    assert outside.size == 0
+
+
+def test_anchor_offset_region_rejects_empty_dimensions() -> None:
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        AnchorOffsetRegion(dx=0, dy=0, width=0, height=4)
+
+
+def test_default_match_thresholds_are_robust_baselines() -> None:
+    config = TargetVerificationConfig()
+
+    assert config.anchor_match_threshold == DEFAULT_ANCHOR_MATCH_THRESHOLD == 0.75
+    assert config.name_match_threshold == DEFAULT_NAME_MATCH_THRESHOLD == 0.75
+
+
 def test_verifier_accepts_live_whitelisted_target_fixture() -> None:
     result = _verifier().verify(_frame(include_hp=True))
 
@@ -78,12 +128,26 @@ def test_verifier_accepts_live_whitelisted_target_fixture() -> None:
     assert result.target_name == "Aibatt"
     assert result.is_alive
     assert result.hp_pixel_count == 20
+    assert result.hp_percentage == pytest.approx(100.0)
     assert result.metrics.anchor_passed
     assert result.metrics.anchor_score >= result.metrics.anchor_threshold
     assert result.metrics.hp_passed
+    assert result.metrics.hp_pixel_count == 20
     assert result.metrics.name_passed
     assert result.metrics.name_candidate == "Aibatt"
     assert result.metrics.name_score >= result.metrics.name_threshold
+
+
+def test_verifier_follows_the_header_anchor_when_it_moves_inside_the_region() -> None:
+    verifier = _verifier()
+
+    anchored = verifier.verify(_frame(include_hp=True))
+    shifted = verifier.verify(_frame(include_hp=True, header_left=6, header_top=2))
+
+    assert shifted.status is anchored.status is TargetStatus.VALID_TARGET
+    assert shifted.hp_pixel_count == anchored.hp_pixel_count
+    assert shifted.hp_percentage == pytest.approx(anchored.hp_percentage)
+    assert shifted.metrics.name_candidate == anchored.metrics.name_candidate
 
 
 def test_verifier_rejects_live_target_with_unrecognized_name_fixture() -> None:
@@ -104,21 +168,38 @@ def test_verifier_rejects_live_target_with_unrecognized_name_fixture() -> None:
 def test_verifier_reports_empty_target_bar_fixture_as_no_target() -> None:
     pixels = _frame(include_hp=False, name_template=None).pixels.copy()
     pixels[0:2, 10:12] = HP_BAR_COLOR
-    pixels[0:2, 0:2] = 0
     result = _verifier().verify(CapturedFrame(pixels, ClientSize(40, 20)))
 
     assert result.status is TargetStatus.NO_TARGET
     assert result.target_name is None
     assert not result.is_alive
+    assert result.hp_percentage == 0.0
     assert not result.metrics.anchor_passed
     assert result.metrics.anchor_score < result.metrics.anchor_threshold
     assert result.metrics.anchor_threshold == DEFAULT_ANCHOR_MATCH_THRESHOLD
     assert not result.metrics.hp_passed
     assert not result.metrics.name_passed
-    assert result.metrics.name_candidate is None
 
 
-def test_verifier_rejects_depleted_hp_bar() -> None:
+def test_verifier_measures_hp_and_name_metrics_even_when_the_anchor_fails() -> None:
+    verifier = _verifier(anchor_match_threshold=0.95)
+    pixels = _frame(include_hp=True).pixels.copy()
+    pixels[1, 11] = WEAK_ANCHOR_PIXEL
+
+    result = verifier.verify(CapturedFrame(pixels, ClientSize(40, 20)))
+
+    assert result.status is TargetStatus.NO_TARGET
+    assert not result.metrics.anchor_passed
+    assert result.hp_pixel_count == 0
+    assert result.hp_percentage == 0.0
+    assert result.metrics.hp_pixel_count == 20
+    assert result.metrics.hp_percentage == pytest.approx(100.0)
+    assert result.metrics.hp_passed
+    assert result.metrics.name_candidate == "Aibatt"
+    assert result.metrics.name_score == pytest.approx(1.0)
+
+
+def test_verifier_measures_the_name_match_even_when_the_hp_bar_is_depleted() -> None:
     pixels = _frame(include_hp=False).pixels.copy()
     pixels[6, 12:17] = HP_BAR_COLOR
 
@@ -127,12 +208,12 @@ def test_verifier_rejects_depleted_hp_bar() -> None:
     assert result.status is TargetStatus.WRONG_TARGET
     assert result.target_name is None
     assert result.hp_pixel_count == 5
-    assert result.hp_percentage == pytest.approx(25.0)
+    assert result.hp_percentage == pytest.approx(50.0)
     assert result.metrics.anchor_passed
     assert not result.metrics.hp_passed
     assert result.metrics.minimum_hp_pixel_count == 10
-    assert not result.metrics.name_passed
-    assert result.metrics.name_candidate is None
+    assert result.metrics.name_passed
+    assert result.metrics.name_candidate == "Aibatt"
 
 
 def test_verifier_reports_the_highest_scoring_name_template_regardless_of_dict_order() -> None:
@@ -142,8 +223,8 @@ def test_verifier_reports_the_highest_scoring_name_template_regardless_of_dict_o
         HEADER_ANCHOR_TEMPLATE,
         TargetVerificationConfig(
             region=TARGET_REGION,
-            hp_region=TargetRegion(x=0.0, y=0.6, width=1.0, height=0.4),
-            name_region=TargetRegion(x=0.0, y=0.0, width=1.0, height=0.6),
+            hp_offset=HP_OFFSET,
+            name_offset=NAME_OFFSET,
             hp_color_lower_bound=(0, 0, 100),
             hp_color_upper_bound=(100, 100, 255),
             minimum_hp_pixel_count=10,
@@ -159,6 +240,28 @@ def test_verifier_reports_the_highest_scoring_name_template_regardless_of_dict_o
     assert result.metrics.name_score == pytest.approx(1.0)
 
 
+def test_update_thresholds_applies_to_the_next_verification() -> None:
+    verifier = _verifier(name_match_threshold=0.95)
+    frame = _frame(include_hp=True, name_template=WORN_NAME_TEMPLATE)
+    rejected = verifier.verify(frame)
+
+    verifier.update_thresholds(0.7, 0.8)
+    accepted = verifier.verify(frame)
+
+    assert rejected.status is TargetStatus.WRONG_TARGET
+    assert accepted.status is TargetStatus.VALID_TARGET
+    assert accepted.target_name == "Aibatt"
+    assert verifier.config.anchor_match_threshold == pytest.approx(0.7)
+    assert accepted.metrics.name_threshold == pytest.approx(0.8)
+
+
+def test_update_thresholds_rejects_scores_outside_the_supported_range() -> None:
+    verifier = _verifier()
+
+    with pytest.raises(ValueError, match="between zero and one"):
+        verifier.update_thresholds(1.5, 0.75)
+
+
 def test_target_region_rejects_bounds_outside_frame() -> None:
     with pytest.raises(ValueError, match="inside the client frame"):
         TargetRegion(x=0.6, width=0.5)
@@ -166,7 +269,7 @@ def test_target_region_rejects_bounds_outside_frame() -> None:
 
 def test_verifier_ignores_sky_colours_outside_the_dedicated_hp_region() -> None:
     pixels = _frame(include_hp=True).pixels.copy()
-    pixels[0:5, 0:5] = HP_BAR_COLOR
+    pixels[8:10, 22:30] = HP_BAR_COLOR
 
     result = _verifier().verify(CapturedFrame(pixels, ClientSize(40, 20)))
 
@@ -191,11 +294,28 @@ def test_verifier_accepts_real_flame_target_fixture_with_hp_percentage() -> None
 
     assert result.status is TargetStatus.VALID_TARGET
     assert result.target_name == "Flame"
-    assert 0.0 < result.hp_percentage <= 100.0
+    assert result.hp_percentage == pytest.approx(100.0)
     assert result.metrics.anchor_passed
     assert result.metrics.hp_passed
     assert result.metrics.name_passed
     assert result.metrics.name_candidate == "Flame"
+
+
+def test_verifier_anchors_the_real_header_after_it_moves_within_the_region() -> None:
+    verifier = _real_verifier({"Flame": _real_name_template()})
+    frame = _real_fixture("Screenshot 2026-08-15 204002.png")
+    shifted_pixels = np.roll(frame.pixels, shift=(6, 9), axis=(0, 1))
+    shifted = CapturedFrame(
+        cast("npt.NDArray[np.uint8]", np.ascontiguousarray(shifted_pixels)), frame.client_size
+    )
+
+    anchored = verifier.verify(frame)
+    result = verifier.verify(shifted)
+
+    assert result.status is TargetStatus.VALID_TARGET
+    assert result.target_name == "Flame"
+    assert result.hp_pixel_count == anchored.hp_pixel_count
+    assert result.hp_percentage == pytest.approx(anchored.hp_percentage)
 
 
 def test_verifier_rejects_real_target_outside_the_active_whitelist() -> None:
@@ -209,20 +329,13 @@ def test_verifier_rejects_real_target_outside_the_active_whitelist() -> None:
 
 
 def _real_verifier(name_templates: dict[str, np.ndarray]) -> TargetVerifier:
+    """Build a verifier on the shipped anchor-relative defaults over a cropped fixture."""
+
     target = _real_fixture("Screenshot 2026-08-15 204002.png")
     return TargetVerifier(
         name_templates,
         target.pixels[REAL_ANCHOR_CROP].copy(),
-        TargetVerificationConfig(
-            region=TargetRegion(x=0.0, y=0.0, width=1.0, height=1.0),
-            hp_region=REAL_HP_REGION,
-            name_region=REAL_NAME_REGION,
-            hp_color_lower_bound=(100, 100, 220),
-            hp_color_upper_bound=(140, 180, 255),
-            minimum_hp_pixel_count=10,
-            name_match_threshold=0.95,
-            anchor_match_threshold=0.95,
-        ),
+        TargetVerificationConfig(region=TargetRegion(x=0.0, y=0.0, width=1.0, height=1.0)),
     )
 
 
@@ -233,5 +346,5 @@ def _real_name_template() -> np.ndarray:
 def _real_fixture(filename: str) -> CapturedFrame:
     pixels = cv2.imread(str(REAL_FIXTURE_DIRECTORY / filename))
     assert pixels is not None
-    crop = cast(npt.NDArray[np.uint8], np.ascontiguousarray(pixels[REAL_FIXTURE_CROP]))
+    crop = cast("npt.NDArray[np.uint8]", np.ascontiguousarray(pixels[REAL_FIXTURE_CROP]))
     return CapturedFrame(crop, ClientSize(crop.shape[1], crop.shape[0]))
