@@ -108,6 +108,8 @@ class WindowsInputController:
         self._user32.GetWindowTextW.restype = ctypes.c_int
         self._user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
         self._user32.ShowWindow.restype = wintypes.BOOL
+        self._user32.BringWindowToTop.argtypes = [wintypes.HWND]
+        self._user32.BringWindowToTop.restype = wintypes.BOOL
         self._user32.SetForegroundWindow.argtypes = [wintypes.HWND]
         self._user32.SetForegroundWindow.restype = wintypes.BOOL
         self._user32.GetForegroundWindow.argtypes = []
@@ -171,9 +173,19 @@ class WindowsInputController:
         """Restore and focus a window before input is sent."""
 
         self._user32.ShowWindow(window_handle, SHOW_WINDOW_RESTORE)
-        if not self._user32.SetForegroundWindow(window_handle):
+        self._user32.BringWindowToTop(window_handle)
+        self._user32.SetForegroundWindow(window_handle)
+        deadline = time.monotonic() + FOCUS_SETTLE_SECONDS
+        while time.monotonic() < deadline:
+            if self.is_foreground(window_handle):
+                return
+            time.sleep(WAIT_POLL_SECONDS)
+        if (
+            not self.is_foreground(window_handle)
+            and not self._user32.SetForegroundWindow(window_handle)
+            and not self.is_foreground(window_handle)
+        ):
             raise InputControlError(InputErrorCode.FOCUS_FAILED)
-        time.sleep(FOCUS_SETTLE_SECONDS)
 
     def is_aborted(self) -> bool:
         """Return whether the emergency-stop key is currently held."""
