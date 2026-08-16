@@ -12,6 +12,8 @@ bugs are moved to `docs/bugs/fixed/`.
 ## Active Defect Backlog
 
 - [ ] [**BUG-004: Navigation map visualization confusing player color with spawn cells and missing close-event persistence**](BUG-004-navigation-map-visualization-and-persistence-clarity.md)
+- [ ] [**BUG-007: Start button causes silent pause loop on focus mismatch and standby perception is completely bypassed**](BUG-007-start-button-silent-pause-and-standby-perception-bypass.md)
+
 
 ## Fixed Defects
 
