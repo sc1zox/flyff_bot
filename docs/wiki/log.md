@@ -153,3 +153,8 @@ that performs no subprocess or disk I/O; `LootController`, `LootConfig`, `LootMo
 orchestrator, and the CLI/desktop app no longer construct a Tesseract-backed `LootLogReader` for
 farming by default. Updated architecture and glossary; moved US-025 to the completed stories
 directory.
+
+## [2026-08-16] synthesis | Static HUD anchoring and field hardening (US-026)
+
+Recorded the fixed-pixel top-left player vitals HUD anchoring (resolving BUG-006 false 0% drops and consumable spam across arbitrary screen resolutions), template-matched session stats window header anchoring for dynamic `MonsterStatsReader` OCR extraction, and the desktop UI "Placements" visual guide toggle rendering color-coded ROI overlay boxes (Vitals orb, Target header, Monster Stats window) scaled over the live viewport preview; moved US-026 to the completed stories directory and BUG-006 to fixed bugs.
+

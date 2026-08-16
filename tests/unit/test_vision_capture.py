@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -119,6 +121,7 @@ def test_default_source_rejects_unsupported_platform(monkeypatch: pytest.MonkeyP
     assert error.value.code is FrameCaptureErrorCode.UNSUPPORTED_PLATFORM
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")
 def test_win32_capture_api_is_foreground_handles_none(monkeypatch: pytest.MonkeyPatch) -> None:
     from flyff_bot.features.vision.capture import _Win32CaptureApi
 
@@ -128,6 +131,7 @@ def test_win32_capture_api_is_foreground_handles_none(monkeypatch: pytest.Monkey
     assert api.is_foreground(12345) is False
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")
 def test_win32_capture_api_is_foreground_matches_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

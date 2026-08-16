@@ -1,7 +1,7 @@
 ---
 id: BUG-006
 title: Player vitals gauge extraction fails across arbitrary resolutions causing consumable item spam
-status: reported
+status: fixed
 severity: high
 created: 2026-08-16
 updated: 2026-08-16
@@ -27,7 +27,7 @@ updated: 2026-08-16
 
 ## Expected behavior
 
-Per [US-017](../user-stories/completed/US-017-player-vitals-perception-and-threshold-triggers.md):
+Per [US-017](../../user-stories/completed/US-017-player-vitals-perception-and-threshold-triggers.md):
 - Player vitals perception must reliably extract HP, MP, and FP fill percentages regardless of the game client's window dimensions and resolution.
 - When player vitals are full, the gauge values should read ~100.0% stably without noise or false drops.
 - Consumable items must only be triggered when the character's vital gauge actually drops below the configured threshold.
@@ -46,6 +46,6 @@ Per [US-017](../user-stories/completed/US-017-player-vitals-perception-and-thres
 
 ## Regression verification
 
-- [ ] A failing automated test reproducing `PlayerVitalsReader` on full 1024x768, 1280x720, and 1920x1080 frames with fixed top-left HUD dimensions exists.
-- [ ] The check passes after implementing resolution-independent fixed-pixel HUD anchoring / template-matched alignment and anti-flicker filtering.
-- [ ] Related documentation in `docs/wiki/architecture.md` is updated.
+- [x] A failing automated test reproducing `PlayerVitalsReader` on full 1024x768, 1280x720, and 1920x1080 frames with fixed top-left HUD dimensions exists.
+- [x] The check passes after implementing resolution-independent fixed-pixel HUD anchoring / template-matched alignment and anti-flicker filtering.
+- [x] Related documentation in `docs/wiki/architecture.md` is updated.

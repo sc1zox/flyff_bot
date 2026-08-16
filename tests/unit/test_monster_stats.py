@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 
+import cv2
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -97,3 +99,89 @@ def test_config_rejects_even_or_undersized_threshold_block_size() -> None:
         MonsterStatsConfig(threshold_block_size=4)
     with pytest.raises(ValueError):
         MonsterStatsConfig(threshold_block_size=1)
+
+
+def test_config_rejects_out_of_range_anchor_threshold_or_text_region() -> None:
+    with pytest.raises(ValueError):
+        MonsterStatsConfig(anchor_match_threshold=1.5)
+    with pytest.raises(ValueError):
+        MonsterStatsConfig(anchor_match_threshold=-0.1)
+    with pytest.raises(ValueError):
+        MonsterStatsConfig(kills_text_width=0)
+    with pytest.raises(ValueError):
+        MonsterStatsConfig(kills_text_height=-1)
+
+
+def test_reader_rejects_non_uint8_or_non_colour_anchor_template() -> None:
+    grayscale_template: npt.NDArray[np.uint8] = np.zeros((10, 10), dtype=np.uint8)
+
+    with pytest.raises(ValueError, match="header anchor template"):
+        MonsterStatsReader(FixtureRecognizer(()), header_anchor_template=grayscale_template)
+
+
+def _panel_with_anchor() -> tuple[np.ndarray, np.ndarray]:
+    """A synthetic stats panel with a distinctive, textured header anchor block at (3, 4)."""
+
+    panel = np.zeros((40, 150, 3), dtype=np.uint8)
+    anchor = np.zeros((15, 47, 3), dtype=np.uint8)
+    # A striped pattern (rather than a flat block) so TM_CCOEFF_NORMED cannot spuriously
+    # score a perfect match against a uniform (e.g. all-black) background.
+    anchor[:, ::2] = 200
+    anchor[::3, :] = 90
+    panel[4 : 4 + 15, 3 : 3 + 47] = anchor
+    return panel, anchor
+
+
+def test_reader_locates_relocated_window_via_anchor_template() -> None:
+    """The window can be dragged anywhere on screen; the anchor must still find it."""
+
+    panel, anchor = _panel_with_anchor()
+    frame_pixels = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    frame_pixels[300 : 300 + panel.shape[0], 700 : 700 + panel.shape[1]] = panel
+    frame = CapturedFrame(frame_pixels, ClientSize(1920, 1080))
+
+    reader = MonsterStatsReader(
+        FixtureRecognizer(("Monster Kills: 42",)), header_anchor_template=anchor
+    )
+
+    assert reader.read(frame) == 42
+
+
+def test_reader_returns_none_when_anchor_not_found_above_threshold() -> None:
+    """A closed or absent stats window must not raise; it must yield None."""
+
+    _panel, anchor = _panel_with_anchor()
+    reader = MonsterStatsReader(
+        FixtureRecognizer(("Monster Kills: 42",)), header_anchor_template=anchor
+    )
+
+    assert reader.read(_frame(width=1920, height=1080)) is None
+
+
+def test_reader_anchor_search_returns_none_for_frame_smaller_than_template() -> None:
+    _panel, anchor = _panel_with_anchor()
+    reader = MonsterStatsReader(
+        FixtureRecognizer(("Monster Kills: 42",)), header_anchor_template=anchor
+    )
+
+    assert reader.read(_frame(width=10, height=10)) is None
+
+
+def test_reader_anchors_and_extracts_relative_to_real_panel_fixture() -> None:
+    fixture_path = Path("data/monster_stats.png")
+    if not fixture_path.is_file():
+        pytest.skip("Fixture image not found")
+
+    panel = cv2.imread(str(fixture_path))
+    assert panel is not None
+    anchor: npt.NDArray[np.uint8] = np.asarray(panel[4:19, 3:50], dtype=np.uint8)
+
+    frame_pixels = np.zeros((900, 1600, 3), dtype=np.uint8)
+    frame_pixels[100 : 100 + panel.shape[0], 500 : 500 + panel.shape[1]] = panel
+    frame = CapturedFrame(frame_pixels, ClientSize(1600, 900))
+
+    reader = MonsterStatsReader(
+        FixtureRecognizer(("Monster Kills: 1",)), header_anchor_template=anchor
+    )
+
+    assert reader.read(frame) == 1

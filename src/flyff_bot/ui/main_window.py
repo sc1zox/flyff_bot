@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         self._debug_toggle = QCheckBox()
         self._path_toggle = QCheckBox()
         self._vitals_toggle = QCheckBox()
+        self._placements_toggle = QCheckBox()
         self._language_selector = QComboBox()
 
         # Combat settings panel
@@ -239,6 +240,12 @@ class MainWindow(QMainWindow):
         """Expose the path toggle checkbox for testing."""
 
         return self._path_toggle
+
+    @property
+    def placements_toggle(self) -> QCheckBox:
+        """Expose the Placements visual guide toggle checkbox for testing."""
+
+        return self._placements_toggle
 
     @property
     def profile_bar(self) -> QWidget:
@@ -641,6 +648,11 @@ class MainWindow(QMainWindow):
         self._adapt_window_geometry()
 
     @Slot(bool)
+    def _on_placements_toggled(self, _checked: bool) -> None:
+        if self._latest_update is not None:
+            self._render_update()
+
+    @Slot(bool)
     def _update_combat_visibility(self, visible: bool) -> None:
         self._combat_panel.setVisible(visible)
         self._adapt_window_geometry()
@@ -689,6 +701,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self._debug_toggle)
         controls.addWidget(self._path_toggle)
         controls.addWidget(self._vitals_toggle)
+        controls.addWidget(self._placements_toggle)
         controls.addWidget(self._combat_toggle)
         controls.addWidget(self._target_debug_toggle)
         controls.addWidget(self._language_selector)
@@ -726,6 +739,7 @@ class MainWindow(QMainWindow):
         self._debug_toggle.toggled.connect(self._update_overlay_visibility)
         self._path_toggle.toggled.connect(self._update_path_visibility)
         self._vitals_toggle.toggled.connect(self._update_vitals_visibility)
+        self._placements_toggle.toggled.connect(self._on_placements_toggled)
         self._language_selector.currentIndexChanged.connect(self._switch_language)
         self._save_profile_button.clicked.connect(self._on_save_profile_clicked)
         self._load_profile_button.clicked.connect(self._on_load_profile_clicked)
@@ -825,6 +839,7 @@ class MainWindow(QMainWindow):
         self._debug_toggle.setText(self._translator.text(Message.UI_DEBUG_OVERLAY))
         self._path_toggle.setText(self._translator.text(Message.UI_PATH_INSPECTOR))
         self._vitals_toggle.setText(self._translator.text(Message.UI_VITALS_TOGGLE))
+        self._placements_toggle.setText(self._translator.text(Message.UI_PLACEMENTS_TOGGLE))
         self._combat_toggle.setText(self._translator.text(Message.UI_COMBAT_SETTINGS))
         self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))
         self._target_grace_label.setText(self._translator.text(Message.UI_TARGET_GRACE_PERIOD))
@@ -930,6 +945,7 @@ class MainWindow(QMainWindow):
                     self._translator,
                     vitals=vitals,
                     monster_stats_config=MonsterStatsConfig(),
+                    show_placements=self._placements_toggle.isChecked(),
                 )
             )
         if update.navigation is not None:

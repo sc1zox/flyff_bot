@@ -27,6 +27,7 @@ related:
   - ../user-stories/completed/US-021-navigation-map-profiles-and-session-reset.md
   - ../user-stories/completed/US-023-reliable-combat-targeting-and-kill-verification.md
   - ../user-stories/completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md
+  - ../user-stories/completed/US-026-static-hud-anchoring-and-field-hardening.md
 ---
 
 # Architecture
@@ -290,3 +291,6 @@ to empty when no real `LootFeed` is attached, but the pipeline still updates the
 and desktop app no longer construct a `LootLogReader`/`TesseractTextRecognizer` pair for farming sessions by
 default; `--read-loot` remains an explicit opt-in diagnostic path unaffected by this change. Item-quantity
 `FarmingGoal` completion is unchanged and still requires an explicitly attached loot feed to observe inventory.
+
+US-026 hardens player vitals extraction and monster stats window detection against arbitrary client resolutions and screen layouts, fixing BUG-006. `PlayerVitalsReader` switches from normalized relative window fractions to fixed-pixel top-left anchoring (`0..260` width, `0..113` height), ensuring gauge bar column-sampling (HP in Red, MP in Blue, FP in Green) operates strictly on the 2D HUD orb across any resolution (720p, 1080p, 1440p, 4K) without sampling dynamic 3D world scenery or causing false 0% consumable spam. `MonsterStatsReader` is hardened with template-matched anchoring (`cv2.matchTemplate`), dynamically searching the frame for the session stats window header and extracting the relative `Monster Kills:` text ROI regardless of where the operator positions the window on screen, gracefully returning `None` if the window is closed. At the presentation boundary, the desktop UI adds a "Placements" ("Platzierungshilfen") visual guide toggle that renders color-coded, labeled ROI overlay boxes (Player Vitals orb, Target Header bar, and Monster Stats OCR crop) proportionally scaled over the live viewport preview, allowing operators to visually calibrate and align in-game HUD elements with complete precision.
+

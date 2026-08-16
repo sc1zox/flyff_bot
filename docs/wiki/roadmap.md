@@ -1,7 +1,7 @@
 ---
 title: Product and technical roadmap
 status: active
-updated: 2026-08-15
+updated: 2026-08-16
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-computer-vision-and-yolo-request.md
@@ -34,6 +34,7 @@ Phase 1 (Bootstrap & Architecture) ──► Phase 2 (Perception Pipeline) ─�
 - **US-005 (Completed):** Central loot and system log OCR extraction (Drop notification parsing into structured events).
 - **US-011 (Completed):** Multi-mob training dataset pipeline and custom YOLO model training (Manual labeling workflow, dataset manifest, ONNX export).
 - **US-012 (Completed):** Real-world vision refactoring for robust target verification and multi-mob detection (Header-anchor validation, sky-color immunity, real game fixtures).
+- **US-026 (Completed):** Static HUD anchoring and field hardening for vitals and monster stats (Fixed-pixel top-left vitals anchoring fixing BUG-006, template-matched monster stats OCR).
 
 ### Phase 3: Closed-Loop Execution & Reactive Controllers (Completed)
 - **US-007 (Completed):** Perception to WorldState feed integration (Connecting CV pipelines to the central `WorldState` snapshot).
@@ -48,3 +49,4 @@ Phase 1 (Bootstrap & Architecture) ──► Phase 2 (Perception Pipeline) ─�
 - **US-020 (Completed):** Visual navigation path and heatmap inspector (2D canvas inspector, topology graph, spawn density heatmap).
 - **US-021 (Completed):** Navigation map profiles and session reset safeguards (Multi-profile persistence, dirty session safeguards, auto-save).
 - **US-024 (Completed):** Target verification decision and threshold debug dashboard visualization (Live header-anchor, HP-bar, and name-match scores/thresholds in a dedicated `MainWindow` debug panel).
+- **US-026 (Completed):** Placement calibration visual guide overlay ("Placements" toggle button, color-coded HUD ROI overlay boxes).

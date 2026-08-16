@@ -37,6 +37,7 @@ packages = ["src/flyff_bot"]
 
 [tool.mypy]
 python_version = "3.14"
+platform = "win32"
 strict = true
 files = ["src", "tests"]
 

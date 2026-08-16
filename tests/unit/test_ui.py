@@ -339,6 +339,7 @@ def test_debug_overlay_draws_monster_stats_calibration_guide_box() -> None:
         SelectedTarget(TargetState.NONE, None, 0),
         Translator(Language.ENGLISH),
         monster_stats_config=config,
+        show_placements=True,
     )
     left, top, right, bottom = compute_monster_stats_roi(
         frame.client_size.width, frame.client_size.height, config
@@ -355,6 +356,31 @@ def test_debug_overlay_draws_monster_stats_calibration_guide_box() -> None:
         Translator(Language.ENGLISH),
     )
     assert not without_guide.isNull()
+
+
+def test_debug_overlay_placements_toggle_draws_vitals_and_target_guide_boxes() -> None:
+    _application = QApplication.instance() or QApplication([])
+    frame = CapturedFrame(np.zeros((300, 400, 3), dtype=np.uint8), ClientSize(400, 300))
+
+    with_placements = render_debug_overlay(
+        frame,
+        (),
+        SelectedTarget(TargetState.NONE, None, 0),
+        Translator(Language.ENGLISH),
+        monster_stats_config=MonsterStatsConfig(),
+        show_placements=True,
+    )
+    without_placements = render_debug_overlay(
+        frame,
+        (),
+        SelectedTarget(TargetState.NONE, None, 0),
+        Translator(Language.ENGLISH),
+        monster_stats_config=MonsterStatsConfig(),
+        show_placements=False,
+    )
+
+    assert not with_placements.isNull()
+    assert with_placements.toImage() != without_placements.toImage()
 
 
 def test_main_window_debug_toggle_dynamically_adjusts_window_size() -> None:
@@ -545,6 +571,35 @@ def test_main_window_vitals_panel_toggle_and_config_signals(tmp_path: Path) -> N
     hp_rule = latest.rule_for(VitalTriggerType.HP)
     assert hp_rule is not None
     assert hp_rule.threshold_percentage == 85.0
+
+
+def test_main_window_placements_toggle_renders_guide_boxes_immediately() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    frame = CapturedFrame(np.zeros((300, 400, 3), dtype=np.uint8), ClientSize(400, 300))
+    window.update_dashboard(
+        DashboardUpdate(_world_state(), BotStatus.ACTIVE, FarmingGoal("Sunstones", 500), frame)
+    )
+    application.processEvents()
+    before = window.overlay_label.pixmap()
+    assert before is not None
+    image_before = before.toImage()
+
+    window.placements_toggle.setChecked(True)
+    application.processEvents()
+
+    after = window.overlay_label.pixmap()
+    assert after is not None
+    assert after.toImage() != image_before
+
+
+def test_main_window_placements_toggle_label_localized() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window_en = MainWindow(Translator(Language.ENGLISH))
+    assert window_en.placements_toggle.text() == "Placements"
+
+    window_de = MainWindow(Translator(Language.GERMAN))
+    assert window_de.placements_toggle.text() == "Platzierungshilfen"
 
 
 def test_main_window_combat_panel_toggle_and_config_signals() -> None:

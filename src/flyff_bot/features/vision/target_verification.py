@@ -228,6 +228,14 @@ class TargetVerifier:
         return float(100.0 * filled_columns / pixels.shape[1])
 
 
+def compute_target_header_bounds(
+    client_width: int, client_height: int, region: TargetRegion | None = None
+) -> tuple[int, int, int, int]:
+    """Return (left, top, right, bottom) pixel bounds for the target header region."""
+
+    return _region_bounds(ClientSize(client_width, client_height), region or TargetRegion())
+
+
 def _region_bounds(size: ClientSize, region: TargetRegion) -> tuple[int, int, int, int]:
     left = round(size.width * region.x)
     top = round(size.height * region.y)
