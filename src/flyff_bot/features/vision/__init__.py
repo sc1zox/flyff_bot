@@ -31,6 +31,7 @@ from flyff_bot.features.vision.models import (
     FrameCaptureError,
     FrameCaptureErrorCode,
     PixelFormat,
+    PlayerVitals,
 )
 from flyff_bot.features.vision.target_verification import (
     TargetRegion,
@@ -70,6 +71,7 @@ __all__ = [
     "LootOcrErrorCode",
     "OpenCVDnnYoloDetector",
     "PixelFormat",
+    "PlayerVitals",
     "PlayerVitalsConfig",
     "PlayerVitalsFeed",
     "PlayerVitalsReader",

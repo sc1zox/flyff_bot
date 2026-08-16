@@ -10,8 +10,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from flyff_bot.features.automation.models import PlayerVitals
-from flyff_bot.features.vision.models import CapturedFrame, PixelFormat
+from flyff_bot.features.vision.models import CapturedFrame, PixelFormat, PlayerVitals
 
 # Default HUD box in client frame (normalized: top-left corner)
 DEFAULT_HUD_LEFT = 0.0

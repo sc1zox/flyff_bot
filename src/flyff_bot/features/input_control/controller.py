@@ -183,7 +183,8 @@ class WindowsInputController:
     def is_foreground(self, window_handle: int) -> bool:
         """Return whether a target window remains foregrounded for combat input."""
 
-        return int(self._user32.GetForegroundWindow()) == window_handle
+        foreground_handle = self._user32.GetForegroundWindow()
+        return bool(foreground_handle and int(foreground_handle) == window_handle)
 
     def send_key(self, virtual_key: int, duration_seconds: float) -> None:
         """Press and release one virtual key while honoring the emergency stop."""

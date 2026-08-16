@@ -11,12 +11,12 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-- [ ] [**BUG-002: TypeError on null foreground window handle during guarded search key dispatch**](BUG-002-null-foreground-window-type-error.md)
 - [ ] [**BUG-004: Navigation map visualization confusing player color with spawn cells and missing close-event persistence**](BUG-004-navigation-map-visualization-and-persistence-clarity.md)
 
 ## Fixed Defects
 
 - [x] [**BUG-001: Desktop UI does not run perception or detection feed when started**](fixed/BUG-001-desktop-ui-perception-feed-not-running.md)
+- [x] [**BUG-002: TypeError on null foreground window handle during guarded search key dispatch**](fixed/BUG-002-null-foreground-window-type-error.md)
 - [x] [**BUG-003: Search mode camera rotation uses character movement keys instead of camera arrow keys**](fixed/BUG-003-search-mode-camera-rotation-keys.md)
 - [x] [**BUG-005: Dashboard window fails to shrink when toggling off debug overlay or path inspector**](fixed/BUG-005-dashboard-window-fails-to-shrink-on-overlay-toggle.md)
 

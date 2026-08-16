@@ -194,7 +194,8 @@ class _Win32CaptureApi:
         return bool(self._user32.IsWindowVisible(window_handle))
 
     def is_foreground(self, window_handle: int) -> bool:
-        return int(self._user32.GetForegroundWindow()) == window_handle
+        foreground_handle = self._user32.GetForegroundWindow()
+        return bool(foreground_handle and int(foreground_handle) == window_handle)
 
     def capture_bgra(self, window_handle: int) -> _RawClientFrame:
         rect = _Rect()

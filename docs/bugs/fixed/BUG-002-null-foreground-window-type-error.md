@@ -1,7 +1,7 @@
 ---
 id: BUG-002
 title: TypeError on null foreground window handle during guarded search key dispatch
-status: reported
+status: resolved
 severity: high
 created: 2026-08-16
 updated: 2026-08-16
@@ -59,6 +59,6 @@ TypeError: int() argument must be a string, a bytes-like object or a real number
 
 ## Regression verification
 
-- [ ] A failing automated test reproducing `is_foreground` behavior when `GetForegroundWindow` returns `None`/`0`.
-- [ ] The check passes after the fix (returns `False` cleanly).
-- [ ] Related documentation is current.
+- [x] A failing automated test reproducing `is_foreground` behavior when `GetForegroundWindow` returns `None`/`0`.
+- [x] The check passes after the fix (returns `False` cleanly).
+- [x] Related documentation is current.

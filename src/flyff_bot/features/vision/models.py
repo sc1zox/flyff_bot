@@ -76,3 +76,21 @@ class FrameCaptureError(RuntimeError):
     def __init__(self, code: FrameCaptureErrorCode) -> None:
         super().__init__(code.value)
         self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerVitals:
+    """An observed snapshot of player vital percentages."""
+
+    hp_percentage: float = 100.0
+    mp_percentage: float = 100.0
+    fp_percentage: float = 100.0
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("HP", self.hp_percentage),
+            ("MP", self.mp_percentage),
+            ("FP", self.fp_percentage),
+        ):
+            if not 0.0 <= value <= 100.0:
+                raise ValueError(f"{name} percentage must be between 0.0 and 100.0, got {value}.")

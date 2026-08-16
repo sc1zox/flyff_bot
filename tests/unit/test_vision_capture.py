@@ -117,3 +117,24 @@ def test_default_source_rejects_unsupported_platform(monkeypatch: pytest.MonkeyP
         WindowsFrameSource()
 
     assert error.value.code is FrameCaptureErrorCode.UNSUPPORTED_PLATFORM
+
+
+def test_win32_capture_api_is_foreground_handles_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    from flyff_bot.features.vision.capture import _Win32CaptureApi
+
+    api = _Win32CaptureApi()
+    monkeypatch.setattr(api._user32, "GetForegroundWindow", lambda: None)
+
+    assert api.is_foreground(12345) is False
+
+
+def test_win32_capture_api_is_foreground_matches_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from flyff_bot.features.vision.capture import _Win32CaptureApi
+
+    api = _Win32CaptureApi()
+    monkeypatch.setattr(api._user32, "GetForegroundWindow", lambda: 12345)
+
+    assert api.is_foreground(12345) is True
+    assert api.is_foreground(99999) is False
