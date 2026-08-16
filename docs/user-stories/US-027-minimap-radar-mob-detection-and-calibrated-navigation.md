@@ -1,12 +1,48 @@
 ---
 id: US-027
 title: Minimap radar mob detection and calibrated navigation clicks
-status: draft
+status: rejected
 created: 2026-08-16
-updated: 2026-08-16
+updated: 2026-08-17
 ---
 
 # US-027: Minimap radar mob detection and calibrated navigation clicks
+
+## Rejection
+
+Rejected on 2026-08-17 without implementation. Radar navigation solves the same problem as the
+spatial memory delivered by [US-019](completed/US-019-intelligent-pathing-and-spawn-heatmap.md) and
+[US-020](completed/US-020-visual-navigation-path-and-heatmap-inspector.md): reaching spawns that lie
+outside the camera viewport. `FarmingOrchestrator` already consults `PathingController` before the
+staged search stages, so a learned spawn heatmap and its patrol circuit steer the character toward
+recorded mob density without ever clicking the HUD.
+
+That leaves radar navigation valuable only on a cold, unmapped camp — a transient window that
+closes after the first patrol lap — while permanently adding a calibrated pixel geometry, a second
+guarded click path aimed at the HUD, and a dashboard option to maintain. The remaining coverage gap
+is better closed by improving how quickly `SpatialMap` bootstraps a usable route than by adding a
+parallel navigation mechanism.
+
+Two findings from the calibration spike are worth keeping, should this ever be revisited:
+
+- The minimap is a fixed-pixel HUD element like the vitals orb in
+  [BUG-006](../bugs/fixed/BUG-006-player-vitals-resolution-scaling-and-flicker-spam.md), not a fraction of
+  the window. Measured against `data/full_screen_view_with_monster_stats_1600_900_Res.png`, its
+  centre sits 88 px left of the client right edge and 104 px below the client top, with an outer
+  ring radius of 82 px and a navigable inner map surface ending at radius 67 px. The existing
+  normalized bounds in `MinimapRadarConfig` would drift off the circle on any other resolution.
+- All five minimap buttons (collapse, close, help, zoom in, zoom out) sit *on* the decorative ring
+  at radius 77–79 px, so a circular mask inset to the inner map surface already excludes them; the
+  explicit UI exclusion zones this story specifies would be a second, redundant layer.
+- The prescribed dot thresholds (`Red >= 150`, `Green <= 120`, `Blue <= 120`) match reddish terrain
+  inside the reference minimap, producing 763 qualifying pixels in components of up to 50 px with
+  no monster dots present. The `>= 4` pixel minimum alone does not reject them.
+
+`MinimapRadar` and `SearchMode.MINIMAP_RADAR` remain in the codebase as the uncalibrated,
+never-dispatched components US-015 left behind; `SearchController` still cycles from roaming back to
+rotation without emitting radar clicks.
+
+The original specification is preserved below unchanged.
 
 ## Story
 

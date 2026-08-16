@@ -169,8 +169,10 @@ and foreground/END safeguards remain on their existing paths.
 US-015 adds staged, non-blocking no-mob recovery to `FarmingOrchestrator`. After a configurable
 idle timeout, `SearchController` dispatches camera-rotation arrow-key pulses (default `Right Arrow`),
 followed by pitch tilt pulses (US-018) and bounded `W`/`A`/`D` roaming pulses, continuously cycling back
-to sweeping rotation without executing uncalibrated minimap clicks. (Minimap radar navigation is isolated
-for future calibrated enhancement in US-027). Every search tick first evaluates the newest perception snapshot:
+to sweeping rotation without executing uncalibrated minimap clicks. (US-027 proposed calibrating those
+clicks and was rejected: the US-019 spawn heatmap and patrol circuits already reach spawns outside the
+viewport, so `MinimapRadar` and `SearchMode.MINIMAP_RADAR` stay unreachable rather than becoming a second
+guarded click path aimed at the HUD.) Every search tick first evaluates the newest perception snapshot:
 a visible eligible mob resets search and immediately returns to targeting. `SearchInputDispatcher` checks
 foreground focus and END before every search action, while the Windows guarded key hold releases on either condition;
 dashboard search statuses and CLI timing options are localized in English and German.

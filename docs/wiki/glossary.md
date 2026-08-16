@@ -102,8 +102,8 @@ related:
   dashboard captures as a single physical key press and supplies to the paused farming session's
   combat binding; its dashboard default is `F3`.
 - **Staged search** — The no-mob recovery sequence used by the farming orchestrator: a configurable
-  idle interval followed by alternating camera rotations, bounded directional roaming pulses, and
-  an optional minimap-radar click; it resets immediately when a visible eligible mob is detected.
+  idle interval followed by alternating camera rotations and bounded directional roaming pulses,
+  cycling back to rotation; it resets immediately when a visible eligible mob is detected.
 - **Multi-axis camera search** — The enhanced staged search sequence that alternates horizontal
   yaw rotations (`VK_LEFT`/`VK_RIGHT`) and vertical pitch tilts (`VK_UP`/`VK_DOWN`) separated by
   visual settle pauses to discover spawns on uneven terrain or slopes.
@@ -113,8 +113,10 @@ related:
 - **Vertical pitch tilt** — Camera elevation adjustments via Up/Down arrow keys during search mode
   to gain bird's-eye or upward perspectives of monsters situated on slopes or hills.
 - **Minimap radar** — A perception-only scan of the normalized top-right client region that selects
-  the nearest sufficiently large red connected component and returns its client-relative centre as
-  an optional staged-search navigation target.
+  the nearest sufficiently large red connected component and returns its client-relative centre.
+  Left over from US-015 and never dispatched: `SearchController` does not reach
+  `SearchMode.MINIMAP_RADAR`, and US-027 (which would have calibrated it) was rejected in favour of
+  the spawn heatmap.
 - **Spawn heatmap** — The internal per-cell accumulation of mob sightings on the relative
   navigation grid, weighted by how often mobs were observed there and decayed by a configurable
   half-life so abandoned areas lose priority over time.

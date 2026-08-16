@@ -181,3 +181,15 @@ tracking and hide-on-unavailable behavior, the `logical_geometry()` device-pixel
 the shared pure `PlacementGuide` model behind both the overlay and the dashboard preview, and the
 `CAPTUREBLT` tradeoff of drawing over the captured client area. Updated architecture; moved BUG-008
 to fixed bugs.
+
+## [2026-08-17] synthesis | Minimap radar navigation rejected (US-027)
+
+Recorded the rejection of calibrated minimap radar navigation. The US-019 spawn heatmap and patrol
+circuits already reach spawns outside the camera viewport, and `FarmingOrchestrator` consults
+`PathingController` before the staged search stages, leaving radar clicks valuable only on a cold
+unmapped camp while permanently adding a second guarded click path aimed at the HUD. Corrected the
+architecture note and both glossary entries that described the minimap-radar click as a live staged
+search stage or as pending US-027 work; `MinimapRadar` and `SearchMode.MINIMAP_RADAR` remain
+unreachable leftovers from US-015. Preserved the calibration spike findings (fixed-pixel top-right
+anchoring at 88/104 px with an 82 px ring and 67 px inner surface, buttons sitting on the ring at
+radius 77-79 px, and reddish terrain matching the prescribed red thresholds) in the story file.
