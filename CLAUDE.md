@@ -78,7 +78,7 @@ pwsh -File .\scripts\check.ps1
 
 ## Subagent / Role Playbooks
 
-- **`advisor`**: Strategic read-only consultant on architecture, ADRs, and safety constraints.
+- **`advisor`**: Built-in to Claude natively in-context (no separate subagent spawn needed); provides strategic advice on architecture, ADRs, and safety constraints.
 - **`planner`**: Implementation breakdown and planning.
 - **`researcher`**: Read-only investigation and codebase navigation.
 - **`verifier`**: Verification suite execution (`scripts/check.ps1`).

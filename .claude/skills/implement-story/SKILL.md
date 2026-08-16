@@ -21,7 +21,7 @@ Detailed playbook for implementing a user story in the flyff_bot repository.
 
 ## 2. Plan
 
-- **MANDATORY**: For non-trivial stories, generate an architectural plan before writing code.
+- **MANDATORY**: For non-trivial stories, generate an architectural plan before writing code (Claude has built-in advisor capabilities in-context, no subagent spawn needed).
 - Map each acceptance criterion to specific required changes.
 - Surface assumptions. **Ask first** only for genuine ambiguity, safety boundaries, or breaking changes.
 - Check for existing constants, models, and helpers before creating new ones.

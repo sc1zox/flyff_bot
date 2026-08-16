@@ -23,7 +23,7 @@ For any non-trivial search, investigation, or task:
 
 ## Keep changes on a tight leash
 
-- **Plan before non-trivial changes**: For complex features, invoke the `planner` or `advisor` role to create the implementation plan. To save context, perform targeted research first if broad context is needed.
+- **Plan before non-trivial changes**: For complex features, Claude acts as the advisor/planner directly in-context without needing to spawn a separate subagent. Formulate the implementation plan grounded in project wiki/ADRs before writing code. Perform targeted research first if broad context is needed.
 - **Minimum diff**: Change only what the task requires. No drive-by refactors or formatting changes in unrelated files.
 - **Isolated Commits**: Staged changes must strictly relate to the specific story or bug.
 - **Smallest correct step**: Prefer small, verifiable changes (YAGNI).

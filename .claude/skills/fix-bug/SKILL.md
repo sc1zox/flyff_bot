@@ -20,7 +20,7 @@ Detailed playbook for fixing a bug in the flyff_bot repository.
 ## 2. Plan the Minimum Fix
 
 - Determine the smallest change that corrects the root cause with minimum diff.
-- Consult architecture docs if the bug touches Win32 handles, threading/Qt event loop, safety stop, or architecture boundaries.
+- Consult architecture docs if the bug touches Win32 handles, threading/Qt event loop, safety stop, or architecture boundaries (assess directly in-context; no advisor subagent spawn needed).
 
 ## 3. Apply the Fix
 
