@@ -34,6 +34,8 @@ VIRTUAL_KEY_UP = 0x26
 VIRTUAL_KEY_RIGHT = 0x27
 VIRTUAL_KEY_DOWN = 0x28
 DEFAULT_LOOT_PICKUP_WAIT_SECONDS = 2.0
+DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS = 0.8
+DEFAULT_ENGAGEMENT_GRACE_SECONDS = 0.5
 DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS = 5.0
 DEFAULT_SEARCH_ROTATION_DURATION_SECONDS = 0.2
 DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS = 0.3
@@ -70,6 +72,7 @@ class CombatMode(StrEnum):
     ENGAGING = "engaging"
     FIGHTING = "fighting"
     TARGET_DEAD = "target_dead"
+    TARGET_LOST = "target_lost"
 
 
 class CombatInputKind(StrEnum):
@@ -181,12 +184,18 @@ class CombatConfig:
     allowed_class_names: frozenset[str] = field(default_factory=frozenset)
     rotation: tuple[KeyBinding, ...] = (KeyBinding(VIRTUAL_KEY_SPACE),)
     key_press_duration_seconds: float = DEFAULT_KEY_PRESS_DURATION_SECONDS
+    target_acquisition_grace_seconds: float = DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS
+    engagement_grace_seconds: float = DEFAULT_ENGAGEMENT_GRACE_SECONDS
 
     def __post_init__(self) -> None:
         if not self.rotation:
             raise ValueError("Combat rotation must contain at least one binding.")
         if self.key_press_duration_seconds <= 0.0:
             raise ValueError("Combat key press duration must be positive.")
+        if self.target_acquisition_grace_seconds < 0.0:
+            raise ValueError("Target acquisition grace period must not be negative.")
+        if self.engagement_grace_seconds < 0.0:
+            raise ValueError("Engagement grace period must not be negative.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +208,7 @@ class CombatDecision:
     virtual_key: int | None = None
     key_press_duration_seconds: float | None = None
     progress_observed: bool = False
+    damage_dealt: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +247,9 @@ class CombatController:
         self._rotation_index = 0
         self._next_attack_at_seconds = 0.0
         self._previous_hp_pixel_count: int | None = None
+        self._targeting_started_at_seconds: float | None = None
+        self._engagement_grace_expires_at: float | None = None
+        self._damage_dealt = False
 
     def step(self, state: WorldState) -> CombatDecision:
         """Advance one state-machine tick without dispatching platform input."""
@@ -246,6 +259,7 @@ class CombatController:
             if candidate is None:
                 return CombatDecision(CombatMode.IDLE)
             self._mode = CombatMode.TARGETING
+            self._targeting_started_at_seconds = state.observed_at_seconds
             return CombatDecision(
                 CombatMode.TARGETING,
                 CombatInputKind.CLICK,
@@ -253,26 +267,52 @@ class CombatController:
             )
 
         if self._mode is CombatMode.TARGETING:
-            if state.selected_target.state is not TargetState.VALID:
-                self._reset()
-                return CombatDecision(CombatMode.IDLE)
-            self._previous_hp_pixel_count = state.selected_target.hp_pixel_count
-            self._mode = CombatMode.ENGAGING
-            return CombatDecision(CombatMode.ENGAGING)
+            if state.selected_target.state is TargetState.VALID:
+                self._previous_hp_pixel_count = state.selected_target.hp_pixel_count
+                self._mode = CombatMode.ENGAGING
+                self._targeting_started_at_seconds = None
+                return self._attack_if_ready(state)
+            grace_deadline = (
+                (self._targeting_started_at_seconds or 0.0)
+                + self._config.target_acquisition_grace_seconds
+            )
+            if state.observed_at_seconds < grace_deadline:
+                return CombatDecision(CombatMode.TARGETING)
+            self._reset()
+            return CombatDecision(CombatMode.IDLE)
 
         if self._mode is CombatMode.ENGAGING:
             return self._attack_if_ready(state)
 
         if self._mode is CombatMode.FIGHTING:
-            if (
-                state.selected_target.state is TargetState.NONE
-                or state.selected_target.hp_pixel_count == 0
-            ):
+            if state.selected_target.hp_pixel_count == 0 and self._damage_dealt:
                 self._mode = CombatMode.TARGET_DEAD
-                return CombatDecision(CombatMode.TARGET_DEAD)
+                return CombatDecision(
+                    CombatMode.TARGET_DEAD, damage_dealt=self._damage_dealt
+                )
+            if state.selected_target.state is TargetState.NONE:
+                if self._damage_dealt:
+                    self._mode = CombatMode.TARGET_DEAD
+                    return CombatDecision(
+                        CombatMode.TARGET_DEAD, damage_dealt=True
+                    )
+                self._mode = CombatMode.TARGET_LOST
+                return CombatDecision(
+                    CombatMode.TARGET_LOST, damage_dealt=False
+                )
             if state.selected_target.state is not TargetState.VALID:
+                if self._engagement_grace_expires_at is None:
+                    self._engagement_grace_expires_at = (
+                        state.observed_at_seconds
+                        + self._config.engagement_grace_seconds
+                    )
+                if state.observed_at_seconds < self._engagement_grace_expires_at:
+                    return CombatDecision(
+                        CombatMode.FIGHTING, damage_dealt=self._damage_dealt
+                    )
                 self._reset()
                 return CombatDecision(CombatMode.IDLE)
+            self._engagement_grace_expires_at = None
             progress = self._target_hp_decreased(state)
             return self._attack_if_ready(state, progress)
 
@@ -303,7 +343,11 @@ class CombatController:
     def _attack_if_ready(self, state: WorldState, progress: bool = False) -> CombatDecision:
         binding = self._config.rotation[self._rotation_index]
         if state.observed_at_seconds < self._next_attack_at_seconds:
-            return CombatDecision(self._mode, progress_observed=progress)
+            return CombatDecision(
+                self._mode,
+                progress_observed=progress,
+                damage_dealt=self._damage_dealt,
+            )
         self._rotation_index = (self._rotation_index + 1) % len(self._config.rotation)
         self._next_attack_at_seconds = state.observed_at_seconds + binding.cooldown_seconds
         self._mode = CombatMode.FIGHTING
@@ -313,6 +357,7 @@ class CombatController:
             virtual_key=binding.virtual_key,
             key_press_duration_seconds=self._config.key_press_duration_seconds,
             progress_observed=progress,
+            damage_dealt=self._damage_dealt,
         )
 
     def _target_hp_decreased(self, state: WorldState) -> bool:
@@ -321,12 +366,17 @@ class CombatController:
             self._previous_hp_pixel_count is not None
             and hp_pixel_count < self._previous_hp_pixel_count
         )
+        if progress:
+            self._damage_dealt = True
         self._previous_hp_pixel_count = hp_pixel_count
         return progress
 
     def _reset(self) -> None:
         self._mode = CombatMode.IDLE
         self._previous_hp_pixel_count = None
+        self._targeting_started_at_seconds = None
+        self._engagement_grace_expires_at = None
+        self._damage_dealt = False
 
 
 def _mob_center(mob: VisibleMob) -> Position:

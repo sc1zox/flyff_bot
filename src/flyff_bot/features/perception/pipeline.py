@@ -24,6 +24,7 @@ from flyff_bot.features.vision.capture import FrameSource
 from flyff_bot.features.vision.detection import Detection, DetectionError, Detector
 from flyff_bot.features.vision.loot_ocr import LootEvent, LootOcrError
 from flyff_bot.features.vision.models import CapturedFrame
+from flyff_bot.features.vision.monster_stats import MonsterStatsFeed
 from flyff_bot.features.vision.target_verification import (
     TargetStatus,
     TargetVerificationResult,
@@ -38,6 +39,7 @@ class PerceptionFailure(StrEnum):
     TARGET_VERIFICATION = "target_verification"
     LOOT_READING = "loot_reading"
     VITALS_READING = "vitals_reading"
+    MONSTER_STATS = "monster_stats"
 
 
 class TargetVerificationFeed(Protocol):
@@ -95,6 +97,7 @@ class PerceptionPipeline:
         loot_log_reader: LootFeed,
         clock: Callable[[], float] = monotonic,
         vitals_reader: PlayerVitalsFeed | None = None,
+        monster_stats_reader: MonsterStatsFeed | None = None,
     ) -> None:
         self._frame_source = frame_source
         self._detector = detector
@@ -102,6 +105,7 @@ class PerceptionPipeline:
         self._loot_log_reader = loot_log_reader
         self._clock = clock
         self._vitals_reader = vitals_reader or PlayerVitalsReader()
+        self._monster_stats_reader = monster_stats_reader
         self._visible_loot_fingerprints: frozenset[tuple[str, int, str]] = frozenset()
 
     def tick(self, window_handle: int, previous_state: WorldState) -> PerceptionTick:
@@ -113,6 +117,7 @@ class PerceptionPipeline:
         selected_target = previous_state.selected_target
         recent_loot = previous_state.recent_loot
         player_vitals = previous_state.player_vitals
+        monster_kill_count = previous_state.monster_kill_count
         confirmed_loot: tuple[LootEvent, ...] = ()
 
         try:
@@ -135,6 +140,13 @@ class PerceptionPipeline:
             player_vitals = self._vitals_reader.read(frame)
         except ValueError, cv2.error:
             failures.add(PerceptionFailure.VITALS_READING)
+        if self._monster_stats_reader is not None:
+            try:
+                count = self._monster_stats_reader.read(frame)
+                if count is not None:
+                    monster_kill_count = count
+            except Exception:  # OCR failures are non-fatal
+                failures.add(PerceptionFailure.MONSTER_STATS)
 
         inventory = _apply_loot(previous_state.inventory, confirmed_loot)
 
@@ -151,6 +163,7 @@ class PerceptionPipeline:
             recent_loot=recent_loot,
             viewport=Viewport(frame.client_size.width, frame.client_size.height),
             player_vitals=player_vitals,
+            monster_kill_count=monster_kill_count,
         )
         return PerceptionTick(state, _events(previous_state, state), frozenset(failures), frame)
 

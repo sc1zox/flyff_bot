@@ -13,6 +13,7 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
 )
 from flyff_bot.features.vision.models import CapturedFrame, PixelFormat
+from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.i18n import Message, Translator
 
 MOB_BOX_COLOR = QColor(0, 255, 0)
@@ -26,6 +27,8 @@ DEFAULT_PREVIEW_HEIGHT = 360
 MINIMUM_PREVIEW_WIDTH = 320
 MINIMUM_PREVIEW_HEIGHT = 180
 OVERLAY_BG_COLOR = QColor(17, 20, 28)
+MONSTER_STATS_GUIDE_COLOR = QColor(0, 200, 200)
+MONSTER_STATS_GUIDE_PEN_WIDTH = 2
 
 
 class DebugOverlayWidget(QWidget):
@@ -97,6 +100,7 @@ def render_debug_overlay(
     target: SelectedTarget,
     translator: Translator,
     vitals: PlayerVitals | None = None,
+    monster_stats_config: MonsterStatsConfig | None = None,
 ) -> QPixmap:
     """Return a copied pixmap with client-space mob and target annotations."""
 
@@ -147,6 +151,20 @@ def render_debug_overlay(
                 mp=f"{vitals.mp_percentage:.1f}",
                 fp=f"{vitals.fp_percentage:.1f}",
             ),
+        )
+    if monster_stats_config is not None:
+        left, top, right, bottom = compute_monster_stats_roi(
+            frame.client_size.width, frame.client_size.height, monster_stats_config
+        )
+        guide_pen = QPen(MONSTER_STATS_GUIDE_COLOR, MONSTER_STATS_GUIDE_PEN_WIDTH)
+        guide_pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(guide_pen)
+        painter.drawRect(QRect(left, top, right - left, bottom - top))
+        painter.setPen(QPen(MONSTER_STATS_GUIDE_COLOR, OVERLAY_PEN_WIDTH))
+        painter.drawText(
+            left,
+            max(OVERLAY_FONT_POINT_SIZE, top - OVERLAY_PEN_WIDTH),
+            translator.text(Message.UI_MONSTER_STATS_GUIDE),
         )
     painter.end()
     return QPixmap.fromImage(image)

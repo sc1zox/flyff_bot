@@ -292,7 +292,7 @@ class FarmingOrchestrator:
 
         if self._mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:
             combat = self._combat.step(self._state)
-            if combat.mode is CombatMode.IDLE:
+            if combat.mode in {CombatMode.IDLE, CombatMode.TARGET_LOST}:
                 self._search.reset()
                 self._mode = FarmingMode.SEARCHING
                 return False

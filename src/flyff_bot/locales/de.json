@@ -122,5 +122,11 @@
   "ui.vitals_threshold": "Grenzwert",
   "ui.vitals_hotkey": "Taste",
   "ui.vitals_debounce": "Abklingzeit (ms)",
-  "ui.vitals_active": "Aktiv"
+  "ui.vitals_active": "Aktiv",
+  "ui.combat_settings": "Kampfeinstellungen",
+  "ui.target_grace_period": "Zielklick-Wartezeit (s)",
+  "ui.target_grace_tooltip": "Wartezeit, bis der Zielkopf erscheint, bevor erneut geklickt wird. Verhindert versehentliches Doppelklick-Laufen.",
+  "ui.kill_verification": "Monsterstatus-Kill-Überprüfung",
+  "ui.kill_verification_tooltip": "Verwendet den spielinternen Monster-Kill-Zähler zur Bestätigung anstatt sich nur auf das Verschwinden der Zielleiste zu verlassen.",
+  "ui.monster_stats_guide": "Monsterstatus"
 }

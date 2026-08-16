@@ -1,0 +1,18 @@
+if read please organize
+
+### Root cause (confirmed, grounded in the code)
+The attack key is gated behind `TargetState.VALID`, which the perception pipeline (`pipeline.py::_selected_target`) only produces when `TargetVerifier.verify()` returns `TargetStatus.VALID_TARGET`. In `target_verification.py::verify` that requires **all three**: header-anchor match ≥ 0.9, HP red-pixel count ≥ 10, **and** a name-template match ≥ 0.9. In `ui/app.py` the verifier is hardcoded with `name_templates={"Flame": flame_template}` + `models/target_anchor.png` + `models/target_flame.png`.
+So in the live client, unless the targeted mob is literally "Flame" *and* the single 0.9 name template matches on the operator's resolution/scaling, `verify()` returns `WRONG_TARGET` → `TargetState.WRONG`. `CombatController.step` then stays in `TARGETING` (grace) → resets to `IDLE`; the attack branch (`_attack_if_ready`, only reachable from `ENGAGING`/`FIGHTING` after `VALID`) is never entered. Vitals (`VitalsTriggerController`) don't consult the verifier, which is exactly why F1/F2/F3 food fires but the F3 **combat** key never does. Your analysis is correct.
+### 1. Smallest complete change — do NOT loosen the verifier
+Treating "header-anchor + HP-present" as `VALID` without a name match is the wrong fix. It directly contradicts:
+...
+- The foreground-focus guard and `END` emergency stop are orthogonal to verification and must remain untouched; the fix must not weaken them.
+- Any change to what the bot is willing to attack is a durable architectural tradeoff → capture it in `docs/decisions/` (ADR) rather than burying it in a template threshold, per the contract.
+### Recommended plan (summary)
+1. File `docs/bugs/BUG-007` (attack key never dispatched; verifier never returns `VALID` in the live client) with a concrete reproduction and acceptance criteria.
+2. Reconcile the two orchestrator tests to US-023 semantics (repeat-attack expectation; kill fixture with observed HP decrease); align `test_combat_controller.py`. This restores a green baseline.
+3. Reproduce in the live client and log the actual `TargetVerificationResult` to distinguish `NO_TARGET` vs `WRONG_TARGET`.
+4. Fix wiring in `ui/app.py`: configurable/loaded whitelist instead of hardcoded single `"Flame"`; recalibrate anchor/name ROIs/thresholds against `data/eden/flame/` only if evidence shows mis-calibration. Keep name-whitelist gating.
+5. Sync `de.json`/`en.json` if any user-visible text is added; run `./scripts/check.ps1` (`ruff`, `ruff format --check`, `mypy`, `pytest`).
+6. If "attack without whitelist" is genuinely desired, add an ADR + default-safe toggle instead of loosening the verifier.
+Stance in one line: the state machine is correct — the two tests are stale and should be updated; the "F3 never fires" defect is a wiring/calibration bug, fixed by a configurable, correctly-calibrated whitelist, **not** by removing target-name verification.

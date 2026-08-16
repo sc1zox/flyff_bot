@@ -9,6 +9,7 @@ from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -39,6 +40,7 @@ from flyff_bot.features.navigation.persistence import (
     list_navigation_profiles,
     sanitize_profile_name,
 )
+from flyff_bot.features.vision.monster_stats import MonsterStatsConfig
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
@@ -80,6 +82,8 @@ class MainWindow(QMainWindow):
     emergency_stop_requested = Signal()
     attack_key_changed = Signal(int)
     vitals_config_changed = Signal(object)
+    combat_grace_changed = Signal(float)
+    kill_verification_changed = Signal(bool)
     save_profile_requested = Signal(Path)
     load_profile_requested = Signal(Path)
     reset_navigation_requested = Signal()
@@ -122,6 +126,20 @@ class MainWindow(QMainWindow):
         self._path_toggle = QCheckBox()
         self._vitals_toggle = QCheckBox()
         self._language_selector = QComboBox()
+
+        # Combat settings panel
+        self._combat_panel = QGroupBox()
+        self._combat_panel.setVisible(False)
+        self._combat_toggle = QCheckBox()
+        self._target_grace_label = QLabel()
+        self._target_grace_spin = QDoubleSpinBox()
+        self._target_grace_spin.setRange(0.1, 5.0)
+        self._target_grace_spin.setSingleStep(0.1)
+        self._target_grace_spin.setDecimals(1)
+        self._target_grace_spin.setValue(0.8)
+        self._target_grace_spin.setSuffix(" s")
+        self._kill_verification_label = QLabel()
+        self._kill_verification_toggle = QCheckBox()
 
         # Vitals configuration panel
         self._vitals_panel = QGroupBox()
@@ -320,6 +338,30 @@ class MainWindow(QMainWindow):
     def fp_debounce_spin(self) -> QSpinBox:
         return self._fp_debounce_spin
 
+    @property
+    def combat_toggle(self) -> QCheckBox:
+        """Expose the combat settings panel toggle control."""
+
+        return self._combat_toggle
+
+    @property
+    def combat_panel(self) -> QGroupBox:
+        """Expose the combat configuration panel."""
+
+        return self._combat_panel
+
+    @property
+    def target_grace_spin(self) -> QDoubleSpinBox:
+        """Expose the target click grace period spin box."""
+
+        return self._target_grace_spin
+
+    @property
+    def kill_verification_toggle(self) -> QCheckBox:
+        """Expose the kill verification toggle checkbox."""
+
+        return self._kill_verification_toggle
+
     def _init_vitals_widgets(self) -> None:
         for spin in (self._hp_threshold_spin, self._mp_threshold_spin, self._fp_threshold_spin):
             spin.setRange(1, 100)
@@ -371,6 +413,17 @@ class MainWindow(QMainWindow):
         vitals_layout.addWidget(self._fp_debounce_spin, 3, 4)
 
         self._vitals_panel.setLayout(vitals_layout)
+
+        combat_layout = QVBoxLayout()
+        grace_row = QHBoxLayout()
+        grace_row.addWidget(self._target_grace_label)
+        grace_row.addWidget(self._target_grace_spin)
+        combat_layout.addLayout(grace_row)
+        kill_row = QHBoxLayout()
+        kill_row.addWidget(self._kill_verification_label)
+        kill_row.addWidget(self._kill_verification_toggle)
+        combat_layout.addLayout(kill_row)
+        self._combat_panel.setLayout(combat_layout)
 
     def _load_vitals_config_to_ui(self) -> None:
         config = load_vitals_config(self._vitals_config_path)
@@ -514,6 +567,19 @@ class MainWindow(QMainWindow):
         self._vitals_panel.setVisible(visible)
         self._adapt_window_geometry()
 
+    @Slot(bool)
+    def _update_combat_visibility(self, visible: bool) -> None:
+        self._combat_panel.setVisible(visible)
+        self._adapt_window_geometry()
+
+    @Slot()
+    def _on_combat_grace_changed(self) -> None:
+        self.combat_grace_changed.emit(self._target_grace_spin.value())
+
+    @Slot(bool)
+    def _on_kill_verification_changed(self, enabled: bool) -> None:
+        self.kill_verification_changed.emit(enabled)
+
     def _adapt_window_geometry(self) -> None:
         central = self.centralWidget()
         if central is not None:
@@ -545,6 +611,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self._debug_toggle)
         controls.addWidget(self._path_toggle)
         controls.addWidget(self._vitals_toggle)
+        controls.addWidget(self._combat_toggle)
         controls.addWidget(self._language_selector)
 
         profile_layout = QHBoxLayout()
@@ -563,6 +630,7 @@ class MainWindow(QMainWindow):
         content.addLayout(controls)
         content.addWidget(self._overlay_label)
         content.addWidget(self._vitals_panel)
+        content.addWidget(self._combat_panel)
         content.addWidget(self._profile_bar)
         content.addWidget(self._path_inspector)
         container = QWidget()
@@ -596,6 +664,9 @@ class MainWindow(QMainWindow):
             spin.valueChanged.connect(self._on_vitals_inputs_changed)
         for combo in (self._hp_key_combo, self._mp_key_combo, self._fp_key_combo):
             combo.currentTextChanged.connect(self._on_vitals_inputs_changed)
+        self._combat_toggle.toggled.connect(self._update_combat_visibility)
+        self._target_grace_spin.valueChanged.connect(self._on_combat_grace_changed)
+        self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
 
     def refresh_profiles(self, select_path: Path | None = None) -> None:
         """Scan the navigation profiles directory and populate the selector."""
@@ -673,6 +744,14 @@ class MainWindow(QMainWindow):
         self._debug_toggle.setText(self._translator.text(Message.UI_DEBUG_OVERLAY))
         self._path_toggle.setText(self._translator.text(Message.UI_PATH_INSPECTOR))
         self._vitals_toggle.setText(self._translator.text(Message.UI_VITALS_TOGGLE))
+        self._combat_toggle.setText(self._translator.text(Message.UI_COMBAT_SETTINGS))
+        self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))
+        self._target_grace_label.setText(self._translator.text(Message.UI_TARGET_GRACE_PERIOD))
+        self._target_grace_spin.setToolTip(self._translator.text(Message.UI_TARGET_GRACE_TOOLTIP))
+        self._kill_verification_label.setText(self._translator.text(Message.UI_KILL_VERIFICATION))
+        self._kill_verification_toggle.setToolTip(
+            self._translator.text(Message.UI_KILL_VERIFICATION_TOOLTIP)
+        )
         self._vitals_panel.setTitle(self._translator.text(Message.UI_VITALS_TITLE))
         self._vitals_col_type.setText(self._translator.text(Message.UI_VITALS_HP)[:2])
         self._vitals_col_active.setText(self._translator.text(Message.UI_VITALS_ACTIVE))
@@ -755,6 +834,11 @@ class MainWindow(QMainWindow):
             )
         )
         if update.frame is not None:
+            monster_stats_cfg = (
+                MonsterStatsConfig()
+                if self._kill_verification_toggle.isChecked()
+                else None
+            )
             self._overlay_label.setPixmap(
                 render_debug_overlay(
                     update.frame,
@@ -762,6 +846,7 @@ class MainWindow(QMainWindow):
                     update.state.selected_target,
                     self._translator,
                     vitals=vitals,
+                    monster_stats_config=monster_stats_cfg,
                 )
             )
         if update.navigation is not None:

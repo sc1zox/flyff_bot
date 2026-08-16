@@ -122,5 +122,11 @@
   "ui.vitals_threshold": "Threshold",
   "ui.vitals_hotkey": "Key",
   "ui.vitals_debounce": "Cooldown (ms)",
-  "ui.vitals_active": "Active"
+  "ui.vitals_active": "Active",
+  "ui.combat_settings": "Combat Settings",
+  "ui.target_grace_period": "Target click grace period (s)",
+  "ui.target_grace_tooltip": "Time to wait for the target header to appear before retrying. Prevents accidental double-click walking.",
+  "ui.kill_verification": "Monster stats kill verification",
+  "ui.kill_verification_tooltip": "Use the in-game Monster Kills counter to confirm kills instead of relying solely on target bar disappearance.",
+  "ui.monster_stats_guide": "Monster Stats"
 }

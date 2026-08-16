@@ -142,6 +142,12 @@ class Message(StrEnum):
     UI_VITALS_HOTKEY = "ui.vitals_hotkey"
     UI_VITALS_DEBOUNCE = "ui.vitals_debounce"
     UI_VITALS_ACTIVE = "ui.vitals_active"
+    UI_COMBAT_SETTINGS = "ui.combat_settings"
+    UI_TARGET_GRACE_PERIOD = "ui.target_grace_period"
+    UI_TARGET_GRACE_TOOLTIP = "ui.target_grace_tooltip"
+    UI_KILL_VERIFICATION = "ui.kill_verification"
+    UI_KILL_VERIFICATION_TOOLTIP = "ui.kill_verification_tooltip"
+    UI_MONSTER_STATS_GUIDE = "ui.monster_stats_guide"
 
 
 class Translator:

@@ -119,6 +119,7 @@ class WorldState:
     recent_loot: tuple[RecentLoot, ...] = ()
     viewport: Viewport = Viewport()
     player_vitals: PlayerVitals = field(default_factory=PlayerVitals)
+    monster_kill_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
