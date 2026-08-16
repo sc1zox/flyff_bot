@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -26,11 +28,19 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
+from flyff_bot.features.automation.orchestrator import (
+    FarmingInputAdapter,
+    FarmingMode,
+    FarmingOrchestrator,
+)
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerType,
 )
 from flyff_bot.features.input_control import InputControlError, InputErrorCode, ScreenRect
+from flyff_bot.features.navigation.pathing import PathingController
+from flyff_bot.features.navigation.spatial import SpatialMap, WorldPoint
+from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import TargetVerifier
@@ -57,6 +67,9 @@ from flyff_bot.ui.placement_overlay import (
     logical_geometry,
 )
 from flyff_bot.ui.theme import apply_theme, load_theme_stylesheet
+
+CLOSE_EVENT_WINDOW_HANDLE = 4711
+CLOSE_EVENT_VISIT_TIME_SECONDS = 1.0
 
 
 def test_main_window_receives_dashboard_signal_and_renders_overlay() -> None:
@@ -544,6 +557,34 @@ def test_main_window_close_event_emits_pause_requested() -> None:
     event = QCloseEvent()
     window.closeEvent(event)
     assert pause_calls == [True]
+
+
+def test_main_window_close_event_pauses_and_persists_the_navigation_map(tmp_path: Path) -> None:
+    """BUG-004: closing the window must not drop map updates learned since the last save."""
+
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    spatial_map = SpatialMap()
+    spatial_map.record_visit(WorldPoint(0.0, 0.0), CLOSE_EVENT_VISIT_TIME_SECONDS)
+    map_path = tmp_path / "spatial_map.json"
+    orchestrator = FarmingOrchestrator(
+        # Neither collaborator is exercised: closing only pauses and flushes the map to disk.
+        cast(PerceptionPipeline, object()),
+        cast(FarmingInputAdapter, object()),
+        CLOSE_EVENT_WINDOW_HANDLE,
+        pathing=PathingController(spatial_map, map_path=map_path),
+    )
+    orchestrator.start()
+    connect_farming_controls(window, orchestrator)
+
+    window.closeEvent(QCloseEvent())
+    application.processEvents()
+
+    assert orchestrator.mode is FarmingMode.PAUSED
+    assert map_path.is_file()
+    persisted = json.loads(map_path.read_text(encoding="utf-8"))
+    assert persisted["cells"]
 
 
 def test_main_window_renders_live_vitals() -> None:

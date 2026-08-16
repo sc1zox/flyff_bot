@@ -21,6 +21,31 @@ from PySide6.QtWidgets import QWidget
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import NavigationSnapshot
 
+
+def _with_alpha(color: QColor, alpha: int) -> QColor:
+    """Return a copy of a palette color at a different opacity."""
+
+    tinted = QColor(color)
+    tinted.setAlpha(alpha)
+    return tinted
+
+
+def _lerp_color(low: QColor, high: QColor, intensity: float) -> QColor:
+    """Blend two palette endpoints channel-wise by a clamped 0..1 intensity."""
+
+    clamped = max(0.0, min(1.0, intensity))
+
+    def channel(start: int, end: int) -> int:
+        return round(start + (end - start) * clamped)
+
+    return QColor(
+        channel(low.red(), high.red()),
+        channel(low.green(), high.green()),
+        channel(low.blue(), high.blue()),
+        channel(low.alpha(), high.alpha()),
+    )
+
+
 BG_COLOR = QColor(17, 20, 28)
 GRID_LINE_COLOR = QColor(36, 44, 60, 140)
 AXIS_COLOR = QColor(70, 85, 110, 180)
@@ -29,16 +54,49 @@ LEASH_COLOR = QColor(80, 100, 130, 140)
 EDGE_NORMAL_COLOR = QColor(24, 144, 255, 200)
 EDGE_STALL_COLOR = QColor(255, 77, 79, 220)
 NODE_COLOR = QColor(64, 169, 255)
+MARKER_OUTLINE_COLOR = QColor(15, 23, 42)
 ROUTE_COLOR = QColor(179, 127, 235, 240)
 SAFE_NODE_COLOR = QColor(82, 196, 26)
+SAFE_NODE_FILL_ALPHA = 160
+SAFE_NODE_FILL_COLOR = _with_alpha(SAFE_NODE_COLOR, SAFE_NODE_FILL_ALPHA)
 PLAYER_COLOR = QColor(0, 240, 255)
-PLAYER_CONE_COLOR = QColor(0, 240, 255, 30)
+PLAYER_CONE_FILL_ALPHA = 30
+PLAYER_CONE_EDGE_ALPHA = 60
+PLAYER_CONE_COLOR = _with_alpha(PLAYER_COLOR, PLAYER_CONE_FILL_ALPHA)
+PLAYER_CONE_EDGE_COLOR = _with_alpha(PLAYER_COLOR, PLAYER_CONE_EDGE_ALPHA)
 PLAYER_ACCENT_COLOR = QColor(255, 255, 255)
 STALL_MARKER_COLOR = QColor(255, 77, 79, 220)
+STALL_FILL_ALPHA = 45
+STALL_FILL_COLOR = _with_alpha(STALL_MARKER_COLOR, STALL_FILL_ALPHA)
+VISITED_CELL_BORDER_COLOR = QColor(45, 55, 72, 80)
+TRANSPARENT_COLOR = QColor(0, 0, 0, 0)
 TEXT_COLOR = QColor(241, 245, 249)
 MUTED_TEXT_COLOR = QColor(148, 163, 184)
 HUD_BG_COLOR = QColor(15, 23, 42, 200)
 HUD_BORDER_COLOR = QColor(51, 65, 85, 160)
+
+# Spawn density heat palette: translucent gold at sparse density up to dense ember red at
+# hotspots. Every stop stays red-dominant so a heat cell can never be mistaken for the cyan
+# player marker, the green safe waypoint, or the blue graph nodes and edges.
+SPAWN_HEAT_BASE_COLOR = QColor(250, 140, 22)
+SPAWN_HEAT_EDGE_LOW_ALPHA = 30
+SPAWN_HEAT_CENTER_LOW_COLOR = QColor(255, 197, 61, 90)
+SPAWN_HEAT_CENTER_HIGH_COLOR = QColor(255, 77, 21, 220)
+SPAWN_HEAT_EDGE_LOW_COLOR = _with_alpha(SPAWN_HEAT_BASE_COLOR, SPAWN_HEAT_EDGE_LOW_ALPHA)
+SPAWN_HEAT_EDGE_HIGH_COLOR = QColor(255, 60, 42, 80)
+SPAWN_HEAT_RADIUS_FRACTION = 0.7
+SPAWN_HEAT_EDGE_STOP = 0.8
+
+# Legend entries pair each map element with the glyph and color it is actually drawn in, so a
+# palette change can never leave the legend describing a different marker than the canvas shows.
+LEGEND_ITEMS: tuple[tuple[str, QColor, Message], ...] = (
+    ("▲", PLAYER_COLOR, Message.UI_NAV_LEGEND_PLAYER),
+    ("●", SPAWN_HEAT_BASE_COLOR, Message.UI_NAV_LEGEND_SPAWN),
+    ("━", EDGE_NORMAL_COLOR, Message.UI_NAV_LEGEND_PATH),
+    ("⛝", STALL_MARKER_COLOR, Message.UI_NAV_LEGEND_OBSTACLE),
+    ("━", ROUTE_COLOR, Message.UI_NAV_LEGEND_ROUTE),
+    ("◆", SAFE_NODE_COLOR, Message.UI_NAV_LEGEND_SAFE),
+)
 
 PADDING_FRACTION = 0.2
 MINIMUM_VIEW_EXTENT = 50.0
@@ -275,24 +333,23 @@ class PathInspectorWidget(QWidget):
 
             if cell.spawn_weight > 0.0:
                 intensity = min(1.0, cell.spawn_weight / max_weight)
-                gradient = QRadialGradient(pt, cell_size_px * 0.7)
-                center_color = self._spawn_heat_center_color(intensity)
-                edge_color = self._spawn_heat_edge_color(intensity)
-                gradient.setColorAt(0.0, center_color)
-                gradient.setColorAt(0.8, edge_color)
-                gradient.setColorAt(1.0, QColor(0, 0, 0, 0))
+                heat_radius_px = cell_size_px * SPAWN_HEAT_RADIUS_FRACTION
+                gradient = QRadialGradient(pt, heat_radius_px)
+                gradient.setColorAt(0.0, self._spawn_heat_center_color(intensity))
+                gradient.setColorAt(SPAWN_HEAT_EDGE_STOP, self._spawn_heat_edge_color(intensity))
+                gradient.setColorAt(1.0, TRANSPARENT_COLOR)
 
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QBrush(gradient))
-                painter.drawEllipse(pt, cell_size_px * 0.7, cell_size_px * 0.7)
+                painter.drawEllipse(pt, heat_radius_px, heat_radius_px)
             else:
-                painter.setPen(QPen(QColor(45, 55, 72, 80), 1))
+                painter.setPen(QPen(VISITED_CELL_BORDER_COLOR, 1))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawRect(rect)
 
             if cell.stalls > 0:
                 painter.setPen(QPen(STALL_MARKER_COLOR, 1.5, Qt.PenStyle.DashLine))
-                painter.setBrush(QBrush(QColor(255, 77, 79, 45)))
+                painter.setBrush(QBrush(STALL_FILL_COLOR))
                 painter.drawRect(rect)
                 painter.drawLine(rect.topLeft(), rect.bottomRight())
                 painter.drawLine(rect.topRight(), rect.bottomLeft())
@@ -312,7 +369,7 @@ class PathInspectorWidget(QWidget):
                 painter.setPen(QPen(EDGE_NORMAL_COLOR, 1.5))
             painter.drawLine(p1, p2)
 
-        painter.setPen(QPen(QColor(15, 23, 42), 1))
+        painter.setPen(QPen(MARKER_OUTLINE_COLOR, 1))
         painter.setBrush(QBrush(NODE_COLOR))
         for cell in snapshot.cells:
             pt = to_screen(cell.center_x, cell.center_y)
@@ -357,7 +414,7 @@ class PathInspectorWidget(QWidget):
 
         pt = to_screen(snapshot.safe_waypoint[0], snapshot.safe_waypoint[1])
         painter.setPen(QPen(SAFE_NODE_COLOR, 1.5))
-        painter.setBrush(QBrush(QColor(82, 196, 26, 160)))
+        painter.setBrush(QBrush(SAFE_NODE_FILL_COLOR))
         diamond = QPolygonF(
             [
                 QPointF(pt.x(), pt.y() - 6),
@@ -402,7 +459,7 @@ class PathInspectorWidget(QWidget):
         cone_path.lineTo(cone_right)
         cone_path.closeSubpath()
 
-        painter.setPen(QPen(QColor(0, 240, 255, 60), 1, Qt.PenStyle.DashLine))
+        painter.setPen(QPen(PLAYER_CONE_EDGE_COLOR, 1, Qt.PenStyle.DashLine))
         painter.setBrush(QBrush(PLAYER_CONE_COLOR))
         painter.drawPath(cone_path)
 
@@ -415,7 +472,7 @@ class PathInspectorWidget(QWidget):
         painter.setBrush(QBrush(PLAYER_COLOR))
         painter.drawPolygon(QPolygonF([front, left, pt, right]))
 
-        painter.setPen(QPen(QColor(15, 23, 42), 1.5))
+        painter.setPen(QPen(MARKER_OUTLINE_COLOR, 1.5))
         painter.setBrush(QBrush(PLAYER_ACCENT_COLOR))
         painter.drawEllipse(pt, 3.5, 3.5)
 
@@ -449,17 +506,8 @@ class PathInspectorWidget(QWidget):
         legend_y = height - 22
         painter.setFont(QFont("", 8))
 
-        legend_items = [
-            ("▲", PLAYER_COLOR, Message.UI_NAV_LEGEND_PLAYER),
-            ("●", QColor(250, 140, 22), Message.UI_NAV_LEGEND_SPAWN),
-            ("━", EDGE_NORMAL_COLOR, Message.UI_NAV_LEGEND_PATH),
-            ("⛝", STALL_MARKER_COLOR, Message.UI_NAV_LEGEND_OBSTACLE),
-            ("━", ROUTE_COLOR, Message.UI_NAV_LEGEND_ROUTE),
-            ("◆", SAFE_NODE_COLOR, Message.UI_NAV_LEGEND_SAFE),
-        ]
-
         cur_x = 10.0
-        for symbol, color, msg in legend_items:
+        for symbol, color, msg in LEGEND_ITEMS:
             painter.setPen(QPen(color))
             painter.drawText(QPointF(cur_x, legend_y + 12), symbol)
             cur_x += painter.fontMetrics().horizontalAdvance(symbol) + 4
@@ -473,21 +521,15 @@ class PathInspectorWidget(QWidget):
 
     @staticmethod
     def _spawn_heat_center_color(intensity: float) -> QColor:
-        clamped = max(0.0, min(1.0, intensity))
-        red = 255
-        green = int(197 - clamped * 120)
-        blue = int(61 - clamped * 40)
-        alpha = int(90 + clamped * 130)
-        return QColor(red, green, blue, alpha)
+        """Return the hot core color of a spawn cell at the given relative density."""
+
+        return _lerp_color(SPAWN_HEAT_CENTER_LOW_COLOR, SPAWN_HEAT_CENTER_HIGH_COLOR, intensity)
 
     @staticmethod
     def _spawn_heat_edge_color(intensity: float) -> QColor:
-        clamped = max(0.0, min(1.0, intensity))
-        red = int(250 + clamped * 5)
-        green = int(140 - clamped * 80)
-        blue = int(22 + clamped * 20)
-        alpha = int(30 + clamped * 50)
-        return QColor(red, green, blue, alpha)
+        """Return the fading rim color of a spawn cell at the given relative density."""
+
+        return _lerp_color(SPAWN_HEAT_EDGE_LOW_COLOR, SPAWN_HEAT_EDGE_HIGH_COLOR, intensity)
 
 
 def _heading_to_compass(heading: float) -> str:
