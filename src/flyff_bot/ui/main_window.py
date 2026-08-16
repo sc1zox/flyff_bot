@@ -1201,7 +1201,6 @@ class MainWindow(QMainWindow):
             BotStatus.SEARCH_ROTATING,
             BotStatus.SEARCH_TILTING,
             BotStatus.SEARCH_ROAMING,
-            BotStatus.SEARCH_MINIMAP,
         }
         profile_controls_enabled = not is_active
         self._profile_selector.setEnabled(profile_controls_enabled)
@@ -1289,7 +1288,6 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.SEARCH_ROTATING: Message.UI_STATUS_SEARCH_ROTATING,
         BotStatus.SEARCH_TILTING: Message.UI_STATUS_SEARCH_TILTING,
         BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
-        BotStatus.SEARCH_MINIMAP: Message.UI_STATUS_SEARCH_MINIMAP,
     }[status]
 
 

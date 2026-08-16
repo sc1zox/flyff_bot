@@ -112,11 +112,6 @@ related:
   frames without overshooting candidate mobs.
 - **Vertical pitch tilt** — Camera elevation adjustments via Up/Down arrow keys during search mode
   to gain bird's-eye or upward perspectives of monsters situated on slopes or hills.
-- **Minimap radar** — A perception-only scan of the normalized top-right client region that selects
-  the nearest sufficiently large red connected component and returns its client-relative centre.
-  Left over from US-015 and never dispatched: `SearchController` does not reach
-  `SearchMode.MINIMAP_RADAR`, and US-027 (which would have calibrated it) was rejected in favour of
-  the spawn heatmap.
 - **Spawn heatmap** — The internal per-cell accumulation of mob sightings on the relative
   navigation grid, weighted by how often mobs were observed there and decayed by a configurable
   half-life so abandoned areas lose priority over time.

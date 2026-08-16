@@ -97,7 +97,6 @@ class SearchMode(StrEnum):
     ROTATE = "rotate"
     TILT = "tilt"
     ROAM_STEP = "roam_step"
-    MINIMAP_RADAR = "minimap_radar"
 
 
 class SearchInputKind(StrEnum):
@@ -419,7 +418,7 @@ class NavigationController:
 
 
 class SearchController:
-    """Emit timed rotation, tilt, roaming, then minimap actions until a target is found."""
+    """Emit timed rotation, tilt, and roaming actions until a target is found."""
 
     def __init__(self, config: SearchConfig | None = None) -> None:
         self._config = config or SearchConfig()
@@ -446,9 +445,7 @@ class SearchController:
         self._tilt_index = 0
         self._roam_index = 0
 
-    def step(
-        self, observed_at_seconds: float, radar_position: Position | None = None
-    ) -> SearchDecision:
+    def step(self, observed_at_seconds: float) -> SearchDecision:
         """Advance one non-blocking search tick using the latest perception timestamp."""
 
         if self._started_at_seconds is None:
@@ -460,7 +457,7 @@ class SearchController:
         if self._mode is SearchMode.ROTATE:
             if self._rotation_index >= self._config.rotation_steps:
                 self._mode = SearchMode.TILT
-                return self.step(observed_at_seconds, radar_position)
+                return self.step(observed_at_seconds)
             virtual_key = self._config.rotation_virtual_key
             self._rotation_index += 1
             self._next_action_at_seconds = (
@@ -478,7 +475,7 @@ class SearchController:
         if self._mode is SearchMode.TILT:
             if self._tilt_index >= self._config.tilt_steps:
                 self._mode = SearchMode.ROAM_STEP
-                return self.step(observed_at_seconds, radar_position)
+                return self.step(observed_at_seconds)
             virtual_key = self._config.tilt_virtual_key
             self._tilt_index += 1
             self._next_action_at_seconds = (
@@ -499,7 +496,7 @@ class SearchController:
                 self._rotation_index = 0
                 self._tilt_index = 0
                 self._roam_index = 0
-                return self.step(observed_at_seconds, radar_position)
+                return self.step(observed_at_seconds)
             virtual_key = (VIRTUAL_KEY_W, VIRTUAL_KEY_D, VIRTUAL_KEY_W, VIRTUAL_KEY_A)[
                 self._roam_index % 4
             ]

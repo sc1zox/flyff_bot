@@ -94,7 +94,6 @@ class Message(StrEnum):
     UI_STATUS_SEARCH_ROTATING = "ui.status_search_rotating"
     UI_STATUS_SEARCH_TILTING = "ui.status_search_tilting"
     UI_STATUS_SEARCH_ROAMING = "ui.status_search_roaming"
-    UI_STATUS_SEARCH_MINIMAP = "ui.status_search_minimap"
     UI_BOT_STATUS = "ui.bot_status"
     UI_GOAL_PROGRESS = "ui.goal_progress"
     UI_NO_GOAL = "ui.no_goal"

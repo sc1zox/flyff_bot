@@ -194,3 +194,10 @@ unreachable leftovers from US-015. Preserved the calibration spike findings (fix
 anchoring at 88/104 px with an 82 px ring and 67 px inner surface, buttons sitting on the ring at
 radius 77-79 px, and 763 unclassified pixels matching the prescribed red thresholds in a frame whose
 visible minimap markers are orange) in the story file.
+
+## [2026-08-17] lint | Remove unreachable minimap radar leftovers
+
+Removed unreachable US-015 minimap radar leftovers following the US-027 rejection: deleted
+`src/flyff_bot/features/vision/minimap_radar.py` and its unit tests, removed `SearchMode.MINIMAP_RADAR`
+and unused radar parameters from `SearchController`, removed `BotStatus.SEARCH_MINIMAP`, and removed the
+`ui.status_search_minimap` locale entry pair. Updated architecture and glossary.

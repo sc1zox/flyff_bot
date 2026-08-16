@@ -23,7 +23,6 @@ class BotStatus(StrEnum):
     SEARCH_ROTATING = "search_rotating"
     SEARCH_TILTING = "search_tilting"
     SEARCH_ROAMING = "search_roaming"
-    SEARCH_MINIMAP = "search_minimap"
 
 
 class WindowStatus(StrEnum):

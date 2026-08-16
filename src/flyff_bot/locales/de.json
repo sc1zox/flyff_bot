@@ -75,7 +75,6 @@
   "ui.status_search_rotating": "Suchen: Kamera drehen",
   "ui.status_search_tilting": "Suchen: Kamera neigen",
   "ui.status_search_roaming": "Suchen: Bewegung",
-  "ui.status_search_minimap": "Suchen: Minikartenradar",
   "ui.bot_status": "Bot-Status: {status}",
   "ui.goal_progress": "Ziel: {current}/{required} {item_name}",
   "ui.no_goal": "Ziel: nicht konfiguriert",

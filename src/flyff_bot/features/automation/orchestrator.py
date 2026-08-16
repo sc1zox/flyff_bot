@@ -31,7 +31,6 @@ from flyff_bot.features.automation.vitals_controller import (
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
-from flyff_bot.features.vision.minimap_radar import MinimapRadar
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     FrameCaptureError,
@@ -143,7 +142,6 @@ class FarmingOrchestrator:
         self._config = config or FarmingConfig()
         self._combat = CombatController(self._config.combat)
         self._search = SearchController(self._config.search)
-        self._radar = MinimapRadar()
         self._vitals = VitalsTriggerController(self._config.vitals)
         self._combat_dispatcher = CombatInputDispatcher(input_adapter, window_handle)
         self._search_dispatcher = SearchInputDispatcher(input_adapter, window_handle)
@@ -434,7 +432,6 @@ def _dashboard_status(
             SearchMode.ROTATE: BotStatus.SEARCH_ROTATING,
             SearchMode.TILT: BotStatus.SEARCH_TILTING,
             SearchMode.ROAM_STEP: BotStatus.SEARCH_ROAMING,
-            SearchMode.MINIMAP_RADAR: BotStatus.SEARCH_MINIMAP,
         }[search_mode or SearchMode.ROTATE]
     if mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:
         return BotStatus.COMBAT

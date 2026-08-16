@@ -75,7 +75,6 @@
   "ui.status_search_rotating": "Searching: rotating camera",
   "ui.status_search_tilting": "Searching: tilting camera",
   "ui.status_search_roaming": "Searching: moving",
-  "ui.status_search_minimap": "Searching: minimap radar",
   "ui.bot_status": "Bot status: {status}",
   "ui.goal_progress": "Goal: {current}/{required} {item_name}",
   "ui.no_goal": "Goal: none configured",

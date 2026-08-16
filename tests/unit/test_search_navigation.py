@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from flyff_bot.features.automation.controllers import (
@@ -16,10 +15,7 @@ from flyff_bot.features.automation.controllers import (
     SearchController,
     SearchMode,
 )
-from flyff_bot.features.automation.models import Position
 from flyff_bot.features.automation.search_execution import SearchInputDispatcher
-from flyff_bot.features.vision.minimap_radar import MinimapRadar
-from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 
 
 class _Adapter:
@@ -179,20 +175,3 @@ def test_search_dispatch_is_aborted_or_paused_before_any_navigation_input() -> N
         assert not SearchInputDispatcher(adapter, 42).dispatch(decision)
         assert adapter.keys == []
         assert adapter.clicks == []
-
-
-def test_minimap_radar_returns_nearest_red_dot_in_top_right_region() -> None:
-    pixels = np.zeros((100, 100, 3), dtype=np.uint8)
-    pixels[10:13, 80:83] = (0, 0, 255)
-    pixels[20:23, 95:98] = (0, 0, 255)
-    frame = CapturedFrame(pixels, ClientSize(100, 100))
-
-    assert MinimapRadar().nearest_dot(frame) == Position(81, 11)
-
-
-def test_minimap_radar_ignores_non_red_or_outside_pixels() -> None:
-    pixels = np.zeros((100, 100, 3), dtype=np.uint8)
-    pixels[50:55, 50:55] = (0, 0, 255)
-    pixels[10:15, 80:85] = (255, 0, 0)
-
-    assert MinimapRadar().nearest_dot(CapturedFrame(pixels, ClientSize(100, 100))) is None
