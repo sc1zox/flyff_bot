@@ -45,3 +45,5 @@ stories are moved to `docs/user-stories/completed/`.
 - [x] [**US-021: Navigation map profile slots, persistence management, and session reset**](completed/US-021-navigation-map-profiles-and-session-reset.md) — Named `.json` profile slots, Load/Save/Reset controls in UI, and confirmation safeguards.
 - [x] [**US-022: Modern dark theme and streamlined dashboard UI**](completed/US-022-modern-dark-theme-and-streamlined-dashboard-ui.md) — Visually polished modern dark theme (QSS), card layout, pop-out navigation map window, and Escape key emergency stop.
 - [x] [**US-024: Target verification decision and threshold debug dashboard visualization**](completed/US-024-target-verification-debug-dashboard-visualization.md) — Live header-anchor, HP-bar, and name-match scores/thresholds surfaced in a dedicated `MainWindow` debug panel.
+- [ ] [**US-028: Live perception standby, bot status visualization, and robust start focus workflow**](US-028-live-perception-standby-and-focus-workflow.md) — Standby read-only perception loop for live HUD/vitals/mobs inspection, dedicated status indicators, and reliable game window focus startup.
+
