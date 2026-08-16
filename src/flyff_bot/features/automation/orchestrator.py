@@ -13,18 +13,12 @@ from flyff_bot.features.automation.combat_execution import CombatInputAdapter, C
 from flyff_bot.features.automation.controllers import (
     CombatConfig,
     CombatController,
-    CombatDecision,
     CombatMode,
     KeyBinding,
-    LootConfig,
-    LootController,
-    LootDecision,
-    LootMode,
     SearchConfig,
     SearchController,
     SearchMode,
 )
-from flyff_bot.features.automation.loot_execution import LootInputDispatcher
 from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
@@ -52,7 +46,6 @@ class FarmingMode(StrEnum):
     SEARCHING = "searching"
     TARGETING = "targeting"
     COMBAT = "combat"
-    LOOTING = "looting"
     RECONCILING = "reconciling"
     COMPLETED = "completed"
     EMERGENCY_STOPPED = "emergency_stopped"
@@ -69,7 +62,6 @@ class FarmingConfig:
     """Explicit timing, controller, and item-goal settings for one session."""
 
     combat: CombatConfig = field(default_factory=CombatConfig)
-    loot: LootConfig = field(default_factory=LootConfig)
     desired_state: DesiredState = field(default_factory=DesiredState)
     goal: FarmingGoal | None = None
     tick_interval_seconds: float = DEFAULT_TICK_INTERVAL_SECONDS
@@ -127,12 +119,10 @@ class FarmingOrchestrator:
         self._supervisor = supervisor or Supervisor()
         self._config = config or FarmingConfig()
         self._combat = CombatController(self._config.combat)
-        self._loot = LootController(self._config.loot)
         self._search = SearchController(self._config.search)
         self._radar = MinimapRadar()
         self._vitals = VitalsTriggerController(self._config.vitals)
         self._combat_dispatcher = CombatInputDispatcher(input_adapter, window_handle)
-        self._loot_dispatcher = LootInputDispatcher(input_adapter, window_handle)
         self._search_dispatcher = SearchInputDispatcher(input_adapter, window_handle)
         self._vitals_dispatcher = VitalsInputDispatcher(input_adapter, window_handle)
         self._pathing = pathing
@@ -141,7 +131,6 @@ class FarmingOrchestrator:
         self._mode = FarmingMode.PAUSED
         self._state = _initial_world_state()
         self._last_frame: CapturedFrame | None = None
-        self._loot_combat = CombatDecision(CombatMode.FIGHTING)
         self._last_persist_at_seconds = 0.0
 
     @property
@@ -313,14 +302,11 @@ class FarmingOrchestrator:
                 self._mode = FarmingMode.SEARCHING
                 return False
             if combat.mode is CombatMode.TARGET_DEAD:
-                self._loot_combat = combat
-                self._mode = FarmingMode.LOOTING
-                return self._advance_loot()
+                self._state = replace(self._state, progress_marker=self._state.progress_marker + 1)
+                self._mode = FarmingMode.RECONCILING
+                return False
             self._mode = FarmingMode.COMBAT
             return self._combat_dispatcher.dispatch(combat)
-
-        if self._mode is FarmingMode.LOOTING:
-            return self._advance_loot()
 
         if self._mode is FarmingMode.RECONCILING:
             reconciliation = self._supervisor.reconcile(
@@ -349,14 +335,6 @@ class FarmingOrchestrator:
     def _persist_navigation(self) -> None:
         if self._pathing is not None:
             self._pathing.persist()
-
-    def _advance_loot(self) -> bool:
-        decision: LootDecision = self._loot.step(self._state, self._loot_combat)
-        self._loot_combat = CombatDecision(CombatMode.FIGHTING)
-        if decision.mode is LootMode.IDLE or decision.mode is LootMode.TIMED_OUT:
-            self._mode = FarmingMode.RECONCILING
-            return False
-        return self._loot_dispatcher.dispatch(decision)
 
     def _goal_completed(self) -> bool:
         goal = self._config.goal

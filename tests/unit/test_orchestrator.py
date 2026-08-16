@@ -105,7 +105,7 @@ def _orchestrator(
     )
 
 
-def test_runs_full_target_combat_loot_and_reconciliation_cycle() -> None:
+def test_runs_full_target_combat_and_reconciliation_cycle_without_looting() -> None:
     adapter = _InputAdapter()
     valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
     states = [
@@ -114,8 +114,6 @@ def test_runs_full_target_combat_loot_and_reconciliation_cycle() -> None:
         _state(3.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)),
         _state(4.0, target=SelectedTarget(TargetState.NONE, None, 0)),
         _state(5.0),
-        _state(6.0),
-        _state(7.0),
     ]
     orchestrator = _orchestrator(states, adapter)
     orchestrator.start()
@@ -123,12 +121,71 @@ def test_runs_full_target_combat_loot_and_reconciliation_cycle() -> None:
     assert orchestrator.tick().mode is FarmingMode.TARGETING
     assert orchestrator.tick().mode is FarmingMode.COMBAT
     assert orchestrator.tick().mode is FarmingMode.COMBAT
-    assert orchestrator.tick().mode is FarmingMode.LOOTING
-    assert orchestrator.tick().mode is FarmingMode.LOOTING
     assert orchestrator.tick().mode is FarmingMode.RECONCILING
     assert orchestrator.tick().mode is FarmingMode.SEARCHING
     assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
-    assert [key for key, _duration in adapter.keys] == [0x20, 0x20, 0x46]
+    assert [key for key, _duration in adapter.keys] == [0x20, 0x20]
+
+
+def test_kill_confirmation_advances_progress_and_avoids_no_progress_pause() -> None:
+    """Regression for US-025: progress must move from kill confirmation alone, with
+    no loot feed and no monster-stats OCR wired, so Supervisor.NO_PROGRESS never
+    false-fires purely because loot-log or kill-count OCR is unattached."""
+
+    adapter = _InputAdapter()
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    states = [
+        _state(1.0, mobs=(MOB,)),
+        _state(2.0, target=valid),
+        _state(3.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)),
+        _state(4.0, target=SelectedTarget(TargetState.NONE, None, 0)),
+    ]
+    assert all(state.monster_kill_count == 0 for state in states)
+    orchestrator = _orchestrator(states, adapter)
+    orchestrator.start()
+
+    orchestrator.tick()
+    orchestrator.tick()
+    orchestrator.tick()
+    result = orchestrator.tick()
+
+    assert result.mode is FarmingMode.RECONCILING
+    assert result.state.progress_marker == 1
+    assert result.reconciliation is not None
+    assert result.reconciliation.is_healthy
+    assert 0x46 not in [key for key, _duration in adapter.keys]
+
+
+def test_navigation_pathing_continues_uninterrupted_across_a_kill_transition() -> None:
+    from flyff_bot.features.navigation.pathing import PathingController
+
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    states = [
+        _state(1.0, mobs=(MOB,)),
+        _state(2.0, target=valid),
+        _state(3.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)),
+        _state(4.0, target=SelectedTarget(TargetState.NONE, None, 0)),
+        _state(5.0),
+    ]
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline(states)),
+        adapter,
+        WINDOW_HANDLE,
+        pathing=PathingController(),
+        dashboard_feed=feed,
+    )
+    orchestrator.start()
+
+    for _ in states:
+        orchestrator.tick()
+
+    assert orchestrator.mode is FarmingMode.SEARCHING
+    assert len(updates) == len(states)
+    assert all(update.navigation is not None for update in updates)
 
 
 def test_target_lost_without_damage_returns_to_search_without_looting() -> None:

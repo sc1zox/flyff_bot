@@ -38,7 +38,6 @@
   "help.farm": "Run the foreground-safe autonomous farming loop",
   "help.rotation_key": "Attack rotation key (may be repeated)",
   "help.attack_cooldown": "Cooldown for each attack key in seconds (default: {default})",
-  "help.loot_wait": "Loot OCR confirmation wait in seconds (default: {default})",
   "help.search_retry": "Delay before retrying a mob search in seconds (default: {default})",
   "help.search_idle_timeout": "Idle time before staged search begins in seconds (default: {default})",
   "help.search_rotation_duration": "Camera rotation pulse duration in seconds (default: {default})",

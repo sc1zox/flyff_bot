@@ -57,7 +57,6 @@ class Message(StrEnum):
     HELP_FARM = "help.farm"
     HELP_ROTATION_KEY = "help.rotation_key"
     HELP_ATTACK_COOLDOWN = "help.attack_cooldown"
-    HELP_LOOT_WAIT = "help.loot_wait"
     HELP_SEARCH_RETRY = "help.search_retry"
     HELP_SEARCH_IDLE_TIMEOUT = "help.search_idle_timeout"
     HELP_SEARCH_ROTATION_DURATION = "help.search_rotation_duration"

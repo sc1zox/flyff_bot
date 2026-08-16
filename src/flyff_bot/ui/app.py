@@ -28,7 +28,6 @@ from flyff_bot.features.navigation.persistence import load_spatial_map
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision import (
     DetectionConfig,
-    LootLogReader,
     OpenCVDnnYoloDetector,
     TargetVerifier,
     TesseractTextRecognizer,
@@ -146,7 +145,6 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         DetectionConfig(confidence_threshold=0.3),
                     ),
                     TargetVerifier({"Flame": flame_template}, anchor),
-                    LootLogReader(TesseractTextRecognizer()),
                     monster_stats_reader=MonsterStatsReader(TesseractTextRecognizer()),
                 )
                 navigation_map_path = Path(DEFAULT_NAVIGATION_MAP_PATH)

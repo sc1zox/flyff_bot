@@ -56,6 +56,15 @@ class LootFeed(Protocol):
         """Return pickups visible in this frame."""
 
 
+class _NullLootFeed:
+    """Default no-op loot feed used when no OCR-based reader is attached."""
+
+    def read(self, frame: CapturedFrame) -> tuple[LootEvent, ...]:
+        """Return no pickups without touching the frame or spawning a subprocess."""
+
+        return ()
+
+
 class PerceptionEventKind(StrEnum):
     """State transitions emitted by one perception tick."""
 
@@ -94,7 +103,7 @@ class PerceptionPipeline:
         frame_source: FrameSource,
         detector: Detector,
         target_verifier: TargetVerificationFeed,
-        loot_log_reader: LootFeed,
+        loot_log_reader: LootFeed | None = None,
         clock: Callable[[], float] = monotonic,
         vitals_reader: PlayerVitalsFeed | None = None,
         monster_stats_reader: MonsterStatsFeed | None = None,
@@ -102,7 +111,7 @@ class PerceptionPipeline:
         self._frame_source = frame_source
         self._detector = detector
         self._target_verifier = target_verifier
-        self._loot_log_reader = loot_log_reader
+        self._loot_log_reader = loot_log_reader or _NullLootFeed()
         self._clock = clock
         self._vitals_reader = vitals_reader or PlayerVitalsReader()
         self._monster_stats_reader = monster_stats_reader
@@ -155,8 +164,7 @@ class PerceptionPipeline:
             position=previous_state.position,
             nearby_mob_count=len(visible_mobs),
             inventory=inventory,
-            progress_marker=previous_state.progress_marker
-            + sum(event.count for event in confirmed_loot),
+            progress_marker=previous_state.progress_marker,
             is_stuck=previous_state.is_stuck,
             selected_target=selected_target,
             visible_mobs=visible_mobs,

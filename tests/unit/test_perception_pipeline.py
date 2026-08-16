@@ -115,7 +115,7 @@ def test_tick_aggregates_one_shared_frame_into_a_new_world_state() -> None:
     assert tick.state.observed_at_seconds == OBSERVED_AT_SECONDS
     assert tick.state.position == Position(3, 4)
     assert tick.state.inventory == (InventoryEntry("potion", 2), InventoryEntry("Sword", 1))
-    assert tick.state.progress_marker == 10
+    assert tick.state.progress_marker == 9
     assert tick.state.nearby_mob_count == 1
     assert tick.state.visible_mobs[0].class_name == "Aibatt"
     assert tick.state.selected_target == SelectedTarget(TargetState.VALID, "Aibatt", 20)
@@ -251,12 +251,12 @@ def test_tick_counts_new_loot_only_once_until_the_notification_clears() -> None:
     after_clear = pipeline.tick(WINDOW_HANDLE, cleared.state)
 
     assert first.state.inventory == (InventoryEntry("potion", 2), InventoryEntry("Sword", 2))
-    assert first.state.progress_marker == 11
+    assert first.state.progress_marker == 9
     assert repeated.state.inventory == first.state.inventory
     assert repeated.state.progress_marker == first.state.progress_marker
     assert cleared.state.recent_loot == ()
     assert after_clear.state.inventory == (InventoryEntry("potion", 2), InventoryEntry("Sword", 4))
-    assert after_clear.state.progress_marker == 13
+    assert after_clear.state.progress_marker == 9
 
 
 def test_loot_read_failure_retains_prior_inventory_and_progress() -> None:
@@ -278,6 +278,19 @@ def test_loot_read_failure_retains_prior_inventory_and_progress() -> None:
 
     assert tick.state.inventory == previous.inventory
     assert tick.state.progress_marker == previous.progress_marker
+
+
+def test_tick_operates_without_an_attached_loot_feed() -> None:
+    tick = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    ).tick(WINDOW_HANDLE, _previous_state())
+
+    assert tick.state.recent_loot == ()
+    assert tick.state.inventory == _previous_state().inventory
+    assert PerceptionFailure.LOOT_READING not in tick.failures
 
 
 class _VitalsReader:

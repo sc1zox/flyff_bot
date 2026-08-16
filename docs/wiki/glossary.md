@@ -73,12 +73,15 @@ related:
   quantity, and original OCR text.
 - **Loot controller** — The reactive state machine that starts one configured pickup-key attempt
   after explicit combat-death evidence, waits for newly emitted OCR loot confirmation, and requests
-  patrol movement once if the confirmation window expires.
+  patrol movement once if the confirmation window expires. Since US-025, it is no longer wired into
+  `FarmingOrchestrator`, which assumes an active in-game loot pet; it remains a standalone,
+  independently tested component.
 - **Loot input dispatcher** — The Win32-facing loot boundary that dispatches a pickup key only
-  while the specified game window is foregrounded and the END emergency stop is not active.
+  while the specified game window is foregrounded and the END emergency stop is not active. Since
+  US-025 it is no longer invoked by `FarmingOrchestrator`'s default kill-to-search transition.
 - **Loot de-duplication** — Treating an OCR pickup notification as new only when its item, count,
   and original text were absent from the preceding successful OCR read, so a notification that
-  remains visible does not increment inventory or recipe progress again.
+  remains visible does not increment inventory again.
 - **Perception pipeline** — The application service that captures one frame, independently
   aggregates mob, target, and loot observations into a new immutable world-state snapshot, and
   reports material state changes and non-fatal feed failures.
@@ -88,8 +91,11 @@ related:
 - **Perception failure** — A typed, non-fatal indication that detection, target verification, or
   loot reading failed for a tick; the snapshot retains that feed's prior value.
 - **Farming orchestrator** — A cooperative session state machine that performs one perception,
-  control, and guarded-dispatch cycle per tick across `SEARCHING`, `TARGETING`, `COMBAT`,
-  `LOOTING`, and `RECONCILING`; it pauses on lost foreground focus and latches emergency stops.
+  control, and guarded-dispatch cycle per tick across `SEARCHING`, `TARGETING`, `COMBAT`, and
+  `RECONCILING`; it pauses on lost foreground focus and latches emergency stops. Since US-025 a
+  confirmed kill (`CombatMode.TARGET_DEAD`) transitions directly into `RECONCILING` — bumping
+  `WorldState.progress_marker` for that kill — instead of the removed `LOOTING` mode, assuming an
+  active in-game loot pet.
 - **Farming goal** — An optional item name and required inventory quantity that completes a farming
   session when the immutable world-state inventory reaches the target.
 - **Attack key** — One supported virtual key (`A`–`Z`, `0`–`9`, Space, or `F1`–`F12`) that the

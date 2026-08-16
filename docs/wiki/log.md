@@ -140,3 +140,16 @@ first-passing to highest-scoring name-template matching; `hp_percentage`/`metric
 events; and the new localized `MainWindow` "Target Debug" toggle panel rendering live anchor, HP-bar,
 name-match, target-state, and failure-reason readouts; moved US-024 to the completed stories
 directory.
+
+## [2026-08-16] synthesis | Streamlined auto-looting and loot-log OCR decoupling (US-025)
+
+Recorded `FarmingOrchestrator`'s direct `TARGET_DEAD` → `RECONCILING` transition (removing
+`FarmingMode.LOOTING` and its key-press pickup wait, assuming an active in-game loot pet),
+`WorldState.progress_marker` now advancing from confirmed kills instead of summed loot-event
+counts so `Supervisor.NO_PROGRESS` stays accurate without any OCR feed attached, and
+`PerceptionPipeline`'s `loot_log_reader` becoming an optional parameter defaulting to a no-op feed
+that performs no subprocess or disk I/O; `LootController`, `LootConfig`, `LootMode`, and
+`LootInputDispatcher` remain standalone, independently tested components no longer wired into the
+orchestrator, and the CLI/desktop app no longer construct a Tesseract-backed `LootLogReader` for
+farming by default. Updated architecture and glossary; moved US-025 to the completed stories
+directory.

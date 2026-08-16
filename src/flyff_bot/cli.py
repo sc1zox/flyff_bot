@@ -29,7 +29,6 @@ from flyff_bot.constants import (
 from flyff_bot.features.automation.controllers import (
     CombatConfig,
     KeyBinding,
-    LootConfig,
     SearchConfig,
 )
 from flyff_bot.features.automation.models import DesiredState
@@ -194,12 +193,6 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         type=float,
         default=0.5,
         help=translator.text(Message.HELP_ATTACK_COOLDOWN, default=0.5),
-    )
-    parser.add_argument(
-        "--loot-wait",
-        type=float,
-        default=2.0,
-        help=translator.text(Message.HELP_LOOT_WAIT, default=2.0),
     )
     parser.add_argument(
         "--search-retry",
@@ -485,7 +478,6 @@ def _farming_orchestrator(
             ),
         ),
         TargetVerifier(templates, anchor),
-        LootLogReader(TesseractTextRecognizer()),
     )
     navigation_map_path = Path(args.navigation_map)
     return FarmingOrchestrator(
@@ -500,10 +492,6 @@ def _farming_orchestrator(
                 allowed_class_names=frozenset(args.class_name),
                 rotation=rotation,
                 key_press_duration_seconds=max(MINIMUM_KEY_DURATION_SECONDS, args.duration),
-            ),
-            loot=LootConfig(
-                key_press_duration_seconds=max(MINIMUM_KEY_DURATION_SECONDS, args.duration),
-                pickup_wait_seconds=args.loot_wait,
             ),
             desired_state=DesiredState(),
             goal=goal,

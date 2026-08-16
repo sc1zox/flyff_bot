@@ -38,7 +38,6 @@
   "help.farm": "Die autonome Farming-Schleife mit Vordergrundschutz ausführen",
   "help.rotation_key": "Taste der Angriffsrotation (mehrfach möglich)",
   "help.attack_cooldown": "Abklingzeit je Angriffstaste in Sekunden (Standard: {default})",
-  "help.loot_wait": "Wartezeit für OCR-Beutebestätigung in Sekunden (Standard: {default})",
   "help.search_retry": "Verzögerung vor erneuter Mobsuche in Sekunden (Standard: {default})",
   "help.search_idle_timeout": "Leerlaufzeit bis zur gestuften Suche in Sekunden (Standard: {default})",
   "help.search_rotation_duration": "Dauer eines Kameradrehimpulses in Sekunden (Standard: {default})",

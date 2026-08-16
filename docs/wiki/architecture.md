@@ -26,6 +26,7 @@ related:
   - ../user-stories/completed/US-020-visual-navigation-path-and-heatmap-inspector.md
   - ../user-stories/completed/US-021-navigation-map-profiles-and-session-reset.md
   - ../user-stories/completed/US-023-reliable-combat-targeting-and-kill-verification.md
+  - ../user-stories/completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md
 ---
 
 # Architecture
@@ -71,9 +72,11 @@ Game Client
      whitelisted name. It returns `VALID_TARGET`, `WRONG_TARGET`, or `NO_TARGET`, including an
      HP percentage calculated only from the target-bar sub-region, without dispatching any input.
    - **Perception pipeline:** `PerceptionPipeline` captures one frame per tick and passes that
-     shared frame to mob detection, target verification, and loot-log OCR. It maps their outputs
-     into a fresh immutable `WorldState`, emits target-change and newly-visible-mob events, and
-     records feed-specific failures while retaining the prior value for a failed feed.
+     shared frame to mob detection, target verification, and an optional loot-log OCR feed, which
+     defaults to a no-op reader that performs no subprocess or disk I/O when none is attached. It
+     maps their outputs into a fresh immutable `WorldState`, emits target-change and
+     newly-visible-mob events, and records feed-specific failures while retaining the prior value
+     for a failed feed.
    - **Training dataset:** `flyff_bot.features.training` provides an offline standard-YOLO
      dataset validator and an optional Ultralytics training/export adapter. The validator checks
      the train/validation image-label layout, image readability, matching label files, normalized
@@ -271,3 +274,19 @@ toggle and `MainWindow` panel (mirroring the existing vitals/combat panel patter
 anchor score/threshold, HP pixel count/percentage, best name-match candidate/score, overall target state, and
 a failure-reason row derived purely from the forwarded pass/fail booleans (never re-deriving verifier
 thresholds), always kept up to date in `_render_update` independent of the panel's own visibility toggle.
+
+US-025 decouples farming from key-press pickup and loot-log OCR, assuming an active in-game loot pet instead.
+`FarmingOrchestrator._advance()` now transitions a confirmed `CombatMode.TARGET_DEAD` directly into
+`FarmingMode.RECONCILING` (bumping `WorldState.progress_marker` by one for that kill) rather than into the
+removed `FarmingMode.LOOTING`, so a session moves from kill to search/re-targeting within one to two ticks
+with no blocking wait and no `F`-key pickup dispatch; `LootController`, `LootConfig`, `LootMode`, and
+`LootInputDispatcher` remain as standalone, independently tested components but are no longer wired into the
+orchestrator. Driving `progress_marker` from confirmed kills instead of summed loot-event counts keeps
+`Supervisor`'s `NO_PROGRESS` reconciliation check accurate without any OCR feed attached — previously it would
+have stalled after `no_progress_timeout_seconds` once loot OCR stopped running. `PerceptionPipeline`'s
+`loot_log_reader` constructor parameter is now optional and defaults to an internal no-op feed that returns no
+events and touches no subprocess or disk I/O; `WorldState.inventory` and `.recent_loot` stay typed and default
+to empty when no real `LootFeed` is attached, but the pipeline still updates them normally when one is. The CLI
+and desktop app no longer construct a `LootLogReader`/`TesseractTextRecognizer` pair for farming sessions by
+default; `--read-loot` remains an explicit opt-in diagnostic path unaffected by this change. Item-quantity
+`FarmingGoal` completion is unchanged and still requires an explicitly attached loot feed to observe inventory.
