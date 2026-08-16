@@ -34,6 +34,7 @@ from flyff_bot.features.vision import (
     TesseractTextRecognizer,
     WindowsFrameSource,
 )
+from flyff_bot.features.vision.monster_stats import MonsterStatsReader
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import DashboardFeed
 from flyff_bot.ui.main_window import MainWindow
@@ -146,6 +147,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     ),
                     TargetVerifier({"Flame": flame_template}, anchor),
                     LootLogReader(TesseractTextRecognizer()),
+                    monster_stats_reader=MonsterStatsReader(TesseractTextRecognizer()),
                 )
                 navigation_map_path = Path(DEFAULT_NAVIGATION_MAP_PATH)
                 orchestrator = FarmingOrchestrator(
@@ -153,7 +155,11 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     controller,
                     window_handle,
                     config=FarmingConfig(
-                        combat=CombatConfig(rotation=(KeyBinding(window.attack_virtual_key),)),
+                        combat=CombatConfig(
+                            rotation=(KeyBinding(window.attack_virtual_key),),
+                            target_acquisition_grace_seconds=window.target_grace_spin.value(),
+                            kill_verification_enabled=window.kill_verification_toggle.isChecked(),
+                        ),
                         vitals=window.get_vitals_config(),
                     ),
                     dashboard_feed=feed,
@@ -162,6 +168,8 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     ),
                 )
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
+                window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
+                window.kill_verification_changed.connect(orchestrator.configure_kill_verification)
                 connect_farming_controls(
                     window,
                     orchestrator,

@@ -31,6 +31,7 @@ from flyff_bot.features.automation.vitals_controller import (
 )
 from flyff_bot.features.input_control import InputControlError, InputErrorCode
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
+from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.i18n import Language, Translator
 from flyff_bot.ui.app import connect_farming_controls, start_farming
 from flyff_bot.ui.dashboard import (
@@ -317,12 +318,42 @@ def test_debug_overlay_widget_renders_cleanly_with_aspect_scaling() -> None:
         (),
         SelectedTarget(TargetState.NONE, None, 0),
         Translator(Language.ENGLISH),
+        monster_stats_config=MonsterStatsConfig(),
     )
     widget.setPixmap(pixmap)
     assert widget.pixmap() is pixmap
     assert widget.sizeHint().width() > 0
     assert widget.sizeHint().height() > 0
     widget.render(widget)
+
+
+def test_debug_overlay_draws_monster_stats_calibration_guide_box() -> None:
+    _application = QApplication.instance() or QApplication([])
+    config = MonsterStatsConfig()
+    frame = _frame()
+
+    pixmap = render_debug_overlay(
+        frame,
+        (),
+        SelectedTarget(TargetState.NONE, None, 0),
+        Translator(Language.ENGLISH),
+        monster_stats_config=config,
+    )
+    left, top, right, bottom = compute_monster_stats_roi(
+        frame.client_size.width, frame.client_size.height, config
+    )
+
+    assert not pixmap.isNull()
+    assert 0 <= left < right <= frame.client_size.width
+    assert 0 <= top < bottom <= frame.client_size.height
+
+    without_guide = render_debug_overlay(
+        frame,
+        (),
+        SelectedTarget(TargetState.NONE, None, 0),
+        Translator(Language.ENGLISH),
+    )
+    assert not without_guide.isNull()
 
 
 def test_main_window_debug_toggle_dynamically_adjusts_window_size() -> None:
@@ -513,6 +544,27 @@ def test_main_window_vitals_panel_toggle_and_config_signals(tmp_path: Path) -> N
     hp_rule = latest.rule_for(VitalTriggerType.HP)
     assert hp_rule is not None
     assert hp_rule.threshold_percentage == 85.0
+
+
+def test_main_window_combat_panel_toggle_and_config_signals() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert window.combat_panel.isHidden()
+    window.combat_toggle.setChecked(True)
+    assert not window.combat_panel.isHidden()
+
+    grace_values: list[float] = []
+    kill_verification_values: list[bool] = []
+    window.combat_grace_changed.connect(grace_values.append)
+    window.kill_verification_changed.connect(kill_verification_values.append)
+
+    window.target_grace_spin.setValue(1.5)
+    window.kill_verification_toggle.setChecked(True)
+    application.processEvents()
+
+    assert grace_values[-1] == pytest.approx(1.5)
+    assert kill_verification_values == [True]
 
 
 def _world_state() -> WorldState:

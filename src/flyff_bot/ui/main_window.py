@@ -834,11 +834,6 @@ class MainWindow(QMainWindow):
             )
         )
         if update.frame is not None:
-            monster_stats_cfg = (
-                MonsterStatsConfig()
-                if self._kill_verification_toggle.isChecked()
-                else None
-            )
             self._overlay_label.setPixmap(
                 render_debug_overlay(
                     update.frame,
@@ -846,7 +841,7 @@ class MainWindow(QMainWindow):
                     update.state.selected_target,
                     self._translator,
                     vitals=vitals,
-                    monster_stats_config=monster_stats_cfg,
+                    monster_stats_config=MonsterStatsConfig(),
                 )
             )
         if update.navigation is not None:

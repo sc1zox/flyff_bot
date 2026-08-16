@@ -117,3 +117,14 @@ coordination in architecture and glossary; moved US-018 to the completed stories
 ## [2026-08-16] synthesis | Navigation map profiles and session reset (US-021)
 
 Recorded the completed navigation profile slot management under data/navigation/, custom profile name validation and loading, modal reset safeguards purging dead-reckoning and spatial map memory, periodic and shutdown persistence hooks, and localized PySide6 UI profile controls; moved US-021 to the completed stories directory.
+
+## [2026-08-16] synthesis | Reliable combat targeting and kill verification (US-023)
+
+Recorded the completed target-acquisition click-debounce grace period, the attack-cooldown reset fix
+that guarantees a fresh engagement's hotkey fires even inside a prior binding's cooldown window,
+OCR-based `MonsterStatsReader` HUD kill-count extraction wired into `PerceptionPipeline` and
+`WorldState.monster_kill_count`, exact-`+1` kill-count-increment death confirmation as an authoritative
+alternative to HP-decrease-based confirmation, the resolution-scaled debug-overlay calibration guide
+box for aligning the in-game monster-stats HUD, and live dashboard configuration of the target-click
+grace period and kill-verification toggle via `FarmingOrchestrator.configure_combat_grace` and
+`configure_kill_verification`; moved US-023 to the completed stories directory.

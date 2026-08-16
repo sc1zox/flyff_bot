@@ -14,7 +14,7 @@ from flyff_bot.features.vision.loot_ocr import TextRecognizer
 from flyff_bot.features.vision.models import CapturedFrame, PixelFormat
 
 # Normalized ROI bounds for the monster stats HUD window.
-# Calibrated against 1600×900 reference: stats at approx x=235..410, y=30..120.
+# Calibrated against 1600x900 reference: stats at approx x=235..410, y=30..120.
 DEFAULT_MONSTER_STATS_ROI_LEFT = 0.147
 DEFAULT_MONSTER_STATS_ROI_TOP = 0.033
 DEFAULT_MONSTER_STATS_ROI_RIGHT = 0.256
@@ -47,9 +47,7 @@ class MonsterStatsConfig:
         if not 0.0 <= self.roi_top < self.roi_bottom <= 1.0:
             raise ValueError("Monster stats ROI top/bottom must be ordered within [0.0, 1.0].")
         if self.threshold_block_size < 3 or not self.threshold_block_size % 2:
-            raise ValueError(
-                "Threshold block size must be an odd integer of at least three."
-            )
+            raise ValueError("Threshold block size must be an odd integer of at least three.")
 
 
 class MonsterStatsFeed(Protocol):
@@ -84,7 +82,7 @@ class MonsterStatsReader:
         preprocessed = self._preprocess(roi)
         try:
             lines = self._recognizer.recognize(preprocessed)
-        except Exception:  # noqa: BLE001 — OCR failures are non-fatal
+        except Exception:  # OCR failures are non-fatal
             return None
 
         for line in lines:
@@ -97,9 +95,7 @@ class MonsterStatsReader:
         """Crop the monster stats region using normalized bounds."""
 
         height, width = pixels.shape[:2]
-        left, top, right, bottom = compute_monster_stats_roi(
-            width, height, self._config
-        )
+        left, top, right, bottom = compute_monster_stats_roi(width, height, self._config)
         if right <= left or bottom <= top:
             return np.empty((0, 0, 3), dtype=np.uint8)
         return pixels[top:bottom, left:right]
@@ -108,9 +104,7 @@ class MonsterStatsReader:
         """Convert to grayscale, enhance contrast, and threshold for OCR."""
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        clahe = cv2.createCLAHE(
-            clipLimit=CLAHE_CLIP_LIMIT, tileGridSize=CLAHE_TILE_GRID_SIZE
-        )
+        clahe = cv2.createCLAHE(clipLimit=CLAHE_CLIP_LIMIT, tileGridSize=CLAHE_TILE_GRID_SIZE)
         enhanced = clahe.apply(gray)
         return cast(
             "npt.NDArray[np.uint8]",

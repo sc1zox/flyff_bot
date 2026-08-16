@@ -178,6 +178,23 @@ class FarmingOrchestrator:
         self._config = replace(self._config, combat=combat)
         self._combat = CombatController(combat)
 
+    def configure_combat_grace(self, target_acquisition_grace_seconds: float) -> None:
+        """Apply a dashboard-selected target-click grace period mid-session."""
+
+        combat = replace(
+            self._config.combat,
+            target_acquisition_grace_seconds=target_acquisition_grace_seconds,
+        )
+        self._config = replace(self._config, combat=combat)
+        self._combat.update_config(combat)
+
+    def configure_kill_verification(self, enabled: bool) -> None:
+        """Toggle HUD monster-stats kill-count confirmation mid-session."""
+
+        combat = replace(self._config.combat, kill_verification_enabled=enabled)
+        self._config = replace(self._config, combat=combat)
+        self._combat.update_config(combat)
+
     def configure_vitals(self, config: VitalsTriggerConfig) -> None:
         """Apply vitals trigger configuration before or during a session."""
 

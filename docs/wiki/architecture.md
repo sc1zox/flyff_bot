@@ -25,6 +25,7 @@ related:
   - ../user-stories/completed/US-019-intelligent-pathing-and-spawn-heatmap.md
   - ../user-stories/completed/US-020-visual-navigation-path-and-heatmap-inspector.md
   - ../user-stories/completed/US-021-navigation-map-profiles-and-session-reset.md
+  - ../user-stories/completed/US-023-reliable-combat-targeting-and-kill-verification.md
 ---
 
 # Architecture
@@ -231,3 +232,23 @@ enforcing debounce cooldowns (default 800ms) and prioritizing low-HP emergency r
 emergency stop. The PySide6 dashboard exposes live vitals readouts, overlay annotations, and a configurable
 vitals trigger panel with automatic disk persistence to `data/vitals_config.json` and synchronized German/English
 translations.
+
+US-023 hardens `CombatController` engagement reliability and adds ground-truth kill verification. A
+configurable target-acquisition grace period (default 0.8s) keeps the state machine in `TARGETING` while
+waiting for the target header to register instead of resetting to `IDLE` and re-clicking the same world
+coordinate, which is what previously risked accidental double-click character walking. `_reset()` now also
+clears the attack cooldown timer, so a fresh engagement started while a prior binding's cooldown is still
+counting down still fires its hotkey on the very next tick rather than silently skipping it. `MonsterStatsReader`
+(`flyff_bot.features.vision.monster_stats`) OCR-extracts the HUD `Monster Kills: <int>` counter from a
+resolution-scaled ROI and feeds it into `WorldState.monster_kill_count` through `PerceptionPipeline`.
+`CombatController` treats a clean `+1` increment of that counter as authoritative kill confirmation independent
+of HP tracking; requiring an exact `+1` (rather than any increase) rejects the large jump produced when OCR
+first succeeds mid-engagement and reports the session's running total instead of a genuine one-kill delta. Kill
+confirmation remains an `OR` with the existing HP-based path: target HP reaching zero or the target bar
+disappearing only counts as a kill after measurable HP decrease was observed during the fight, otherwise it is
+`TARGET_LOST` and the orchestrator returns to searching rather than handing off to `LootController`. The debug
+overlay renders a resolution-scaled calibration guide box so operators can align the in-game monster-stats HUD
+window with the ROI `MonsterStatsReader` reads. Both the target-acquisition grace period and the kill-count
+verification toggle are dashboard-configurable and apply live via `FarmingOrchestrator.configure_combat_grace`
+and `configure_kill_verification`, which update the running `CombatController`'s configuration without resetting
+its in-progress engagement state.

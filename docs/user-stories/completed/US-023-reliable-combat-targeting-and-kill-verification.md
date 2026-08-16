@@ -1,7 +1,7 @@
 ---
 id: US-023
 title: Reliable combat targeting, click debouncing, and monster kill verification
-status: draft
+status: completed
 created: 2026-08-16
 updated: 2026-08-16
 ---
@@ -43,19 +43,19 @@ As a player using the autonomous farming bot, I want the combat controller to de
 
 ## Acceptance criteria
 
-- [ ] `CombatController` implements target click debouncing with a configurable acquisition grace window (default 0.8s) that prevents sending multiple rapid clicks for the same target acquisition attempt.
-- [ ] Transitioning from `TARGETING` to `ENGAGING` guarantees that the configured attack hotkey is dispatched without being skipped by intermediate tick state resets.
-- [ ] During `FIGHTING`, transient single-frame target-header verification dropouts do not immediately reset combat or trigger loot routines; an engagement timeout/grace period is maintained.
-- [ ] `MonsterStatsReader` (or OCR perception feed) extracts the numeric `Monster Kills` count from the top-left HUD stats area with resolution scaling support.
-- [ ] `WorldState` reflects the verified kill count and tracks combat kill events.
-- [ ] Target death confirmation requires either:
+- [x] `CombatController` implements target click debouncing with a configurable acquisition grace window (default 0.8s) that prevents sending multiple rapid clicks for the same target acquisition attempt.
+- [x] Transitioning from `TARGETING` to `ENGAGING` guarantees that the configured attack hotkey is dispatched without being skipped by intermediate tick state resets.
+- [x] During `FIGHTING`, transient single-frame target-header verification dropouts do not immediately reset combat or trigger loot routines; an engagement timeout/grace period is maintained.
+- [x] `MonsterStatsReader` (or OCR perception feed) extracts the numeric `Monster Kills` count from the top-left HUD stats area with resolution scaling support.
+- [x] `WorldState` reflects the verified kill count and tracks combat kill events.
+- [x] Target death confirmation requires either:
   - An increment in the observed `Monster Kills` counter, OR
   - Target HP reaching 0% / target bar disappearing *after* measurable HP decrease was observed during combat.
-- [ ] If a target is lost before any damage is dealt, the orchestrator returns to targeting the candidate rather than transitioning to `LootController`.
-- [ ] The PySide6 visual debug overlay renders a distinct calibration guide box outlining the expected position and bounds of the in-game monster stats window across all supported client resolutions.
-- [ ] Dashboard settings expose options to configure the target click grace period and toggle monster stats kill verification.
-- [ ] All new UI controls, overlay guide labels, tooltips, and status descriptions are fully synchronized in German (`de.json`) and English (`en.json`).
-- [ ] Automated unit tests in `tests/unit/` verify:
+- [x] If a target is lost before any damage is dealt, the orchestrator returns to targeting the candidate rather than transitioning to `LootController`.
+- [x] The PySide6 visual debug overlay renders a distinct calibration guide box outlining the expected position and bounds of the in-game monster stats window across all supported client resolutions.
+- [x] Dashboard settings expose options to configure the target click grace period and toggle monster stats kill verification.
+- [x] All new UI controls, overlay guide labels, tooltips, and status descriptions are fully synchronized in German (`de.json`) and English (`en.json`).
+- [x] Automated unit tests in `tests/unit/` verify:
   - Target click debouncing and prevention of duplicate clicks within the acquisition window.
   - Reliable attack hotkey dispatching upon valid target acquisition.
   - Distinguishing genuine target death from un-damaged target loss.

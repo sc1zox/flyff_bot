@@ -46,6 +46,7 @@ def _state(
     target: SelectedTarget = NO_TARGET,
     mobs: tuple[VisibleMob, ...] = (),
     viewport: Viewport = DEFAULT_VIEWPORT,
+    monster_kill_count: int = 0,
 ) -> WorldState:
     return WorldState(
         observed_at_seconds=time,
@@ -56,6 +57,7 @@ def _state(
         selected_target=target,
         visible_mobs=mobs,
         viewport=viewport,
+        monster_kill_count=monster_kill_count,
     )
 
 
@@ -75,10 +77,13 @@ def test_progresses_from_targeting_through_fighting_until_target_dies() -> None:
     controller = CombatController()
 
     assert controller.step(_state(mobs=(_mob(),))).mode is CombatMode.TARGETING
-    assert controller.step(_state(time=1.0, target=VALID_TARGET)).mode is CombatMode.ENGAGING
     attack = controller.step(_state(time=1.0, target=VALID_TARGET))
     assert attack.mode is CombatMode.FIGHTING
     assert attack.input_kind is CombatInputKind.KEY
+    damaged = controller.step(
+        _state(time=1.5, target=SelectedTarget(TargetState.VALID, "Mushpang", 50))
+    )
+    assert damaged.progress_observed
     assert controller.step(
         _state(time=2.0, target=SelectedTarget(TargetState.NONE, None, 0))
     ).mode is (CombatMode.TARGET_DEAD)
@@ -90,7 +95,6 @@ def test_rotation_honors_cooldowns_and_reports_hp_progress() -> None:
         CombatConfig(rotation=(KeyBinding(VIRTUAL_KEY_1, 2.0), KeyBinding(VIRTUAL_KEY_C, 0.0)))
     )
     controller.step(_state(mobs=(_mob(),)))
-    controller.step(_state(time=1.0, target=VALID_TARGET))
 
     first = controller.step(_state(time=1.0, target=VALID_TARGET))
     waiting = controller.step(
@@ -113,8 +117,73 @@ def test_rejects_unverified_target_and_empty_candidates() -> None:
     controller.step(_state(mobs=(_mob(),)))
     assert (
         controller.step(_state(target=SelectedTarget(TargetState.WRONG, None, 100))).mode
+        is CombatMode.TARGETING
+    )
+    assert (
+        controller.step(_state(time=1.0, target=SelectedTarget(TargetState.WRONG, None, 100))).mode
         is CombatMode.IDLE
     )
+
+
+def test_undamaged_target_loss_is_not_reported_as_a_kill() -> None:
+    controller = CombatController()
+    controller.step(_state(mobs=(_mob(),)))
+    assert controller.step(_state(time=1.0, target=VALID_TARGET)).mode is CombatMode.FIGHTING
+
+    lost = controller.step(_state(time=1.5, target=NO_TARGET))
+
+    assert lost.mode is CombatMode.TARGET_LOST
+    assert not lost.damage_dealt
+
+
+def test_kill_count_increment_confirms_death_without_hp_evidence() -> None:
+    controller = CombatController(CombatConfig(kill_verification_enabled=True))
+
+    controller.step(_state(mobs=(_mob(),), monster_kill_count=5))
+    attack = controller.step(_state(time=1.0, target=VALID_TARGET, monster_kill_count=5))
+    assert attack.mode is CombatMode.FIGHTING
+
+    confirmed = controller.step(_state(time=1.5, target=VALID_TARGET, monster_kill_count=6))
+
+    assert confirmed.mode is CombatMode.TARGET_DEAD
+    assert confirmed.damage_dealt
+
+
+def test_stale_kill_count_jump_does_not_falsely_confirm_death() -> None:
+    """A first successful OCR read mid-fight reports the session total, not a +1 delta."""
+
+    controller = CombatController(CombatConfig(kill_verification_enabled=True))
+
+    controller.step(_state(mobs=(_mob(),), monster_kill_count=0))
+    attack = controller.step(_state(time=1.0, target=VALID_TARGET, monster_kill_count=0))
+    assert attack.mode is CombatMode.FIGHTING
+
+    stale_jump = controller.step(_state(time=1.5, target=VALID_TARGET, monster_kill_count=47))
+
+    assert stale_jump.mode is CombatMode.FIGHTING
+
+
+def test_new_engagement_attacks_immediately_despite_previous_cooldown() -> None:
+    controller = CombatController(CombatConfig(rotation=(KeyBinding(VIRTUAL_KEY_1, 100.0),)))
+
+    controller.step(_state(mobs=(_mob(),)))
+    first_attack = controller.step(_state(time=1.0, target=VALID_TARGET))
+    assert first_attack.virtual_key == VIRTUAL_KEY_1
+
+    damaged = controller.step(
+        _state(time=1.1, target=SelectedTarget(TargetState.VALID, "Mushpang", 50))
+    )
+    assert damaged.progress_observed
+    dead = controller.step(_state(time=1.2, target=SelectedTarget(TargetState.NONE, None, 0)))
+    assert dead.mode is CombatMode.TARGET_DEAD
+    assert controller.step(_state(time=1.3)).mode is CombatMode.IDLE
+
+    controller.step(_state(time=1.4, mobs=(_mob(),)))
+    new_attack = controller.step(_state(time=1.5, target=VALID_TARGET))
+
+    assert new_attack.mode is CombatMode.FIGHTING
+    assert new_attack.input_kind is CombatInputKind.KEY
+    assert new_attack.virtual_key == VIRTUAL_KEY_1
 
 
 @pytest.mark.parametrize("virtual_key", [ord("0"), ord("A"), VIRTUAL_KEY_F1])
@@ -166,7 +235,6 @@ def test_input_dispatcher_sends_approved_click_and_key() -> None:
     dispatcher = CombatInputDispatcher(adapter, WINDOW_HANDLE)
 
     assert dispatcher.dispatch(controller.step(_state(mobs=(_mob(),))))
-    controller.step(_state(time=1.0, target=VALID_TARGET))
     assert dispatcher.dispatch(controller.step(_state(time=1.0, target=VALID_TARGET)))
     assert adapter.clicks == [(WINDOW_HANDLE, 20, 25)]
     assert adapter.keys

@@ -186,6 +186,7 @@ class CombatConfig:
     key_press_duration_seconds: float = DEFAULT_KEY_PRESS_DURATION_SECONDS
     target_acquisition_grace_seconds: float = DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS
     engagement_grace_seconds: float = DEFAULT_ENGAGEMENT_GRACE_SECONDS
+    kill_verification_enabled: bool = False
 
     def __post_init__(self) -> None:
         if not self.rotation:
@@ -247,9 +248,15 @@ class CombatController:
         self._rotation_index = 0
         self._next_attack_at_seconds = 0.0
         self._previous_hp_pixel_count: int | None = None
+        self._previous_kill_count: int | None = None
         self._targeting_started_at_seconds: float | None = None
         self._engagement_grace_expires_at: float | None = None
         self._damage_dealt = False
+
+    def update_config(self, config: CombatConfig) -> None:
+        """Apply a new configuration without resetting the in-progress engagement."""
+
+        self._config = config
 
     def step(self, state: WorldState) -> CombatDecision:
         """Advance one state-machine tick without dispatching platform input."""
@@ -260,6 +267,7 @@ class CombatController:
                 return CombatDecision(CombatMode.IDLE)
             self._mode = CombatMode.TARGETING
             self._targeting_started_at_seconds = state.observed_at_seconds
+            self._previous_kill_count = state.monster_kill_count
             return CombatDecision(
                 CombatMode.TARGETING,
                 CombatInputKind.CLICK,
@@ -273,43 +281,39 @@ class CombatController:
                 self._targeting_started_at_seconds = None
                 return self._attack_if_ready(state)
             grace_deadline = (
-                (self._targeting_started_at_seconds or 0.0)
-                + self._config.target_acquisition_grace_seconds
-            )
+                self._targeting_started_at_seconds or 0.0
+            ) + self._config.target_acquisition_grace_seconds
             if state.observed_at_seconds < grace_deadline:
                 return CombatDecision(CombatMode.TARGETING)
             self._reset()
             return CombatDecision(CombatMode.IDLE)
 
         if self._mode is CombatMode.ENGAGING:
+            if self._kill_count_incremented(state):
+                self._mode = CombatMode.TARGET_DEAD
+                return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=True)
             return self._attack_if_ready(state)
 
         if self._mode is CombatMode.FIGHTING:
+            if self._kill_count_incremented(state):
+                self._mode = CombatMode.TARGET_DEAD
+                return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=True)
             if state.selected_target.hp_pixel_count == 0 and self._damage_dealt:
                 self._mode = CombatMode.TARGET_DEAD
-                return CombatDecision(
-                    CombatMode.TARGET_DEAD, damage_dealt=self._damage_dealt
-                )
+                return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=self._damage_dealt)
             if state.selected_target.state is TargetState.NONE:
                 if self._damage_dealt:
                     self._mode = CombatMode.TARGET_DEAD
-                    return CombatDecision(
-                        CombatMode.TARGET_DEAD, damage_dealt=True
-                    )
+                    return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=True)
                 self._mode = CombatMode.TARGET_LOST
-                return CombatDecision(
-                    CombatMode.TARGET_LOST, damage_dealt=False
-                )
+                return CombatDecision(CombatMode.TARGET_LOST, damage_dealt=False)
             if state.selected_target.state is not TargetState.VALID:
                 if self._engagement_grace_expires_at is None:
                     self._engagement_grace_expires_at = (
-                        state.observed_at_seconds
-                        + self._config.engagement_grace_seconds
+                        state.observed_at_seconds + self._config.engagement_grace_seconds
                     )
                 if state.observed_at_seconds < self._engagement_grace_expires_at:
-                    return CombatDecision(
-                        CombatMode.FIGHTING, damage_dealt=self._damage_dealt
-                    )
+                    return CombatDecision(CombatMode.FIGHTING, damage_dealt=self._damage_dealt)
                 self._reset()
                 return CombatDecision(CombatMode.IDLE)
             self._engagement_grace_expires_at = None
@@ -371,12 +375,30 @@ class CombatController:
         self._previous_hp_pixel_count = hp_pixel_count
         return progress
 
+    def _kill_count_incremented(self, state: WorldState) -> bool:
+        """Track the HUD kill counter and report a clean single-kill increment.
+
+        Requiring exactly +1 (rather than any increase) rejects the large jump produced
+        when OCR first succeeds mid-engagement and reports the session's true running
+        total instead of a genuine one-kill delta.
+        """
+
+        previous = self._previous_kill_count
+        self._previous_kill_count = state.monster_kill_count
+        return (
+            self._config.kill_verification_enabled
+            and previous is not None
+            and state.monster_kill_count == previous + 1
+        )
+
     def _reset(self) -> None:
         self._mode = CombatMode.IDLE
         self._previous_hp_pixel_count = None
+        self._previous_kill_count = None
         self._targeting_started_at_seconds = None
         self._engagement_grace_expires_at = None
         self._damage_dealt = False
+        self._next_attack_at_seconds = 0.0
 
 
 def _mob_center(mob: VisibleMob) -> Position:

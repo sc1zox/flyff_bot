@@ -111,7 +111,7 @@ def test_runs_full_target_combat_loot_and_reconciliation_cycle() -> None:
     states = [
         _state(1.0, mobs=(MOB,)),
         _state(2.0, target=valid),
-        _state(3.0, target=valid),
+        _state(3.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)),
         _state(4.0, target=SelectedTarget(TargetState.NONE, None, 0)),
         _state(5.0),
         _state(6.0),
@@ -128,7 +128,27 @@ def test_runs_full_target_combat_loot_and_reconciliation_cycle() -> None:
     assert orchestrator.tick().mode is FarmingMode.RECONCILING
     assert orchestrator.tick().mode is FarmingMode.SEARCHING
     assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
-    assert [key for key, _duration in adapter.keys] == [0x20, 0x46]
+    assert [key for key, _duration in adapter.keys] == [0x20, 0x20, 0x46]
+
+
+def test_target_lost_without_damage_returns_to_search_without_looting() -> None:
+    adapter = _InputAdapter()
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    orchestrator = _orchestrator(
+        [
+            _state(1.0, mobs=(MOB,)),
+            _state(2.0, target=valid),
+            _state(3.0, target=SelectedTarget(TargetState.NONE, None, 0)),
+        ],
+        adapter,
+    )
+    orchestrator.start()
+
+    orchestrator.tick()
+    orchestrator.tick()
+
+    assert orchestrator.tick().mode is FarmingMode.SEARCHING
+    assert 0x46 not in [key for key, _duration in adapter.keys]
 
 
 def test_search_waits_for_the_configured_retry_interval_without_input() -> None:
@@ -192,13 +212,12 @@ def test_configured_attack_key_is_dispatched_for_target_engagement() -> None:
     adapter = _InputAdapter()
     valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
     orchestrator = _orchestrator(
-        [_state(1.0, mobs=(MOB,)), _state(2.0, target=valid), _state(3.0, target=valid)],
+        [_state(1.0, mobs=(MOB,)), _state(2.0, target=valid)],
         adapter,
     )
     orchestrator.configure_attack_key(VIRTUAL_KEY_F1)
     orchestrator.start()
 
-    orchestrator.tick()
     orchestrator.tick()
     orchestrator.tick()
 
