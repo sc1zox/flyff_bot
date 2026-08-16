@@ -25,7 +25,7 @@ updated: 2026-08-17
 
 ## Expected behavior
 
-Per [US-010](../../user-stories/completed/US-010-pyside6-dashboard-and-overlay.md), [US-013](../../user-stories/completed/US-013-autonomous-farming-loop-and-orchestration-engine.md), and [US-028](../../user-stories/US-028-live-perception-standby-and-focus-workflow.md):
+Per [US-010](../../user-stories/completed/US-010-pyside6-dashboard-and-overlay.md), [US-013](../../user-stories/completed/US-013-autonomous-farming-loop-and-orchestration-engine.md), and [US-028](../../user-stories/completed/US-028-live-perception-standby-and-focus-workflow.md):
 - In standby mode (paused), the perception pipeline should capture frames and stream real-time vitals, monster counts, target debug metrics, and placement guide overlays to the UI in read-only mode without sending input.
 - Clicking "Starten" should bring the game window into the foreground and transition directly into the active farming loop.
 - If the game window is not foregrounded, the UI must clearly display a focus waiting/error status (e.g. "Warte auf Spielfokus" / "Spielfenster nicht gefunden") instead of silently pausing without feedback.
@@ -45,5 +45,7 @@ Per [US-010](../../user-stories/completed/US-010-pyside6-dashboard-and-overlay.m
 
 - [x] Automated tests in `tests/unit/test_input_control.py` verifying foreground window restore, settling period, and focus verification on start.
 - [x] Window focus restoration and settle loop implemented in `WindowsInputController.focus_window()`.
-- [x] Standby perception loop and status badge decoupling deferred and tracked in [US-028](../../user-stories/US-028-live-perception-standby-and-focus-workflow.md).
+- [x] Automated tests in `tests/unit/test_orchestrator.py` verifying standby perception execution and status publishing without input dispatch.
+- [x] Automated tests in `tests/unit/test_ui.py` verifying status badge separation and window state indications.
+- [x] The checks pass after implementing [US-028](../../user-stories/completed/US-028-live-perception-standby-and-focus-workflow.md).
 - [x] Related documentation is current.

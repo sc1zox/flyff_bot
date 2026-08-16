@@ -30,13 +30,24 @@ from flyff_bot.features.automation.vitals_controller import (
 )
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
 from flyff_bot.features.navigation.pathing import PathingController
-from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
+from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision.minimap_radar import MinimapRadar
-from flyff_bot.features.vision.models import CapturedFrame
-from flyff_bot.ui.dashboard import BotStatus, DashboardFeed, DashboardUpdate, FarmingGoal
+from flyff_bot.features.vision.models import (
+    CapturedFrame,
+    FrameCaptureError,
+    FrameCaptureErrorCode,
+)
+from flyff_bot.ui.dashboard import (
+    BotStatus,
+    DashboardFeed,
+    DashboardUpdate,
+    FarmingGoal,
+    WindowStatus,
+)
 
 DEFAULT_TICK_INTERVAL_SECONDS = 0.1
 DEFAULT_SEARCH_RETRY_SECONDS = 0.5
+NAVIGATION_PERSIST_INTERVAL_SECONDS = 30.0
 
 
 class FarmingMode(StrEnum):
@@ -49,6 +60,18 @@ class FarmingMode(StrEnum):
     RECONCILING = "reconciling"
     COMPLETED = "completed"
     EMERGENCY_STOPPED = "emergency_stopped"
+
+
+STANDBY_MODES = frozenset(
+    {FarmingMode.PAUSED, FarmingMode.COMPLETED, FarmingMode.EMERGENCY_STOPPED}
+)
+
+WINDOW_STATUS_BY_CAPTURE_CODE = {
+    FrameCaptureErrorCode.INVALID_WINDOW: WindowStatus.NOT_FOUND,
+    FrameCaptureErrorCode.MINIMIZED: WindowStatus.MINIMIZED,
+    FrameCaptureErrorCode.OCCLUDED: WindowStatus.NOT_FOREGROUND,
+    FrameCaptureErrorCode.CAPTURE_FAILED: WindowStatus.CAPTURE_FAILED,
+}
 
 
 class FarmingInputAdapter(
@@ -132,6 +155,8 @@ class FarmingOrchestrator:
         self._state = _initial_world_state()
         self._last_frame: CapturedFrame | None = None
         self._last_persist_at_seconds = 0.0
+        self._window_status = WindowStatus.NOT_FOREGROUND
+        self._has_live_frame = False
 
     @property
     def mode(self) -> FarmingMode:
@@ -225,7 +250,8 @@ class FarmingOrchestrator:
     def tick(self) -> FarmingTick:
         """Perform at most one perception, decision, and guarded-dispatch cycle."""
 
-        if self._mode in {FarmingMode.PAUSED, FarmingMode.COMPLETED, FarmingMode.EMERGENCY_STOPPED}:
+        if self._mode in STANDBY_MODES:
+            self._observe()
             return self._publish(False)
         if self._input_adapter.is_aborted():
             self.emergency_stop()
@@ -233,14 +259,15 @@ class FarmingOrchestrator:
         if not self._input_adapter.is_foreground(self._window_handle):
             self.pause()
             return self._publish(False)
+        if not self._observe():
+            self.pause()
+            return self._publish(False)
 
-        perception = self._pipeline.tick(self._window_handle, self._state)
-        self._state = perception.state
-        self._last_frame = perception.frame
         if self._pathing is not None:
             self._pathing.observe(self._state, self._last_frame)
             self._state = replace(self._state, is_stuck=self._pathing.is_stalled)
-            if self._state.observed_at_seconds - self._last_persist_at_seconds >= 30.0:
+            elapsed = self._state.observed_at_seconds - self._last_persist_at_seconds
+            if elapsed >= NAVIGATION_PERSIST_INTERVAL_SECONDS:
                 self._persist_navigation()
                 self._last_persist_at_seconds = self._state.observed_at_seconds
         if self._goal_completed():
@@ -254,26 +281,44 @@ class FarmingOrchestrator:
             if dispatched:
                 return self._publish(True)
 
-        dispatched = self._advance(perception)
+        dispatched = self._advance()
         return self._publish(dispatched)
 
     async def run(self, sleep: Callable[[float], Awaitable[object]] = asyncio.sleep) -> None:
         """Run cooperative ticks until paused, completed, or emergency-stopped."""
 
-        while self._mode not in {
-            FarmingMode.PAUSED,
-            FarmingMode.COMPLETED,
-            FarmingMode.EMERGENCY_STOPPED,
-        }:
+        while self._mode not in STANDBY_MODES:
             self.tick()
-            if self._mode not in {
-                FarmingMode.PAUSED,
-                FarmingMode.COMPLETED,
-                FarmingMode.EMERGENCY_STOPPED,
-            }:
+            if self._mode not in STANDBY_MODES:
                 await sleep(self._config.tick_interval_seconds)
 
-    def _advance(self, perception: PerceptionTick) -> bool:
+    def _observe(self) -> bool:
+        """Refresh read-only perception state and report whether a frame was captured.
+
+        This dispatches no input, so it is also the standby path that keeps vitals,
+        mob counts, target debug metrics, and the debug overlay live while paused.
+        """
+
+        try:
+            perception = self._pipeline.tick(self._window_handle, self._state)
+        except FrameCaptureError as error:
+            self._window_status = WINDOW_STATUS_BY_CAPTURE_CODE.get(
+                error.code, WindowStatus.CAPTURE_FAILED
+            )
+            self._last_frame = None
+            self._has_live_frame = False
+            return False
+        self._state = perception.state
+        self._last_frame = perception.frame
+        self._has_live_frame = True
+        self._window_status = (
+            WindowStatus.OK
+            if self._input_adapter.is_foreground(self._window_handle)
+            else WindowStatus.NOT_FOREGROUND
+        )
+        return True
+
+    def _advance(self) -> bool:
         if self._mode is FarmingMode.SEARCHING:
             combat = self._combat.step(self._state)
             if combat.mode is not CombatMode.IDLE:
@@ -357,6 +402,7 @@ class FarmingOrchestrator:
                     _dashboard_status(
                         self._mode,
                         self._search.mode if self._mode is FarmingMode.SEARCHING else None,
+                        live_preview=self._has_live_frame,
                     ),
                     self._config.goal,
                     frame=self._last_frame,
@@ -365,18 +411,24 @@ class FarmingOrchestrator:
                         if self._pathing is not None
                         else None
                     ),
+                    window=self._window_status,
                 )
             )
         return tick
 
 
-def _dashboard_status(mode: FarmingMode, search_mode: SearchMode | None = None) -> BotStatus:
+def _dashboard_status(
+    mode: FarmingMode,
+    search_mode: SearchMode | None = None,
+    *,
+    live_preview: bool = False,
+) -> BotStatus:
     if mode is FarmingMode.RECONCILING:
         return BotStatus.RECONCILING
     if mode is FarmingMode.EMERGENCY_STOPPED:
         return BotStatus.EMERGENCY_STOPPED
     if mode in {FarmingMode.PAUSED, FarmingMode.COMPLETED}:
-        return BotStatus.PAUSED
+        return BotStatus.STANDBY if live_preview else BotStatus.PAUSED
     if mode is FarmingMode.SEARCHING:
         return {
             SearchMode.ROTATE: BotStatus.SEARCH_ROTATING,
@@ -384,6 +436,8 @@ def _dashboard_status(mode: FarmingMode, search_mode: SearchMode | None = None) 
             SearchMode.ROAM_STEP: BotStatus.SEARCH_ROAMING,
             SearchMode.MINIMAP_RADAR: BotStatus.SEARCH_MINIMAP,
         }[search_mode or SearchMode.ROTATE]
+    if mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:
+        return BotStatus.COMBAT
     return BotStatus.ACTIVE
 
 

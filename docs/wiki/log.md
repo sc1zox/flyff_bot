@@ -162,3 +162,14 @@ Recorded the fixed-pixel top-left player vitals HUD anchoring (resolving BUG-006
 
 Recorded the modern Dark Slate QSS theme (`src/flyff_bot/ui/theme.qss` / `src/flyff_bot/ui/theme.py`), card-based panel grouping (Status & Telemetry, Controls, Navigation & Profiles, Diagnostics & Views), dynamic status pill badges and metric chips, standalone pop-out `NavigationMapWindow` for the 2D path inspector, and `Escape` key emergency stop shortcut in the architecture and glossary wikis; moved US-022 to the completed stories directory.
 
+## [2026-08-17] synthesis | Live perception standby and focus workflow (US-028)
+
+Recorded standby read-only perception in `FarmingOrchestrator._observe()` for `STANDBY_MODES`
+(paused, completed, emergency-stopped) with navigation observation kept on the active path,
+`FrameCaptureError` handling that pauses a running session instead of raising out of the Qt timer,
+`WindowsFrameSource(require_foreground=False)` for the background standby preview and its occlusion
+tradeoff, the typed `WindowStatus` published on `DashboardUpdate`, and the dashboard's separation of
+the bot-status badge (`BotStatus.STANDBY` / `BotStatus.COMBAT` added) from dedicated mob-count,
+target-state, vitals, and goal chips. Updated architecture and glossary; moved US-028 to the
+completed stories directory and BUG-007 to fixed bugs.
+

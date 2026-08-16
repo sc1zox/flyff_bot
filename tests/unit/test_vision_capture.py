@@ -112,6 +112,30 @@ def test_capture_reports_typed_window_and_gdi_errors(
     assert error.value.code is expected_code
 
 
+def test_read_only_source_captures_a_background_client_for_standby_preview() -> None:
+    api = _FakeCaptureApi(foreground=False)
+
+    frame = WindowsFrameSource(require_foreground=False, _api=api).capture(WINDOW_HANDLE)
+
+    assert frame.client_size == ClientSize(2, 1)
+
+
+@pytest.mark.parametrize(
+    ("api", "expected_code"),
+    [
+        (_FakeCaptureApi(valid=False, foreground=False), FrameCaptureErrorCode.INVALID_WINDOW),
+        (_FakeCaptureApi(minimized=True, foreground=False), FrameCaptureErrorCode.MINIMIZED),
+    ],
+)
+def test_read_only_source_still_rejects_closed_or_minimized_windows(
+    api: _FakeCaptureApi, expected_code: FrameCaptureErrorCode
+) -> None:
+    with pytest.raises(FrameCaptureError) as error:
+        WindowsFrameSource(require_foreground=False, _api=api).capture(WINDOW_HANDLE)
+
+    assert error.value.code is expected_code
+
+
 def test_default_source_rejects_unsupported_platform(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("flyff_bot.features.vision.capture.sys.platform", "unsupported")
 

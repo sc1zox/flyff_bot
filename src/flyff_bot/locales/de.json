@@ -67,6 +67,8 @@
   "status.training_complete": "Monsterdetektor nach {model} exportiert; Labels in {labels} geschrieben",
   "error.training_failed": "Training des Monsterdetektors fehlgeschlagen: {reason}",
   "ui.status_active": "Aktiv",
+  "ui.status_standby": "Bereit (Live-Vorschau)",
+  "ui.status_combat": "Kämpft",
   "ui.status_paused": "Pausiert",
   "ui.status_emergency_stopped": "Notgestoppt",
   "ui.status_reconciling": "Heilung / Abgleich",
@@ -154,5 +156,10 @@
   "ui.popout_map": "Karte ausdocken",
   "ui.dock_map": "Karte eindocken",
   "ui.map_window_title": "Navigationskarte & Heatmap",
-  "ui.mobs_count": "Monster: {count}"
+  "ui.mobs_count": "Monster: {count}",
+  "ui.window_ok": "Spielfenster: im Vordergrund",
+  "ui.window_not_foreground": "Spielfenster: nicht im Vordergrund",
+  "ui.window_minimized": "Spielfenster minimiert",
+  "ui.window_not_found": "Spielfenster nicht gefunden",
+  "ui.window_capture_failed": "Spielfenster: Erfassung fehlgeschlagen"
 }

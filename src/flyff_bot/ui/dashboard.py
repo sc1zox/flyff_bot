@@ -15,13 +15,25 @@ class BotStatus(StrEnum):
     """Operator-visible runtime states."""
 
     ACTIVE = "active"
+    STANDBY = "standby"
     PAUSED = "paused"
     EMERGENCY_STOPPED = "emergency_stopped"
+    COMBAT = "combat"
     RECONCILING = "reconciling"
     SEARCH_ROTATING = "search_rotating"
     SEARCH_TILTING = "search_tilting"
     SEARCH_ROAMING = "search_roaming"
     SEARCH_MINIMAP = "search_minimap"
+
+
+class WindowStatus(StrEnum):
+    """Observed condition of the game client window behind read-only perception."""
+
+    OK = "ok"
+    NOT_FOREGROUND = "not_foreground"
+    MINIMIZED = "minimized"
+    NOT_FOUND = "not_found"
+    CAPTURE_FAILED = "capture_failed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +98,7 @@ class DashboardUpdate:
     goal: FarmingGoal | None = None
     frame: CapturedFrame | None = None
     navigation: NavigationSnapshot | None = None
+    window: WindowStatus = WindowStatus.OK
 
 
 class DashboardFeed(QObject):

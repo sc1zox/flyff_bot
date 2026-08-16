@@ -237,6 +237,18 @@ QLabel#StatusBadge[status="active"] {
     border: 1px solid #059669;
 }
 
+QLabel#StatusBadge[status="standby"] {
+    background-color: #164e63;
+    color: #a5f3fc;
+    border: 1px solid #0891b2;
+}
+
+QLabel#StatusBadge[status="combat"] {
+    background-color: #7c2d12;
+    color: #fdba74;
+    border: 1px solid #ea580c;
+}
+
 QLabel#StatusBadge[status="paused"] {
     background-color: #78350f;
     color: #fcd34d;

@@ -86,6 +86,8 @@ class Message(StrEnum):
     TRAINING_COMPLETE = "status.training_complete"
     TRAINING_FAILED = "error.training_failed"
     UI_STATUS_ACTIVE = "ui.status_active"
+    UI_STATUS_STANDBY = "ui.status_standby"
+    UI_STATUS_COMBAT = "ui.status_combat"
     UI_STATUS_PAUSED = "ui.status_paused"
     UI_STATUS_EMERGENCY_STOPPED = "ui.status_emergency_stopped"
     UI_STATUS_RECONCILING = "ui.status_reconciling"
@@ -174,6 +176,11 @@ class Message(StrEnum):
     UI_DOCK_MAP = "ui.dock_map"
     UI_MAP_WINDOW_TITLE = "ui.map_window_title"
     UI_MOBS_COUNT = "ui.mobs_count"
+    UI_WINDOW_OK = "ui.window_ok"
+    UI_WINDOW_NOT_FOREGROUND = "ui.window_not_foreground"
+    UI_WINDOW_MINIMIZED = "ui.window_minimized"
+    UI_WINDOW_NOT_FOUND = "ui.window_not_found"
+    UI_WINDOW_CAPTURE_FAILED = "ui.window_capture_failed"
 
 
 class Translator:

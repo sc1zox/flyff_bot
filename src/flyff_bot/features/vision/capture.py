@@ -55,12 +55,20 @@ class _CaptureApi(Protocol):
 
 
 class WindowsFrameSource:
-    """Capture a foreground Flyff client area as a contiguous BGR or RGB array."""
+    """Capture a foreground Flyff client area as a contiguous BGR or RGB array.
+
+    Pass ``require_foreground=False`` only for read-only standby previews that send no
+    input. A background client is still captured through its own device context, so any
+    window drawn on top of it is copied with it: the preview can show occluding pixels
+    and HUD readings such as vitals can be wrong. Callers that act on a frame must keep
+    the foreground requirement.
+    """
 
     def __init__(
         self,
         pixel_format: PixelFormat = PixelFormat.BGR,
         *,
+        require_foreground: bool = True,
         _api: _CaptureApi | None = None,
     ) -> None:
         if _api is None:
@@ -69,15 +77,16 @@ class WindowsFrameSource:
             _api = _Win32CaptureApi()
         self._api = _api
         self._pixel_format = pixel_format
+        self._require_foreground = require_foreground
 
     def capture(self, window_handle: int) -> CapturedFrame:
-        """Capture exactly the target's client area after foreground validation."""
+        """Capture exactly the target's client area after window-state validation."""
 
         if not self._api.is_window(window_handle) or not self._api.is_visible(window_handle):
             raise FrameCaptureError(FrameCaptureErrorCode.INVALID_WINDOW)
         if self._api.is_minimized(window_handle):
             raise FrameCaptureError(FrameCaptureErrorCode.MINIMIZED)
-        if not self._api.is_foreground(window_handle):
+        if self._require_foreground and not self._api.is_foreground(window_handle):
             raise FrameCaptureError(FrameCaptureErrorCode.OCCLUDED)
         try:
             raw_frame = self._api.capture_bgra(window_handle)

@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-16
+updated: 2026-08-17
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -29,6 +29,7 @@ related:
   - ../user-stories/completed/US-023-reliable-combat-targeting-and-kill-verification.md
   - ../user-stories/completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md
   - ../user-stories/completed/US-026-static-hud-anchoring-and-field-hardening.md
+  - ../user-stories/completed/US-028-live-perception-standby-and-focus-workflow.md
 ---
 
 # Architecture
@@ -68,7 +69,8 @@ Game Client
   - **Frame capture:** `WindowsFrameSource` captures the foreground client's exact client area
      through documented Win32 GDI APIs and exposes contiguous BGR or RGB `numpy.ndarray` frames.
      Its `FrameSource` protocol is injectable for deterministic tests, and capture failures use
-     typed error codes.
+     typed error codes. `require_foreground=False` relaxes only the foreground precondition for
+     read-only standby previews (US-028); closed and minimized windows still fail.
    - **Target verification:** `TargetVerifier` template-matches a configured header anchor before
      inspecting the configured target-bar sub-region for HP colour and template-matching a
      whitelisted name. It returns `VALID_TARGET`, `WRONG_TARGET`, or `NO_TARGET`, including an
@@ -294,6 +296,28 @@ default; `--read-loot` remains an explicit opt-in diagnostic path unaffected by 
 `FarmingGoal` completion is unchanged and still requires an explicitly attached loot feed to observe inventory.
 
 US-026 hardens player vitals extraction and monster stats window detection against arbitrary client resolutions and screen layouts, fixing BUG-006. `PlayerVitalsReader` switches from normalized relative window fractions to fixed-pixel top-left anchoring (`0..260` width, `0..113` height), ensuring gauge bar column-sampling (HP in Red, MP in Blue, FP in Green) operates strictly on the 2D HUD orb across any resolution (720p, 1080p, 1440p, 4K) without sampling dynamic 3D world scenery or causing false 0% consumable spam. `MonsterStatsReader` is hardened with template-matched anchoring (`cv2.matchTemplate`), dynamically searching the frame for the session stats window header and extracting the relative `Monster Kills:` text ROI regardless of where the operator positions the window on screen, gracefully returning `None` if the window is closed. At the presentation boundary, the desktop UI adds a "Placements" ("Platzierungshilfen") visual guide toggle that renders color-coded, labeled ROI overlay boxes (Player Vitals orb, Target Header bar, and Monster Stats OCR crop) proportionally scaled over the live viewport preview, allowing operators to visually calibrate and align in-game HUD elements with complete precision.
+
+US-028 makes read-only perception a continuous standby service and separates bot status from
+telemetry at the dashboard, fixing BUG-007. `FarmingOrchestrator.tick()` no longer returns before
+perception while paused, completed, or emergency-stopped: those `STANDBY_MODES` now run
+`_observe()`, the single read-only step that captures one frame, refreshes `WorldState` (vitals,
+visible mobs, target verification metrics, monster kill count) and the debug-overlay frame, and
+dispatches nothing. The active path uses the same helper, so a `FrameCaptureError` raised mid-session
+— the game client being closed or minimized — pauses the session instead of raising out of the Qt
+timer slot every tick. Navigation observation stays on the active path only, keeping standby out of
+the spawn heatmap and dead-reckoning state. `WindowsFrameSource` gains `require_foreground`, and the
+desktop app constructs it with `require_foreground=False`: a background but visible client is still
+captured through its own device context for the standby preview, which is safe because it sends no
+input and because every dispatcher independently re-checks foreground focus and the END emergency
+stop before any key or click. The tradeoff is that occluding windows are copied with the frame, so
+`DashboardUpdate` carries a typed `WindowStatus` (`OK`, `NOT_FOREGROUND`, `MINIMIZED`, `NOT_FOUND`,
+`CAPTURE_FAILED`) mapped from the capture error code or the foreground check, which the dashboard
+renders as its own chip with one complete localized sentence per state. `BotStatus` adds `STANDBY`
+(paused with a live preview) and `COMBAT` (targeting or fighting); `MainWindow` stops writing the
+visible-mob count into the status badge and instead renders dedicated mob-count, target-state,
+vitals, and goal chips beside a badge that only ever shows bot status. Start remains the existing
+focus-then-start handoff with no artificial countdown: when foreground focus cannot be acquired the
+session stays paused and the next standby publish states the focus condition on the window chip.
 
 US-022 overhauls the desktop dashboard boundary (`flyff_bot.ui`) with a cohesive Dark Slate Qt Style Sheet (QSS) theme, card-based panel grouping, streamlined visual hierarchy, a standalone pop-out navigation map window (`NavigationMapWindow`), and an `Escape` key emergency stop shortcut. All UI windows, inputs, buttons, and modal dialogs adopt dark slate styling with emerald green (Start), amber (Pause), and danger crimson (Emergency Stop) action accents alongside responsive hover/pressed states. Dashboard controls are organized into logical card panels—*Status & Metrics Card* (with colored status pill badges and metric chips), *Action Controls Card*, *Navigation & Profiles Card*, and *Telemetry & Diagnostics Toolbar*—eliminating redundant text clutter. Operators can pop out `PathInspectorWidget` into a secondary standalone window (`NavigationMapWindow`) to maintain a compact controller dashboard while monitoring live 2D pathing and heatmap telemetry on a separate display. Pressing `Escape` (`Qt.Key.Key_Escape`) while any UI window has focus instantly triggers an emergency stop (`emergency_stop_requested.emit()`), matching the physical UI button and the global Win32 `END` key safeguard. All user-visible strings, badge labels, and tooltips are localized across German and English.
 

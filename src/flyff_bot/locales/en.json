@@ -67,6 +67,8 @@
   "status.training_complete": "Mob detector exported to {model}; labels written to {labels}",
   "error.training_failed": "Mob-detector training failed: {reason}",
   "ui.status_active": "Active",
+  "ui.status_standby": "Ready (live preview)",
+  "ui.status_combat": "In combat",
   "ui.status_paused": "Paused",
   "ui.status_emergency_stopped": "Emergency Stopped",
   "ui.status_reconciling": "Healing / Reconciling",
@@ -154,5 +156,10 @@
   "ui.popout_map": "Pop-out Map",
   "ui.dock_map": "Dock Map",
   "ui.map_window_title": "Navigation Map & Heatmap",
-  "ui.mobs_count": "Mobs: {count}"
+  "ui.mobs_count": "Mobs: {count}",
+  "ui.window_ok": "Game window: in foreground",
+  "ui.window_not_foreground": "Game window: not in foreground",
+  "ui.window_minimized": "Game window minimized",
+  "ui.window_not_found": "Game window not found",
+  "ui.window_capture_failed": "Game window: capture failed"
 }

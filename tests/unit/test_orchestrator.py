@@ -27,19 +27,31 @@ from flyff_bot.features.automation.orchestrator import (
     FarmingOrchestrator,
 )
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
-from flyff_bot.ui.dashboard import DashboardFeed, DashboardUpdate, FarmingGoal
+from flyff_bot.features.vision.models import FrameCaptureError, FrameCaptureErrorCode
+from flyff_bot.ui.dashboard import (
+    BotStatus,
+    DashboardFeed,
+    DashboardUpdate,
+    FarmingGoal,
+    WindowStatus,
+)
 
 WINDOW_HANDLE = 42
 MOB = VisibleMob(1, "Mushpang", 0.9, 20, 20, 20, 20)
 
 
 class _Pipeline:
-    def __init__(self, states: list[WorldState]) -> None:
+    def __init__(
+        self, states: list[WorldState], *, capture_error: FrameCaptureErrorCode | None = None
+    ) -> None:
         self._states = iter(states)
+        self._capture_error = capture_error
         self.calls: list[int] = []
 
     def tick(self, window_handle: int, _previous: WorldState) -> PerceptionTick:
         self.calls.append(window_handle)
+        if self._capture_error is not None:
+            raise FrameCaptureError(self._capture_error)
         return PerceptionTick(next(self._states), (), frozenset())
 
 
@@ -95,9 +107,10 @@ def _orchestrator(
     *,
     config: FarmingConfig | None = None,
     dashboard_feed: DashboardFeed | None = None,
+    pipeline: _Pipeline | None = None,
 ) -> FarmingOrchestrator:
     return FarmingOrchestrator(
-        cast(PerceptionPipeline, _Pipeline(states)),
+        cast(PerceptionPipeline, pipeline or _Pipeline(states)),
         adapter,
         WINDOW_HANDLE,
         config=config,
@@ -299,6 +312,118 @@ def test_end_or_lost_foreground_pauses_without_perception_or_input() -> None:
     unfocused_orchestrator = _orchestrator([_state(1.0)], unfocused)
     unfocused_orchestrator.start()
     assert unfocused_orchestrator.tick().mode is FarmingMode.PAUSED
+
+
+def test_standby_perception_publishes_live_telemetry_without_dispatching_input() -> None:
+    """US-028: a paused session keeps vitals, mob counts, and overlays live, read-only."""
+
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    pipeline = _Pipeline([_state(1.0, mobs=(MOB,)), _state(2.0, mobs=(MOB,))])
+    orchestrator = _orchestrator([], adapter, dashboard_feed=feed, pipeline=pipeline)
+
+    first = orchestrator.tick()
+    second = orchestrator.tick()
+
+    assert pipeline.calls == [WINDOW_HANDLE, WINDOW_HANDLE]
+    assert first.mode is FarmingMode.PAUSED
+    assert second.state.nearby_mob_count == 1
+    assert [update.status for update in updates] == [BotStatus.STANDBY, BotStatus.STANDBY]
+    assert all(update.window is WindowStatus.OK for update in updates)
+    assert adapter.keys == []
+    assert adapter.clicks == []
+
+
+def test_standby_reports_the_game_window_state_when_no_frame_can_be_captured() -> None:
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    orchestrator = _orchestrator(
+        [],
+        adapter,
+        dashboard_feed=feed,
+        pipeline=_Pipeline([], capture_error=FrameCaptureErrorCode.MINIMIZED),
+    )
+
+    orchestrator.tick()
+
+    assert updates[-1].window is WindowStatus.MINIMIZED
+    assert updates[-1].status is BotStatus.PAUSED
+    assert updates[-1].frame is None
+
+
+def test_standby_reports_a_background_client_without_blocking_the_preview() -> None:
+    adapter = _InputAdapter(foreground=False)
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    orchestrator = _orchestrator([_state(1.0)], adapter, dashboard_feed=feed)
+
+    orchestrator.tick()
+
+    assert updates[-1].window is WindowStatus.NOT_FOREGROUND
+    assert updates[-1].status is BotStatus.STANDBY
+    assert adapter.keys == []
+
+
+def test_emergency_stop_keeps_read_only_perception_available() -> None:
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    pipeline = _Pipeline([_state(1.0, mobs=(MOB,))])
+    orchestrator = _orchestrator([], adapter, dashboard_feed=feed, pipeline=pipeline)
+    orchestrator.emergency_stop()
+
+    result = orchestrator.tick()
+
+    assert result.mode is FarmingMode.EMERGENCY_STOPPED
+    assert pipeline.calls == [WINDOW_HANDLE]
+    assert updates[-1].status is BotStatus.EMERGENCY_STOPPED
+    assert adapter.keys == []
+    assert adapter.clicks == []
+
+
+def test_a_closed_game_window_pauses_farming_and_reports_the_window_state() -> None:
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    orchestrator = _orchestrator(
+        [],
+        adapter,
+        dashboard_feed=feed,
+        pipeline=_Pipeline([], capture_error=FrameCaptureErrorCode.INVALID_WINDOW),
+    )
+    orchestrator.start()
+
+    result = orchestrator.tick()
+
+    assert result.mode is FarmingMode.PAUSED
+    assert updates[-1].window is WindowStatus.NOT_FOUND
+    assert adapter.keys == []
+
+
+def test_engagement_publishes_a_dedicated_combat_status() -> None:
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    orchestrator = _orchestrator(
+        [_state(1.0, mobs=(MOB,)), _state(2.0, target=valid)],
+        adapter,
+        dashboard_feed=feed,
+    )
+    orchestrator.start()
+
+    orchestrator.tick()
+    orchestrator.tick()
+
+    assert [update.status for update in updates] == [BotStatus.COMBAT, BotStatus.COMBAT]
 
 
 def test_item_goal_completes_before_any_input_and_publishes_dashboard_update() -> None:

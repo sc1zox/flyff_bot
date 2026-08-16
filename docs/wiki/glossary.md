@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-16
+updated: 2026-08-17
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -138,4 +138,9 @@ related:
 - **Placements overlay** — A desktop UI visual guide toggle ("Placements" / "Platzierungshilfen") that draws color-coded, labeled ROI overlay boxes (Player Vitals orb, Target Header bar, Monster Stats window) scaled over the live viewport preview for HUD alignment calibration.
 - **Dark Slate theme** — The modern dark stylesheet (QSS) applied across the PySide6 desktop UI, featuring rounded card containers, high-contrast action accents (emerald Start, amber Pause, crimson Emergency Stop), and responsive hover/pressed states.
 - **Navigation map window** — A standalone pop-out secondary window (`NavigationMapWindow`) hosting the `PathInspectorWidget`, allowing operators to decouple 2D navigation/heatmap inspection from the main controller dashboard.
-
+- **Standby perception** — Continuous read-only perception while the session is paused, completed,
+  or emergency-stopped: one frame is captured per tick to refresh vitals, mob counts, target
+  verification metrics, and the debug overlay, and no keyboard or mouse input is ever dispatched.
+- **Window status** — The typed condition of the game client behind perception (`OK`,
+  `NOT_FOREGROUND`, `MINIMIZED`, `NOT_FOUND`, `CAPTURE_FAILED`), published with every dashboard
+  update so the operator sees why a preview is live, degraded, or absent.
