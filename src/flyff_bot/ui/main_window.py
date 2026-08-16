@@ -44,7 +44,9 @@ from flyff_bot.features.vision.monster_stats import MonsterStatsConfig
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
+from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
+from flyff_bot.ui.theme import apply_theme
 
 HOTKEY_CHOICES = [
     "F1",
@@ -100,38 +102,77 @@ class MainWindow(QMainWindow):
         self._navigation_dir = navigation_dir or DEFAULT_NAVIGATION_DIR
         self._vitals_config_path = vitals_config_path or DEFAULT_VITALS_CONFIG_PATH
         self._latest_update: DashboardUpdate | None = None
+
+        # Card Panels
+        self._status_card = QGroupBox()
+        self._status_card.setObjectName("CardPanel")
+        self._controls_card = QGroupBox()
+        self._controls_card.setObjectName("CardPanel")
+        self._profile_card = QGroupBox()
+        self._profile_card.setObjectName("CardPanel")
+        self._profile_card.setVisible(False)
+        self._profile_bar = self._profile_card
+        self._telemetry_card = QGroupBox()
+        self._telemetry_card.setObjectName("CardPanel")
+
+        # Status & Metrics
         self._status_label = QLabel()
+        self._status_label.setObjectName("StatusBadge")
         self._goal_label = QLabel()
+        self._goal_label.setObjectName("StatChip")
         self._vitals_label = QLabel()
+        self._vitals_label.setObjectName("StatChip")
+
+        # Debug Overlay Viewport
         self._overlay_label = DebugOverlayWidget()
         self._overlay_label.setVisible(False)
+
+        # Navigation Map & Inspector
         self._path_inspector = PathInspectorWidget(self._translator)
         self._path_inspector.setVisible(False)
-        self._profile_bar = QWidget()
-        self._profile_bar.setVisible(False)
+        self._map_container = QWidget()
+        self._map_container_layout = QVBoxLayout(self._map_container)
+        self._map_container_layout.setContentsMargins(0, 0, 0, 0)
+        self._map_container_layout.addWidget(self._path_inspector)
+        self._map_container.setVisible(False)
+        self._map_window = NavigationMapWindow(self._translator)
+        self._popout_map_button = QPushButton()
+        self._is_map_popped_out = False
+
+        # Profile Controls
         self._profile_selector = QComboBox()
         self._profile_name_input = QLineEdit()
         self._save_profile_button = QPushButton()
         self._load_profile_button = QPushButton()
         self._reset_map_button = QPushButton()
+        self._reset_map_button.setObjectName("ActionDanger")
+
+        # Primary Action Controls
         self._start_button = QPushButton()
+        self._start_button.setObjectName("ActionStart")
         self._pause_button = QPushButton()
+        self._pause_button.setObjectName("ActionPause")
         self._emergency_stop_button = QPushButton()
+        self._emergency_stop_button.setObjectName("ActionEmergencyStop")
         self._attack_key_label = QLabel()
         self._attack_key_button = QPushButton()
         self._attack_virtual_key = parse_virtual_key("F3")
         self._attack_key_name = "F3"
         self._is_recording_attack_key = False
+        self._language_selector = QComboBox()
+
+        # Telemetry & Diagnostics Toggles
         self._debug_toggle = QCheckBox()
+        self._placements_toggle = QCheckBox()
         self._path_toggle = QCheckBox()
         self._vitals_toggle = QCheckBox()
-        self._placements_toggle = QCheckBox()
-        self._language_selector = QComboBox()
+        self._combat_toggle = QCheckBox()
+        self._target_debug_toggle = QCheckBox()
 
         # Combat settings panel
         self._combat_panel = QGroupBox()
+        self._combat_panel.setObjectName("CardPanel")
         self._combat_panel.setVisible(False)
-        self._combat_toggle = QCheckBox()
         self._target_grace_label = QLabel()
         self._target_grace_spin = QDoubleSpinBox()
         self._target_grace_spin.setRange(0.1, 5.0)
@@ -143,8 +184,8 @@ class MainWindow(QMainWindow):
         self._kill_verification_toggle = QCheckBox()
 
         # Target verification debug panel
-        self._target_debug_toggle = QCheckBox()
         self._target_debug_panel = QGroupBox()
+        self._target_debug_panel.setObjectName("CardPanel")
         self._target_debug_panel.setVisible(False)
         self._target_anchor_label = QLabel()
         self._target_anchor_value = QLabel()
@@ -159,6 +200,7 @@ class MainWindow(QMainWindow):
 
         # Vitals configuration panel
         self._vitals_panel = QGroupBox()
+        self._vitals_panel.setObjectName("CardPanel")
         self._vitals_panel.setVisible(False)
         self._vitals_col_type = QLabel()
         self._vitals_col_active = QLabel()
@@ -184,6 +226,7 @@ class MainWindow(QMainWindow):
         self._fp_key_combo = QComboBox()
         self._fp_debounce_spin = QSpinBox()
 
+        apply_theme(self)
         self._init_vitals_widgets()
         self._init_target_debug_widgets()
         self._build_layout()
@@ -427,6 +470,48 @@ class MainWindow(QMainWindow):
 
         return self._target_reason_value
 
+    @property
+    def status_card(self) -> QGroupBox:
+        """Expose the status and metrics card panel."""
+
+        return self._status_card
+
+    @property
+    def controls_card(self) -> QGroupBox:
+        """Expose the action controls card panel."""
+
+        return self._controls_card
+
+    @property
+    def profile_card(self) -> QGroupBox:
+        """Expose the navigation and profiles card panel."""
+
+        return self._profile_card
+
+    @property
+    def telemetry_card(self) -> QGroupBox:
+        """Expose the diagnostics and views toolbar card panel."""
+
+        return self._telemetry_card
+
+    @property
+    def popout_map_button(self) -> QPushButton:
+        """Expose the pop-out map button."""
+
+        return self._popout_map_button
+
+    @property
+    def map_window(self) -> NavigationMapWindow:
+        """Expose the secondary map window."""
+
+        return self._map_window
+
+    @property
+    def is_map_popped_out(self) -> bool:
+        """Return whether the navigation map is currently popped out."""
+
+        return self._is_map_popped_out
+
     def _init_vitals_widgets(self) -> None:
         for spin in (self._hp_threshold_spin, self._mp_threshold_spin, self._fp_threshold_spin):
             spin.setRange(1, 100)
@@ -584,6 +669,11 @@ class MainWindow(QMainWindow):
         self._status_label.setText(
             self._translator.text(Message.UI_WORLD_STATUS, mob_count=mob_count)
         )
+        self._status_label.setProperty("status", "paused")
+        style = self._status_label.style()
+        if style is not None:
+            style.unpolish(self._status_label)
+            style.polish(self._status_label)
         self._goal_label.setText(self._translator.text(Message.UI_NO_GOAL))
         self._vitals_label.setText(
             self._translator.text(
@@ -638,19 +728,58 @@ class MainWindow(QMainWindow):
 
     @Slot(bool)
     def _update_path_visibility(self, visible: bool) -> None:
-        self._profile_bar.setVisible(visible)
-        self._path_inspector.setVisible(visible)
+        self._profile_card.setVisible(visible)
+        if self._is_map_popped_out:
+            self._map_window.setVisible(visible)
+        else:
+            self._map_container.setVisible(visible)
+            self._path_inspector.setVisible(visible)
         self._adapt_window_geometry()
 
-    @Slot(bool)
-    def _update_vitals_visibility(self, visible: bool) -> None:
-        self._vitals_panel.setVisible(visible)
+    @Slot()
+    def _toggle_map_popout(self) -> None:
+        if not self._is_map_popped_out:
+            self._is_map_popped_out = True
+            if not self._path_toggle.isChecked():
+                self._path_toggle.setChecked(True)
+            self._map_container_layout.removeWidget(self._path_inspector)
+            self._path_inspector.setVisible(True)
+            self._map_window.set_inspector(self._path_inspector)
+            self._map_container.setVisible(False)
+            self._map_window.show()
+            self._map_window.raise_()
+            self._map_window.activateWindow()
+            self._popout_map_button.setText(self._translator.text(Message.UI_DOCK_MAP))
+        else:
+            self._dock_map()
         self._adapt_window_geometry()
+
+    def _dock_map(self) -> None:
+        if not self._is_map_popped_out:
+            return
+        self._is_map_popped_out = False
+        inspector = self._map_window.take_inspector()
+        self._map_window.hide()
+        if inspector is not None:
+            self._map_container_layout.addWidget(inspector)
+            inspector.setVisible(self._path_toggle.isChecked())
+        self._map_container.setVisible(self._path_toggle.isChecked())
+        self._popout_map_button.setText(self._translator.text(Message.UI_POPOUT_MAP))
+        self._adapt_window_geometry()
+
+    @Slot()
+    def _on_map_window_closed(self) -> None:
+        self._dock_map()
 
     @Slot(bool)
     def _on_placements_toggled(self, _checked: bool) -> None:
         if self._latest_update is not None:
             self._render_update()
+
+    @Slot(bool)
+    def _update_vitals_visibility(self, visible: bool) -> None:
+        self._vitals_panel.setVisible(visible)
+        self._adapt_window_geometry()
 
     @Slot(bool)
     def _update_combat_visibility(self, visible: bool) -> None:
@@ -678,6 +807,15 @@ class MainWindow(QMainWindow):
                 layout.activate()
         self.adjustSize()
 
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Trigger emergency stop immediately upon Escape keypress."""
+
+        if event.key() == Qt.Key.Key_Escape:
+            self._request_emergency_stop()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Record one supported physical key while the attack-key button is active."""
 
@@ -692,40 +830,60 @@ class MainWindow(QMainWindow):
         return super().eventFilter(watched, event)
 
     def _build_layout(self) -> None:
-        controls = QHBoxLayout()
-        controls.addWidget(self._start_button)
-        controls.addWidget(self._pause_button)
-        controls.addWidget(self._emergency_stop_button)
-        controls.addWidget(self._attack_key_label)
-        controls.addWidget(self._attack_key_button)
-        controls.addWidget(self._debug_toggle)
-        controls.addWidget(self._path_toggle)
-        controls.addWidget(self._vitals_toggle)
-        controls.addWidget(self._placements_toggle)
-        controls.addWidget(self._combat_toggle)
-        controls.addWidget(self._target_debug_toggle)
-        controls.addWidget(self._language_selector)
+        # Status & Metrics Card
+        status_layout = QVBoxLayout()
+        status_top = QHBoxLayout()
+        status_top.addWidget(self._status_label)
+        status_top.addStretch()
+        status_layout.addLayout(status_top)
 
+        metrics_row = QHBoxLayout()
+        metrics_row.addWidget(self._goal_label)
+        metrics_row.addWidget(self._vitals_label)
+        status_layout.addLayout(metrics_row)
+        self._status_card.setLayout(status_layout)
+
+        # Action Controls Card
+        controls_layout = QHBoxLayout()
+        controls_layout.addWidget(self._start_button)
+        controls_layout.addWidget(self._pause_button)
+        controls_layout.addWidget(self._emergency_stop_button)
+        controls_layout.addWidget(self._attack_key_label)
+        controls_layout.addWidget(self._attack_key_button)
+        controls_layout.addWidget(self._language_selector)
+        self._controls_card.setLayout(controls_layout)
+
+        # Navigation & Profiles Card
         profile_layout = QHBoxLayout()
-        profile_layout.setContentsMargins(0, 0, 0, 0)
         profile_layout.addWidget(self._profile_selector)
         profile_layout.addWidget(self._profile_name_input)
         profile_layout.addWidget(self._save_profile_button)
         profile_layout.addWidget(self._load_profile_button)
         profile_layout.addWidget(self._reset_map_button)
-        self._profile_bar.setLayout(profile_layout)
+        self._profile_card.setLayout(profile_layout)
+
+        # Telemetry & Diagnostics Toolbar Card
+        telemetry_layout = QHBoxLayout()
+        telemetry_layout.addWidget(self._debug_toggle)
+        telemetry_layout.addWidget(self._placements_toggle)
+        telemetry_layout.addWidget(self._path_toggle)
+        telemetry_layout.addWidget(self._popout_map_button)
+        telemetry_layout.addWidget(self._vitals_toggle)
+        telemetry_layout.addWidget(self._combat_toggle)
+        telemetry_layout.addWidget(self._target_debug_toggle)
+        self._telemetry_card.setLayout(telemetry_layout)
 
         content = QVBoxLayout()
-        content.addWidget(self._status_label)
-        content.addWidget(self._goal_label)
-        content.addWidget(self._vitals_label)
-        content.addLayout(controls)
+        content.addWidget(self._status_card)
+        content.addWidget(self._controls_card)
+        content.addWidget(self._telemetry_card)
         content.addWidget(self._overlay_label)
         content.addWidget(self._vitals_panel)
         content.addWidget(self._combat_panel)
         content.addWidget(self._target_debug_panel)
-        content.addWidget(self._profile_bar)
-        content.addWidget(self._path_inspector)
+        content.addWidget(self._profile_card)
+        content.addWidget(self._map_container)
+
         container = QWidget()
         container.setLayout(content)
         self.setCentralWidget(container)
@@ -738,6 +896,9 @@ class MainWindow(QMainWindow):
         self._attack_key_button.installEventFilter(self)
         self._debug_toggle.toggled.connect(self._update_overlay_visibility)
         self._path_toggle.toggled.connect(self._update_path_visibility)
+        self._popout_map_button.clicked.connect(self._toggle_map_popout)
+        self._map_window.closed.connect(self._on_map_window_closed)
+        self._map_window.emergency_stop_requested.connect(self._request_emergency_stop)
         self._vitals_toggle.toggled.connect(self._update_vitals_visibility)
         self._placements_toggle.toggled.connect(self._on_placements_toggled)
         self._language_selector.currentIndexChanged.connect(self._switch_language)
@@ -826,6 +987,17 @@ class MainWindow(QMainWindow):
 
     def _retranslate(self) -> None:
         self.setWindowTitle(self._translator.text(Message.UI_TITLE))
+        self._status_card.setTitle(self._translator.text(Message.UI_CARD_STATUS))
+        self._controls_card.setTitle(self._translator.text(Message.UI_CARD_CONTROLS))
+        self._profile_card.setTitle(self._translator.text(Message.UI_CARD_PROFILES))
+        self._telemetry_card.setTitle(self._translator.text(Message.UI_CARD_TELEMETRY))
+        self._popout_map_button.setText(
+            self._translator.text(
+                Message.UI_DOCK_MAP if self._is_map_popped_out else Message.UI_POPOUT_MAP
+            )
+        )
+        self._map_window.set_translator(self._translator)
+
         self._start_button.setText(self._translator.text(Message.UI_START))
         self._pause_button.setText(self._translator.text(Message.UI_PAUSE))
         self._emergency_stop_button.setText(self._translator.text(Message.UI_EMERGENCY_STOP))
@@ -926,6 +1098,12 @@ class MainWindow(QMainWindow):
                 status=self._translator.text(_status_message(update.status)),
             )
         )
+        self._status_label.setProperty("status", _status_category(update.status))
+        style = self._status_label.style()
+        if style is not None:
+            style.unpolish(self._status_label)
+            style.polish(self._status_label)
+
         self._goal_label.setText(_goal_text(self._translator, update.state, update.goal))
         vitals = update.state.player_vitals
         self._vitals_label.setText(
@@ -1000,9 +1178,11 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """Ensure the session is paused and navigation data is persisted upon window close."""
+        """Ensure the session is paused, secondary windows closed, and navigation data persisted."""
 
         self.pause_requested.emit()
+        if self._map_window is not None:
+            self._map_window.close()
         super().closeEvent(event)
 
 
@@ -1043,6 +1223,18 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
         BotStatus.SEARCH_MINIMAP: Message.UI_STATUS_SEARCH_MINIMAP,
     }[status]
+
+
+def _status_category(status: BotStatus) -> str:
+    if status == BotStatus.ACTIVE:
+        return "active"
+    if status == BotStatus.PAUSED:
+        return "paused"
+    if status == BotStatus.EMERGENCY_STOPPED:
+        return "emergency_stopped"
+    if status == BotStatus.RECONCILING:
+        return "reconciling"
+    return "search"
 
 
 def _pass_fail_text(translator: Translator, passed: bool) -> str:

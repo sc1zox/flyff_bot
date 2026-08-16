@@ -146,5 +146,13 @@
   "ui.target_debug_reason_anchor": "Header anchor not detected",
   "ui.target_debug_reason_hp": "HP bar below minimum pixel threshold",
   "ui.target_debug_reason_name": "No whitelisted name template matched",
-  "ui.target_debug_reason_ok": "Criteria met"
+  "ui.target_debug_reason_ok": "Criteria met",
+  "ui.card_status": "Status & Telemetry",
+  "ui.card_controls": "Controls",
+  "ui.card_profiles": "Navigation & Profiles",
+  "ui.card_telemetry": "Diagnostics & Views",
+  "ui.popout_map": "Pop-out Map",
+  "ui.dock_map": "Dock Map",
+  "ui.map_window_title": "Navigation Map & Heatmap",
+  "ui.mobs_count": "Mobs: {count}"
 }

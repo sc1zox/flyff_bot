@@ -166,6 +166,14 @@ class Message(StrEnum):
     UI_TARGET_DEBUG_REASON_HP = "ui.target_debug_reason_hp"
     UI_TARGET_DEBUG_REASON_NAME = "ui.target_debug_reason_name"
     UI_TARGET_DEBUG_REASON_OK = "ui.target_debug_reason_ok"
+    UI_CARD_STATUS = "ui.card_status"
+    UI_CARD_CONTROLS = "ui.card_controls"
+    UI_CARD_PROFILES = "ui.card_profiles"
+    UI_CARD_TELEMETRY = "ui.card_telemetry"
+    UI_POPOUT_MAP = "ui.popout_map"
+    UI_DOCK_MAP = "ui.dock_map"
+    UI_MAP_WINDOW_TITLE = "ui.map_window_title"
+    UI_MOBS_COUNT = "ui.mobs_count"
 
 
 class Translator:

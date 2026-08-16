@@ -158,3 +158,7 @@ directory.
 
 Recorded the fixed-pixel top-left player vitals HUD anchoring (resolving BUG-006 false 0% drops and consumable spam across arbitrary screen resolutions), template-matched session stats window header anchoring for dynamic `MonsterStatsReader` OCR extraction, and the desktop UI "Placements" visual guide toggle rendering color-coded ROI overlay boxes (Vitals orb, Target header, Monster Stats window) scaled over the live viewport preview; moved US-026 to the completed stories directory and BUG-006 to fixed bugs.
 
+## [2026-08-16] synthesis | Modern dark theme and streamlined dashboard UI (US-022)
+
+Recorded the modern Dark Slate QSS theme (`src/flyff_bot/ui/theme.qss` / `src/flyff_bot/ui/theme.py`), card-based panel grouping (Status & Telemetry, Controls, Navigation & Profiles, Diagnostics & Views), dynamic status pill badges and metric chips, standalone pop-out `NavigationMapWindow` for the 2D path inspector, and `Escape` key emergency stop shortcut in the architecture and glossary wikis; moved US-022 to the completed stories directory.
+

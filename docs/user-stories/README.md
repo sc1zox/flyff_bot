@@ -23,14 +23,14 @@ stories are moved to `docs/user-stories/completed/`.
 - [x] [**US-007: Perception to WorldState feed integration**](completed/US-007-perception-worldstate-feed.md) — Unified perception pipeline updating the immutable `WorldState`.
 - [x] [**US-011: Multi-mob training dataset pipeline and custom YOLO model training**](completed/US-011-multi-mob-training-dataset-pipeline.md) — Manual annotation pipeline, dataset manifest, and lightweight ONNX export.
 - [x] [**US-012: Real-world vision refactoring for robust target verification and multi-mob detection**](completed/US-012-real-world-vision-refactoring.md) — Sky/cloud-immune target-bar verification and multi-mob fixtures from real game data.
-- [ ] [**US-026: Static HUD anchoring and field hardening for vitals and monster stats**](US-026-static-hud-anchoring-and-field-hardening.md) — Fixed top-left pixel bounding for player vitals (HP/MP/FP) and template-anchored session stats HUD detection across all window resolutions.
+- [x] [**US-026: Static HUD anchoring and field hardening for vitals and monster stats**](completed/US-026-static-hud-anchoring-and-field-hardening.md) — Fixed top-left pixel bounding for player vitals (HP/MP/FP) and template-anchored session stats HUD detection across all window resolutions.
 
 ### Phase 3: Closed-Loop Execution & Reactive Controllers
 - [x] [**US-008: Reactive combat controller and target engagement**](completed/US-008-reactive-combat-controller.md) — Target selection, skill rotation, and post-action visual verification.
 - [x] [**US-009: Reactive loot collector and drop accounting**](completed/US-009-reactive-loot-controller.md) — Automated item pickup routines and drop counting.
 - [x] [**US-013: Autonomous farming loop and orchestration engine**](completed/US-013-autonomous-farming-loop-and-orchestration-engine.md) — Unified closed-loop session coordinating perception, combat, looting, and recovery.
 - [x] [**US-023: Reliable combat targeting, click debouncing, and monster kill verification**](completed/US-023-reliable-combat-targeting-and-kill-verification.md) — Target click debouncing, reliable attack hotkey dispatching, and kill verification via health decay and HUD monster stats counter.
-- [ ] [**US-025: Streamlined auto-looting and loot-log OCR decoupling**](US-025-streamlined-auto-looting-and-ocr-decoupling.md) — Seamless kill-to-search transition with in-game loot pets and removal of fragile Tesseract OCR from active farming loop.
+- [x] [**US-025: Streamlined auto-looting and loot-log OCR decoupling**](completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md) — Seamless kill-to-search transition with in-game loot pets and removal of fragile Tesseract OCR from active farming loop.
 - [ ] [**US-027: Minimap radar mob detection and calibrated navigation clicks**](US-027-minimap-radar-mob-detection-and-calibrated-navigation.md) — Circular radar masking, UI button exclusion, and calibrated navigation clicks for wide spawn zones.
 
 ### Phase 4: Desktop UI & Visual Debugging
@@ -43,5 +43,5 @@ stories are moved to `docs/user-stories/completed/`.
 - [x] [**US-019: Intelligent pathing and topological spawn heatmap for monster farming**](completed/US-019-intelligent-pathing-and-spawn-heatmap.md) — Internal spatial memory, spawn heatmaps, stuck cost penalties, and adaptive patrol circuits.
 - [x] [**US-020: Visual navigation path and spawn heatmap inspector in desktop UI**](completed/US-020-visual-navigation-path-and-heatmap-inspector.md) — 2D canvas inspector for live position, traversed pathways, spawn hotspots, and active patrol routes.
 - [x] [**US-021: Navigation map profile slots, persistence management, and session reset**](completed/US-021-navigation-map-profiles-and-session-reset.md) — Named `.json` profile slots, Load/Save/Reset controls in UI, and confirmation safeguards.
-- [ ] [**US-022: Modern dark theme and streamlined dashboard UI**](US-022-modern-dark-theme-and-streamlined-dashboard-ui.md) — Visually polished modern dark theme (QSS), card layout, pop-out navigation map window, and Escape key emergency stop.
+- [x] [**US-022: Modern dark theme and streamlined dashboard UI**](completed/US-022-modern-dark-theme-and-streamlined-dashboard-ui.md) — Visually polished modern dark theme (QSS), card layout, pop-out navigation map window, and Escape key emergency stop.
 - [x] [**US-024: Target verification decision and threshold debug dashboard visualization**](completed/US-024-target-verification-debug-dashboard-visualization.md) — Live header-anchor, HP-bar, and name-match scores/thresholds surfaced in a dedicated `MainWindow` debug panel.

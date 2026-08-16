@@ -146,5 +146,13 @@
   "ui.target_debug_reason_anchor": "Kopf-Anker nicht erkannt",
   "ui.target_debug_reason_hp": "HP-Leiste unter dem Mindestpixel-Schwellenwert",
   "ui.target_debug_reason_name": "Keine Namensvorlage aus der Whitelist stimmte überein",
-  "ui.target_debug_reason_ok": "Kriterien erfüllt"
+  "ui.target_debug_reason_ok": "Kriterien erfüllt",
+  "ui.card_status": "Status & Telemetrie",
+  "ui.card_controls": "Steuerung",
+  "ui.card_profiles": "Navigation & Profile",
+  "ui.card_telemetry": "Diagnose & Ansichten",
+  "ui.popout_map": "Karte ausdocken",
+  "ui.dock_map": "Karte eindocken",
+  "ui.map_window_title": "Navigationskarte & Heatmap",
+  "ui.mobs_count": "Monster: {count}"
 }

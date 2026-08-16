@@ -1,0 +1,302 @@
+/* Modern Dark Slate Theme for Flyff Bot UI */
+
+QMainWindow, QDialog, QMessageBox {
+    background-color: #0f172a;
+    color: #f8fafc;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+}
+
+QWidget {
+    background-color: transparent;
+    color: #f8fafc;
+}
+
+/* Card Panels & GroupBoxes */
+QGroupBox {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 12px 10px 10px 10px;
+    font-weight: 600;
+    color: #cbd5e1;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 0 6px;
+    background-color: #1e293b;
+    color: #94a3b8;
+}
+
+/* Push Buttons */
+QPushButton {
+    background-color: #334155;
+    color: #f8fafc;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-weight: 500;
+    min-height: 18px;
+}
+
+QPushButton:hover {
+    background-color: #475569;
+    border-color: #64748b;
+}
+
+QPushButton:pressed {
+    background-color: #1e293b;
+    border-color: #334155;
+}
+
+QPushButton:disabled {
+    background-color: #1e293b;
+    color: #64748b;
+    border-color: #334155;
+}
+
+/* Specific Action Buttons */
+QPushButton#ActionStart {
+    background-color: #059669;
+    border: 1px solid #10b981;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+QPushButton#ActionStart:hover {
+    background-color: #10b981;
+    border-color: #34d399;
+}
+
+QPushButton#ActionStart:pressed {
+    background-color: #047857;
+}
+
+QPushButton#ActionStart:disabled {
+    background-color: #1e293b;
+    border-color: #334155;
+    color: #64748b;
+}
+
+QPushButton#ActionPause {
+    background-color: #d97706;
+    border: 1px solid #f59e0b;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+QPushButton#ActionPause:hover {
+    background-color: #f59e0b;
+    border-color: #fbbf24;
+}
+
+QPushButton#ActionPause:pressed {
+    background-color: #b45309;
+}
+
+QPushButton#ActionPause:disabled {
+    background-color: #1e293b;
+    border-color: #334155;
+    color: #64748b;
+}
+
+QPushButton#ActionEmergencyStop {
+    background-color: #dc2626;
+    border: 1px solid #ef4444;
+    color: #ffffff;
+    font-weight: 700;
+}
+
+QPushButton#ActionEmergencyStop:hover {
+    background-color: #ef4444;
+    border-color: #f87171;
+}
+
+QPushButton#ActionEmergencyStop:pressed {
+    background-color: #b91c1c;
+}
+
+QPushButton#ActionEmergencyStop:disabled {
+    background-color: #1e293b;
+    border-color: #334155;
+    color: #64748b;
+}
+
+/* Secondary Action Buttons (e.g. Danger Clear Map) */
+QPushButton#ActionDanger {
+    background-color: #7f1d1d;
+    border: 1px solid #991b1b;
+    color: #fca5a5;
+}
+
+QPushButton#ActionDanger:hover {
+    background-color: #991b1b;
+    border-color: #b91c1c;
+    color: #ffffff;
+}
+
+QPushButton#ActionDanger:pressed {
+    background-color: #450a0a;
+}
+
+/* Input Controls */
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    background-color: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 5px 8px;
+    selection-background-color: #2563eb;
+    selection-color: #ffffff;
+    min-height: 18px;
+}
+
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+    border: 1px solid #3b82f6;
+}
+
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+    background-color: #1e293b;
+    color: #64748b;
+    border-color: #334155;
+}
+
+/* Combo Box Dropdown */
+QComboBox {
+    padding-right: 20px;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left: 1px solid #334155;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    background-color: #1e293b;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #1e293b;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 4px;
+    selection-background-color: #334155;
+    selection-color: #60a5fa;
+    outline: none;
+}
+
+/* Checkboxes */
+QCheckBox {
+    spacing: 6px;
+    color: #cbd5e1;
+}
+
+QCheckBox:hover {
+    color: #f8fafc;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    background-color: #0f172a;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #64748b;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #2563eb;
+    border-color: #3b82f6;
+}
+
+QCheckBox::indicator:disabled {
+    background-color: #1e293b;
+    border-color: #334155;
+}
+
+/* Status Badges & Chips */
+QLabel#StatusBadge {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+QLabel#StatusBadge[status="active"] {
+    background-color: #064e3b;
+    color: #6ee7b7;
+    border: 1px solid #059669;
+}
+
+QLabel#StatusBadge[status="paused"] {
+    background-color: #78350f;
+    color: #fcd34d;
+    border: 1px solid #d97706;
+}
+
+QLabel#StatusBadge[status="emergency_stopped"] {
+    background-color: #7f1d1d;
+    color: #fca5a5;
+    border: 1px solid #dc2626;
+}
+
+QLabel#StatusBadge[status="reconciling"] {
+    background-color: #312e81;
+    color: #c7d2fe;
+    border: 1px solid #6366f1;
+}
+
+QLabel#StatusBadge[status="search"] {
+    background-color: #1e3a5f;
+    color: #93c5fd;
+    border: 1px solid #2563eb;
+}
+
+QLabel#StatChip {
+    background-color: #0f172a;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-weight: 500;
+}
+
+/* Tooltips */
+QToolTip {
+    background-color: #1e293b;
+    color: #f8fafc;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    padding: 5px 8px;
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    background: #0f172a;
+    width: 8px;
+    margin: 0;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical {
+    background: #334155;
+    min-height: 20px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #475569;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}

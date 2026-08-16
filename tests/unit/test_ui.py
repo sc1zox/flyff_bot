@@ -46,7 +46,9 @@ from flyff_bot.ui.dashboard import (
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
 from flyff_bot.ui.main_window import MainWindow
+from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
+from flyff_bot.ui.theme import apply_theme, load_theme_stylesheet
 
 
 def test_main_window_receives_dashboard_signal_and_renders_overlay() -> None:
@@ -709,6 +711,129 @@ def test_main_window_target_debug_renders_cleanly_in_german_locale() -> None:
     assert window.target_state_value.text() == "Kein Ziel"
     assert window.target_reason_value.text() == "Kopf-Anker nicht erkannt"
     assert "FEHLGESCHLAGEN" in window.target_anchor_value.text()
+
+
+def test_theme_stylesheet_loading_and_fallback(tmp_path: Path) -> None:
+    # Valid stylesheet contains core action selectors
+    stylesheet = load_theme_stylesheet()
+    assert "#ActionStart" in stylesheet
+    assert "#ActionPause" in stylesheet
+    assert "#ActionEmergencyStop" in stylesheet
+    assert "#StatusBadge" in stylesheet
+
+    # Fallback safely when path does not exist
+    invalid_path = tmp_path / "non_existent.qss"
+    assert load_theme_stylesheet(invalid_path) == ""
+
+    # apply_theme works without error on QApplication or widgets
+    app = QApplication.instance() or QApplication([])
+    apply_theme(app)
+    window = MainWindow(Translator(Language.ENGLISH))
+    apply_theme(window)
+
+
+def test_main_window_escape_key_triggers_emergency_stop() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE))
+
+    stopped: list[bool] = []
+    window.emergency_stop_requested.connect(lambda: stopped.append(True))
+
+    QTest.keyClick(window, Qt.Key.Key_Escape)
+    application.processEvents()
+
+    assert stopped == [True]
+    assert window.status_label.text() == "Bot status: Emergency Stopped"
+    assert window.status_label.property("status") == "emergency_stopped"
+
+
+def test_navigation_map_window_escape_key_triggers_emergency_stop() -> None:
+    application = QApplication.instance() or QApplication([])
+    map_window = NavigationMapWindow(Translator(Language.ENGLISH))
+
+    stopped: list[bool] = []
+    map_window.emergency_stop_requested.connect(lambda: stopped.append(True))
+
+    QTest.keyClick(map_window, Qt.Key.Key_Escape)
+    application.processEvents()
+
+    assert stopped == [True]
+
+
+def test_navigation_map_popout_and_dock_lifecycle() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert not window.is_map_popped_out
+    assert window.map_window.isHidden()
+    assert window.popout_map_button.text() == "Pop-out Map"
+
+    # Pop-out map
+    window.popout_map_button.click()
+    application.processEvents()
+
+    assert window.is_map_popped_out
+    assert not window.map_window.isHidden()
+    assert window.map_window.inspector is window.path_inspector
+    assert window.popout_map_button.text() == "Dock Map"
+
+    # Dock map back
+    window.popout_map_button.click()
+    application.processEvents()
+
+    assert not window.is_map_popped_out
+    assert window.map_window.isHidden()
+    assert window.map_window.inspector is None
+    assert window.popout_map_button.text() == "Pop-out Map"
+
+    # Pop-out again and test window close docking
+    window.popout_map_button.click()
+    application.processEvents()
+    assert window.is_map_popped_out
+
+    window.map_window.close()
+    application.processEvents()
+    assert not window.is_map_popped_out
+    assert window.popout_map_button.text() == "Pop-out Map"
+
+
+def test_main_window_card_hierarchy_and_object_names() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert window.start_button.objectName() == "ActionStart"
+    assert window.pause_button.objectName() == "ActionPause"
+    assert window.emergency_stop_button.objectName() == "ActionEmergencyStop"
+    assert window.reset_map_button.objectName() == "ActionDanger"
+    assert window.status_label.objectName() == "StatusBadge"
+    assert window.goal_label.objectName() == "StatChip"
+    assert window.vitals_label.objectName() == "StatChip"
+
+    assert window.status_card.title() == "Status & Telemetry"
+    assert window.controls_card.title() == "Controls"
+    assert window.profile_card.title() == "Navigation & Profiles"
+    assert window.telemetry_card.title() == "Diagnostics & Views"
+
+
+def test_main_window_status_badge_dynamic_property() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE))
+    assert window.status_label.property("status") == "active"
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.PAUSED))
+    assert window.status_label.property("status") == "paused"
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.EMERGENCY_STOPPED))
+    assert window.status_label.property("status") == "emergency_stopped"
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.RECONCILING))
+    assert window.status_label.property("status") == "reconciling"
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.SEARCH_ROTATING))
+    assert window.status_label.property("status") == "search"
 
 
 def _world_state() -> WorldState:

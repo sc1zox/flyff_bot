@@ -37,6 +37,7 @@ from flyff_bot.features.vision.monster_stats import MonsterStatsReader
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import DashboardFeed
 from flyff_bot.ui.main_window import MainWindow
+from flyff_bot.ui.theme import apply_theme
 
 
 class FarmingControls(Protocol):
@@ -115,6 +116,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
     """Launch the native desktop window and return Qt's exit code."""
 
     application = QApplication(list(arguments or sys.argv))
+    apply_theme(application)
     window = MainWindow(Translator.from_environment())
     feed = DashboardFeed(window)
     feed.update_available.connect(window.update_dashboard)
