@@ -1,7 +1,7 @@
 ---
 id: US-024
 title: Target verification decision and threshold debug dashboard visualization
-status: draft
+status: done
 created: 2026-08-16
 updated: 2026-08-16
 ---
@@ -15,10 +15,10 @@ As a bot operator debugging target acquisition, I want target verification crite
 ## Context and assumptions
 
 - **Architectural & Subsystem Links:**
-  - Integrates with target verification in [US-004](completed/US-004-target-mob-verification.md) (`TargetVerifier`, `TargetStatus`, `TargetVerificationResult`) and [US-012](completed/US-012-real-world-vision-refactoring.md).
-  - Integrates with world-state perception feeding in [US-007](completed/US-007-perception-worldstate-feed.md) (`PerceptionPipeline`, `SelectedTarget`, `WorldState`).
-  - Integrates with PySide6 desktop dashboard UI in [US-010](completed/US-010-pyside6-dashboard-and-overlay.md), [US-014](completed/US-014-configurable-ui-attack-key.md), and [US-022](US-022-modern-dark-theme-and-streamlined-dashboard-ui.md) (`MainWindow`, `DashboardFeed`).
-  - Connects to combat state decisions in [US-023](completed/US-023-reliable-combat-targeting-and-kill-verification.md) (`CombatController`), where `TargetState.VALID` is required to dispatch attack hotkeys.
+  - Integrates with target verification in [US-004](US-004-target-mob-verification.md) (`TargetVerifier`, `TargetStatus`, `TargetVerificationResult`) and [US-012](US-012-real-world-vision-refactoring.md).
+  - Integrates with world-state perception feeding in [US-007](US-007-perception-worldstate-feed.md) (`PerceptionPipeline`, `SelectedTarget`, `WorldState`).
+  - Integrates with PySide6 desktop dashboard UI in [US-010](US-010-pyside6-dashboard-and-overlay.md), [US-014](US-014-configurable-ui-attack-key.md), and [US-022](../US-022-modern-dark-theme-and-streamlined-dashboard-ui.md) (`MainWindow`, `DashboardFeed`).
+  - Connects to combat state decisions in [US-023](US-023-reliable-combat-targeting-and-kill-verification.md) (`CombatController`), where `TargetState.VALID` is required to dispatch attack hotkeys.
 - **Problem Statement:**
   - `TargetVerifier.verify()` checks header anchor match score, HP bar pixel count, and target name template match score against configured thresholds (`anchor_match_threshold`, `minimum_hp_pixel_count`, `name_match_threshold`).
   - Currently, `SelectedTarget` only exposes `state`, `name`, and `hp_pixel_count`. The dashboard UI only shows generic status text (`VALID`, `WRONG`, `NONE`) without displaying individual score components or decision reasons.
@@ -30,17 +30,17 @@ As a bot operator debugging target acquisition, I want target verification crite
 
 ## Acceptance criteria
 
-- [ ] `TargetVerificationResult` (or `SelectedTarget`) conveys complete decision metrics for the active target: header anchor match score & pass status, HP pixel count & pass status, best name template match name/score & pass status, and overall decision status (`VALID_TARGET`, `WRONG_TARGET`, `NO_TARGET`).
-- [ ] `PerceptionPipeline` forwards complete target verification decision details into `WorldState.selected_target`.
-- [ ] The PySide6 Dashboard UI (`MainWindow` / `DashboardFeed`) displays a dedicated Target Verification Debug section showing live decision metrics:
+- [x] `TargetVerificationResult` (or `SelectedTarget`) conveys complete decision metrics for the active target: header anchor match score & pass status, HP pixel count & pass status, best name template match name/score & pass status, and overall decision status (`VALID_TARGET`, `WRONG_TARGET`, `NO_TARGET`).
+- [x] `PerceptionPipeline` forwards complete target verification decision details into `WorldState.selected_target`.
+- [x] The PySide6 Dashboard UI (`MainWindow` / `DashboardFeed`) displays a dedicated Target Verification Debug section showing live decision metrics:
   - Header Anchor status and score (e.g. `0.95 / 0.90`).
   - HP bar status, pixel count, and HP percentage (e.g. `45 px (100.0%)`).
   - Name Match status, matched template name, and score (e.g. `'Flame' 0.92 / 0.90`).
   - Overall Target State and failure reason when classified as `WRONG` or `NONE`.
-- [ ] Automated unit tests in `tests/unit/` verify:
+- [x] Automated unit tests in `tests/unit/` verify:
   - `SelectedTarget` / `WorldState` accurately preserves full target verification metrics.
   - `DashboardFeed` and UI update handlers format and display target verification metrics correctly.
-- [ ] All user-visible text, labels, status metrics, and tooltips are available in German (`de.json`) and English (`en.json`).
+- [x] All user-visible text, labels, status metrics, and tooltips are available in German (`de.json`) and English (`en.json`).
 
 ## Out of scope
 
@@ -52,7 +52,7 @@ As a bot operator debugging target acquisition, I want target verification crite
 - Automated:
   - `uv run pytest tests/unit/test_target_verification.py`
   - `uv run pytest tests/unit/test_ui.py`
-  - `uv run pytest tests/unit/test_perception.py`
+  - `uv run pytest tests/unit/test_perception_pipeline.py`
   - `./scripts/check.ps1`
 - Manual (Windows):
   1. Launch the desktop UI dashboard (`uv run flyff-bot gui`).

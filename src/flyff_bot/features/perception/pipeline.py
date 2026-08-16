@@ -199,7 +199,13 @@ def _selected_target(result: TargetVerificationResult) -> SelectedTarget:
         TargetStatus.WRONG_TARGET: TargetState.WRONG,
         TargetStatus.NO_TARGET: TargetState.NONE,
     }
-    return SelectedTarget(state_by_status[result.status], result.target_name, result.hp_pixel_count)
+    return SelectedTarget(
+        state_by_status[result.status],
+        result.target_name,
+        result.hp_pixel_count,
+        result.hp_percentage,
+        result.metrics,
+    )
 
 
 def _recent_loot(event: LootEvent) -> RecentLoot:

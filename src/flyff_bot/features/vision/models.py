@@ -79,6 +79,21 @@ class FrameCaptureError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class TargetVerificationMetrics:
+    """Per-criterion thresholds and pass/fail outcomes for one target verification."""
+
+    anchor_score: float = 0.0
+    anchor_threshold: float = 0.0
+    anchor_passed: bool = False
+    minimum_hp_pixel_count: int = 0
+    hp_passed: bool = False
+    name_candidate: str | None = None
+    name_score: float = 0.0
+    name_threshold: float = 0.0
+    name_passed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class PlayerVitals:
     """An observed snapshot of player vital percentages."""
 

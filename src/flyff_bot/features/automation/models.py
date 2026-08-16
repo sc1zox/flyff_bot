@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from flyff_bot.features.vision.models import PlayerVitals as PlayerVitals
+from flyff_bot.features.vision.models import TargetVerificationMetrics as TargetVerificationMetrics
 
 
 class FailureFlag(StrEnum):
@@ -93,6 +94,10 @@ class SelectedTarget:
     state: TargetState
     name: str | None
     hp_pixel_count: int
+    hp_percentage: float = 0.0
+    metrics: TargetVerificationMetrics = field(
+        default_factory=TargetVerificationMetrics, compare=False
+    )
 
 
 @dataclass(frozen=True, slots=True)

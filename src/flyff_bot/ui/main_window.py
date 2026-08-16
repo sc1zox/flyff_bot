@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.automation.models import SelectedTarget, TargetState, WorldState
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerRule,
@@ -141,6 +141,21 @@ class MainWindow(QMainWindow):
         self._kill_verification_label = QLabel()
         self._kill_verification_toggle = QCheckBox()
 
+        # Target verification debug panel
+        self._target_debug_toggle = QCheckBox()
+        self._target_debug_panel = QGroupBox()
+        self._target_debug_panel.setVisible(False)
+        self._target_anchor_label = QLabel()
+        self._target_anchor_value = QLabel()
+        self._target_hp_label = QLabel()
+        self._target_hp_value = QLabel()
+        self._target_name_label = QLabel()
+        self._target_name_value = QLabel()
+        self._target_state_label = QLabel()
+        self._target_state_value = QLabel()
+        self._target_reason_label = QLabel()
+        self._target_reason_value = QLabel()
+
         # Vitals configuration panel
         self._vitals_panel = QGroupBox()
         self._vitals_panel.setVisible(False)
@@ -169,6 +184,7 @@ class MainWindow(QMainWindow):
         self._fp_debounce_spin = QSpinBox()
 
         self._init_vitals_widgets()
+        self._init_target_debug_widgets()
         self._build_layout()
         self._connect_controls()
         self._load_vitals_config_to_ui()
@@ -362,6 +378,48 @@ class MainWindow(QMainWindow):
 
         return self._kill_verification_toggle
 
+    @property
+    def target_debug_toggle(self) -> QCheckBox:
+        """Expose the target verification debug panel toggle control."""
+
+        return self._target_debug_toggle
+
+    @property
+    def target_debug_panel(self) -> QGroupBox:
+        """Expose the target verification debug panel."""
+
+        return self._target_debug_panel
+
+    @property
+    def target_anchor_value(self) -> QLabel:
+        """Expose the header-anchor debug readout for testing."""
+
+        return self._target_anchor_value
+
+    @property
+    def target_hp_value(self) -> QLabel:
+        """Expose the HP-bar debug readout for testing."""
+
+        return self._target_hp_value
+
+    @property
+    def target_name_value(self) -> QLabel:
+        """Expose the name-match debug readout for testing."""
+
+        return self._target_name_value
+
+    @property
+    def target_state_value(self) -> QLabel:
+        """Expose the overall target-state debug readout for testing."""
+
+        return self._target_state_value
+
+    @property
+    def target_reason_value(self) -> QLabel:
+        """Expose the target-failure-reason debug readout for testing."""
+
+        return self._target_reason_value
+
     def _init_vitals_widgets(self) -> None:
         for spin in (self._hp_threshold_spin, self._mp_threshold_spin, self._fp_threshold_spin):
             spin.setRange(1, 100)
@@ -424,6 +482,21 @@ class MainWindow(QMainWindow):
         kill_row.addWidget(self._kill_verification_toggle)
         combat_layout.addLayout(kill_row)
         self._combat_panel.setLayout(combat_layout)
+
+    def _init_target_debug_widgets(self) -> None:
+        target_debug_layout = QVBoxLayout()
+        for label, value in (
+            (self._target_anchor_label, self._target_anchor_value),
+            (self._target_hp_label, self._target_hp_value),
+            (self._target_name_label, self._target_name_value),
+            (self._target_state_label, self._target_state_value),
+            (self._target_reason_label, self._target_reason_value),
+        ):
+            row = QHBoxLayout()
+            row.addWidget(label)
+            row.addWidget(value)
+            target_debug_layout.addLayout(row)
+        self._target_debug_panel.setLayout(target_debug_layout)
 
     def _load_vitals_config_to_ui(self) -> None:
         config = load_vitals_config(self._vitals_config_path)
@@ -572,6 +645,11 @@ class MainWindow(QMainWindow):
         self._combat_panel.setVisible(visible)
         self._adapt_window_geometry()
 
+    @Slot(bool)
+    def _update_target_debug_visibility(self, visible: bool) -> None:
+        self._target_debug_panel.setVisible(visible)
+        self._adapt_window_geometry()
+
     @Slot()
     def _on_combat_grace_changed(self) -> None:
         self.combat_grace_changed.emit(self._target_grace_spin.value())
@@ -612,6 +690,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self._path_toggle)
         controls.addWidget(self._vitals_toggle)
         controls.addWidget(self._combat_toggle)
+        controls.addWidget(self._target_debug_toggle)
         controls.addWidget(self._language_selector)
 
         profile_layout = QHBoxLayout()
@@ -631,6 +710,7 @@ class MainWindow(QMainWindow):
         content.addWidget(self._overlay_label)
         content.addWidget(self._vitals_panel)
         content.addWidget(self._combat_panel)
+        content.addWidget(self._target_debug_panel)
         content.addWidget(self._profile_bar)
         content.addWidget(self._path_inspector)
         container = QWidget()
@@ -667,6 +747,7 @@ class MainWindow(QMainWindow):
         self._combat_toggle.toggled.connect(self._update_combat_visibility)
         self._target_grace_spin.valueChanged.connect(self._on_combat_grace_changed)
         self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
+        self._target_debug_toggle.toggled.connect(self._update_target_debug_visibility)
 
     def refresh_profiles(self, select_path: Path | None = None) -> None:
         """Scan the navigation profiles directory and populate the selector."""
@@ -752,6 +833,13 @@ class MainWindow(QMainWindow):
         self._kill_verification_toggle.setToolTip(
             self._translator.text(Message.UI_KILL_VERIFICATION_TOOLTIP)
         )
+        self._target_debug_toggle.setText(self._translator.text(Message.UI_TARGET_DEBUG_TOGGLE))
+        self._target_debug_panel.setTitle(self._translator.text(Message.UI_TARGET_DEBUG_TITLE))
+        self._target_anchor_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_ANCHOR))
+        self._target_hp_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_HP))
+        self._target_name_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_NAME))
+        self._target_state_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_STATE))
+        self._target_reason_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_REASON))
         self._vitals_panel.setTitle(self._translator.text(Message.UI_VITALS_TITLE))
         self._vitals_col_type.setText(self._translator.text(Message.UI_VITALS_HP)[:2])
         self._vitals_col_active.setText(self._translator.text(Message.UI_VITALS_ACTIVE))
@@ -846,6 +934,7 @@ class MainWindow(QMainWindow):
             )
         if update.navigation is not None:
             self._path_inspector.set_navigation(update.navigation)
+        self._render_target_debug(update.state.selected_target)
         self._update_overlay_visibility(self._debug_toggle.isChecked())
         is_active = update.status in {
             BotStatus.ACTIVE,
@@ -861,6 +950,38 @@ class MainWindow(QMainWindow):
         self._save_profile_button.setEnabled(profile_controls_enabled)
         self._load_profile_button.setEnabled(profile_controls_enabled)
         self._reset_map_button.setEnabled(profile_controls_enabled)
+
+    def _render_target_debug(self, target: SelectedTarget) -> None:
+        metrics = target.metrics
+        self._target_anchor_value.setText(
+            self._translator.text(
+                Message.UI_TARGET_DEBUG_ANCHOR_VALUE,
+                status=_pass_fail_text(self._translator, metrics.anchor_passed),
+                score=f"{metrics.anchor_score:.2f}",
+                threshold=f"{metrics.anchor_threshold:.2f}",
+            )
+        )
+        self._target_hp_value.setText(
+            self._translator.text(
+                Message.UI_TARGET_DEBUG_HP_VALUE,
+                status=_pass_fail_text(self._translator, metrics.hp_passed),
+                pixels=target.hp_pixel_count,
+                percentage=f"{target.hp_percentage:.1f}",
+            )
+        )
+        self._target_name_value.setText(
+            self._translator.text(
+                Message.UI_TARGET_DEBUG_NAME_VALUE,
+                status=_pass_fail_text(self._translator, metrics.name_passed),
+                name=metrics.name_candidate or self._translator.text(Message.UI_NO_TARGET_NAME),
+                score=f"{metrics.name_score:.2f}",
+                threshold=f"{metrics.name_threshold:.2f}",
+            )
+        )
+        self._target_state_value.setText(self._translator.text(_target_state_message(target.state)))
+        self._target_reason_value.setText(
+            self._translator.text(_target_failure_reason_message(target))
+        )
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Ensure the session is paused and navigation data is persisted upon window close."""
@@ -906,6 +1027,29 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
         BotStatus.SEARCH_MINIMAP: Message.UI_STATUS_SEARCH_MINIMAP,
     }[status]
+
+
+def _pass_fail_text(translator: Translator, passed: bool) -> str:
+    return translator.text(Message.UI_TARGET_DEBUG_PASS if passed else Message.UI_TARGET_DEBUG_FAIL)
+
+
+def _target_state_message(state: TargetState) -> Message:
+    return {
+        TargetState.VALID: Message.UI_TARGET_VALID,
+        TargetState.WRONG: Message.UI_TARGET_WRONG,
+        TargetState.NONE: Message.UI_TARGET_NONE,
+    }[state]
+
+
+def _target_failure_reason_message(target: SelectedTarget) -> Message:
+    metrics = target.metrics
+    if target.state is TargetState.VALID:
+        return Message.UI_TARGET_DEBUG_REASON_OK
+    if not metrics.anchor_passed:
+        return Message.UI_TARGET_DEBUG_REASON_ANCHOR
+    if not metrics.hp_passed:
+        return Message.UI_TARGET_DEBUG_REASON_HP
+    return Message.UI_TARGET_DEBUG_REASON_NAME
 
 
 def _goal_text(translator: Translator, state: WorldState, goal: FarmingGoal | None) -> str:

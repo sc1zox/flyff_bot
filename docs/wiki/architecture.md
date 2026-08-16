@@ -252,3 +252,22 @@ window with the ROI `MonsterStatsReader` reads. Both the target-acquisition grac
 verification toggle are dashboard-configurable and apply live via `FarmingOrchestrator.configure_combat_grace`
 and `configure_kill_verification`, which update the running `CombatController`'s configuration without resetting
 its in-progress engagement state.
+
+US-024 exposes `TargetVerifier`'s internal decision evidence for live debugging instead of only the collapsed
+`VALID_TARGET`/`WRONG_TARGET`/`NO_TARGET` outcome. `TargetVerificationMetrics`
+(`flyff_bot.features.vision.models`) is a new value object carrying each criterion's raw score, configured
+threshold, and pass/fail outcome (header anchor, HP-bar minimum pixel count, name-template match), populated by
+`TargetVerifier.verify()` on every branch of its short-circuit evaluation, including the `NO_TARGET` and
+HP-failure paths that previously discarded this evidence. Name-template matching now scores every configured
+template and reports the highest-scoring one (`_best_name_match`) rather than the first template past
+threshold in dict-iteration order, matching the debug panel's "best name match" requirement without changing
+which status a target resolves to. `TargetVerificationResult` and `SelectedTarget` both carry `hp_percentage`
+and `metrics` alongside their existing fields; `PerceptionPipeline._selected_target()` forwards them unchanged
+into `WorldState.selected_target`. Because `TM_CCOEFF_NORMED` scores jitter by fractions of a percent between
+otherwise-identical ticks, `SelectedTarget.metrics` is declared `compare=False` so this continuous noise cannot
+trigger a spurious `PerceptionEventKind.TARGET_CHANGED` event; only `state`, `name`, `hp_pixel_count`, and
+`hp_percentage` remain part of that equality check. The dashboard exposes this data as a new "Target Debug"
+toggle and `MainWindow` panel (mirroring the existing vitals/combat panel pattern) with five read-only rows:
+anchor score/threshold, HP pixel count/percentage, best name-match candidate/score, overall target state, and
+a failure-reason row derived purely from the forwarded pass/fail booleans (never re-deriving verifier
+thresholds), always kept up to date in `_render_update` independent of the panel's own visibility toggle.

@@ -32,6 +32,7 @@ from flyff_bot.features.vision.models import (
     FrameCaptureErrorCode,
     PixelFormat,
     PlayerVitals,
+    TargetVerificationMetrics,
 )
 from flyff_bot.features.vision.target_verification import (
     TargetRegion,
@@ -78,6 +79,7 @@ __all__ = [
     "TargetRegion",
     "TargetStatus",
     "TargetVerificationConfig",
+    "TargetVerificationMetrics",
     "TargetVerificationResult",
     "TargetVerifier",
     "TesseractTextRecognizer",

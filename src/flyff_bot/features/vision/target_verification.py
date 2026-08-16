@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from flyff_bot.features.vision.models import CapturedFrame, ClientSize
+from flyff_bot.features.vision.models import CapturedFrame, ClientSize, TargetVerificationMetrics
 
 DEFAULT_TARGET_REGION_X = 0.25
 DEFAULT_TARGET_REGION_Y = 0.0
@@ -85,6 +85,7 @@ class TargetVerificationResult:
     target_name: str | None
     hp_pixel_count: int
     hp_percentage: float = 0.0
+    metrics: TargetVerificationMetrics = field(default_factory=TargetVerificationMetrics)
 
     @property
     def is_alive(self) -> bool:
@@ -131,43 +132,93 @@ class TargetVerifier:
     def verify(self, frame: CapturedFrame) -> TargetVerificationResult:
         """Classify the selected target from its header region in a captured frame."""
 
+        anchor_threshold = self._config.anchor_match_threshold
+        minimum_hp_pixel_count = self._config.minimum_hp_pixel_count
+        name_threshold = self._config.name_match_threshold
+
         target_region = extract_target_region(frame, self._config.region)
-        if not self._has_header_anchor(target_region.pixels):
-            return TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)
+        anchor_score = self._anchor_score(target_region.pixels)
+        anchor_passed = anchor_score >= anchor_threshold
+        if not anchor_passed:
+            return TargetVerificationResult(
+                TargetStatus.NO_TARGET,
+                None,
+                0,
+                metrics=TargetVerificationMetrics(
+                    anchor_score=anchor_score,
+                    anchor_threshold=anchor_threshold,
+                    anchor_passed=False,
+                    minimum_hp_pixel_count=minimum_hp_pixel_count,
+                    name_threshold=name_threshold,
+                ),
+            )
+
         hp_pixels = extract_target_region(target_region, self._config.hp_region).pixels
         hp_pixel_count = self._hp_pixel_count(hp_pixels)
-        if hp_pixel_count < self._config.minimum_hp_pixel_count:
-            return TargetVerificationResult(TargetStatus.WRONG_TARGET, None, hp_pixel_count)
-        target_name = self._matching_target_name(
+        hp_passed = hp_pixel_count >= minimum_hp_pixel_count
+        if not hp_passed:
+            return TargetVerificationResult(
+                TargetStatus.WRONG_TARGET,
+                None,
+                hp_pixel_count,
+                self._hp_percentage(hp_pixels),
+                metrics=TargetVerificationMetrics(
+                    anchor_score=anchor_score,
+                    anchor_threshold=anchor_threshold,
+                    anchor_passed=True,
+                    minimum_hp_pixel_count=minimum_hp_pixel_count,
+                    hp_passed=False,
+                    name_threshold=name_threshold,
+                ),
+            )
+
+        name_candidate, name_score = self._best_name_match(
             extract_target_region(target_region, self._config.name_region).pixels
         )
-        status = TargetStatus.VALID_TARGET if target_name is not None else TargetStatus.WRONG_TARGET
+        name_passed = name_score >= name_threshold
+        status = TargetStatus.VALID_TARGET if name_passed else TargetStatus.WRONG_TARGET
         return TargetVerificationResult(
-            status, target_name, hp_pixel_count, self._hp_percentage(hp_pixels)
+            status,
+            name_candidate if name_passed else None,
+            hp_pixel_count,
+            self._hp_percentage(hp_pixels),
+            metrics=TargetVerificationMetrics(
+                anchor_score=anchor_score,
+                anchor_threshold=anchor_threshold,
+                anchor_passed=True,
+                minimum_hp_pixel_count=minimum_hp_pixel_count,
+                hp_passed=True,
+                name_candidate=name_candidate,
+                name_score=name_score,
+                name_threshold=name_threshold,
+                name_passed=name_passed,
+            ),
         )
 
-    def _has_header_anchor(self, pixels: npt.NDArray[np.uint8]) -> bool:
+    def _anchor_score(self, pixels: npt.NDArray[np.uint8]) -> float:
         template = self._header_anchor_template
         if template.shape[0] > pixels.shape[0] or template.shape[1] > pixels.shape[1]:
-            return False
-        score = float(cv2.minMaxLoc(cv2.matchTemplate(pixels, template, cv2.TM_CCOEFF_NORMED))[1])
-        return score >= self._config.anchor_match_threshold
+            return 0.0
+        return float(cv2.minMaxLoc(cv2.matchTemplate(pixels, template, cv2.TM_CCOEFF_NORMED))[1])
 
     def _hp_pixel_count(self, pixels: npt.NDArray[np.uint8]) -> int:
         lower = np.array(self._config.hp_color_lower_bound, dtype=np.uint8)
         upper = np.array(self._config.hp_color_upper_bound, dtype=np.uint8)
         return int(np.count_nonzero(np.all((pixels >= lower) & (pixels <= upper), axis=2)))
 
-    def _matching_target_name(self, pixels: npt.NDArray[np.uint8]) -> str | None:
+    def _best_name_match(self, pixels: npt.NDArray[np.uint8]) -> tuple[str | None, float]:
+        best_name: str | None = None
+        best_score = 0.0
         for name, template in self._name_templates.items():
             if template.shape[0] > pixels.shape[0] or template.shape[1] > pixels.shape[1]:
                 continue
             score = float(
                 cv2.minMaxLoc(cv2.matchTemplate(pixels, template, cv2.TM_CCOEFF_NORMED))[1]
             )
-            if score >= self._config.name_match_threshold:
-                return name
-        return None
+            if best_name is None or score > best_score:
+                best_name = name
+                best_score = score
+        return best_name, best_score
 
     def _hp_percentage(self, pixels: npt.NDArray[np.uint8]) -> float:
         lower = np.array(self._config.hp_color_lower_bound, dtype=np.uint8)

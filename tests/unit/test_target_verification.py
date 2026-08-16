@@ -19,6 +19,7 @@ from flyff_bot.features.vision import (
     TargetVerifier,
     extract_target_region,
 )
+from flyff_bot.features.vision.target_verification import DEFAULT_ANCHOR_MATCH_THRESHOLD
 
 HP_BAR_COLOR = (0, 0, 220)
 HEADER_ANCHOR_TEMPLATE = np.array(
@@ -77,6 +78,12 @@ def test_verifier_accepts_live_whitelisted_target_fixture() -> None:
     assert result.target_name == "Aibatt"
     assert result.is_alive
     assert result.hp_pixel_count == 20
+    assert result.metrics.anchor_passed
+    assert result.metrics.anchor_score >= result.metrics.anchor_threshold
+    assert result.metrics.hp_passed
+    assert result.metrics.name_passed
+    assert result.metrics.name_candidate == "Aibatt"
+    assert result.metrics.name_score >= result.metrics.name_threshold
 
 
 def test_verifier_rejects_live_target_with_unrecognized_name_fixture() -> None:
@@ -87,6 +94,11 @@ def test_verifier_rejects_live_target_with_unrecognized_name_fixture() -> None:
     assert result.status is TargetStatus.WRONG_TARGET
     assert result.target_name is None
     assert result.is_alive
+    assert result.metrics.anchor_passed
+    assert result.metrics.hp_passed
+    assert not result.metrics.name_passed
+    assert result.metrics.name_candidate == "Aibatt"
+    assert result.metrics.name_score < result.metrics.name_threshold
 
 
 def test_verifier_reports_empty_target_bar_fixture_as_no_target() -> None:
@@ -98,6 +110,12 @@ def test_verifier_reports_empty_target_bar_fixture_as_no_target() -> None:
     assert result.status is TargetStatus.NO_TARGET
     assert result.target_name is None
     assert not result.is_alive
+    assert not result.metrics.anchor_passed
+    assert result.metrics.anchor_score < result.metrics.anchor_threshold
+    assert result.metrics.anchor_threshold == DEFAULT_ANCHOR_MATCH_THRESHOLD
+    assert not result.metrics.hp_passed
+    assert not result.metrics.name_passed
+    assert result.metrics.name_candidate is None
 
 
 def test_verifier_rejects_depleted_hp_bar() -> None:
@@ -109,6 +127,36 @@ def test_verifier_rejects_depleted_hp_bar() -> None:
     assert result.status is TargetStatus.WRONG_TARGET
     assert result.target_name is None
     assert result.hp_pixel_count == 5
+    assert result.hp_percentage == pytest.approx(25.0)
+    assert result.metrics.anchor_passed
+    assert not result.metrics.hp_passed
+    assert result.metrics.minimum_hp_pixel_count == 10
+    assert not result.metrics.name_passed
+    assert result.metrics.name_candidate is None
+
+
+def test_verifier_reports_the_highest_scoring_name_template_regardless_of_dict_order() -> None:
+    weaker_match = np.flip(NAME_TEMPLATE, axis=0).copy()
+    verifier = TargetVerifier(
+        {"Weaker": weaker_match, "Aibatt": NAME_TEMPLATE},
+        HEADER_ANCHOR_TEMPLATE,
+        TargetVerificationConfig(
+            region=TARGET_REGION,
+            hp_region=TargetRegion(x=0.0, y=0.6, width=1.0, height=0.4),
+            name_region=TargetRegion(x=0.0, y=0.0, width=1.0, height=0.6),
+            hp_color_lower_bound=(0, 0, 100),
+            hp_color_upper_bound=(100, 100, 255),
+            minimum_hp_pixel_count=10,
+            name_match_threshold=0.5,
+        ),
+    )
+
+    result = verifier.verify(_frame(include_hp=True))
+
+    assert result.status is TargetStatus.VALID_TARGET
+    assert result.target_name == "Aibatt"
+    assert result.metrics.name_candidate == "Aibatt"
+    assert result.metrics.name_score == pytest.approx(1.0)
 
 
 def test_target_region_rejects_bounds_outside_frame() -> None:
@@ -133,6 +181,7 @@ def test_verifier_rejects_real_sky_fixture_without_a_target() -> None:
     assert result.status is TargetStatus.NO_TARGET
     assert result.target_name is None
     assert result.hp_pixel_count == 0
+    assert not result.metrics.anchor_passed
 
 
 def test_verifier_accepts_real_flame_target_fixture_with_hp_percentage() -> None:
@@ -143,6 +192,10 @@ def test_verifier_accepts_real_flame_target_fixture_with_hp_percentage() -> None
     assert result.status is TargetStatus.VALID_TARGET
     assert result.target_name == "Flame"
     assert 0.0 < result.hp_percentage <= 100.0
+    assert result.metrics.anchor_passed
+    assert result.metrics.hp_passed
+    assert result.metrics.name_passed
+    assert result.metrics.name_candidate == "Flame"
 
 
 def test_verifier_rejects_real_target_outside_the_active_whitelist() -> None:

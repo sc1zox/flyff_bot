@@ -30,6 +30,7 @@ from flyff_bot.features.vision import (
     LootOcrError,
     LootOcrErrorCode,
     TargetStatus,
+    TargetVerificationMetrics,
     TargetVerificationResult,
 )
 
@@ -137,6 +138,68 @@ def test_tick_emits_target_transition_and_new_mob_events() -> None:
         PerceptionEventKind.TARGET_CHANGED,
         PerceptionEventKind.MOB_APPEARED,
     ]
+
+
+def test_tick_forwards_full_target_verification_metrics_into_selected_target() -> None:
+    metrics = TargetVerificationMetrics(
+        anchor_score=0.95,
+        anchor_threshold=0.9,
+        anchor_passed=True,
+        minimum_hp_pixel_count=10,
+        hp_passed=True,
+        name_candidate="Aibatt",
+        name_score=0.92,
+        name_threshold=0.9,
+        name_passed=True,
+    )
+    result = TargetVerificationResult(TargetStatus.VALID_TARGET, "Aibatt", 20, 100.0, metrics)
+
+    tick = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(result),
+        _LootLogReader(()),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    ).tick(WINDOW_HANDLE, _previous_state())
+
+    selected = tick.state.selected_target
+    assert selected.state is TargetState.VALID
+    assert selected.name == "Aibatt"
+    assert selected.hp_pixel_count == 20
+    assert selected.hp_percentage == 100.0
+    assert selected.metrics == metrics
+
+
+def test_tick_does_not_emit_target_changed_for_metrics_only_jitter() -> None:
+    verifier = _TargetVerifier(
+        TargetVerificationResult(
+            TargetStatus.VALID_TARGET,
+            "Aibatt",
+            20,
+            100.0,
+            TargetVerificationMetrics(anchor_score=0.91, name_candidate="Aibatt", name_score=0.91),
+        )
+    )
+    pipeline = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        verifier,
+        _LootLogReader(()),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+    first = pipeline.tick(WINDOW_HANDLE, _previous_state())
+
+    verifier.result = TargetVerificationResult(
+        TargetStatus.VALID_TARGET,
+        "Aibatt",
+        20,
+        100.0,
+        TargetVerificationMetrics(anchor_score=0.99, name_candidate="Aibatt", name_score=0.99),
+    )
+    second = pipeline.tick(WINDOW_HANDLE, first.state)
+
+    assert first.state.selected_target.metrics != second.state.selected_target.metrics
+    assert all(event.kind is not PerceptionEventKind.TARGET_CHANGED for event in second.events)
 
 
 def test_tick_isolates_detector_and_loot_failures() -> None:

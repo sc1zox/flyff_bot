@@ -22,6 +22,7 @@ from flyff_bot.features.automation.models import (
     Position,
     SelectedTarget,
     TargetState,
+    TargetVerificationMetrics,
     VisibleMob,
     WorldState,
 )
@@ -565,6 +566,94 @@ def test_main_window_combat_panel_toggle_and_config_signals() -> None:
 
     assert grace_values[-1] == pytest.approx(1.5)
     assert kill_verification_values == [True]
+
+
+def test_main_window_target_debug_panel_toggle_and_renders_failure_metrics() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert window.target_debug_panel.isHidden()
+    window.target_debug_toggle.setChecked(True)
+    assert not window.target_debug_panel.isHidden()
+
+    target = SelectedTarget(
+        TargetState.WRONG,
+        None,
+        3,
+        15.0,
+        TargetVerificationMetrics(
+            anchor_score=0.95,
+            anchor_threshold=0.9,
+            anchor_passed=True,
+            minimum_hp_pixel_count=10,
+            hp_passed=False,
+            name_candidate=None,
+            name_score=0.0,
+            name_threshold=0.9,
+            name_passed=False,
+        ),
+    )
+    window.update_dashboard(
+        DashboardUpdate(replace(_world_state(), selected_target=target), BotStatus.ACTIVE)
+    )
+    application.processEvents()
+
+    assert window.target_anchor_value.text() == "PASS 0.95 / 0.90"
+    assert window.target_hp_value.text() == "FAIL 3 px (15.0%)"
+    assert window.target_name_value.text() == "FAIL 'none' 0.00 / 0.90"
+    assert window.target_state_value.text() == "Wrong target"
+    assert window.target_reason_value.text() == "HP bar below minimum pixel threshold"
+
+
+def test_main_window_target_debug_renders_valid_target_criteria_met() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    target = SelectedTarget(
+        TargetState.VALID,
+        "Flame",
+        45,
+        100.0,
+        TargetVerificationMetrics(
+            anchor_score=0.95,
+            anchor_threshold=0.9,
+            anchor_passed=True,
+            minimum_hp_pixel_count=10,
+            hp_passed=True,
+            name_candidate="Flame",
+            name_score=0.92,
+            name_threshold=0.9,
+            name_passed=True,
+        ),
+    )
+    window.update_dashboard(
+        DashboardUpdate(replace(_world_state(), selected_target=target), BotStatus.ACTIVE)
+    )
+    application.processEvents()
+
+    assert window.target_name_value.text() == "PASS 'Flame' 0.92 / 0.90"
+    assert window.target_state_value.text() == "Valid target"
+    assert window.target_reason_value.text() == "Criteria met"
+
+
+def test_main_window_target_debug_renders_cleanly_in_german_locale() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.GERMAN))
+
+    target = SelectedTarget(
+        TargetState.NONE,
+        None,
+        0,
+        0.0,
+        TargetVerificationMetrics(anchor_score=0.2, anchor_threshold=0.9, anchor_passed=False),
+    )
+    window.update_dashboard(
+        DashboardUpdate(replace(_world_state(), selected_target=target), BotStatus.ACTIVE)
+    )
+
+    assert window.target_state_value.text() == "Kein Ziel"
+    assert window.target_reason_value.text() == "Kopf-Anker nicht erkannt"
+    assert "FEHLGESCHLAGEN" in window.target_anchor_value.text()
 
 
 def _world_state() -> WorldState:

@@ -148,6 +148,22 @@ class Message(StrEnum):
     UI_KILL_VERIFICATION = "ui.kill_verification"
     UI_KILL_VERIFICATION_TOOLTIP = "ui.kill_verification_tooltip"
     UI_MONSTER_STATS_GUIDE = "ui.monster_stats_guide"
+    UI_TARGET_DEBUG_TOGGLE = "ui.target_debug_toggle"
+    UI_TARGET_DEBUG_TITLE = "ui.target_debug_title"
+    UI_TARGET_DEBUG_ANCHOR = "ui.target_debug_anchor"
+    UI_TARGET_DEBUG_ANCHOR_VALUE = "ui.target_debug_anchor_value"
+    UI_TARGET_DEBUG_HP = "ui.target_debug_hp"
+    UI_TARGET_DEBUG_HP_VALUE = "ui.target_debug_hp_value"
+    UI_TARGET_DEBUG_NAME = "ui.target_debug_name"
+    UI_TARGET_DEBUG_NAME_VALUE = "ui.target_debug_name_value"
+    UI_TARGET_DEBUG_STATE = "ui.target_debug_state"
+    UI_TARGET_DEBUG_REASON = "ui.target_debug_reason"
+    UI_TARGET_DEBUG_PASS = "ui.target_debug_pass"
+    UI_TARGET_DEBUG_FAIL = "ui.target_debug_fail"
+    UI_TARGET_DEBUG_REASON_ANCHOR = "ui.target_debug_reason_anchor"
+    UI_TARGET_DEBUG_REASON_HP = "ui.target_debug_reason_hp"
+    UI_TARGET_DEBUG_REASON_NAME = "ui.target_debug_reason_name"
+    UI_TARGET_DEBUG_REASON_OK = "ui.target_debug_reason_ok"
 
 
 class Translator:

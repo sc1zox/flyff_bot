@@ -128,3 +128,15 @@ alternative to HP-decrease-based confirmation, the resolution-scaled debug-overl
 box for aligning the in-game monster-stats HUD, and live dashboard configuration of the target-click
 grace period and kill-verification toggle via `FarmingOrchestrator.configure_combat_grace` and
 `configure_kill_verification`; moved US-023 to the completed stories directory.
+
+## [2026-08-16] synthesis | Target verification debug dashboard visualization (US-024)
+
+Recorded the new `TargetVerificationMetrics` value object carrying each verification criterion's raw
+score, threshold, and pass/fail outcome, populated by `TargetVerifier.verify()` on every decision
+branch including previously-discarded `NO_TARGET` and HP-failure evidence; the switch from
+first-passing to highest-scoring name-template matching; `hp_percentage`/`metrics` forwarded through
+`TargetVerificationResult` and `SelectedTarget` into `WorldState.selected_target` with
+`compare=False` on `metrics` to keep continuous score jitter from firing spurious `TARGET_CHANGED`
+events; and the new localized `MainWindow` "Target Debug" toggle panel rendering live anchor, HP-bar,
+name-match, target-state, and failure-reason readouts; moved US-024 to the completed stories
+directory.

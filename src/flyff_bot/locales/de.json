@@ -128,5 +128,21 @@
   "ui.target_grace_tooltip": "Wartezeit, bis der Zielkopf erscheint, bevor erneut geklickt wird. Verhindert versehentliches Doppelklick-Laufen.",
   "ui.kill_verification": "Monsterstatus-Kill-Überprüfung",
   "ui.kill_verification_tooltip": "Verwendet den spielinternen Monster-Kill-Zähler zur Bestätigung anstatt sich nur auf das Verschwinden der Zielleiste zu verlassen.",
-  "ui.monster_stats_guide": "Monsterstatus"
+  "ui.monster_stats_guide": "Monsterstatus",
+  "ui.target_debug_toggle": "Ziel-Debug",
+  "ui.target_debug_title": "Zielverifizierungs-Debug",
+  "ui.target_debug_anchor": "Kopf-Anker",
+  "ui.target_debug_anchor_value": "{status} {score} / {threshold}",
+  "ui.target_debug_hp": "HP-Leiste",
+  "ui.target_debug_hp_value": "{status} {pixels} px ({percentage}%)",
+  "ui.target_debug_name": "Namensabgleich",
+  "ui.target_debug_name_value": "{status} '{name}' {score} / {threshold}",
+  "ui.target_debug_state": "Zielstatus",
+  "ui.target_debug_reason": "Grund",
+  "ui.target_debug_pass": "BESTANDEN",
+  "ui.target_debug_fail": "FEHLGESCHLAGEN",
+  "ui.target_debug_reason_anchor": "Kopf-Anker nicht erkannt",
+  "ui.target_debug_reason_hp": "HP-Leiste unter dem Mindestpixel-Schwellenwert",
+  "ui.target_debug_reason_name": "Keine Namensvorlage aus der Whitelist stimmte überein",
+  "ui.target_debug_reason_ok": "Kriterien erfüllt"
 }

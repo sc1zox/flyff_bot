@@ -60,6 +60,10 @@ related:
   input.
 - **Target status** — The verification result for the current target: `VALID_TARGET`,
   `WRONG_TARGET`, or `NO_TARGET`.
+- **Target verification metrics** — The per-criterion debug evidence behind a target status: each
+  of the header-anchor, HP-bar, and name-match checks' raw score, configured threshold, and
+  pass/fail outcome, carried on `TargetVerificationResult` and `SelectedTarget` for the dashboard's
+  Target Debug panel without altering the underlying verification decision.
 - **Viewport** — The client-area width and height carried with a world-state snapshot, used to
   choose the visible target nearest the screen centre.
 - **Loot-log OCR** — Perception-only extraction of pickup notifications from a normalized central

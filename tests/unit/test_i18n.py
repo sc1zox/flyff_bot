@@ -39,6 +39,10 @@ def test_each_language_contains_every_message() -> None:
                 hp="100.0",
                 mp="100.0",
                 fp="100.0",
+                score="0.00",
+                threshold="0.00",
+                pixels=0,
+                percentage="0.0",
             )
 
 

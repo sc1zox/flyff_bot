@@ -128,5 +128,21 @@
   "ui.target_grace_tooltip": "Time to wait for the target header to appear before retrying. Prevents accidental double-click walking.",
   "ui.kill_verification": "Monster stats kill verification",
   "ui.kill_verification_tooltip": "Use the in-game Monster Kills counter to confirm kills instead of relying solely on target bar disappearance.",
-  "ui.monster_stats_guide": "Monster Stats"
+  "ui.monster_stats_guide": "Monster Stats",
+  "ui.target_debug_toggle": "Target Debug",
+  "ui.target_debug_title": "Target Verification Debug",
+  "ui.target_debug_anchor": "Header Anchor",
+  "ui.target_debug_anchor_value": "{status} {score} / {threshold}",
+  "ui.target_debug_hp": "HP Bar",
+  "ui.target_debug_hp_value": "{status} {pixels} px ({percentage}%)",
+  "ui.target_debug_name": "Name Match",
+  "ui.target_debug_name_value": "{status} '{name}' {score} / {threshold}",
+  "ui.target_debug_state": "Target State",
+  "ui.target_debug_reason": "Reason",
+  "ui.target_debug_pass": "PASS",
+  "ui.target_debug_fail": "FAIL",
+  "ui.target_debug_reason_anchor": "Header anchor not detected",
+  "ui.target_debug_reason_hp": "HP bar below minimum pixel threshold",
+  "ui.target_debug_reason_name": "No whitelisted name template matched",
+  "ui.target_debug_reason_ok": "Criteria met"
 }
