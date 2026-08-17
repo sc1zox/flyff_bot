@@ -39,3 +39,4 @@ runs/
 
 # Locally learned navigation maps and spawn heatmaps
 data/navigation/
+data/powerups_config.json
