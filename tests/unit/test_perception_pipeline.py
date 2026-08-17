@@ -8,6 +8,8 @@ import numpy as np
 
 from flyff_bot.features.automation.models import (
     InventoryEntry,
+    MonsterStatsMetrics,
+    MonsterStatsStatus,
     PlayerVitals,
     Position,
     SelectedTarget,
@@ -291,6 +293,68 @@ def test_tick_operates_without_an_attached_loot_feed() -> None:
     assert tick.state.recent_loot == ()
     assert tick.state.inventory == _previous_state().inventory
     assert PerceptionFailure.LOOT_READING not in tick.failures
+
+
+class _MonsterStatsReader:
+    def __init__(self, result: MonsterStatsMetrics) -> None:
+        self.result = result
+        self.frames: list[CapturedFrame] = []
+
+    def read(self, frame: CapturedFrame) -> MonsterStatsMetrics:
+        self.frames.append(frame)
+        return self.result
+
+
+def test_tick_forwards_monster_stats_metrics_and_the_parsed_kill_count() -> None:
+    metrics = MonsterStatsMetrics(
+        anchor_configured=True,
+        anchor_score=0.93,
+        anchor_threshold=0.85,
+        anchor_passed=True,
+        roi_width=145,
+        roi_height=20,
+        raw_text="Monster Kills: 12",
+        parsed_count=12,
+        status=MonsterStatsStatus.OK,
+    )
+
+    tick = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        clock=lambda: OBSERVED_AT_SECONDS,
+        monster_stats_reader=_MonsterStatsReader(metrics),
+    ).tick(WINDOW_HANDLE, _previous_state())
+
+    assert tick.state.monster_stats == metrics
+    assert tick.state.monster_kill_count == 12
+
+
+def test_tick_retains_the_previous_kill_count_when_the_reading_fails() -> None:
+    """A zero written here would fake the exact +1 delta CombatController confirms kills by."""
+
+    previous = WorldState(
+        observed_at_seconds=1.0,
+        position=Position(0, 0),
+        nearby_mob_count=0,
+        inventory=(),
+        progress_marker=0,
+        monster_kill_count=17,
+    )
+    metrics = MonsterStatsMetrics(
+        anchor_configured=True, status=MonsterStatsStatus.ANCHOR_NOT_FOUND
+    )
+
+    tick = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        clock=lambda: OBSERVED_AT_SECONDS,
+        monster_stats_reader=_MonsterStatsReader(metrics),
+    ).tick(WINDOW_HANDLE, previous)
+
+    assert tick.state.monster_kill_count == 17
+    assert tick.state.monster_stats.status is MonsterStatsStatus.ANCHOR_NOT_FOUND
 
 
 class _VitalsReader:

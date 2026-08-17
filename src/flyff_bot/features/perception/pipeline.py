@@ -127,6 +127,7 @@ class PerceptionPipeline:
         recent_loot = previous_state.recent_loot
         player_vitals = previous_state.player_vitals
         monster_kill_count = previous_state.monster_kill_count
+        monster_stats = previous_state.monster_stats
         confirmed_loot: tuple[LootEvent, ...] = ()
 
         try:
@@ -151,9 +152,11 @@ class PerceptionPipeline:
             failures.add(PerceptionFailure.VITALS_READING)
         if self._monster_stats_reader is not None:
             try:
-                count = self._monster_stats_reader.read(frame)
-                if count is not None:
-                    monster_kill_count = count
+                monster_stats = self._monster_stats_reader.read(frame)
+                # A failed reading keeps the previous count: CombatController confirms a kill
+                # from an exact +1 delta, so writing a zero here would fake a jump.
+                if monster_stats.parsed_count is not None:
+                    monster_kill_count = monster_stats.parsed_count
             except Exception:  # OCR failures are non-fatal
                 failures.add(PerceptionFailure.MONSTER_STATS)
 
@@ -172,6 +175,7 @@ class PerceptionPipeline:
             viewport=Viewport(frame.client_size.width, frame.client_size.height),
             player_vitals=player_vitals,
             monster_kill_count=monster_kill_count,
+            monster_stats=monster_stats,
         )
         return PerceptionTick(state, _events(previous_state, state), frozenset(failures), frame)
 

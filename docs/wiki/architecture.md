@@ -31,6 +31,7 @@ related:
   - ../user-stories/completed/US-026-static-hud-anchoring-and-field-hardening.md
   - ../user-stories/completed/US-028-live-perception-standby-and-focus-workflow.md
   - ../user-stories/completed/US-029-configurable-target-verification-thresholds.md
+  - ../user-stories/completed/US-030-monster-stats-hud-ocr-diagnostics-and-debug-panel.md
 ---
 
 # Architecture
@@ -365,6 +366,26 @@ region edge cannot report a falsely full bar. Default anchor and name thresholds
 `target_thresholds_changed` signal is connected in `run_desktop` straight to
 `TargetVerifier.update_thresholds`, applying live without touching controller state; labels and
 tooltips are localized in German and English.
+
+US-030 instruments the monster-kills HUD OCR the way US-024 instrumented target verification.
+`MonsterStatsFeed.read()` returns `MonsterStatsMetrics` (`flyff_bot.features.vision.models`) rather
+than a bare `int | None`: the kill count is `parsed_count`, and `anchor_configured`, `anchor_score`,
+`anchor_threshold`, `anchor_passed`, `roi_width`, `roi_height`, `raw_text`, and a typed
+`MonsterStatsStatus` (`IDLE`, `OK`, `ANCHOR_NOT_FOUND`, `ROI_UNAVAILABLE`, `OCR_FAILED`, `NO_MATCH`)
+are measured on the same tick whether or not the reading succeeded. `_extract_anchored_roi` now
+returns the best `cv2.matchTemplate` score alongside its crop instead of discarding it on the
+below-threshold path, so the panel shows how close a missed match came — the same lesson US-029
+applied to `TargetVerifier`. `PerceptionPipeline` carries the value object on
+`WorldState.monster_stats` and still leaves `monster_kill_count` untouched when `parsed_count` is
+`None`, because `CombatController` confirms a kill from an exact `+1` delta and a zero written on a
+failed read would fake one. The dashboard adds a "Monster Stats Debug" toggle and panel with five
+read-only rows (anchor score/threshold with the shared PASS/FAIL badge, cropped ROI dimensions,
+parsed kill count, raw OCR text rendered as `Qt.TextFormat.PlainText` because OCR output is
+untrusted markup, and the feed status sentence), rendered from `_render_update` independent of the
+toggle. No monster-stats anchor template ships in `models/` and `run_desktop` constructs the reader
+without one, so the shipped app reads the fixed normalized ROI; `anchor_configured` is `False`
+there and the anchor row states that no template is configured rather than showing a Fail badge for
+a criterion that was never evaluated.
 
 US-022 overhauls the desktop dashboard boundary (`flyff_bot.ui`) with a cohesive Dark Slate Qt Style Sheet (QSS) theme, card-based panel grouping, streamlined visual hierarchy, a standalone pop-out navigation map window (`NavigationMapWindow`), and an `Escape` key emergency stop shortcut. All UI windows, inputs, buttons, and modal dialogs adopt dark slate styling with emerald green (Start), amber (Pause), and danger crimson (Emergency Stop) action accents alongside responsive hover/pressed states. Dashboard controls are organized into logical card panels—*Status & Metrics Card* (with colored status pill badges and metric chips), *Action Controls Card*, *Navigation & Profiles Card*, and *Telemetry & Diagnostics Toolbar*—eliminating redundant text clutter. Operators can pop out `PathInspectorWidget` into a secondary standalone window (`NavigationMapWindow`) to maintain a compact controller dashboard while monitoring live 2D pathing and heatmap telemetry on a separate display. Pressing `Escape` (`Qt.Key.Key_Escape`) while any UI window has focus instantly triggers an emergency stop (`emergency_stop_requested.emit()`), matching the physical UI button and the global Win32 `END` key safeguard. All user-visible strings, badge labels, and tooltips are localized across German and English.
 

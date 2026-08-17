@@ -213,3 +213,13 @@ Documented why the raw HP measurements live on `TargetVerificationMetrics` while
 `TargetVerificationResult` stay anchor-gated (`CombatController` kill evidence and `SelectedTarget`
 equality behind `TARGET_CHANGED`). Added glossary entries for anchor-relative ROI, match threshold,
 and diagnostic metric.
+
+## [2026-08-17] synthesis | Monster stats OCR diagnostics (US-030)
+
+Recorded the monster-kills HUD OCR instrumentation delivered by US-030: `MonsterStatsFeed.read()`
+returning the typed `MonsterStatsMetrics` value object instead of `int | None`, the retained best
+`cv2.matchTemplate` score on the below-threshold path, the `MonsterStatsStatus` feed-health states,
+and the dashboard panel's five read-only rows. Documented why `PerceptionPipeline` keeps the prior
+`monster_kill_count` on a failed reading (the exact `+1` kill delta `CombatController` relies on),
+and stated the shipped limitation that no monster-stats anchor template exists in `models/`, so the
+desktop app reads the fixed normalized ROI with `anchor_configured` false.

@@ -10,7 +10,11 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from flyff_bot.features.vision.models import CapturedFrame, ClientSize
+from flyff_bot.features.vision.models import (
+    CapturedFrame,
+    ClientSize,
+    MonsterStatsStatus,
+)
 from flyff_bot.features.vision.monster_stats import (
     MonsterStatsConfig,
     MonsterStatsReader,
@@ -60,31 +64,57 @@ def test_roi_stays_within_frame_bounds_across_resolutions(width: int, height: in
 def test_reader_extracts_kill_count_from_matching_line() -> None:
     reader = MonsterStatsReader(FixtureRecognizer(("Level 42", "Monster Kills: 7", "Deaths: 0")))
 
-    assert reader.read(_frame()) == 7
+    metrics = reader.read(_frame())
+
+    assert metrics.parsed_count == 7
+    assert metrics.status is MonsterStatsStatus.OK
 
 
 def test_reader_parses_semicolon_and_case_insensitive_variants() -> None:
     reader = MonsterStatsReader(FixtureRecognizer(("monster kills; 128",)))
 
-    assert reader.read(_frame()) == 128
+    assert reader.read(_frame()).parsed_count == 128
 
 
-def test_reader_returns_none_when_no_matching_line_present() -> None:
+def test_reader_reports_no_match_with_the_raw_text_it_recognized() -> None:
     reader = MonsterStatsReader(FixtureRecognizer(("Level 42", "Deaths: 0")))
 
-    assert reader.read(_frame()) is None
+    metrics = reader.read(_frame())
+
+    assert metrics.parsed_count is None
+    assert metrics.status is MonsterStatsStatus.NO_MATCH
+    assert metrics.raw_text == "Level 42 Deaths: 0"
 
 
-def test_reader_returns_none_on_ocr_failure() -> None:
+def test_reader_reports_ocr_failure_without_raising() -> None:
     reader = MonsterStatsReader(_RaisingRecognizer())
 
-    assert reader.read(_frame()) is None
+    metrics = reader.read(_frame())
+
+    assert metrics.parsed_count is None
+    assert metrics.status is MonsterStatsStatus.OCR_FAILED
 
 
-def test_reader_returns_none_for_a_frame_too_small_for_the_configured_roi() -> None:
+def test_reader_reports_an_unavailable_region_for_a_frame_smaller_than_the_roi() -> None:
     reader = MonsterStatsReader(FixtureRecognizer(("Monster Kills: 1",)))
 
-    assert reader.read(_frame(width=4, height=4)) is None
+    metrics = reader.read(_frame(width=4, height=4))
+
+    assert metrics.parsed_count is None
+    assert metrics.status is MonsterStatsStatus.ROI_UNAVAILABLE
+
+
+def test_reader_reports_the_measured_region_and_an_unconfigured_anchor() -> None:
+    """Without a template the fixed region is read, so no anchor badge can be shown."""
+
+    reader = MonsterStatsReader(FixtureRecognizer(("Monster Kills: 3",)))
+
+    metrics = reader.read(_frame())
+
+    assert not metrics.anchor_configured
+    assert metrics.anchor_score == 0.0
+    left, top, right, bottom = compute_monster_stats_roi(1600, 900)
+    assert (metrics.roi_width, metrics.roi_height) == (right - left, bottom - top)
 
 
 def test_config_rejects_inverted_roi_bounds() -> None:
@@ -144,27 +174,37 @@ def test_reader_locates_relocated_window_via_anchor_template() -> None:
         FixtureRecognizer(("Monster Kills: 42",)), header_anchor_template=anchor
     )
 
-    assert reader.read(frame) == 42
+    metrics = reader.read(frame)
+
+    assert metrics.parsed_count == 42
+    assert metrics.anchor_configured
+    assert metrics.anchor_passed
+    assert metrics.anchor_score >= metrics.anchor_threshold
 
 
-def test_reader_returns_none_when_anchor_not_found_above_threshold() -> None:
-    """A closed or absent stats window must not raise; it must yield None."""
+def test_reader_reports_a_missing_anchor_with_its_measured_score() -> None:
+    """A closed or absent stats window must not raise; its score is still diagnostic."""
 
     _panel, anchor = _panel_with_anchor()
     reader = MonsterStatsReader(
         FixtureRecognizer(("Monster Kills: 42",)), header_anchor_template=anchor
     )
 
-    assert reader.read(_frame(width=1920, height=1080)) is None
+    metrics = reader.read(_frame(width=1920, height=1080))
+
+    assert metrics.parsed_count is None
+    assert metrics.status is MonsterStatsStatus.ANCHOR_NOT_FOUND
+    assert not metrics.anchor_passed
+    assert metrics.anchor_threshold == MonsterStatsConfig().anchor_match_threshold
 
 
-def test_reader_anchor_search_returns_none_for_frame_smaller_than_template() -> None:
+def test_reader_anchor_search_reports_a_missing_anchor_for_an_undersized_frame() -> None:
     _panel, anchor = _panel_with_anchor()
     reader = MonsterStatsReader(
         FixtureRecognizer(("Monster Kills: 42",)), header_anchor_template=anchor
     )
 
-    assert reader.read(_frame(width=10, height=10)) is None
+    assert reader.read(_frame(width=10, height=10)).status is MonsterStatsStatus.ANCHOR_NOT_FOUND
 
 
 def test_reader_anchors_and_extracts_relative_to_real_panel_fixture() -> None:
@@ -184,4 +224,4 @@ def test_reader_anchors_and_extracts_relative_to_real_panel_fixture() -> None:
         FixtureRecognizer(("Monster Kills: 1",)), header_anchor_template=anchor
     )
 
-    assert reader.read(frame) == 1
+    assert reader.read(frame).parsed_count == 1

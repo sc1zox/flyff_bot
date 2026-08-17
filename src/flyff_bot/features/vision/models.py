@@ -101,6 +101,38 @@ class TargetVerificationMetrics:
     name_passed: bool = False
 
 
+class MonsterStatsStatus(StrEnum):
+    """Health of one monster-kills HUD reading, as shown by the diagnostics panel."""
+
+    IDLE = "idle"
+    OK = "ok"
+    ANCHOR_NOT_FOUND = "anchor_not_found"
+    ROI_UNAVAILABLE = "roi_unavailable"
+    OCR_FAILED = "ocr_failed"
+    NO_MATCH = "no_match"
+
+
+@dataclass(frozen=True, slots=True)
+class MonsterStatsMetrics:
+    """Raw diagnostic evidence behind one monster-kills HUD OCR attempt.
+
+    Every field is measured on the current frame regardless of whether the reading
+    succeeded, so the debug panel can show why a failing read failed. `parsed_count`
+    is `None` for every status other than `OK`; callers must keep their previous kill
+    count in that case rather than treating it as zero.
+    """
+
+    anchor_configured: bool = False
+    anchor_score: float = 0.0
+    anchor_threshold: float = 0.0
+    anchor_passed: bool = False
+    roi_width: int = 0
+    roi_height: int = 0
+    raw_text: str = ""
+    parsed_count: int | None = None
+    status: MonsterStatsStatus = MonsterStatsStatus.IDLE
+
+
 @dataclass(frozen=True, slots=True)
 class PlayerVitals:
     """An observed snapshot of player vital percentages."""

@@ -23,7 +23,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from flyff_bot.features.automation.models import SelectedTarget, TargetState, WorldState
+from flyff_bot.features.automation.models import (
+    MonsterStatsMetrics,
+    MonsterStatsStatus,
+    SelectedTarget,
+    TargetState,
+    WorldState,
+)
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerRule,
@@ -189,6 +195,7 @@ class MainWindow(QMainWindow):
         self._vitals_toggle = QCheckBox()
         self._combat_toggle = QCheckBox()
         self._target_debug_toggle = QCheckBox()
+        self._monster_stats_toggle = QCheckBox()
 
         # Combat settings panel
         self._combat_panel = QGroupBox()
@@ -223,6 +230,23 @@ class MainWindow(QMainWindow):
         self._target_reason_label = QLabel()
         self._target_reason_value = QLabel()
 
+        # Monster stats OCR debug panel
+        self._monster_stats_panel = QGroupBox()
+        self._monster_stats_panel.setObjectName("CardPanel")
+        self._monster_stats_panel.setVisible(False)
+        self._monster_anchor_label = QLabel()
+        self._monster_anchor_value = QLabel()
+        self._monster_roi_label = QLabel()
+        self._monster_roi_value = QLabel()
+        self._monster_kills_label = QLabel()
+        self._monster_kills_value = QLabel()
+        self._monster_text_label = QLabel()
+        self._monster_text_value = QLabel()
+        # OCR output is untrusted text; rendering it as rich text would swallow markup.
+        self._monster_text_value.setTextFormat(Qt.TextFormat.PlainText)
+        self._monster_status_label = QLabel()
+        self._monster_status_value = QLabel()
+
         # Vitals configuration panel
         self._vitals_panel = QGroupBox()
         self._vitals_panel.setObjectName("CardPanel")
@@ -254,6 +278,7 @@ class MainWindow(QMainWindow):
         apply_theme(self)
         self._init_vitals_widgets()
         self._init_target_debug_widgets()
+        self._init_monster_stats_widgets()
         self._build_layout()
         self._connect_controls()
         self._load_vitals_config_to_ui()
@@ -537,6 +562,48 @@ class MainWindow(QMainWindow):
         return self._target_reason_value
 
     @property
+    def monster_stats_toggle(self) -> QCheckBox:
+        """Expose the monster stats debug panel toggle control."""
+
+        return self._monster_stats_toggle
+
+    @property
+    def monster_stats_panel(self) -> QGroupBox:
+        """Expose the monster stats OCR debug panel."""
+
+        return self._monster_stats_panel
+
+    @property
+    def monster_anchor_value(self) -> QLabel:
+        """Expose the monster stats anchor debug readout for testing."""
+
+        return self._monster_anchor_value
+
+    @property
+    def monster_roi_value(self) -> QLabel:
+        """Expose the monster stats region debug readout for testing."""
+
+        return self._monster_roi_value
+
+    @property
+    def monster_kills_value(self) -> QLabel:
+        """Expose the parsed monster kill count debug readout for testing."""
+
+        return self._monster_kills_value
+
+    @property
+    def monster_text_value(self) -> QLabel:
+        """Expose the raw monster stats OCR text readout for testing."""
+
+        return self._monster_text_value
+
+    @property
+    def monster_status_value(self) -> QLabel:
+        """Expose the monster stats feed status readout for testing."""
+
+        return self._monster_status_value
+
+    @property
     def status_card(self) -> QGroupBox:
         """Expose the status and metrics card panel."""
 
@@ -663,6 +730,21 @@ class MainWindow(QMainWindow):
             row.addWidget(value)
             target_debug_layout.addLayout(row)
         self._target_debug_panel.setLayout(target_debug_layout)
+
+    def _init_monster_stats_widgets(self) -> None:
+        monster_stats_layout = QVBoxLayout()
+        for label, value in (
+            (self._monster_anchor_label, self._monster_anchor_value),
+            (self._monster_roi_label, self._monster_roi_value),
+            (self._monster_kills_label, self._monster_kills_value),
+            (self._monster_text_label, self._monster_text_value),
+            (self._monster_status_label, self._monster_status_value),
+        ):
+            row = QHBoxLayout()
+            row.addWidget(label)
+            row.addWidget(value)
+            monster_stats_layout.addLayout(row)
+        self._monster_stats_panel.setLayout(monster_stats_layout)
 
     def _load_vitals_config_to_ui(self) -> None:
         config = load_vitals_config(self._vitals_config_path)
@@ -871,6 +953,11 @@ class MainWindow(QMainWindow):
         self._target_debug_panel.setVisible(visible)
         self._adapt_window_geometry()
 
+    @Slot(bool)
+    def _update_monster_stats_visibility(self, visible: bool) -> None:
+        self._monster_stats_panel.setVisible(visible)
+        self._adapt_window_geometry()
+
     @Slot()
     def _on_combat_grace_changed(self) -> None:
         self.combat_grace_changed.emit(self._target_grace_spin.value())
@@ -960,6 +1047,7 @@ class MainWindow(QMainWindow):
         telemetry_layout.addWidget(self._vitals_toggle)
         telemetry_layout.addWidget(self._combat_toggle)
         telemetry_layout.addWidget(self._target_debug_toggle)
+        telemetry_layout.addWidget(self._monster_stats_toggle)
         self._telemetry_card.setLayout(telemetry_layout)
 
         content = QVBoxLayout()
@@ -970,6 +1058,7 @@ class MainWindow(QMainWindow):
         content.addWidget(self._vitals_panel)
         content.addWidget(self._combat_panel)
         content.addWidget(self._target_debug_panel)
+        content.addWidget(self._monster_stats_panel)
         content.addWidget(self._profile_card)
         content.addWidget(self._map_container)
 
@@ -1014,6 +1103,7 @@ class MainWindow(QMainWindow):
         for threshold_spin in (self._anchor_threshold_spin, self._name_threshold_spin):
             threshold_spin.valueChanged.connect(self._on_target_thresholds_changed)
         self._target_debug_toggle.toggled.connect(self._update_target_debug_visibility)
+        self._monster_stats_toggle.toggled.connect(self._update_monster_stats_visibility)
 
     def refresh_profiles(self, select_path: Path | None = None) -> None:
         """Scan the navigation profiles directory and populate the selector."""
@@ -1126,6 +1216,28 @@ class MainWindow(QMainWindow):
         self._target_name_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_NAME))
         self._target_state_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_STATE))
         self._target_reason_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_REASON))
+        self._monster_stats_toggle.setText(
+            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_TOGGLE)
+        )
+        self._monster_stats_panel.setTitle(
+            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_TITLE)
+        )
+        self._monster_anchor_label.setText(
+            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ANCHOR)
+        )
+        self._monster_roi_label.setText(self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ROI))
+        self._monster_kills_label.setText(
+            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_KILLS)
+        )
+        self._monster_text_label.setText(self._translator.text(Message.UI_MONSTER_STATS_DEBUG_TEXT))
+        self._monster_status_label.setText(
+            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_STATUS)
+        )
+        self._render_monster_stats_debug(
+            self._latest_update.state.monster_stats
+            if self._latest_update is not None
+            else MonsterStatsMetrics()
+        )
         self._vitals_panel.setTitle(self._translator.text(Message.UI_VITALS_TITLE))
         self._vitals_col_type.setText(self._translator.text(Message.UI_VITALS_HP)[:2])
         self._vitals_col_active.setText(self._translator.text(Message.UI_VITALS_ACTIVE))
@@ -1244,6 +1356,7 @@ class MainWindow(QMainWindow):
         if update.navigation is not None:
             self._path_inspector.set_navigation(update.navigation)
         self._render_target_debug(update.state.selected_target)
+        self._render_monster_stats_debug(update.state.monster_stats)
         self._update_overlay_visibility(self._debug_toggle.isChecked())
         is_active = update.status in {
             BotStatus.ACTIVE,
@@ -1289,6 +1402,38 @@ class MainWindow(QMainWindow):
         self._target_state_value.setText(self._translator.text(_target_state_message(target.state)))
         self._target_reason_value.setText(
             self._translator.text(_target_failure_reason_message(target))
+        )
+
+    def _render_monster_stats_debug(self, metrics: MonsterStatsMetrics) -> None:
+        self._monster_anchor_value.setText(
+            self._translator.text(
+                Message.UI_MONSTER_STATS_DEBUG_ANCHOR_VALUE,
+                status=_pass_fail_text(self._translator, metrics.anchor_passed),
+                score=f"{metrics.anchor_score:.2f}",
+                threshold=f"{metrics.anchor_threshold:.2f}",
+            )
+            if metrics.anchor_configured
+            else self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ANCHOR_UNCONFIGURED)
+        )
+        self._monster_roi_value.setText(
+            self._translator.text(
+                Message.UI_MONSTER_STATS_DEBUG_ROI_VALUE,
+                width=metrics.roi_width,
+                height=metrics.roi_height,
+            )
+        )
+        self._monster_kills_value.setText(
+            str(metrics.parsed_count)
+            if metrics.parsed_count is not None
+            else self._translator.text(Message.UI_MONSTER_STATS_DEBUG_NO_COUNT)
+        )
+        self._monster_text_value.setText(
+            metrics.raw_text
+            if metrics.raw_text
+            else self._translator.text(Message.UI_MONSTER_STATS_DEBUG_NO_TEXT)
+        )
+        self._monster_status_value.setText(
+            self._translator.text(_monster_stats_status_message(metrics.status))
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -1388,6 +1533,19 @@ def _target_state_message(state: TargetState) -> Message:
         TargetState.WRONG: Message.UI_TARGET_WRONG,
         TargetState.NONE: Message.UI_TARGET_NONE,
     }[state]
+
+
+def _monster_stats_status_message(status: MonsterStatsStatus) -> Message:
+    return {
+        MonsterStatsStatus.IDLE: Message.UI_MONSTER_STATS_DEBUG_STATUS_IDLE,
+        MonsterStatsStatus.OK: Message.UI_MONSTER_STATS_DEBUG_STATUS_OK,
+        MonsterStatsStatus.ANCHOR_NOT_FOUND: (
+            Message.UI_MONSTER_STATS_DEBUG_STATUS_ANCHOR_NOT_FOUND
+        ),
+        MonsterStatsStatus.ROI_UNAVAILABLE: Message.UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE,
+        MonsterStatsStatus.OCR_FAILED: Message.UI_MONSTER_STATS_DEBUG_STATUS_OCR_FAILED,
+        MonsterStatsStatus.NO_MATCH: Message.UI_MONSTER_STATS_DEBUG_STATUS_NO_MATCH,
+    }[status]
 
 
 def _target_failure_reason_message(target: SelectedTarget) -> Message:

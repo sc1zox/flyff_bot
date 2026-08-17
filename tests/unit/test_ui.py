@@ -20,6 +20,8 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from flyff_bot.features.automation.models import (
     InventoryEntry,
+    MonsterStatsMetrics,
+    MonsterStatsStatus,
     PlayerVitals,
     Position,
     SelectedTarget,
@@ -711,6 +713,104 @@ def test_main_window_target_debug_panel_toggle_and_renders_failure_metrics() -> 
     assert window.target_name_value.text() == "FAIL 'none' 0.00 / 0.90"
     assert window.target_state_value.text() == "Wrong target"
     assert window.target_reason_value.text() == "HP bar below minimum pixel threshold"
+
+
+def test_main_window_monster_stats_panel_toggle_and_renders_a_successful_reading() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert window.monster_stats_panel.isHidden()
+    window.monster_stats_toggle.setChecked(True)
+    assert not window.monster_stats_panel.isHidden()
+
+    metrics = MonsterStatsMetrics(
+        anchor_configured=True,
+        anchor_score=0.93,
+        anchor_threshold=0.85,
+        anchor_passed=True,
+        roi_width=145,
+        roi_height=20,
+        raw_text="Monster Kills: 12",
+        parsed_count=12,
+        status=MonsterStatsStatus.OK,
+    )
+    window.update_dashboard(
+        DashboardUpdate(replace(_world_state(), monster_stats=metrics), BotStatus.ACTIVE)
+    )
+    application.processEvents()
+
+    assert window.monster_anchor_value.text() == "PASS 0.93 / 0.85"
+    assert window.monster_roi_value.text() == "145 x 20 px"
+    assert window.monster_kills_value.text() == "12"
+    assert window.monster_text_value.text() == "Monster Kills: 12"
+    assert window.monster_status_value.text() == "OK"
+
+    window.monster_stats_toggle.setChecked(False)
+    assert window.monster_stats_panel.isHidden()
+
+
+def test_main_window_monster_stats_panel_reports_a_failed_reading_and_stays_updated() -> None:
+    """The panel renders even while hidden, so it is current the moment it is opened."""
+
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    metrics = MonsterStatsMetrics(
+        anchor_configured=True,
+        anchor_score=0.42,
+        anchor_threshold=0.85,
+        status=MonsterStatsStatus.ANCHOR_NOT_FOUND,
+    )
+    window.update_dashboard(
+        DashboardUpdate(replace(_world_state(), monster_stats=metrics), BotStatus.STANDBY)
+    )
+    application.processEvents()
+
+    assert window.monster_stats_panel.isHidden()
+    assert window.monster_anchor_value.text() == "FAIL 0.42 / 0.85"
+    assert window.monster_kills_value.text() == "Not recognized"
+    assert window.monster_text_value.text() == "No text recognized"
+    assert window.monster_status_value.text() == "Anchor not found"
+
+
+def test_main_window_monster_stats_panel_marks_an_unconfigured_anchor() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    metrics = MonsterStatsMetrics(
+        anchor_configured=False,
+        roi_width=174,
+        roi_height=90,
+        raw_text="Level 42",
+        status=MonsterStatsStatus.NO_MATCH,
+    )
+    window.update_dashboard(
+        DashboardUpdate(replace(_world_state(), monster_stats=metrics), BotStatus.STANDBY)
+    )
+    application.processEvents()
+
+    assert "No anchor template configured" in window.monster_anchor_value.text()
+    assert window.monster_status_value.text() == "No kill counter found in the text"
+
+
+def test_main_window_monster_stats_panel_renders_in_german_locale() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.GERMAN))
+
+    window.update_dashboard(
+        DashboardUpdate(
+            replace(
+                _world_state(),
+                monster_stats=MonsterStatsMetrics(status=MonsterStatsStatus.OCR_FAILED),
+            ),
+            BotStatus.STANDBY,
+        )
+    )
+    application.processEvents()
+
+    assert window.monster_stats_toggle.text() == "Monster-Stats-Debug"
+    assert window.monster_status_value.text() == "OCR fehlgeschlagen"
+    assert window.monster_kills_value.text() == "Nicht erkannt"
 
 
 def test_main_window_target_threshold_controls_emit_live_configuration() -> None:

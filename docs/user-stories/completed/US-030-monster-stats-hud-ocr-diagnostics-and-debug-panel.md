@@ -1,7 +1,7 @@
 ---
 id: US-030
 title: Monster stats HUD OCR diagnostics and debug dashboard panel
-status: draft
+status: completed
 created: 2026-08-17
 updated: 2026-08-17
 ---
@@ -34,20 +34,37 @@ so that **I can visually inspect and diagnose the monster kill counter extractio
 
 ## Acceptance criteria
 
-- [ ] Given `MonsterStatsReader`, structured diagnostic metrics (`anchor_score`, `anchor_threshold`, `anchor_passed`, `raw_text`, `parsed_count`, `status`) are measured and exposed on every frame tick.
-- [ ] Given the desktop UI (`MainWindow`), a dedicated checkbox toggle (**"Monster-Stats-Debug"** / **"Monster Stats Debug"**) is available under the *Diagnose / Ansichten* section.
-- [ ] Given the toggle is checked, a `Monster-Stats-Debug` group box is displayed in the dashboard showing:
+- [x] Given `MonsterStatsReader`, structured diagnostic metrics (`anchor_score`, `anchor_threshold`, `anchor_passed`, `raw_text`, `parsed_count`, `status`) are measured and exposed on every frame tick.
+- [x] Given the desktop UI (`MainWindow`), a dedicated checkbox toggle (**"Monster-Stats-Debug"** / **"Monster Stats Debug"**) is available under the *Diagnose / Ansichten* section.
+- [x] Given the toggle is checked, a `Monster-Stats-Debug` group box is displayed in the dashboard showing:
   - Header anchor match score vs threshold with a Pass/Fail badge.
   - Parsed monster kill count.
   - Raw OCR text recognized from the ROI.
   - Feed status message (e.g. OK, Anchor not found, OCR error).
-- [ ] Given the toggle is unchecked, the group box is hidden and the window shrinks smoothly to fit remaining contents.
-- [ ] All user-visible labels, values, statuses, and tooltips are synchronized in German (`de.json`) and English (`en.json`).
+- [x] Given the toggle is unchecked, the group box is hidden and the window shrinks smoothly to fit remaining contents.
+- [x] All user-visible labels, values, statuses, and tooltips are synchronized in German (`de.json`) and English (`en.json`).
 
 ## Out of scope
 
 - Modifying Tesseract OCR engine internals or generating custom font datasets.
 - Automatic movement or resizing of the in-game HUD stats window.
+
+## Implementation notes
+
+- `MonsterStatsFeed.read()` now returns `MonsterStatsMetrics` (in `features/vision/models.py`)
+  instead of `int | None`; the count is `parsed_count`, and every other field is measured on the
+  same tick regardless of whether the reading succeeded. `_extract_anchored_roi` reports the best
+  `cv2.matchTemplate` score even when it stays below the configured threshold, which is the point
+  of the anchor row. `PerceptionPipeline` keeps the previous `monster_kill_count` whenever
+  `parsed_count is None`, because `CombatController` confirms a kill from an exact `+1` delta.
+- The panel adds a fifth row (cropped ROI pixel dimensions) beyond the four listed above, matching
+  the diagnostics enumerated in *Context and assumptions*.
+- **Known limitation:** no monster-stats header anchor template ships in `models/`, and
+  `run_desktop` constructs `MonsterStatsReader(TesseractTextRecognizer())` without one, so the
+  running application reads the fixed normalized ROI. Rather than showing a permanent Fail badge
+  for an anchor that was never configured, `MonsterStatsMetrics.anchor_configured` is `False` on
+  that path and the anchor row states that no template is configured. Shipping an anchor asset and
+  wiring it in `run_desktop` (mirroring `models/target_anchor.png`) is separate follow-up work.
 
 ## Verification
 

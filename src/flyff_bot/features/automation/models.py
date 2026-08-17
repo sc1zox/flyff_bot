@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from flyff_bot.features.vision.models import MonsterStatsMetrics as MonsterStatsMetrics
+from flyff_bot.features.vision.models import MonsterStatsStatus as MonsterStatsStatus
 from flyff_bot.features.vision.models import PlayerVitals as PlayerVitals
 from flyff_bot.features.vision.models import TargetVerificationMetrics as TargetVerificationMetrics
 
@@ -125,6 +127,7 @@ class WorldState:
     viewport: Viewport = Viewport()
     player_vitals: PlayerVitals = field(default_factory=PlayerVitals)
     monster_kill_count: int = 0
+    monster_stats: MonsterStatsMetrics = field(default_factory=MonsterStatsMetrics)
 
 
 @dataclass(frozen=True, slots=True)
