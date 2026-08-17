@@ -30,7 +30,11 @@ def train_and_export(
     if epochs <= 0:
         raise TrainingError("epochs_invalid")
     try:
-        from ultralytics import YOLO
+        import ultralytics
+
+        model_cls = getattr(ultralytics, "YOLO", None)
+        if model_cls is None:
+            raise TrainingError("training_extra_required")
     except ImportError as error:
         raise TrainingError("training_extra_required") from error
     try:
@@ -51,7 +55,7 @@ def train_and_export(
                 ),
                 encoding="utf-8",
             )
-            model = YOLO(base_model)
+            model = model_cls(base_model)
             model.train(data=str(temp_manifest_path), epochs=epochs)
             exported_model = Path(model.export(format="onnx"))
             output_model_path.parent.mkdir(parents=True, exist_ok=True)
