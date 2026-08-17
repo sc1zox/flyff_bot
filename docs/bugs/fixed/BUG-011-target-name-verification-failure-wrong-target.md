@@ -1,7 +1,7 @@
 ---
 id: BUG-011
 title: Target name verification failure causes false wrong-target status and prevents combat skill execution
-status: reported
+status: resolved
 severity: high
 created: 2026-08-17
 updated: 2026-08-17
@@ -50,6 +50,30 @@ updated: 2026-08-17
 - The target is falsely classified as `TargetStatus.WRONG_TARGET` ("Falsches Ziel").
 - `CombatController` stays blocked in `TARGETING`, never dispatches `F3`, and times out into `ACQUISITION_TIMEOUT`, locking out the monster coordinate and halting progression.
 
+## Root cause
+
+The reported 1600x900 resolution was not reproduced directly — no capture at that size exists in
+`data/eden/flame` — but the same failure mode reproduces deterministically on the tracked 2559x1439
+captures, which is stronger evidence than the resolution number suggests:
+
+- On `Screenshot 2026-08-16 231337.png` (2559x1439) the header anchor matches at `0.897` and the
+  name crop cleanly contains `Flame <Lvl 175>`, yet `models/target_flame.png` scores `0.245`.
+- On `Screenshot 2026-08-15 204002.png` (1276x747), the capture the template was cropped from, the
+  same template scores `1.000`.
+
+The reported 1600x900 session points the same way from the other side: its own metrics record the
+header anchor at `0.80 / 0.75` **PASS** and the HP bar at `1051 px (100.0%)` **PASS**, with the name
+match the sole failing criterion at `0.19`. A passing anchor means the header was located and the
+anchor-relative crops landed where they were configured to land, so the name template was the only
+thing that failed at the reported resolution as well.
+
+The crop geometry was therefore never wrong: the Flyff HUD is drawn at a fixed pixel size, so
+`DEFAULT_NAME_OFFSET` lands on the nameplate at both resolutions. The defect is in what
+`TM_CCOEFF_NORMED` measures. The 125x35 rectangle is mostly *world background* — grass, sky, dirt —
+which changes with the camera while the glyphs do not, so the correlation tracks the scenery rather
+than the name. No threshold value separates a genuine target on new scenery from a wrong target, so
+the mechanism, not its tuning, had to change.
+
 ## Impact and frequency
 
 - **Impact:** Critical blocker for autonomous combat. The bot detects monsters and clicks them, but is unable to attack or defeat them due to false wrong-target rejection.
@@ -57,11 +81,19 @@ updated: 2026-08-17
 
 ## Resolution
 
-Addressed by [US-032: Tesseract OCR Target Name Verification](../user-stories/US-032-tesseract-ocr-target-name-verification.md). Replacing rigid RGB template matching with preprocessed Tesseract OCR text recognition on the target header name ROI enables resolution-independent, robust string matching against the configured mob whitelist.
+Addressed by [US-032: Tesseract OCR Target Name Verification](../../user-stories/completed/US-032-tesseract-ocr-target-name-verification.md). Replacing rigid RGB template matching with colour-masked Tesseract OCR text recognition on the target header name ROI enables background-independent, robust string matching against the configured mob whitelist.
 
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated test or deterministic manual check exists.
+  `tests/unit/test_target_verification.py::test_verifier_accepts_real_flame_fixtures_through_tesseract`
+  runs the production default configuration and the shipped `models/target_anchor.png` over both
+  `Screenshot 2026-08-15 204002.png` (1276x747) and `Screenshot 2026-08-16 231337.png` (2559x1439);
+  the 2559x1439 case is the one the deleted template scored `0.245` on.
+- [x] The check passes after the fix. The full suite is green
+  (`ruff check`, `ruff format --check`, `mypy`, `pytest`: 346 passed, 7 skipped). The three
+  real-Tesseract fixture tests skip when no Tesseract install with English and German language data
+  is present, so a machine without the engine reports skipped rather than failing.
+- [x] Related documentation is current. `docs/wiki/architecture.md` records the US-032 mechanism and
+  `docs/wiki/log.md` the synthesis entry.
 

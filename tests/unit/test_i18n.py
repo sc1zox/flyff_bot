@@ -47,6 +47,7 @@ def test_each_language_contains_every_message() -> None:
                 threshold="0.00",
                 pixels=0,
                 percentage="0.0",
+                text="x",
             )
 
 

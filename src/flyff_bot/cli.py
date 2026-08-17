@@ -55,6 +55,7 @@ from flyff_bot.features.vision import (
     TargetVerifier,
     TesseractTextRecognizer,
     WindowsFrameSource,
+    load_class_names,
 )
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import FarmingGoal
@@ -245,12 +246,10 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
     parser.add_argument("--goal-count", type=int, help=translator.text(Message.HELP_GOAL_COUNT))
     parser.add_argument("--target-anchor", help=translator.text(Message.HELP_TARGET_ANCHOR))
     parser.add_argument(
-        "--target-template",
-        nargs=2,
-        metavar=("NAME", "PATH"),
+        "--target-name",
         action="append",
         default=[],
-        help=translator.text(Message.HELP_TARGET_TEMPLATE),
+        help=translator.text(Message.HELP_TARGET_NAME),
     )
     parser.add_argument(
         "--delay",
@@ -448,20 +447,16 @@ def _farming_orchestrator(
     target_anchor = args.target_anchor or (
         "models/target_anchor.png" if Path("models/target_anchor.png").is_file() else None
     )
-    target_templates = args.target_template or (
-        [("Flame", "models/target_flame.png")] if Path("models/target_flame.png").is_file() else []
-    )
-    if (
-        not Path(model_path).is_file()
-        or not Path(labels_path).is_file()
-        or target_anchor is None
-        or not target_templates
-    ):
+    if not Path(model_path).is_file() or not Path(labels_path).is_file() or target_anchor is None:
         raise FarmingConfigurationError(Message.FARM_OPTIONS_REQUIRED)
     if (args.goal_item is None) != (args.goal_count is None):
         raise FarmingConfigurationError(Message.FARM_GOAL_REQUIRED)
     anchor = _load_template(target_anchor)
-    templates = {name: _load_template(path) for name, path in target_templates}
+    # The nameplate whitelist has to agree with the classes combat is allowed to engage,
+    # otherwise the bot clicks mobs it then rejects by name.
+    allowed_names = (
+        tuple(args.target_name) or tuple(args.class_name) or load_class_names(Path(labels_path))
+    )
     rotation = tuple(
         KeyBinding(virtual_key, args.attack_cooldown)
         for virtual_key in (args.rotation_key or [0x20])
@@ -477,7 +472,7 @@ def _farming_orchestrator(
                 allowed_class_names=frozenset(args.class_name),
             ),
         ),
-        TargetVerifier(templates, anchor),
+        TargetVerifier(allowed_names, anchor, TesseractTextRecognizer()),
     )
     navigation_map_path = Path(args.navigation_map)
     return FarmingOrchestrator(

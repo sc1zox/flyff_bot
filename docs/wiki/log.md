@@ -263,3 +263,19 @@ a true 30 ms spacing was rejected — and why `update_config()` preserves countd
 key/interval positions. Noted the deliberate divergence from `vitals_config_from_dict`: a stored
 empty entry list stays empty rather than resurrecting defaults. Linked `PowerUpPanel` as the
 row-owning presentation widget and its persistence path `data/powerups_config.json`.
+
+## [2026-08-17] synthesis | OCR target name verification and whitelist matching (US-032, BUG-011)
+
+Recorded why rigid `cv2.matchTemplate` name verification could not be fixed by retuning its
+threshold: the HUD is drawn at a fixed pixel size, so the anchor-relative crop geometry was already
+correct, but the 125x35 name rectangle is mostly world background whose grass/sky/dirt varies while
+the glyphs do not — the shipped `models/target_flame.png` scored 1.00 on the 1276x747 capture it was
+cropped from and ~0.25 on a 2559x1439 capture of the same monster. Documented the replacement:
+`preprocess_target_name_region()` masking the one fixed pale-yellow nameplate fill colour with
+`cv2.inRange` before OCR, `match_whitelisted_name()` resolving `Flame <Lvl 175>` by normalized
+containment, and only the canonical whitelist entry reaching `SelectedTarget.name` so US-024's
+target-changed equality stays quiet. Noted `TargetNameStatus` naming a missing Tesseract install
+separately, because that failure is indistinguishable from BUG-011 at the dashboard. Recorded the
+two deliberate departures from US-029's measure-everything rule — OCR gated on the accepted anchor,
+and the reading cached against the previous tick's mask — with the ~75 ms subprocess cost against a
+100 ms Qt timer as the reason, and the deleted name-threshold spin box as an obsolete control.

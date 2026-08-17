@@ -36,6 +36,8 @@ related:
   - ../bugs/fixed/BUG-010-combat-targeting-thrashing-and-stuck-engagement-timeout.md
   - ../user-stories/completed/US-031-target-cooldown-and-dead-mob-blacklist.md
   - ../user-stories/completed/US-016-auto-power-ups-and-timed-hotkeys.md
+  - ../user-stories/completed/US-032-tesseract-ocr-target-name-verification.md
+  - ../bugs/fixed/BUG-011-target-name-verification-failure-wrong-target.md
 ---
 
 # Architecture
@@ -78,10 +80,11 @@ Game Client
      typed error codes. `require_foreground=False` relaxes only the foreground precondition for
      read-only standby previews (US-028); closed and minimized windows still fail.
    - **Target verification:** `TargetVerifier` template-matches a configured header anchor, then
-     crops the HP-bar and mob-name rectangles at fixed pixel offsets from that match position and
-     measures HP colour and the best whitelisted name template. It returns `VALID_TARGET`,
-     `WRONG_TARGET`, or `NO_TARGET`, including an HP percentage calculated only from the HP-bar
-     crop, without dispatching any input.
+     crops the HP-bar and mob-name rectangles at fixed pixel offsets from that match position,
+     measures HP colour, and reads the nameplate through an injectable OCR `TextRecognizer` before
+     matching it against the configured whitelist. It returns `VALID_TARGET`, `WRONG_TARGET`, or
+     `NO_TARGET`, including an HP percentage calculated only from the HP-bar crop, without
+     dispatching any input.
    - **Perception pipeline:** `PerceptionPipeline` captures one frame per tick and passes that
      shared frame to mob detection, target verification, and an optional loot-log OCR feed, which
      defaults to a no-op reader that performs no subprocess or disk I/O when none is attached. It
@@ -481,3 +484,36 @@ or corrupt file falls back. Labels and tooltips are localized in German and Engl
 
 US-022 overhauls the desktop dashboard boundary (`flyff_bot.ui`) with a cohesive Dark Slate Qt Style Sheet (QSS) theme, card-based panel grouping, streamlined visual hierarchy, a standalone pop-out navigation map window (`NavigationMapWindow`), and an `Escape` key emergency stop shortcut. All UI windows, inputs, buttons, and modal dialogs adopt dark slate styling with emerald green (Start), amber (Pause), and danger crimson (Emergency Stop) action accents alongside responsive hover/pressed states. Dashboard controls are organized into logical card panels—*Status & Metrics Card* (with colored status pill badges and metric chips), *Action Controls Card*, *Navigation & Profiles Card*, and *Telemetry & Diagnostics Toolbar*—eliminating redundant text clutter. Operators can pop out `PathInspectorWidget` into a secondary standalone window (`NavigationMapWindow`) to maintain a compact controller dashboard while monitoring live 2D pathing and heatmap telemetry on a separate display. Pressing `Escape` (`Qt.Key.Key_Escape`) while any UI window has focus instantly triggers an emergency stop (`emergency_stop_requested.emit()`), matching the physical UI button and the global Win32 `END` key safeguard. All user-visible strings, badge labels, and tooltips are localized across German and English.
 
+
+US-032 replaces target name verification's RGB template matching with colour-masked OCR, fixing
+BUG-011. `cv2.matchTemplate` scored a genuine `Flame` nameplate at ~0.25 on a 2559x1439 capture
+against the same shipped `models/target_flame.png` that scored 1.00 on the 1276x747 capture it was
+cropped from: the HUD is drawn at a fixed pixel size, so the crop geometry was never the problem —
+the 125x35 name rectangle is mostly *background*, and the grass, sky, and dirt behind the glyphs
+move while the glyphs do not, which is what the correlation actually measured. No threshold can
+separate those two cases, so the shipped template was deleted rather than retuned.
+`preprocess_target_name_region()` instead thresholds the one fixed pale-yellow fill colour Flyff
+renders the nameplate in (BGR ~160/255/255, identical on both captures) with `cv2.inRange`, inverts
+it to dark glyphs on white, and upscales by `name_ocr_upscale` (default 2x) for OCR; the resulting
+mask is byte-identical across separate captures of the same target regardless of scenery.
+`TargetVerifier` now takes `allowed_names` plus the shared `TextRecognizer` in place of a name
+template per mob, and `match_whitelisted_name()` resolves the reading — Flyff appends a level suffix
+such as `Flame <Lvl 175>` — by normalized case-insensitive containment. Only the canonical whitelist
+entry reaches `TargetVerificationResult.target_name`; the raw OCR string stays on
+`TargetVerificationMetrics.name_text`, which is `compare=False` on `SelectedTarget`, so a flickering
+reading cannot raise the spurious `PerceptionEventKind.TARGET_CHANGED` events US-024 removed.
+`TargetVerificationMetrics` swaps `name_score`/`name_threshold` for `name_text` and a typed
+`TargetNameStatus` (`NOT_EVALUATED`, `MATCHED`, `NO_MATCH`, `UNREADABLE`, `OCR_FAILED`,
+`ENGINE_UNAVAILABLE`), each with its own localized sentence in the target debug panel's reason row —
+a missing Tesseract install produces exactly BUG-011's symptom of never attacking, so it is named
+rather than folded into a generic OCR failure. Two deliberate departures from US-029's
+"measure every criterion on every tick": name recognition runs only once the anchor is accepted and
+otherwise reports `NOT_EVALUATED`, and the reading is cached against the previous tick's mask,
+because the mask is stable while a target stays selected and the OCR subprocess costs ~75 ms against
+a 100 ms Qt timer that already runs `MonsterStatsReader`. A failed recognition is never cached, so a
+recoverable engine problem is retried. The operator-facing name-match threshold spin box is gone with
+the mechanism it tuned; `MainWindow.anchor_threshold_changed` now carries one float into
+`TargetVerifier.update_anchor_threshold`. The desktop app sources the whitelist from
+`models/labels.txt` and the CLI from `--target-name`, `--class-name`, or that same labels file in
+that order, so the names combat is allowed to engage and the names the header will accept cannot
+drift apart.

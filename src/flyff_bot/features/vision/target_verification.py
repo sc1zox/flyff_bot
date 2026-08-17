@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from typing import cast
 
 import cv2
 import numpy as np
 import numpy.typing as npt
 
-from flyff_bot.features.vision.models import CapturedFrame, ClientSize, TargetVerificationMetrics
+from flyff_bot.features.vision.loot_ocr import LootOcrError, LootOcrErrorCode, TextRecognizer
+from flyff_bot.features.vision.models import (
+    CapturedFrame,
+    ClientSize,
+    TargetNameStatus,
+    TargetVerificationMetrics,
+)
 
 DEFAULT_TARGET_REGION_X = 0.25
 DEFAULT_TARGET_REGION_Y = 0.0
@@ -19,10 +26,18 @@ DEFAULT_TARGET_REGION_HEIGHT = 0.15
 DEFAULT_HP_COLOR_LOWER_BOUND = (100, 100, 220)
 DEFAULT_HP_COLOR_UPPER_BOUND = (140, 180, 255)
 DEFAULT_MINIMUM_HP_PIXEL_COUNT = 10
-DEFAULT_NAME_MATCH_THRESHOLD = 0.75
 DEFAULT_ANCHOR_MATCH_THRESHOLD = 0.75
 MINIMUM_MATCH_THRESHOLD = 0.3
 MAXIMUM_MATCH_THRESHOLD = 1.0
+# Flyff renders the target name in one fixed pale-yellow fill (BGR ~160/255/255) on every
+# client resolution, so isolating that colour leaves the glyphs and drops the arbitrary
+# world background the nameplate is drawn over.
+DEFAULT_NAME_TEXT_COLOR_LOWER_BOUND = (110, 215, 215)
+DEFAULT_NAME_TEXT_COLOR_UPPER_BOUND = (210, 255, 255)
+DEFAULT_NAME_OCR_UPSCALE = 2
+
+# One nameplate reading: the canonical whitelist entry, the raw OCR text, and its status.
+type _NameReading = tuple[str | None, str, TargetNameStatus]
 
 
 class TargetStatus(StrEnum):
@@ -84,18 +99,25 @@ class TargetVerificationConfig:
     hp_color_lower_bound: tuple[int, int, int] = DEFAULT_HP_COLOR_LOWER_BOUND
     hp_color_upper_bound: tuple[int, int, int] = DEFAULT_HP_COLOR_UPPER_BOUND
     minimum_hp_pixel_count: int = DEFAULT_MINIMUM_HP_PIXEL_COUNT
-    name_match_threshold: float = DEFAULT_NAME_MATCH_THRESHOLD
     anchor_match_threshold: float = DEFAULT_ANCHOR_MATCH_THRESHOLD
+    name_text_color_lower_bound: tuple[int, int, int] = DEFAULT_NAME_TEXT_COLOR_LOWER_BOUND
+    name_text_color_upper_bound: tuple[int, int, int] = DEFAULT_NAME_TEXT_COLOR_UPPER_BOUND
+    name_ocr_upscale: int = DEFAULT_NAME_OCR_UPSCALE
 
     def __post_init__(self) -> None:
         if self.minimum_hp_pixel_count <= 0:
             raise ValueError("Minimum HP pixel count must be positive.")
-        for threshold in (self.name_match_threshold, self.anchor_match_threshold):
-            if not 0.0 <= threshold <= 1.0:
-                raise ValueError("Target match thresholds must be between zero and one.")
-        for lower, upper in zip(self.hp_color_lower_bound, self.hp_color_upper_bound, strict=True):
-            if not 0 <= lower <= upper <= 255:
-                raise ValueError("HP color bounds must be ordered byte values.")
+        if not 0.0 <= self.anchor_match_threshold <= 1.0:
+            raise ValueError("Target match thresholds must be between zero and one.")
+        if self.name_ocr_upscale < 1:
+            raise ValueError("Target name OCR upscale must be at least one.")
+        for lower_bound, upper_bound in (
+            (self.hp_color_lower_bound, self.hp_color_upper_bound),
+            (self.name_text_color_lower_bound, self.name_text_color_upper_bound),
+        ):
+            for lower, upper in zip(lower_bound, upper_bound, strict=True):
+                if not 0 <= lower <= upper <= 255:
+                    raise ValueError("Target colour bounds must be ordered byte values.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,27 +164,70 @@ def extract_anchor_relative_region(
     return np.ascontiguousarray(pixels[top:bottom, left:right])
 
 
+def preprocess_target_name_region(
+    pixels: npt.NDArray[np.uint8], config: TargetVerificationConfig
+) -> npt.NDArray[np.uint8]:
+    """Isolate the nameplate glyphs as dark text on white for OCR.
+
+    Thresholding on the fixed nameplate fill colour rather than on brightness is what
+    makes the reading independent of the arbitrary world scenery behind the header.
+    """
+
+    if pixels.size == 0:
+        return np.empty((0, 0), dtype=np.uint8)
+    mask = cv2.inRange(
+        pixels,
+        np.array(config.name_text_color_lower_bound, dtype=np.uint8),
+        np.array(config.name_text_color_upper_bound, dtype=np.uint8),
+    )
+    text = cv2.bitwise_not(mask)
+    if config.name_ocr_upscale > 1:
+        text = cv2.resize(
+            text,
+            None,
+            fx=config.name_ocr_upscale,
+            fy=config.name_ocr_upscale,
+            interpolation=cv2.INTER_CUBIC,
+        )
+    return cast("npt.NDArray[np.uint8]", text)
+
+
+def match_whitelisted_name(text: str, allowed_names: Iterable[str]) -> str | None:
+    """Return the canonical whitelist entry contained in recognized nameplate text.
+
+    Flyff appends a level suffix such as `<Lvl 175>` to the monster name, so the
+    comparison is a case-insensitive containment test rather than an equality test.
+    """
+
+    normalized = " ".join(text.split()).casefold()
+    if not normalized:
+        return None
+    for name in allowed_names:
+        if " ".join(name.split()).casefold() in normalized:
+            return name
+    return None
+
+
 class TargetVerifier:
     """Verify a live, whitelisted target from its target-bar appearance."""
 
     def __init__(
         self,
-        name_templates: Mapping[str, npt.NDArray[np.uint8]],
+        allowed_names: Iterable[str],
         header_anchor_template: npt.NDArray[np.uint8],
+        recognizer: TextRecognizer,
         config: TargetVerificationConfig | None = None,
     ) -> None:
-        self._name_templates = dict(name_templates)
+        self._allowed_names = tuple(allowed_names)
+        self._recognizer = recognizer
         self._config = config or TargetVerificationConfig()
-        if not self._name_templates or any(not name.strip() for name in self._name_templates):
-            raise ValueError("At least one non-empty target name template is required.")
-        if any(
-            template.dtype != np.uint8 or template.ndim != 3
-            for template in self._name_templates.values()
-        ):
-            raise ValueError("Target name templates must be uint8 colour images.")
+        if not self._allowed_names or any(not name.strip() for name in self._allowed_names):
+            raise ValueError("At least one non-empty target name is required.")
         if header_anchor_template.dtype != np.uint8 or header_anchor_template.ndim != 3:
             raise ValueError("Target header anchor template must be a uint8 colour image.")
         self._header_anchor_template = header_anchor_template
+        self._last_name_mask: npt.NDArray[np.uint8] | None = None
+        self._last_name_reading: _NameReading = (None, "", TargetNameStatus.NOT_EVALUATED)
 
     @property
     def config(self) -> TargetVerificationConfig:
@@ -170,20 +235,24 @@ class TargetVerifier:
 
         return self._config
 
-    def update_thresholds(self, anchor_match_threshold: float, name_match_threshold: float) -> None:
-        """Apply operator-selected match thresholds without rebuilding the templates."""
+    @property
+    def allowed_names(self) -> tuple[str, ...]:
+        """Return the monster names accepted as a valid target."""
 
-        self._config = replace(
-            self._config,
-            anchor_match_threshold=anchor_match_threshold,
-            name_match_threshold=name_match_threshold,
-        )
+        return self._allowed_names
+
+    def update_anchor_threshold(self, anchor_match_threshold: float) -> None:
+        """Apply the operator-selected anchor match threshold without rebuilding state."""
+
+        self._config = replace(self._config, anchor_match_threshold=anchor_match_threshold)
 
     def verify(self, frame: CapturedFrame) -> TargetVerificationResult:
         """Classify the selected target from its header region in a captured frame.
 
-        Every criterion is measured on every frame so the debug metrics stay complete;
-        only the reported status and HP evidence depend on the header anchor passing.
+        The anchor and HP criteria are measured on every frame so the debug metrics stay
+        complete. Name recognition runs an OCR subprocess and is therefore evaluated only
+        once the header anchor is accepted, which is also the only case in which a target
+        exists to name.
         """
 
         config = self._config
@@ -198,10 +267,16 @@ class TargetVerifier:
         hp_percentage = self._hp_percentage(hp_pixels, config.hp_offset.width)
         hp_passed = hp_pixel_count >= config.minimum_hp_pixel_count
 
-        name_candidate, name_score = self._best_name_match(
-            extract_anchor_relative_region(target_region, anchor_x, anchor_y, config.name_offset)
+        name_candidate, name_text, name_status = (
+            self._read_name(
+                extract_anchor_relative_region(
+                    target_region, anchor_x, anchor_y, config.name_offset
+                )
+            )
+            if anchor_passed
+            else (None, "", TargetNameStatus.NOT_EVALUATED)
         )
-        name_passed = name_score >= config.name_match_threshold
+        name_passed = name_status is TargetNameStatus.MATCHED
 
         status = _target_status(anchor_passed, hp_passed, name_passed)
         return TargetVerificationResult(
@@ -218,11 +293,52 @@ class TargetVerifier:
                 hp_percentage=hp_percentage,
                 hp_passed=hp_passed,
                 name_candidate=name_candidate,
-                name_score=name_score,
-                name_threshold=config.name_match_threshold,
+                name_text=name_text,
+                name_status=name_status,
                 name_passed=name_passed,
             ),
         )
+
+    def _read_name(self, pixels: npt.NDArray[np.uint8]) -> _NameReading:
+        """Read the nameplate and resolve it to a canonical whitelist entry.
+
+        Only the canonical entry is returned as the candidate; the raw OCR string stays
+        diagnostic, because it flickers between ticks and `SelectedTarget.name` takes
+        part in the equality that raises a target-changed event.
+
+        Because the mask keeps only the fixed nameplate fill colour, it is byte-identical
+        on every tick a target stays selected, so the previous reading is reused instead
+        of spending another ~75 ms OCR subprocess per tick on the same glyphs. A failed
+        recognition is not remembered, so a recoverable engine problem is retried.
+        """
+
+        image = preprocess_target_name_region(pixels, self._config)
+        if image.size == 0:
+            return None, "", TargetNameStatus.UNREADABLE
+        if self._last_name_mask is not None and np.array_equal(image, self._last_name_mask):
+            return self._last_name_reading
+        try:
+            lines = self._recognizer.recognize(image)
+        except LootOcrError as error:
+            unavailable = error.code is LootOcrErrorCode.ENGINE_UNAVAILABLE
+            return (
+                None,
+                "",
+                TargetNameStatus.ENGINE_UNAVAILABLE if unavailable else TargetNameStatus.OCR_FAILED,
+            )
+        reading = self._resolve_reading(lines)
+        self._last_name_mask = image
+        self._last_name_reading = reading
+        return reading
+
+    def _resolve_reading(self, lines: Iterable[str]) -> _NameReading:
+        raw_text = " ".join(line.strip() for line in lines if line.strip())
+        if not raw_text:
+            return None, "", TargetNameStatus.UNREADABLE
+        candidate = match_whitelisted_name(raw_text, self._allowed_names)
+        if candidate is None:
+            return None, raw_text, TargetNameStatus.NO_MATCH
+        return candidate, raw_text, TargetNameStatus.MATCHED
 
     def _match_anchor(self, pixels: npt.NDArray[np.uint8]) -> tuple[float, int, int]:
         """Return the best anchor score and its top-left location inside the region."""
@@ -239,20 +355,6 @@ class TargetVerifier:
         lower = np.array(self._config.hp_color_lower_bound, dtype=np.uint8)
         upper = np.array(self._config.hp_color_upper_bound, dtype=np.uint8)
         return int(np.count_nonzero(np.all((pixels >= lower) & (pixels <= upper), axis=2)))
-
-    def _best_name_match(self, pixels: npt.NDArray[np.uint8]) -> tuple[str | None, float]:
-        best_name: str | None = None
-        best_score = 0.0
-        for name, template in self._name_templates.items():
-            if template.shape[0] > pixels.shape[0] or template.shape[1] > pixels.shape[1]:
-                continue
-            score = float(
-                cv2.minMaxLoc(cv2.matchTemplate(pixels, template, cv2.TM_CCOEFF_NORMED))[1]
-            )
-            if best_name is None or score > best_score:
-                best_name = name
-                best_score = score
-        return best_name, best_score
 
     def _hp_percentage(self, pixels: npt.NDArray[np.uint8], gauge_width: int) -> float:
         """Measure the filled share of the gauge against its configured full width.

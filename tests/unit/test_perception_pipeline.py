@@ -31,6 +31,7 @@ from flyff_bot.features.vision import (
     LootEvent,
     LootOcrError,
     LootOcrErrorCode,
+    TargetNameStatus,
     TargetStatus,
     TargetVerificationMetrics,
     TargetVerificationResult,
@@ -150,8 +151,8 @@ def test_tick_forwards_full_target_verification_metrics_into_selected_target() -
         minimum_hp_pixel_count=10,
         hp_passed=True,
         name_candidate="Aibatt",
-        name_score=0.92,
-        name_threshold=0.9,
+        name_text="Aibatt <Lvl 12>",
+        name_status=TargetNameStatus.MATCHED,
         name_passed=True,
     )
     result = TargetVerificationResult(TargetStatus.VALID_TARGET, "Aibatt", 20, 100.0, metrics)
@@ -179,7 +180,7 @@ def test_tick_does_not_emit_target_changed_for_metrics_only_jitter() -> None:
             "Aibatt",
             20,
             100.0,
-            TargetVerificationMetrics(anchor_score=0.91, name_candidate="Aibatt", name_score=0.91),
+            TargetVerificationMetrics(anchor_score=0.91, name_candidate="Aibatt"),
         )
     )
     pipeline = PerceptionPipeline(
@@ -196,7 +197,7 @@ def test_tick_does_not_emit_target_changed_for_metrics_only_jitter() -> None:
         "Aibatt",
         20,
         100.0,
-        TargetVerificationMetrics(anchor_score=0.99, name_candidate="Aibatt", name_score=0.99),
+        TargetVerificationMetrics(anchor_score=0.99, name_candidate="Aibatt"),
     )
     second = pipeline.tick(WINDOW_HANDLE, first.state)
 

@@ -34,6 +34,7 @@ from flyff_bot.features.vision import (
     TargetVerifier,
     TesseractTextRecognizer,
     WindowsFrameSource,
+    load_class_names,
 )
 from flyff_bot.features.vision.monster_stats import MonsterStatsReader
 from flyff_bot.i18n import Message, Translator
@@ -137,23 +138,17 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
         model_path = Path(DEFAULT_MOB_MODEL_PATH)
         labels_path = Path(DEFAULT_MOB_LABELS_PATH)
         anchor_path = Path("models/target_anchor.png")
-        flame_template_path = Path("models/target_flame.png")
 
-        if (
-            model_path.is_file()
-            and labels_path.is_file()
-            and anchor_path.is_file()
-            and flame_template_path.is_file()
-        ):
+        if model_path.is_file() and labels_path.is_file() and anchor_path.is_file():
             anchor = _read_template(anchor_path)
-            flame_template = _read_template(flame_template_path)
-            if anchor is not None and flame_template is not None:
+            allowed_names = load_class_names(labels_path)
+            if anchor is not None:
                 target_verifier = TargetVerifier(
-                    {"Flame": flame_template},
+                    allowed_names,
                     anchor,
+                    TesseractTextRecognizer(),
                     TargetVerificationConfig(
                         anchor_match_threshold=window.anchor_threshold_spin.value(),
-                        name_match_threshold=window.name_threshold_spin.value(),
                     ),
                 )
                 pipeline = PerceptionPipeline(
@@ -188,7 +183,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
                 window.kill_verification_changed.connect(orchestrator.configure_kill_verification)
-                window.target_thresholds_changed.connect(target_verifier.update_thresholds)
+                window.anchor_threshold_changed.connect(target_verifier.update_anchor_threshold)
                 connect_farming_controls(
                     window,
                     orchestrator,

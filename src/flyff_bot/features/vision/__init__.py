@@ -34,6 +34,7 @@ from flyff_bot.features.vision.models import (
     MonsterStatsStatus,
     PixelFormat,
     PlayerVitals,
+    TargetNameStatus,
     TargetVerificationMetrics,
 )
 from flyff_bot.features.vision.target_verification import (
@@ -45,6 +46,8 @@ from flyff_bot.features.vision.target_verification import (
     TargetVerifier,
     extract_anchor_relative_region,
     extract_target_region,
+    match_whitelisted_name,
+    preprocess_target_name_region,
 )
 from flyff_bot.features.vision.vitals import (
     GaugeRegion,
@@ -83,6 +86,7 @@ __all__ = [
     "PlayerVitalsConfig",
     "PlayerVitalsFeed",
     "PlayerVitalsReader",
+    "TargetNameStatus",
     "TargetRegion",
     "TargetStatus",
     "TargetVerificationConfig",
@@ -97,6 +101,8 @@ __all__ = [
     "extract_loot_region",
     "extract_target_region",
     "load_class_names",
+    "match_whitelisted_name",
     "parse_loot_lines",
     "preprocess_loot_region",
+    "preprocess_target_name_region",
 ]

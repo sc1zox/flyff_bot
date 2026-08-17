@@ -78,14 +78,29 @@ class FrameCaptureError(RuntimeError):
         self.code = code
 
 
+class TargetNameStatus(StrEnum):
+    """Outcome of reading and whitelisting the target header's monster name."""
+
+    NOT_EVALUATED = "not_evaluated"
+    MATCHED = "matched"
+    NO_MATCH = "no_match"
+    UNREADABLE = "unreadable"
+    OCR_FAILED = "ocr_failed"
+    ENGINE_UNAVAILABLE = "engine_unavailable"
+
+
 @dataclass(frozen=True, slots=True)
 class TargetVerificationMetrics:
     """Per-criterion thresholds and pass/fail outcomes for one target verification.
 
-    Every field is a raw measurement taken on the current frame, independent of whether
-    an earlier criterion passed. `hp_pixel_count` and `hp_percentage` are therefore the
-    diagnostic readings sampled at the best anchor match, while the same fields on
-    `TargetVerificationResult` stay zero unless the header anchor itself was accepted.
+    The anchor and HP fields are raw measurements taken on the current frame,
+    independent of whether an earlier criterion passed: `hp_pixel_count` and
+    `hp_percentage` are the diagnostic readings sampled at the best anchor match, while
+    the same fields on `TargetVerificationResult` stay zero unless the header anchor
+    itself was accepted. Name recognition is the one criterion that is skipped when the
+    anchor fails, because it runs an OCR subprocess; it then reports `NOT_EVALUATED`
+    rather than a fabricated negative result. `name_text` is the raw OCR output and
+    `name_candidate` is the canonical whitelist entry it matched.
     """
 
     anchor_score: float = 0.0
@@ -96,8 +111,8 @@ class TargetVerificationMetrics:
     hp_percentage: float = 0.0
     hp_passed: bool = False
     name_candidate: str | None = None
-    name_score: float = 0.0
-    name_threshold: float = 0.0
+    name_text: str = ""
+    name_status: TargetNameStatus = TargetNameStatus.NOT_EVALUATED
     name_passed: bool = False
 
 

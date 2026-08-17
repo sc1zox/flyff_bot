@@ -28,6 +28,7 @@ from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
     MonsterStatsStatus,
     SelectedTarget,
+    TargetNameStatus,
     TargetState,
     WorldState,
 )
@@ -56,7 +57,6 @@ from flyff_bot.features.navigation.persistence import (
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig
 from flyff_bot.features.vision.target_verification import (
     DEFAULT_ANCHOR_MATCH_THRESHOLD,
-    DEFAULT_NAME_MATCH_THRESHOLD,
     MAXIMUM_MATCH_THRESHOLD,
     MINIMUM_MATCH_THRESHOLD,
 )
@@ -111,7 +111,7 @@ class MainWindow(QMainWindow):
     powerup_config_changed = Signal(object)
     combat_grace_changed = Signal(float)
     kill_verification_changed = Signal(bool)
-    target_thresholds_changed = Signal(float, float)
+    anchor_threshold_changed = Signal(float)
     save_profile_requested = Signal(Path)
     load_profile_requested = Signal(Path)
     reset_navigation_requested = Signal()
@@ -224,8 +224,6 @@ class MainWindow(QMainWindow):
         self._kill_verification_toggle = QCheckBox()
         self._anchor_threshold_label = QLabel()
         self._anchor_threshold_spin = _match_threshold_spin(DEFAULT_ANCHOR_MATCH_THRESHOLD)
-        self._name_threshold_label = QLabel()
-        self._name_threshold_spin = _match_threshold_spin(DEFAULT_NAME_MATCH_THRESHOLD)
 
         # Target verification debug panel
         self._target_debug_panel = QGroupBox()
@@ -237,6 +235,8 @@ class MainWindow(QMainWindow):
         self._target_hp_value = QLabel()
         self._target_name_label = QLabel()
         self._target_name_value = QLabel()
+        # The row carries raw OCR output, which is untrusted text rather than markup.
+        self._target_name_value.setTextFormat(Qt.TextFormat.PlainText)
         self._target_state_label = QLabel()
         self._target_state_value = QLabel()
         self._target_reason_label = QLabel()
@@ -545,12 +545,6 @@ class MainWindow(QMainWindow):
         return self._anchor_threshold_spin
 
     @property
-    def name_threshold_spin(self) -> QDoubleSpinBox:
-        """Expose the name-template match threshold spin box."""
-
-        return self._name_threshold_spin
-
-    @property
     def target_debug_toggle(self) -> QCheckBox:
         """Expose the target verification debug panel toggle control."""
 
@@ -737,14 +731,10 @@ class MainWindow(QMainWindow):
         kill_row.addWidget(self._kill_verification_label)
         kill_row.addWidget(self._kill_verification_toggle)
         combat_layout.addLayout(kill_row)
-        for threshold_label, threshold_spin in (
-            (self._anchor_threshold_label, self._anchor_threshold_spin),
-            (self._name_threshold_label, self._name_threshold_spin),
-        ):
-            threshold_row = QHBoxLayout()
-            threshold_row.addWidget(threshold_label)
-            threshold_row.addWidget(threshold_spin)
-            combat_layout.addLayout(threshold_row)
+        threshold_row = QHBoxLayout()
+        threshold_row.addWidget(self._anchor_threshold_label)
+        threshold_row.addWidget(self._anchor_threshold_spin)
+        combat_layout.addLayout(threshold_row)
         self._combat_panel.setLayout(combat_layout)
 
     def _init_target_debug_widgets(self) -> None:
@@ -1021,11 +1011,9 @@ class MainWindow(QMainWindow):
     def _on_kill_verification_changed(self, enabled: bool) -> None:
         self.kill_verification_changed.emit(enabled)
 
-    @Slot()
-    def _on_target_thresholds_changed(self) -> None:
-        self.target_thresholds_changed.emit(
-            self._anchor_threshold_spin.value(), self._name_threshold_spin.value()
-        )
+    @Slot(float)
+    def _on_anchor_threshold_changed(self, threshold: float) -> None:
+        self.anchor_threshold_changed.emit(threshold)
 
     def _adapt_window_geometry(self) -> None:
         central = self.centralWidget()
@@ -1160,8 +1148,7 @@ class MainWindow(QMainWindow):
         self._combat_toggle.toggled.connect(self._update_combat_visibility)
         self._target_grace_spin.valueChanged.connect(self._on_combat_grace_changed)
         self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
-        for threshold_spin in (self._anchor_threshold_spin, self._name_threshold_spin):
-            threshold_spin.valueChanged.connect(self._on_target_thresholds_changed)
+        self._anchor_threshold_spin.valueChanged.connect(self._on_anchor_threshold_changed)
         self._target_debug_toggle.toggled.connect(self._update_target_debug_visibility)
         self._monster_stats_toggle.toggled.connect(self._update_monster_stats_visibility)
 
@@ -1266,10 +1253,6 @@ class MainWindow(QMainWindow):
         self._anchor_threshold_label.setText(self._translator.text(Message.UI_ANCHOR_THRESHOLD))
         self._anchor_threshold_spin.setToolTip(
             self._translator.text(Message.UI_ANCHOR_THRESHOLD_TOOLTIP)
-        )
-        self._name_threshold_label.setText(self._translator.text(Message.UI_NAME_THRESHOLD))
-        self._name_threshold_spin.setToolTip(
-            self._translator.text(Message.UI_NAME_THRESHOLD_TOOLTIP)
         )
         self._target_debug_toggle.setText(self._translator.text(Message.UI_TARGET_DEBUG_TOGGLE))
         self._target_debug_panel.setTitle(self._translator.text(Message.UI_TARGET_DEBUG_TITLE))
@@ -1457,12 +1440,13 @@ class MainWindow(QMainWindow):
             )
         )
         self._target_name_value.setText(
-            self._translator.text(
+            self._translator.text(Message.UI_TARGET_DEBUG_NAME_NOT_EVALUATED)
+            if metrics.name_status is TargetNameStatus.NOT_EVALUATED
+            else self._translator.text(
                 Message.UI_TARGET_DEBUG_NAME_VALUE,
                 status=_pass_fail_text(self._translator, metrics.name_passed),
+                text=metrics.name_text,
                 name=metrics.name_candidate or self._translator.text(Message.UI_NO_TARGET_NAME),
-                score=f"{metrics.name_score:.2f}",
-                threshold=f"{metrics.name_threshold:.2f}",
             )
         )
         self._target_state_value.setText(self._translator.text(_target_state_message(target.state)))
@@ -1632,7 +1616,20 @@ def _target_failure_reason_message(target: SelectedTarget) -> Message:
         return Message.UI_TARGET_DEBUG_REASON_ANCHOR
     if not metrics.hp_passed:
         return Message.UI_TARGET_DEBUG_REASON_HP
-    return Message.UI_TARGET_DEBUG_REASON_NAME
+    return _target_name_reason_message(metrics.name_status)
+
+
+def _target_name_reason_message(status: TargetNameStatus) -> Message:
+    """Explain a rejected nameplate reading, distinguishing a missing OCR engine."""
+
+    return {
+        TargetNameStatus.NOT_EVALUATED: Message.UI_TARGET_DEBUG_REASON_ANCHOR,
+        TargetNameStatus.MATCHED: Message.UI_TARGET_DEBUG_REASON_OK,
+        TargetNameStatus.NO_MATCH: Message.UI_TARGET_DEBUG_REASON_NAME,
+        TargetNameStatus.UNREADABLE: Message.UI_TARGET_DEBUG_REASON_NAME_UNREADABLE,
+        TargetNameStatus.OCR_FAILED: Message.UI_TARGET_DEBUG_REASON_NAME_OCR_FAILED,
+        TargetNameStatus.ENGINE_UNAVAILABLE: Message.UI_TARGET_DEBUG_REASON_NAME_ENGINE,
+    }[status]
 
 
 def _goal_text(translator: Translator, state: WorldState, goal: FarmingGoal | None) -> str:
