@@ -280,7 +280,7 @@ two deliberate departures from US-029's measure-everything rule — OCR gated on
 and the reading cached against the previous tick's mask — with the ~75 ms subprocess cost against a
 100 ms Qt timer as the reason, and the deleted name-threshold spin box as an obsolete control.
 
-## [2026-08-17] synthesis | Monster-stats OCR engine diagnostics and anchor wording (BUG-011)
+## [2026-08-17] synthesis | Monster-stats OCR engine diagnostics and anchor wording (BUG-012)
 
 Recorded why a missing Tesseract install reached the dashboard as "OCR failed": `MonsterStatsReader`
 collapsed every recognizer exception into `OCR_FAILED`, so the one failure an operator can act on was

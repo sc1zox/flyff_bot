@@ -111,7 +111,7 @@ def test_recognizer_prefers_an_executable_on_path(monkeypatch: pytest.MonkeyPatc
 def test_recognizer_falls_back_to_a_known_windows_install_location(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The official Windows installer does not extend PATH, which is BUG-011's root cause."""
+    """The official Windows installer does not extend PATH, which is BUG-012's root cause."""
 
     installed = tmp_path / "tesseract.exe"
     installed.write_bytes(b"")

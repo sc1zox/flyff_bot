@@ -38,7 +38,7 @@ related:
   - ../user-stories/completed/US-016-auto-power-ups-and-timed-hotkeys.md
   - ../user-stories/completed/US-032-tesseract-ocr-target-name-verification.md
   - ../bugs/fixed/BUG-011-target-name-verification-failure-wrong-target.md
-  - ../bugs/fixed/BUG-011-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md
+  - ../bugs/fixed/BUG-012-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md
 ---
 
 # Architecture
@@ -397,7 +397,7 @@ without one, so the shipped app reads the fixed normalized ROI; `anchor_configur
 there and the anchor row states that the predefined placement region is read rather than showing a
 Fail badge for a criterion that was never evaluated.
 
-BUG-011 (monster stats) separates a missing OCR install from a failed recognition and stops the
+BUG-012 (monster stats) separates a missing OCR install from a failed recognition and stops the
 shipped anchor row from reading as a missing configuration. `TesseractTextRecognizer` no longer
 takes the bare command name as its default: `resolve_tesseract_executable()` prefers
 `shutil.which()` and then probes `TESSERACT_INSTALL_CANDIDATES`, the two documented Windows install
