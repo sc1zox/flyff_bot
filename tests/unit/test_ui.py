@@ -35,11 +35,21 @@ from flyff_bot.features.automation.orchestrator import (
     FarmingMode,
     FarmingOrchestrator,
 )
+from flyff_bot.features.automation.powerup_controller import PowerUpConfig, PowerUpEntry
+from flyff_bot.features.automation.powerup_persistence import (
+    load_powerup_config,
+    save_powerup_config,
+)
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerType,
 )
-from flyff_bot.features.input_control import InputControlError, InputErrorCode, ScreenRect
+from flyff_bot.features.input_control import (
+    InputControlError,
+    InputErrorCode,
+    ScreenRect,
+    parse_virtual_key,
+)
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.spatial import SpatialMap, WorldPoint
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
@@ -190,6 +200,9 @@ def test_farming_controls_connect_dashboard_intent() -> None:
 
         def configure_vitals(self, config: VitalsTriggerConfig) -> None:
             self.requests.append("vitals")
+
+        def configure_powerups(self, config: PowerUpConfig) -> None:
+            self.requests.append("powerups")
 
     session = Session()
     connect_farming_controls(window, session)
@@ -1262,3 +1275,103 @@ def _world_state() -> WorldState:
 def _frame() -> CapturedFrame:
     pixels = np.zeros((10, 10, 3), dtype=np.uint8)
     return CapturedFrame(pixels, ClientSize(10, 10))
+
+
+def test_main_window_powerup_panel_adds_edits_and_removes_rows(tmp_path: Path) -> None:
+    """US-016: the panel manages an arbitrary number of persisted timed hotkeys."""
+
+    application = QApplication.instance() or QApplication([])
+    config_path = tmp_path / "powerups.json"
+    window = MainWindow(Translator(Language.ENGLISH), powerup_config_path=config_path)
+    panel = window.powerup_panel
+
+    assert panel.isHidden()
+    window.powerups_toggle.setChecked(True)
+    assert not panel.isHidden()
+    assert panel.rows == ()
+
+    configs: list[PowerUpConfig] = []
+    window.powerup_config_changed.connect(configs.append)
+
+    panel.add_button.click()
+    panel.add_button.click()
+    application.processEvents()
+    assert len(panel.rows) == 2
+
+    first_row = panel.rows[0]
+    first_row.name_input.setText("Grilled Eel")
+    first_row.key_combo.setCurrentText("F5")
+    first_row.interval_spin.setValue(300)
+    panel.rows[1].enabled_check.setChecked(False)
+    application.processEvents()
+
+    latest = configs[-1]
+    assert latest.entries[0].label == "Grilled Eel"
+    assert latest.entries[0].virtual_key == parse_virtual_key("F5")
+    assert latest.entries[0].interval_seconds == 300
+    assert latest.entries[1].enabled is False
+    assert load_powerup_config(config_path).entries == latest.entries
+
+    panel.rows[1].remove_button.click()
+    application.processEvents()
+
+    assert len(panel.rows) == 1
+    assert len(load_powerup_config(config_path).entries) == 1
+
+
+def test_main_window_restores_persisted_powerups_on_construction(tmp_path: Path) -> None:
+    """US-016: configured entries survive an application restart."""
+
+    _application = QApplication.instance() or QApplication([])
+    config_path = tmp_path / "powerups.json"
+    save_powerup_config(
+        PowerUpConfig(
+            entries=(
+                PowerUpEntry(
+                    virtual_key=parse_virtual_key("F7"),
+                    interval_seconds=45,
+                    label="Upcut Stone",
+                    enabled=False,
+                ),
+            )
+        ),
+        config_path,
+    )
+
+    window = MainWindow(Translator(Language.ENGLISH), powerup_config_path=config_path)
+
+    assert len(window.powerup_panel.rows) == 1
+    row = window.powerup_panel.rows[0]
+    assert row.name_input.text() == "Upcut Stone"
+    assert row.key_combo.currentText() == "F7"
+    assert row.interval_spin.value() == 45
+    assert row.enabled_check.isChecked() is False
+    assert window.get_powerup_config().entries[0].label == "Upcut Stone"
+
+
+def test_main_window_skips_out_of_range_persisted_powerup_intervals(tmp_path: Path) -> None:
+    """A hand-edited interval must be dropped by the loader, never reach the panel."""
+
+    _application = QApplication.instance() or QApplication([])
+    config_path = tmp_path / "powerups.json"
+    config_path.write_text(
+        json.dumps(
+            {"entries": [{"virtual_key": parse_virtual_key("F4"), "interval_seconds": 999999}]}
+        ),
+        encoding="utf-8",
+    )
+
+    window = MainWindow(Translator(Language.ENGLISH), powerup_config_path=config_path)
+
+    assert window.powerup_panel.rows == ()
+
+
+def test_main_window_powerup_labels_are_localized() -> None:
+    _application = QApplication.instance() or QApplication([])
+
+    window_en = MainWindow(Translator(Language.ENGLISH))
+    assert window_en.powerups_toggle.text() == "Power-ups"
+    assert window_en.powerup_panel.title() == "Power-ups & Timed Hotkeys"
+
+    window_de = MainWindow(Translator(Language.GERMAN))
+    assert window_de.powerup_panel.title() == "Power-ups & Zeitgesteuerte Tasten"

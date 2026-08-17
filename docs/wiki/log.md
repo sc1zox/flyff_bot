@@ -250,3 +250,16 @@ sat just under `SearchConfig.idle_timeout_seconds` and camera recovery never ran
 `EngagementBreakReason` travelling on `CombatDecision`/`DashboardUpdate` rather than `WorldState`,
 and the two screen-space limitations of the lockout anchor. Linked BUG-010 and US-031, which this
 change delivered together.
+
+## [2026-08-17] synthesis | Timed power-up hotkeys and dynamic UI configuration (US-016)
+
+Recorded the interval-driven power-up subsystem: `PowerUpScheduler`'s per-entry elapsed-time
+accumulators advancing only across stepped ticks, the single `halt()` call on the orchestrator's
+standby branch that freezes every countdown for pause, lost focus, goal completion, and emergency
+stop alike, and the `step`/`confirm` split borrowed from `PathingController` that holds an
+unconfirmed trigger instead of spending it. Documented why `PowerUpConfig.stagger_seconds` is a floor
+rather than the observed gap — one dispatch per 100 ms tick, and blocking the Qt GUI thread to reach
+a true 30 ms spacing was rejected — and why `update_config()` preserves countdowns for unchanged
+key/interval positions. Noted the deliberate divergence from `vitals_config_from_dict`: a stored
+empty entry list stays empty rather than resurrecting defaults. Linked `PowerUpPanel` as the
+row-owning presentation widget and its persistence path `data/powerups_config.json`.

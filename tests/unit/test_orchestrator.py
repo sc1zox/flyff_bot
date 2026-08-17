@@ -27,6 +27,8 @@ from flyff_bot.features.automation.orchestrator import (
     FarmingMode,
     FarmingOrchestrator,
 )
+from flyff_bot.features.automation.powerup_controller import PowerUpConfig, PowerUpEntry
+from flyff_bot.features.input_control import parse_virtual_key
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
 from flyff_bot.features.vision.models import FrameCaptureError, FrameCaptureErrorCode
 from flyff_bot.ui.dashboard import (
@@ -39,6 +41,7 @@ from flyff_bot.ui.dashboard import (
 
 WINDOW_HANDLE = 42
 MOB = VisibleMob(1, "Mushpang", 0.9, 20, 20, 20, 20)
+POWER_UP_KEY = parse_virtual_key("F4")
 
 
 class _Pipeline:
@@ -551,3 +554,83 @@ def test_locked_out_mob_lets_camera_search_recovery_take_over() -> None:
 
     assert len(adapter.clicks) < 4
     assert (VIRTUAL_KEY_RIGHT, 0.2) in adapter.keys
+
+
+def _power_up_presses(adapter: _InputAdapter) -> int:
+    """Count only the timed-hotkey presses, ignoring camera-search recovery keys."""
+
+    return sum(1 for key, _ in adapter.keys if key == POWER_UP_KEY)
+
+
+def test_power_up_hotkey_is_dispatched_after_its_configured_interval() -> None:
+    """US-016: a timed hotkey fires once a full interval of active session time passed."""
+
+    adapter = _InputAdapter()
+    states = [_state(index * 0.1) for index in range(26)]
+    config = FarmingConfig(
+        powerups=PowerUpConfig(
+            entries=(PowerUpEntry(virtual_key=POWER_UP_KEY, interval_seconds=2),)
+        )
+    )
+    orchestrator = _orchestrator(states, adapter, config=config)
+    orchestrator.start()
+
+    keys_before_interval: list[tuple[int, float]] = []
+    for index, _ in enumerate(states):
+        if index == 15:
+            keys_before_interval = list(adapter.keys)
+        orchestrator.tick()
+
+    assert keys_before_interval == []
+    assert adapter.keys.count((POWER_UP_KEY, 0.05)) == 1
+
+
+def test_paused_session_freezes_power_up_countdowns() -> None:
+    """US-016: pausing halts interval timers instead of letting wall time expire them."""
+
+    adapter = _InputAdapter()
+    states = [_state(time) for time in (0.0, 0.5, 1.0, 100.0, 100.5, 101.0, 101.5, 102.0)]
+    config = FarmingConfig(
+        powerups=PowerUpConfig(
+            entries=(PowerUpEntry(virtual_key=POWER_UP_KEY, interval_seconds=2),)
+        )
+    )
+    orchestrator = _orchestrator(states, adapter, config=config)
+    orchestrator.start()
+    for _ in range(3):
+        orchestrator.tick()
+
+    orchestrator.pause()
+    for _ in range(2):
+        orchestrator.tick()
+    assert _power_up_presses(adapter) == 0
+
+    # The 99 s paused span must not count, so one more second of active time is
+    # still owed before the 2 s interval expires.
+    orchestrator.start()
+    orchestrator.tick()
+    orchestrator.tick()
+    assert _power_up_presses(adapter) == 0
+
+    orchestrator.tick()
+    assert _power_up_presses(adapter) == 1
+
+
+def test_power_up_hotkey_is_withheld_while_the_client_is_not_foregrounded() -> None:
+    """US-016: timed hotkeys stay behind the foreground and emergency-stop guards."""
+
+    adapter = _InputAdapter(foreground=False)
+    states = [_state(index * 1.0) for index in range(6)]
+    config = FarmingConfig(
+        powerups=PowerUpConfig(
+            entries=(PowerUpEntry(virtual_key=POWER_UP_KEY, interval_seconds=2),)
+        )
+    )
+    orchestrator = _orchestrator(states, adapter, config=config)
+    orchestrator.start()
+
+    for _ in states:
+        orchestrator.tick()
+
+    assert adapter.keys == []
+    assert orchestrator.mode is FarmingMode.PAUSED

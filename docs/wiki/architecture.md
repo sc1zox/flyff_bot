@@ -35,6 +35,7 @@ related:
   - ../bugs/fixed/BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md
   - ../bugs/fixed/BUG-010-combat-targeting-thrashing-and-stuck-engagement-timeout.md
   - ../user-stories/completed/US-031-target-cooldown-and-dead-mob-blacklist.md
+  - ../user-stories/completed/US-016-auto-power-ups-and-timed-hotkeys.md
 ---
 
 # Architecture
@@ -446,6 +447,37 @@ nearest allowed detection inside the radius during the fight so the lockout land
 instead of the original click point, but it is a proximity heuristic with no detection identity;
 and a camera rotation remaps the screen, so an active lockout can briefly shadow a different live
 mob that moves into that position until the 4.0 s expiry.
+
+US-016 adds `flyff_bot.features.automation.powerup_controller`, the interval-driven refresh of timed
+consumables and self-buffs. `PowerUpScheduler` holds one elapsed-time accumulator per configured
+`PowerUpEntry` (virtual key, integer interval, optional label, enabled flag) and advances them only
+by the span between the ticks it is actually stepped. That is what makes pause, lost focus, a
+completed goal, and an emergency stop freeze every countdown: `FarmingOrchestrator.tick()` calls
+`halt()` on the single standby branch, which drops the last-step timestamp so the halted span is
+never added, and every route into `STANDBY_MODES` therefore freezes uniformly rather than relying on
+each transition to remember. `step()` reports the first due entry without consuming it and
+`confirm()` restarts that entry's countdown, mirroring the `PathingController.step`/`confirm`
+split — a keystroke the guards refuse stays due instead of being silently spent, which is how a
+trigger during lost focus is held rather than skipped. `PowerUpInputDispatcher` re-checks foreground
+focus and the END emergency stop before every key, like the combat, search, pathing, and vitals
+dispatchers. The orchestrator evaluates power-ups after `VitalsTriggerController` so an emergency
+heal always outranks a buff refresh, and dispatches at most one per tick; because the tick interval
+is 100 ms, `PowerUpConfig.stagger_seconds` (default 30 ms) is a floor on the gap between two
+concurrently due buffs rather than the observed spacing, and blocking inside `tick()` to hit a true
+30 ms gap was rejected because the Qt timer drives it on the GUI thread. `update_config()` carries
+elapsed time over for every position whose key and interval are unchanged, so editing one row cannot
+restart a 3600 s timer while the operator is still typing. At the presentation boundary
+`PowerUpPanel` (`flyff_bot.ui.powerup_panel`) is a standalone widget owning an arbitrary number of
+rows — each a `QWidget` in a `QVBoxLayout`, so removal is `removeWidget` plus `deleteLater()` rather
+than `QGridLayout` row surgery — with a name field, a combo box covering `F1`–`F12`, `0`–`9`,
+`A`–`Z`, and `Space`, an interval spin box, an enabled check box, and a delete button. Its
+`config_changed` signal drives JSON persistence to `data/powerups_config.json` and
+`MainWindow.powerup_config_changed`, wired straight to `FarmingOrchestrator.configure_powerups`; the
+name field publishes on `editingFinished` rather than per keystroke to avoid a disk write per typed
+character, and `rows_changed` re-runs `_adapt_window_geometry()` so an added row is not clipped by
+`adjustSize()`. Unlike `vitals_config_from_dict`, a parsed-empty entry list is preserved instead of
+being replaced by defaults, because deleting every row is a legitimate configuration; only an absent
+or corrupt file falls back. Labels and tooltips are localized in German and English.
 
 US-022 overhauls the desktop dashboard boundary (`flyff_bot.ui`) with a cohesive Dark Slate Qt Style Sheet (QSS) theme, card-based panel grouping, streamlined visual hierarchy, a standalone pop-out navigation map window (`NavigationMapWindow`), and an `Escape` key emergency stop shortcut. All UI windows, inputs, buttons, and modal dialogs adopt dark slate styling with emerald green (Start), amber (Pause), and danger crimson (Emergency Stop) action accents alongside responsive hover/pressed states. Dashboard controls are organized into logical card panels—*Status & Metrics Card* (with colored status pill badges and metric chips), *Action Controls Card*, *Navigation & Profiles Card*, and *Telemetry & Diagnostics Toolbar*—eliminating redundant text clutter. Operators can pop out `PathInspectorWidget` into a secondary standalone window (`NavigationMapWindow`) to maintain a compact controller dashboard while monitoring live 2D pathing and heatmap telemetry on a separate display. Pressing `Escape` (`Qt.Key.Key_Escape`) while any UI window has focus instantly triggers an emergency stop (`emergency_stop_requested.emit()`), matching the physical UI button and the global Win32 `END` key safeguard. All user-visible strings, badge labels, and tooltips are localized across German and English.
 

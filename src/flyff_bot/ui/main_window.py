@@ -31,6 +31,12 @@ from flyff_bot.features.automation.models import (
     TargetState,
     WorldState,
 )
+from flyff_bot.features.automation.powerup_controller import PowerUpConfig
+from flyff_bot.features.automation.powerup_persistence import (
+    DEFAULT_POWERUP_CONFIG_PATH,
+    load_powerup_config,
+    save_powerup_config,
+)
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerRule,
@@ -60,6 +66,7 @@ from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
+from flyff_bot.ui.powerup_panel import PowerUpPanel
 from flyff_bot.ui.theme import apply_theme
 
 MATCH_THRESHOLD_STEP = 0.05
@@ -101,6 +108,7 @@ class MainWindow(QMainWindow):
     emergency_stop_requested = Signal()
     attack_key_changed = Signal(int)
     vitals_config_changed = Signal(object)
+    powerup_config_changed = Signal(object)
     combat_grace_changed = Signal(float)
     kill_verification_changed = Signal(bool)
     target_thresholds_changed = Signal(float, float)
@@ -114,11 +122,13 @@ class MainWindow(QMainWindow):
         *,
         navigation_dir: Path | None = None,
         vitals_config_path: Path | None = None,
+        powerup_config_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._translator = translator
         self._navigation_dir = navigation_dir or DEFAULT_NAVIGATION_DIR
         self._vitals_config_path = vitals_config_path or DEFAULT_VITALS_CONFIG_PATH
+        self._powerup_config_path = powerup_config_path or DEFAULT_POWERUP_CONFIG_PATH
         self._latest_update: DashboardUpdate | None = None
 
         # Card Panels
@@ -194,6 +204,7 @@ class MainWindow(QMainWindow):
         self._placements_toggle = QCheckBox()
         self._path_toggle = QCheckBox()
         self._vitals_toggle = QCheckBox()
+        self._powerups_toggle = QCheckBox()
         self._combat_toggle = QCheckBox()
         self._target_debug_toggle = QCheckBox()
         self._monster_stats_toggle = QCheckBox()
@@ -250,6 +261,10 @@ class MainWindow(QMainWindow):
         self._monster_status_label = QLabel()
         self._monster_status_value = QLabel()
 
+        # Power-up / timed hotkey configuration panel
+        self._powerup_panel = PowerUpPanel(self._translator)
+        self._powerup_panel.setVisible(False)
+
         # Vitals configuration panel
         self._vitals_panel = QGroupBox()
         self._vitals_panel.setObjectName("CardPanel")
@@ -285,6 +300,7 @@ class MainWindow(QMainWindow):
         self._build_layout()
         self._connect_controls()
         self._load_vitals_config_to_ui()
+        self._powerup_panel.set_config(load_powerup_config(self._powerup_config_path))
         self._retranslate()
         self.set_status(mob_count=0)
         self._adapt_window_geometry()
@@ -485,6 +501,18 @@ class MainWindow(QMainWindow):
     @property
     def fp_debounce_spin(self) -> QSpinBox:
         return self._fp_debounce_spin
+
+    @property
+    def powerups_toggle(self) -> QCheckBox:
+        """Expose the power-up panel toggle control."""
+
+        return self._powerups_toggle
+
+    @property
+    def powerup_panel(self) -> PowerUpPanel:
+        """Expose the dynamic power-up configuration panel."""
+
+        return self._powerup_panel
 
     @property
     def combat_toggle(self) -> QCheckBox:
@@ -823,6 +851,18 @@ class MainWindow(QMainWindow):
         save_vitals_config(config, self._vitals_config_path)
         self.vitals_config_changed.emit(config)
 
+    def get_powerup_config(self) -> PowerUpConfig:
+        """Return the timed power-up configuration currently defined by UI inputs."""
+
+        return self._powerup_panel.get_config()
+
+    @Slot(object)
+    def _on_powerup_config_changed(self, config: object) -> None:
+        if not isinstance(config, PowerUpConfig):
+            raise TypeError("Power-up panel must publish PowerUpConfig values.")
+        save_powerup_config(config, self._powerup_config_path)
+        self.powerup_config_changed.emit(config)
+
     def set_status(self, mob_count: int) -> None:
         """Retain the bootstrap summary API for callers without a full update."""
 
@@ -948,6 +988,17 @@ class MainWindow(QMainWindow):
         self._adapt_window_geometry()
 
     @Slot(bool)
+    def _update_powerups_visibility(self, visible: bool) -> None:
+        self._powerup_panel.setVisible(visible)
+        self._adapt_window_geometry()
+
+    @Slot()
+    def _on_powerup_rows_changed(self) -> None:
+        # Added and removed rows change the panel's height, and the window sizes
+        # itself with adjustSize(), so a new row would otherwise be clipped.
+        self._adapt_window_geometry()
+
+    @Slot(bool)
     def _update_combat_visibility(self, visible: bool) -> None:
         self._combat_panel.setVisible(visible)
         self._adapt_window_geometry()
@@ -1049,6 +1100,7 @@ class MainWindow(QMainWindow):
         telemetry_layout.addWidget(self._path_toggle)
         telemetry_layout.addWidget(self._popout_map_button)
         telemetry_layout.addWidget(self._vitals_toggle)
+        telemetry_layout.addWidget(self._powerups_toggle)
         telemetry_layout.addWidget(self._combat_toggle)
         telemetry_layout.addWidget(self._target_debug_toggle)
         telemetry_layout.addWidget(self._monster_stats_toggle)
@@ -1060,6 +1112,7 @@ class MainWindow(QMainWindow):
         content.addWidget(self._telemetry_card)
         content.addWidget(self._overlay_label)
         content.addWidget(self._vitals_panel)
+        content.addWidget(self._powerup_panel)
         content.addWidget(self._combat_panel)
         content.addWidget(self._target_debug_panel)
         content.addWidget(self._monster_stats_panel)
@@ -1082,6 +1135,9 @@ class MainWindow(QMainWindow):
         self._map_window.closed.connect(self._on_map_window_closed)
         self._map_window.emergency_stop_requested.connect(self._request_emergency_stop)
         self._vitals_toggle.toggled.connect(self._update_vitals_visibility)
+        self._powerups_toggle.toggled.connect(self._update_powerups_visibility)
+        self._powerup_panel.config_changed.connect(self._on_powerup_config_changed)
+        self._powerup_panel.rows_changed.connect(self._on_powerup_rows_changed)
         self._placements_toggle.toggled.connect(self._on_placements_toggled)
         self._language_selector.currentIndexChanged.connect(self._switch_language)
         self._save_profile_button.clicked.connect(self._on_save_profile_clicked)
@@ -1196,6 +1252,8 @@ class MainWindow(QMainWindow):
         self._debug_toggle.setText(self._translator.text(Message.UI_DEBUG_OVERLAY))
         self._path_toggle.setText(self._translator.text(Message.UI_PATH_INSPECTOR))
         self._vitals_toggle.setText(self._translator.text(Message.UI_VITALS_TOGGLE))
+        self._powerups_toggle.setText(self._translator.text(Message.UI_POWERUPS_TOGGLE))
+        self._powerup_panel.set_translator(self._translator)
         self._placements_toggle.setText(self._translator.text(Message.UI_PLACEMENTS_TOGGLE))
         self._combat_toggle.setText(self._translator.text(Message.UI_COMBAT_SETTINGS))
         self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))

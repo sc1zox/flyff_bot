@@ -21,6 +21,12 @@ from flyff_bot.features.automation.controllers import (
     SearchMode,
 )
 from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
+from flyff_bot.features.automation.powerup_controller import (
+    PowerUpConfig,
+    PowerUpInputAdapter,
+    PowerUpInputDispatcher,
+    PowerUpScheduler,
+)
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
 from flyff_bot.features.automation.vitals_controller import (
@@ -75,7 +81,12 @@ WINDOW_STATUS_BY_CAPTURE_CODE = {
 
 
 class FarmingInputAdapter(
-    CombatInputAdapter, SearchInputAdapter, PathingInputAdapter, VitalsInputAdapter, Protocol
+    CombatInputAdapter,
+    SearchInputAdapter,
+    PathingInputAdapter,
+    VitalsInputAdapter,
+    PowerUpInputAdapter,
+    Protocol,
 ):
     """The guarded platform operations needed by a farming session."""
 
@@ -91,6 +102,7 @@ class FarmingConfig:
     search_retry_seconds: float = DEFAULT_SEARCH_RETRY_SECONDS
     search: SearchConfig = field(default_factory=SearchConfig)
     vitals: VitalsTriggerConfig = field(default_factory=VitalsTriggerConfig)
+    powerups: PowerUpConfig = field(default_factory=PowerUpConfig)
 
     def __post_init__(self) -> None:
         if self.tick_interval_seconds <= 0.0:
@@ -144,9 +156,11 @@ class FarmingOrchestrator:
         self._combat = CombatController(self._config.combat)
         self._search = SearchController(self._config.search)
         self._vitals = VitalsTriggerController(self._config.vitals)
+        self._powerups = PowerUpScheduler(self._config.powerups)
         self._combat_dispatcher = CombatInputDispatcher(input_adapter, window_handle)
         self._search_dispatcher = SearchInputDispatcher(input_adapter, window_handle)
         self._vitals_dispatcher = VitalsInputDispatcher(input_adapter, window_handle)
+        self._powerup_dispatcher = PowerUpInputDispatcher(input_adapter, window_handle)
         self._pathing = pathing
         self._pathing_dispatcher = PathingInputDispatcher(input_adapter, window_handle)
         self._dashboard_feed = dashboard_feed
@@ -220,6 +234,17 @@ class FarmingOrchestrator:
 
         self._vitals.reset()
 
+    def configure_powerups(self, config: PowerUpConfig) -> None:
+        """Apply timed power-up hotkeys before or during a session."""
+
+        self._config = replace(self._config, powerups=config)
+        self._powerups.update_config(config)
+
+    def reset_powerups(self) -> None:
+        """Restart every power-up countdown from zero."""
+
+        self._powerups.reset()
+
     def save_navigation_profile(self, path: Path) -> None:
         """Persist the active spatial map to a specific profile file."""
 
@@ -251,6 +276,9 @@ class FarmingOrchestrator:
         """Perform at most one perception, decision, and guarded-dispatch cycle."""
 
         if self._mode in STANDBY_MODES:
+            # Every route into standby freezes the power-up countdowns here, so a
+            # paused, completed, or stopped span never expires a timer unobserved.
+            self._powerups.halt()
             self._observe()
             return self._publish(False)
         if self._input_adapter.is_aborted():
@@ -280,6 +308,13 @@ class FarmingOrchestrator:
             dispatched = self._vitals_dispatcher.dispatch(vitals_decision)
             if dispatched:
                 return self._publish(True)
+
+        # Power-ups are evaluated after vitals so an emergency heal always outranks
+        # a buff refresh, and one entry at most is dispatched per tick.
+        powerup_decision = self._powerups.step(self._state.observed_at_seconds)
+        if powerup_decision.triggered and self._powerup_dispatcher.dispatch(powerup_decision):
+            self._powerups.confirm(powerup_decision, self._state.observed_at_seconds)
+            return self._publish(True)
 
         dispatched = self._advance()
         return self._publish(dispatched)

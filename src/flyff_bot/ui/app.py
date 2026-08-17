@@ -21,6 +21,7 @@ from flyff_bot.constants import (
 )
 from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
+from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import VitalsTriggerConfig
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
 from flyff_bot.features.navigation.pathing import PathingController
@@ -59,6 +60,8 @@ class FarmingControls(Protocol):
     def reset_navigation_map(self) -> None: ...
 
     def configure_vitals(self, config: VitalsTriggerConfig) -> None: ...
+
+    def configure_powerups(self, config: PowerUpConfig) -> None: ...
 
 
 class WindowFocusControls(Protocol):
@@ -100,6 +103,7 @@ def connect_farming_controls(
     window.load_profile_requested.connect(_safe_load_profile)
     window.reset_navigation_requested.connect(orchestrator.reset_navigation_map)
     window.vitals_config_changed.connect(orchestrator.configure_vitals)
+    window.powerup_config_changed.connect(orchestrator.configure_powerups)
 
 
 def start_farming(
@@ -174,6 +178,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                             kill_verification_enabled=window.kill_verification_toggle.isChecked(),
                         ),
                         vitals=window.get_vitals_config(),
+                        powerups=window.get_powerup_config(),
                     ),
                     dashboard_feed=feed,
                     pathing=PathingController(
