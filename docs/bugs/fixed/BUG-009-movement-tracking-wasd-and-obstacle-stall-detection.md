@@ -1,10 +1,10 @@
 ---
 id: BUG-009
 title: WASD movement tracking heading error and obstacle stall detection failure against terrain
-status: reported
+status: resolved
 severity: high
 created: 2026-08-16
-updated: 2026-08-16
+updated: 2026-08-17
 ---
 
 # BUG-009: WASD movement tracking heading error and obstacle stall detection failure against terrain
@@ -68,8 +68,35 @@ updated: 2026-08-16
 
 ## Regression verification
 
-- [ ] Unit tests in `tests/unit/test_tracking.py` verify heading rotation on `A`/`D`, backward translation on `S`, and correct forward translation on `W`.
-- [ ] Unit tests in `tests/unit/test_stall_detector.py` verify that center character animation with stationary background triggers stall detection after the configurable threshold (5.0s).
-- [ ] Unit tests in `tests/unit/test_pathing.py` verify that stall detection triggers obstacle cell registration and retreat to safe waypoint.
-- [ ] Unit tests in `tests/unit/test_path_inspector.py` verify proper rendering of all legend elements (player, trail, stall hazards, safe nodes, routes).
-- [ ] `./scripts/check.ps1` passes cleanly.
+- [x] Unit tests in `tests/unit/test_tracking.py` verify heading rotation on `A`/`D`, backward translation on `S`, and correct forward translation on `W`.
+- [x] Unit tests in `tests/unit/test_stall_detector.py` verify that center character animation with stationary background triggers stall detection after the configurable threshold (5.0s).
+- [x] Unit tests verify that stall detection triggers obstacle cell registration and retreat to safe waypoint. Deviation: these live in the existing `tests/unit/test_path_planning.py`, which already covers `PathingController`, instead of a near-duplicate `tests/unit/test_pathing.py`.
+- [x] Unit tests in `tests/unit/test_path_inspector.py` verify proper rendering of all legend elements (player, trail, stall hazards, safe nodes, routes).
+- [x] `./scripts/check.ps1` passes cleanly. Deviation: PowerShell is unavailable in the development environment, so the five gate steps (`uv sync --locked`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy`, `uv run pytest`) were run directly; all pass (293 passed, 7 skipped, 89.68% coverage).
+
+## Resolution notes
+
+- `MovementTracker.apply` turns on `A`/`D` through the shared `ROTATION_VIRTUAL_KEYS` set and walks
+  backwards on `S`; `MovementModel.strafe_speed_units_per_second` was replaced by
+  `backward_speed_units_per_second` because no caller strafes any more.
+- `StallDetector` accumulates motionless seconds against `StallConfig.stall_timeout_seconds`
+  (default `5.0`) instead of counting consecutive samples, measures motion only outside a centred
+  player-model mask, holds the accumulator across non-commanded ticks within
+  `movement_grace_seconds`, and clamps a single sample to `MAXIMUM_STALL_SAMPLE_SECONDS`.
+- The pre-existing `test_visible_progress_or_idle_ticks_clear_the_stall_streak` asserted the
+  instant-reset behaviour this report requires to stop, so it was replaced by the grace-window
+  tests in `tests/unit/test_stall_detector.py` rather than preserved.
+- Two follow-on defects surfaced while verifying the retreat path and were fixed with it:
+  `PathingController._register_stall` now resets the detector so `WorldState.is_stuck` marks only
+  the registration tick instead of latching through the whole retreat, and
+  `_remember_safe_waypoint` refuses to promote a cell with recorded stalls, which previously made
+  the bot retreat into the obstacle cell it had just fled.
+- Criterion 4 needed no widget change: US-020 already renders every legend element. The gap was
+  pixel-level assertions, now covered by
+  `test_rendered_stall_cell_route_and_safe_waypoint_are_readable` (stall marker, purple route,
+  green safe node, leash ring) alongside the pre-existing player-marker, trail-border, and legend
+  glyph/color tests.
+- Known limitation: the centre mask excludes the player model but not the HUD bands, so animated
+  HUD elements can still mask a genuine stall. The mask fractions are estimates and have not been
+  calibrated against measured client frames, and `DEFAULT_MOTION_THRESHOLD` was left at `1.5`
+  although it was originally chosen against a full-frame mean rather than the masked population.

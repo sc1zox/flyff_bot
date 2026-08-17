@@ -32,6 +32,7 @@ related:
   - ../user-stories/completed/US-028-live-perception-standby-and-focus-workflow.md
   - ../user-stories/completed/US-029-configurable-target-verification-thresholds.md
   - ../user-stories/completed/US-030-monster-stats-hud-ocr-diagnostics-and-debug-panel.md
+  - ../bugs/fixed/BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md
 ---
 
 # Architecture
@@ -199,7 +200,9 @@ consecutive cells into a traversal graph, mob sightings accumulate an exponentia
 weight, and stalls raise a bounded multiplicative cost on both the stalled cell and the edge that
 reached it, so a penalized area stays reachable instead of being hard-blocked. `StallDetector`
 supplies that stall evidence by comparing consecutive captured frames while forward movement was
-commanded, and its verdict also sets `WorldState.is_stuck`.
+commanded, and its verdict also sets `WorldState.is_stuck`. BUG-009 later replaced that
+sample-counting comparison with an elapsed-time accumulator measured outside the centred player
+region.
 
 `RoutePlanner` runs Dijkstra over the recorded edges and scores candidate goals by decayed spawn
 density per unit of travel cost, chaining the densest reachable clusters into a patrol circuit that
@@ -386,6 +389,33 @@ toggle. No monster-stats anchor template ships in `models/` and `run_desktop` co
 without one, so the shipped app reads the fixed normalized ROI; `anchor_configured` is `False`
 there and the anchor row states that no template is configured rather than showing a Fail badge for
 a criterion that was never evaluated.
+
+BUG-009 corrects the dead-reckoning movement model and rebuilds stall detection around elapsed
+time and peripheral scenery. `MovementTracker.apply` now treats `A` and `D` as character turns
+exactly like the Left and Right arrow keys (`ROTATION_VIRTUAL_KEYS`), because Flyff's default
+controls rotate rather than strafe; the previous strafe translation drifted the estimate sideways
+on every turn the US-018 roam sequence dispatched. `VIRTUAL_KEY_S` translates backwards along the
+negated forward vector at `MovementModel.backward_speed_units_per_second`, which replaces the now
+unused `strafe_speed_units_per_second`. `StallDetector` replaces its consecutive-sample counter
+with `StallConfig.stall_timeout_seconds` (default `5.0`): each observation carries `at_seconds`
+and adds the elapsed interval — clamped to `MAXIMUM_STALL_SAMPLE_SECONDS` so one delayed capture
+cannot fake a stall on its own — whenever the measured motion stays below `motion_threshold`.
+Motion is measured only outside a centred rectangle sized by `center_mask_width_fraction` and
+`center_mask_height_fraction`, because the player model's running animation keeps producing pixel
+differences while the character is pinned against an obstacle; those two fractions are estimates
+rather than values calibrated against measured client frames, and the unchanged
+`DEFAULT_MOTION_THRESHOLD` shares that status because it was chosen against a full-frame mean and
+now scores the peripheral samples only. The known limitation is that
+masking the centre still leaves the HUD bands sampled, so animated HUD elements can mask a genuine
+stall. A tick that commands no forward movement no longer clears the accumulated stall time while
+it falls inside `movement_grace_seconds` of the last commanded `W`; the accumulator is held rather
+than extended, so the turn ticks between forward steps neither reset nor fabricate a stall, and
+the detector stays free of controller state. `PathingController._register_stall` consumes the
+evidence by resetting the detector, and `is_stalled` reports the verdict of the most recent
+observation, so `WorldState.is_stuck` marks the registration tick instead of latching `Supervisor`
+into `STUCK` for the whole retreat. `_remember_safe_waypoint` refuses to promote a cell that has
+recorded stalls into `_safe_waypoint`, which previously let a retreat target the obstacle cell it
+had just fled.
 
 US-022 overhauls the desktop dashboard boundary (`flyff_bot.ui`) with a cohesive Dark Slate Qt Style Sheet (QSS) theme, card-based panel grouping, streamlined visual hierarchy, a standalone pop-out navigation map window (`NavigationMapWindow`), and an `Escape` key emergency stop shortcut. All UI windows, inputs, buttons, and modal dialogs adopt dark slate styling with emerald green (Start), amber (Pause), and danger crimson (Emergency Stop) action accents alongside responsive hover/pressed states. Dashboard controls are organized into logical card panels—*Status & Metrics Card* (with colored status pill badges and metric chips), *Action Controls Card*, *Navigation & Profiles Card*, and *Telemetry & Diagnostics Toolbar*—eliminating redundant text clutter. Operators can pop out `PathInspectorWidget` into a secondary standalone window (`NavigationMapWindow`) to maintain a compact controller dashboard while monitoring live 2D pathing and heatmap telemetry on a separate display. Pressing `Escape` (`Qt.Key.Key_Escape`) while any UI window has focus instantly triggers an emergency stop (`emergency_stop_requested.emit()`), matching the physical UI button and the global Win32 `END` key safeguard. All user-visible strings, badge labels, and tooltips are localized across German and English.
 

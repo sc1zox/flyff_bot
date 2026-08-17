@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -17,6 +18,7 @@ from flyff_bot.ui.dashboard import (
     NavigationSnapshot,
 )
 from flyff_bot.ui.path_inspector import (
+    BG_COLOR,
     EDGE_NORMAL_COLOR,
     LEGEND_ITEMS,
     NODE_COLOR,
@@ -39,6 +41,11 @@ SUBTLE_BORDER_MAX_ALPHA = 128
 # blue graph node drawn on top of the cell center.
 PLAYER_BODY_SAMPLE_OFFSET_PIXELS = 7
 HEAT_SAMPLE_RADIUS_FRACTION = 0.12
+# Sample the stall cross a quarter cell out from the centre, between the blue node dot and the
+# cell border.
+STALL_DIAGONAL_SAMPLE_FRACTION = 0.25
+# How much brighter than the canvas background a dotted leash-ring sample must read.
+LEASH_RING_BRIGHTNESS_MARGIN = 20
 
 
 def _populated_snapshot() -> NavigationSnapshot:
@@ -206,6 +213,83 @@ def test_visited_cells_use_a_subtle_border_instead_of_a_player_colored_fill() ->
     assert VISITED_CELL_BORDER_COLOR.rgb() != PLAYER_COLOR.rgb()
     assert VISITED_CELL_BORDER_COLOR.rgb() != SAFE_NODE_COLOR.rgb()
     assert VISITED_CELL_BORDER_COLOR.rgb() != ROUTE_COLOR.rgb()
+
+
+def test_rendered_stall_cell_route_and_safe_waypoint_are_readable() -> None:
+    """BUG-009: obstacle cells, the planned route, and the retreat anchor must be readable."""
+
+    _app = QApplication.instance() or QApplication([])
+    widget = PathInspectorWidget(Translator(Language.ENGLISH))
+    width, height = 640, 480
+    widget.resize(width, height)
+
+    # The stalled cell carries no spawn weight, so a red-dominant pixel can only come from the
+    # stall marker itself and not from the warm spawn heat gradient. Nothing else is placed on the
+    # leash radius or on the straight route leg the assertions sample.
+    snapshot = NavigationSnapshot(
+        player_x=-60.0,
+        player_y=-60.0,
+        heading_degrees=0.0,
+        cells=(
+            CellSnapshot(
+                x=1, y=1, center_x=60.0, center_y=60.0, visits=2, stalls=3, spawn_weight=0.0
+            ),
+        ),
+        edges=(),
+        waypoints=((-60.0, 20.0),),
+        safe_waypoint=(0.0, 60.0),
+        cell_size_units=40.0,
+        leash_radius_units=45.0,
+    )
+    widget.set_navigation(snapshot)
+
+    image = QImage(width, height, QImage.Format.Format_RGB32)
+    widget.render(image)
+
+    scale, offset_x, offset_y = widget._calculate_viewport_transform(width, height)[:3]
+
+    def to_screen(world_x: float, world_y: float) -> tuple[int, int]:
+        return round(offset_x + world_x * scale), round(offset_y - world_y * scale)
+
+    cell = snapshot.cells[0]
+    cell_x, cell_y = to_screen(cell.center_x, cell.center_y)
+    # Sample along the marker's diagonal cross, clear of the blue graph node at the cell centre.
+    diagonal_offset = round(snapshot.cell_size_units * scale * STALL_DIAGONAL_SAMPLE_FRACTION)
+    stall_pixel = image.pixelColor(cell_x + diagonal_offset, cell_y + diagonal_offset)
+
+    assert stall_pixel.red() > stall_pixel.green()
+    assert stall_pixel.red() > stall_pixel.blue()
+
+    assert snapshot.safe_waypoint is not None
+    safe_pixel = image.pixelColor(*to_screen(*snapshot.safe_waypoint))
+
+    assert safe_pixel.green() > safe_pixel.red()
+    assert safe_pixel.green() > safe_pixel.blue()
+
+    # The route leg runs straight up from the player to its single waypoint, so its midpoint
+    # carries the purple polyline and nothing else.
+    route_x, route_y = to_screen(
+        snapshot.player_x, (snapshot.player_y + snapshot.waypoints[0][1]) / 2.0
+    )
+    route_pixel = image.pixelColor(route_x, route_y)
+
+    assert route_pixel.blue() > route_pixel.red() > route_pixel.green()
+
+    # The leash ring is dotted, so at least one sample around it must be brighter than the
+    # background it is drawn on.
+    ring_samples = [
+        image.pixelColor(
+            *to_screen(
+                snapshot.leash_radius_units * math.cos(math.radians(degrees)),
+                snapshot.leash_radius_units * math.sin(math.radians(degrees)),
+            )
+        )
+        for degrees in range(0, 360, 5)
+    ]
+
+    assert any(
+        pixel.blue() > BG_COLOR.blue() + LEASH_RING_BRIGHTNESS_MARGIN for pixel in ring_samples
+    )
 
 
 def test_rendered_player_marker_and_spawn_cell_are_visually_distinguishable() -> None:

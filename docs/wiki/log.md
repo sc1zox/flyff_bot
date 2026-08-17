@@ -223,3 +223,16 @@ and the dashboard panel's five read-only rows. Documented why `PerceptionPipelin
 `monster_kill_count` on a failed reading (the exact `+1` kill delta `CombatController` relies on),
 and stated the shipped limitation that no monster-stats anchor template exists in `models/`, so the
 desktop app reads the fixed normalized ROI with `anchor_configured` false.
+
+## [2026-08-17] synthesis | Movement model and stall detection corrected (BUG-009)
+
+Recorded the dead-reckoning and stall-detection corrections delivered by BUG-009: `A`/`D` joining
+the arrow keys as character turns, `S` walking the estimate backwards at the new
+`MovementModel.backward_speed_units_per_second` that replaced the unused strafe rate, and
+`StallDetector` trading its consecutive-sample counter for an elapsed-time accumulator measured
+outside a centred player-model mask, held rather than cleared across non-commanded ticks inside the
+movement grace. Amended the US-019 paragraph, which still described the sample-counting comparison.
+Documented why the stall verdict no longer latches (`_register_stall` consumes the evidence, so
+`Supervisor` sees `STUCK` for the registration tick only) and why a stalled cell can never become
+the retreat anchor. Stated the known limitation that the centre mask leaves the HUD bands sampled
+and that the mask fractions are uncalibrated estimates.

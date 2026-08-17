@@ -102,6 +102,7 @@ class PathingController:
         self._safe_cell: GridCell | None = None
         self._avoided: frozenset[GridCell] = frozenset()
         self._movement_commanded = False
+        self._stalled = False
 
     @property
     def mode(self) -> PathingMode:
@@ -123,9 +124,9 @@ class PathingController:
 
     @property
     def is_stalled(self) -> bool:
-        """Return whether commanded movement stopped producing visible progress."""
+        """Return the stall verdict of the most recent observation."""
 
-        return self._stalls.is_stalled
+        return self._stalled
 
     @property
     def safe_waypoint(self) -> WorldPoint | None:
@@ -201,11 +202,14 @@ class PathingController:
                 position, self._tracker.heading_degrees, mob, state.viewport
             )
             self._map.record_spawn(mob_point, at_seconds)
-        stalled = self._stalls.observe(frame, movement_commanded=self._movement_commanded)
+        stalled = self._stalls.observe(
+            frame, movement_commanded=self._movement_commanded, at_seconds=at_seconds
+        )
         if stalled and self._mode not in {PathingMode.RETREATING, PathingMode.BLOCKED}:
             self._register_stall(position, at_seconds)
         elif not stalled and self._map.stall_count(cell) == 0:
             self._remember_safe_waypoint(cell, position)
+        self._stalled = stalled
         self._movement_commanded = False
 
     def integrate_movement(self, virtual_key: int, duration_seconds: float) -> None:
@@ -274,6 +278,7 @@ class PathingController:
         self._safe_cell = None
         self._avoided = frozenset()
         self._movement_commanded = False
+        self._stalled = False
 
     def _estimate_mob_position(
         self,
@@ -309,9 +314,13 @@ class PathingController:
 
         if cell == self._safe_cell:
             return
-        self._safe_waypoint = (
-            position if self._safe_cell is None else self._map.center_of(self._safe_cell)
-        )
+        previous = self._safe_cell
+        if previous is not None and self._map.stall_count(previous) > 0:
+            # Retreating into the cell a stall was registered in would walk straight back into the
+            # obstacle, so the older verified waypoint is kept instead.
+            self._safe_cell = cell
+            return
+        self._safe_waypoint = position if previous is None else self._map.center_of(previous)
         self._safe_cell = cell
 
     def _register_stall(self, position: WorldPoint, at_seconds: float) -> None:
@@ -320,6 +329,10 @@ class PathingController:
         self._waypoints = ()
         self._waypoint_index = 0
         self._mode = PathingMode.RETREATING
+        # The accumulated stall evidence has been consumed by this registration. Clearing it keeps
+        # the movement grace from carrying the verdict through the turn ticks of the retreat, which
+        # would otherwise hold `WorldState.is_stuck` true for the whole recovery.
+        self._stalls.reset()
 
     def _retreat(self, at_seconds: float) -> PathingDecision:
         target = self._safe_waypoint

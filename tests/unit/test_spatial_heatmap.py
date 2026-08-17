@@ -5,15 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import numpy as np
 import pytest
 
-from flyff_bot.features.automation.controllers import (
-    VIRTUAL_KEY_D,
-    VIRTUAL_KEY_LEFT,
-    VIRTUAL_KEY_RIGHT,
-    VIRTUAL_KEY_W,
-)
 from flyff_bot.features.navigation.persistence import load_spatial_map, save_spatial_map
 from flyff_bot.features.navigation.spatial import (
     DEFAULT_MAXIMUM_LINK_SPAN_CELLS,
@@ -24,15 +17,6 @@ from flyff_bot.features.navigation.spatial import (
     SpatialMapConfig,
     WorldPoint,
 )
-from flyff_bot.features.navigation.tracking import (
-    MovementModel,
-    MovementTracker,
-    StallConfig,
-    StallDetector,
-    bearing_degrees,
-    heading_error_degrees,
-)
-from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 
 CELL_SIZE_UNITS = 10.0
 HALF_LIFE_SECONDS = 100.0
@@ -53,11 +37,6 @@ def _map(
             maximum_link_span_cells=maximum_link_span_cells,
         )
     )
-
-
-def _frame(value: int) -> CapturedFrame:
-    pixels = np.full((32, 32, 3), value, dtype=np.uint8)
-    return CapturedFrame(pixels, ClientSize(32, 32))
 
 
 def test_spawn_sightings_accumulate_in_the_cell_that_observed_them() -> None:
@@ -186,60 +165,3 @@ def test_invalid_map_configuration_is_rejected() -> None:
         SpatialMapConfig(spawn_half_life_seconds=0.0)
     with pytest.raises(ValueError):
         SpatialMapConfig(maximum_stall_cost_factor=0.5)
-
-
-def test_movement_pulses_estimate_a_relative_position_and_heading() -> None:
-    tracker = MovementTracker(
-        MovementModel(
-            forward_speed_units_per_second=10.0,
-            strafe_speed_units_per_second=10.0,
-            turn_degrees_per_second=90.0,
-        )
-    )
-
-    tracker.apply(VIRTUAL_KEY_W, 1.0)
-
-    assert tracker.position.x == pytest.approx(0.0, abs=1e-9)
-    assert tracker.position.y == pytest.approx(10.0)
-
-    tracker.apply(VIRTUAL_KEY_RIGHT, 1.0)
-    tracker.apply(VIRTUAL_KEY_W, 1.0)
-
-    assert tracker.heading_degrees == pytest.approx(90.0)
-    assert tracker.position.x == pytest.approx(10.0)
-    assert tracker.position.y == pytest.approx(10.0)
-
-    tracker.apply(VIRTUAL_KEY_LEFT, 1.0)
-    tracker.apply(VIRTUAL_KEY_D, 1.0)
-
-    assert tracker.position.x == pytest.approx(20.0)
-    assert tracker.position.y == pytest.approx(10.0)
-
-
-def test_bearing_and_heading_error_use_shortest_signed_turns() -> None:
-    assert bearing_degrees(WorldPoint(0.0, 0.0), WorldPoint(0.0, 5.0)) == pytest.approx(0.0)
-    assert bearing_degrees(WorldPoint(0.0, 0.0), WorldPoint(5.0, 0.0)) == pytest.approx(90.0)
-    assert heading_error_degrees(350.0, 10.0) == pytest.approx(20.0)
-    assert heading_error_degrees(10.0, 350.0) == pytest.approx(-20.0)
-
-
-def test_stall_is_reported_only_after_repeated_motionless_movement_samples() -> None:
-    detector = StallDetector(StallConfig(motion_threshold=1.0, consecutive_samples=2))
-
-    assert not detector.observe(_frame(10), movement_commanded=True)
-    assert not detector.observe(_frame(10), movement_commanded=True)
-    assert detector.observe(_frame(10), movement_commanded=True)
-    assert detector.is_stalled
-
-
-def test_visible_progress_or_idle_ticks_clear_the_stall_streak() -> None:
-    detector = StallDetector(StallConfig(motion_threshold=1.0, consecutive_samples=1))
-    detector.observe(_frame(10), movement_commanded=True)
-    assert detector.observe(_frame(10), movement_commanded=True)
-
-    assert not detector.observe(_frame(200), movement_commanded=True)
-
-    detector.observe(_frame(200), movement_commanded=True)
-    assert detector.is_stalled
-    assert not detector.observe(_frame(200), movement_commanded=False)
-    assert not detector.is_stalled

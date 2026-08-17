@@ -8,7 +8,11 @@ from typing import cast
 import numpy as np
 import pytest
 
-from flyff_bot.features.automation.controllers import VIRTUAL_KEY_RIGHT, VIRTUAL_KEY_W
+from flyff_bot.features.automation.controllers import (
+    VIRTUAL_KEY_RIGHT,
+    VIRTUAL_KEY_S,
+    VIRTUAL_KEY_W,
+)
 from flyff_bot.features.automation.models import (
     Position,
     SelectedTarget,
@@ -49,10 +53,10 @@ PATHING_CONFIG = PathingConfig(
     heading_tolerance_degrees=25.0,
     movement=MovementModel(
         forward_speed_units_per_second=10.0,
-        strafe_speed_units_per_second=10.0,
+        backward_speed_units_per_second=10.0,
         turn_degrees_per_second=90.0,
     ),
-    stall=StallConfig(motion_threshold=1.0, consecutive_samples=1),
+    stall=StallConfig(motion_threshold=1.0, stall_timeout_seconds=0.1),
     route=RouteConfig(minimum_hotspot_weight=1.0),
 )
 
@@ -318,6 +322,68 @@ def test_a_stall_retreats_to_the_last_safe_waypoint_and_bypasses_the_blocked_cel
     assert recovered is PathingMode.TRAVELING
     assert GridCell(1, 0) not in controller.waypoints
     assert GridCell(2, 0) in controller.waypoints
+
+
+def test_a_registered_stall_marks_the_obstacle_cell_without_latching_the_stuck_verdict() -> None:
+    """BUG-009: the stall must survive turn ticks, then be consumed by its registration."""
+
+    spatial_map = _corridor_map()
+    controller = PathingController(spatial_map, config=PATHING_CONFIG)
+    controller.observe(_state(0.0))
+    frozen = _frame()
+    seconds = 0.0
+
+    for _sample in range(10):
+        controller.integrate_movement(VIRTUAL_KEY_W, 0.1)
+        controller.observe(_state(seconds), frozen)
+        if controller.is_stalled:
+            break
+        seconds += 0.1
+        # A turn tick commands no forward movement and must not discard the stall evidence.
+        controller.integrate_movement(VIRTUAL_KEY_RIGHT, 0.1)
+        controller.observe(_state(seconds), frozen)
+        seconds += 0.1
+
+    assert controller.is_stalled
+    assert controller.mode is PathingMode.RETREATING
+    assert spatial_map.stall_count(GridCell(0, 0)) == 1
+
+    seconds += 0.1
+    controller.observe(_state(seconds), frozen)
+
+    assert not controller.is_stalled
+    assert controller.mode is PathingMode.RETREATING
+
+
+def test_the_retreat_anchor_never_moves_into_a_cell_that_registered_a_stall() -> None:
+    """BUG-009: retreating must reach verified ground, not the cell the obstacle blocked."""
+
+    spatial_map = _corridor_map()
+    controller = PathingController(spatial_map, config=PATHING_CONFIG)
+    controller.observe(_state(0.0))
+
+    controller.integrate_movement(VIRTUAL_KEY_RIGHT, 1.0)
+    controller.integrate_movement(VIRTUAL_KEY_W, 1.5)
+    controller.observe(_state(1.0))
+
+    assert controller.safe_waypoint == _center(GridCell(0, 0))
+
+    frozen = _frame()
+    seconds = 1.0
+    for _sample in range(6):
+        controller.integrate_movement(VIRTUAL_KEY_W, 0.1)
+        controller.observe(_state(seconds), frozen)
+        seconds += 0.1
+        if controller.is_stalled:
+            break
+
+    assert spatial_map.stall_count(GridCell(1, 0)) == 1
+
+    controller.integrate_movement(VIRTUAL_KEY_S, 1.0)
+    controller.observe(_state(seconds))
+
+    assert spatial_map.cell_of(controller.position) == GridCell(0, 0)
+    assert controller.safe_waypoint == _center(GridCell(0, 0))
 
 
 def test_a_stall_without_a_safe_waypoint_reports_blocked_without_moving() -> None:
