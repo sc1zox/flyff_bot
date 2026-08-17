@@ -18,12 +18,13 @@ from flyff_bot.features.vision.models import (
     PixelFormat,
 )
 
-# Normalized ROI bounds for the monster stats HUD window.
-# Calibrated against 1600x900 reference: stats at approx x=235..410, y=30..120.
-DEFAULT_MONSTER_STATS_ROI_LEFT = 0.147
-DEFAULT_MONSTER_STATS_ROI_TOP = 0.033
-DEFAULT_MONSTER_STATS_ROI_RIGHT = 0.256
-DEFAULT_MONSTER_STATS_ROI_BOTTOM = 0.133
+# Fixed top-left client-pixel bounds for the monster stats HUD window docked to Player Vitals.
+# The player vitals orb occupies (0, 0, 260, 113) px; stats HUD attaches directly at
+# x=260..410, y=0..120.
+DEFAULT_MONSTER_STATS_ROI_LEFT_PX = 260
+DEFAULT_MONSTER_STATS_ROI_TOP_PX = 0
+DEFAULT_MONSTER_STATS_ROI_RIGHT_PX = 410
+DEFAULT_MONSTER_STATS_ROI_BOTTOM_PX = 120
 
 # Preprocessing constants for adaptive thresholding.
 DEFAULT_MONSTER_STATS_THRESHOLD_BLOCK_SIZE = 21
@@ -48,10 +49,10 @@ _KILL_COUNT_PATTERN = re.compile(r"Monster\s*Kills?\s*[:;]\s*(\d+)", re.IGNORECA
 class MonsterStatsConfig:
     """Configurable ROI, anchor matching, and preprocessing for the monster stats HUD region."""
 
-    roi_left: float = DEFAULT_MONSTER_STATS_ROI_LEFT
-    roi_top: float = DEFAULT_MONSTER_STATS_ROI_TOP
-    roi_right: float = DEFAULT_MONSTER_STATS_ROI_RIGHT
-    roi_bottom: float = DEFAULT_MONSTER_STATS_ROI_BOTTOM
+    roi_left: int = DEFAULT_MONSTER_STATS_ROI_LEFT_PX
+    roi_top: int = DEFAULT_MONSTER_STATS_ROI_TOP_PX
+    roi_right: int = DEFAULT_MONSTER_STATS_ROI_RIGHT_PX
+    roi_bottom: int = DEFAULT_MONSTER_STATS_ROI_BOTTOM_PX
     threshold_block_size: int = DEFAULT_MONSTER_STATS_THRESHOLD_BLOCK_SIZE
     threshold_offset: int = DEFAULT_MONSTER_STATS_THRESHOLD_OFFSET
     anchor_match_threshold: float = DEFAULT_ANCHOR_MATCH_THRESHOLD
@@ -61,10 +62,10 @@ class MonsterStatsConfig:
     kills_text_height: int = DEFAULT_KILLS_TEXT_HEIGHT
 
     def __post_init__(self) -> None:
-        if not 0.0 <= self.roi_left < self.roi_right <= 1.0:
-            raise ValueError("Monster stats ROI left/right must be ordered within [0.0, 1.0].")
-        if not 0.0 <= self.roi_top < self.roi_bottom <= 1.0:
-            raise ValueError("Monster stats ROI top/bottom must be ordered within [0.0, 1.0].")
+        if not 0 <= self.roi_left < self.roi_right:
+            raise ValueError("Monster stats ROI left/right must be positive and ordered.")
+        if not 0 <= self.roi_top < self.roi_bottom:
+            raise ValueError("Monster stats ROI top/bottom must be positive and ordered.")
         if self.threshold_block_size < 3 or not self.threshold_block_size % 2:
             raise ValueError("Threshold block size must be an odd integer of at least three.")
         if not 0.0 <= self.anchor_match_threshold <= 1.0:
@@ -220,8 +221,10 @@ def compute_monster_stats_roi(
     """Return (left, top, right, bottom) pixel coordinates for the stats ROI."""
 
     cfg = config or MonsterStatsConfig()
-    left = int(client_width * cfg.roi_left)
-    top = int(client_height * cfg.roi_top)
-    right = int(client_width * cfg.roi_right)
-    bottom = int(client_height * cfg.roi_bottom)
+    left = cfg.roi_left
+    top = cfg.roi_top
+    right = min(client_width, cfg.roi_right)
+    bottom = min(client_height, cfg.roi_bottom)
+    if right <= left or bottom <= top:
+        return 0, 0, 0, 0
     return left, top, right, bottom

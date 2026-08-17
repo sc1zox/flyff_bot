@@ -393,9 +393,11 @@ read-only rows (anchor score/threshold with the shared PASS/FAIL badge, cropped 
 parsed kill count, raw OCR text rendered as `Qt.TextFormat.PlainText` because OCR output is
 untrusted markup, and the feed status sentence), rendered from `_render_update` independent of the
 toggle. No monster-stats anchor template ships in `models/` and `run_desktop` constructs the reader
-without one, so the shipped app reads the fixed normalized ROI; `anchor_configured` is `False`
-there and the anchor row states that the predefined placement region is read rather than showing a
-Fail badge for a criterion that was never evaluated.
+without one, so the shipped app reads the fixed client-pixel ROI docked directly to the right edge of
+the Player Vitals HUD (`x=260..410`, `y=0..120` px); `anchor_configured` is `False` there and the
+anchor row states that the predefined placement region is read rather than showing a Fail badge for a
+criterion that was never evaluated. The placement guide overlay renders this docked region as a red
+guide box (`QColor(255, 70, 70)`).
 
 BUG-012 (monster stats) separates a missing OCR install from a failed recognition and stops the
 shipped anchor row from reading as a missing configuration. `TesseractTextRecognizer` no longer

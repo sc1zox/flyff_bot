@@ -55,13 +55,10 @@ def _frame(width: int = 1600, height: int = 900) -> CapturedFrame:
     return CapturedFrame(pixels, ClientSize(width, height))
 
 
-def test_roi_scales_proportionally_across_client_resolutions() -> None:
-    reference = compute_monster_stats_roi(1600, 900)
-    scaled = compute_monster_stats_roi(3200, 1800)
-
-    # Integer pixel truncation means doubling is only exact within a one-pixel tolerance.
-    for reference_value, scaled_value in zip(reference, scaled, strict=True):
-        assert abs(scaled_value - reference_value * 2) <= 1
+def test_roi_remains_fixed_docked_pixel_region_across_resolutions() -> None:
+    for width, height in ((1280, 720), (1600, 900), (1920, 1080), (2560, 1440)):
+        left, top, right, bottom = compute_monster_stats_roi(width, height)
+        assert (left, top, right, bottom) == (260, 0, 410, 120)
 
 
 @pytest.mark.parametrize("width,height", [(800, 600), (2560, 1080), (1280, 720), (1600, 900)])
@@ -146,9 +143,11 @@ def test_reader_reports_the_measured_region_and_an_unconfigured_anchor() -> None
 
 def test_config_rejects_inverted_roi_bounds() -> None:
     with pytest.raises(ValueError):
-        MonsterStatsConfig(roi_left=0.5, roi_right=0.2)
+        MonsterStatsConfig(roi_left=500, roi_right=200)
     with pytest.raises(ValueError):
-        MonsterStatsConfig(roi_top=0.5, roi_bottom=0.2)
+        MonsterStatsConfig(roi_top=500, roi_bottom=200)
+    with pytest.raises(ValueError):
+        MonsterStatsConfig(roi_left=-10)
 
 
 def test_config_rejects_even_or_undersized_threshold_block_size() -> None:

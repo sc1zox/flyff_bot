@@ -371,7 +371,7 @@ def test_debug_overlay_widget_renders_cleanly_with_aspect_scaling() -> None:
 def test_debug_overlay_draws_monster_stats_calibration_guide_box() -> None:
     _application = QApplication.instance() or QApplication([])
     config = MonsterStatsConfig()
-    frame = _frame()
+    frame = CapturedFrame(np.zeros((900, 1600, 3), dtype=np.uint8), ClientSize(1600, 900))
 
     pixmap = render_debug_overlay(
         frame,
