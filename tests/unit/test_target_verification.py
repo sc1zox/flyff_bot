@@ -28,7 +28,14 @@ from flyff_bot.features.vision import (
     match_whitelisted_name,
     preprocess_target_name_region,
 )
-from flyff_bot.features.vision.target_verification import DEFAULT_ANCHOR_MATCH_THRESHOLD
+from flyff_bot.features.vision.target_verification import (
+    DEFAULT_ANCHOR_MATCH_THRESHOLD,
+    DEFAULT_TARGET_REGION_HEIGHT,
+    DEFAULT_TARGET_REGION_WIDTH,
+    DEFAULT_TARGET_REGION_X,
+    DEFAULT_TARGET_REGION_Y,
+    compute_target_header_bounds,
+)
 
 HP_BAR_COLOR = (0, 0, 220)
 NAME_TEXT_COLOR = (160, 255, 255)
@@ -425,6 +432,20 @@ def test_verifier_requires_at_least_one_whitelisted_name() -> None:
 def test_target_region_rejects_bounds_outside_frame() -> None:
     with pytest.raises(ValueError, match="inside the client frame"):
         TargetRegion(x=0.6, width=0.5)
+
+
+def test_default_target_region_bounds_and_computation() -> None:
+    region = TargetRegion()
+    assert region.x == DEFAULT_TARGET_REGION_X == 0.38
+    assert region.y == DEFAULT_TARGET_REGION_Y == 0.0
+    assert region.width == DEFAULT_TARGET_REGION_WIDTH == 0.24
+    assert region.height == DEFAULT_TARGET_REGION_HEIGHT == 0.10
+
+    left, top, right, bottom = compute_target_header_bounds(1600, 900)
+    assert left == round(1600 * 0.38)
+    assert top == 0
+    assert right == round(1600 * 0.62)
+    assert bottom == round(900 * 0.10)
 
 
 def test_verifier_ignores_sky_colours_outside_the_dedicated_hp_region() -> None:
