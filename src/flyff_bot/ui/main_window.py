@@ -1463,7 +1463,7 @@ class MainWindow(QMainWindow):
                 threshold=f"{metrics.anchor_threshold:.2f}",
             )
             if metrics.anchor_configured
-            else self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ANCHOR_UNCONFIGURED)
+            else self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ANCHOR_FIXED_REGION)
         )
         self._monster_roi_value.setText(
             self._translator.text(
@@ -1593,6 +1593,9 @@ def _monster_stats_status_message(status: MonsterStatsStatus) -> Message:
             Message.UI_MONSTER_STATS_DEBUG_STATUS_ANCHOR_NOT_FOUND
         ),
         MonsterStatsStatus.ROI_UNAVAILABLE: Message.UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE,
+        MonsterStatsStatus.ENGINE_UNAVAILABLE: (
+            Message.UI_MONSTER_STATS_DEBUG_STATUS_ENGINE_UNAVAILABLE
+        ),
         MonsterStatsStatus.OCR_FAILED: Message.UI_MONSTER_STATS_DEBUG_STATUS_OCR_FAILED,
         MonsterStatsStatus.NO_MATCH: Message.UI_MONSTER_STATS_DEBUG_STATUS_NO_MATCH,
     }[status]

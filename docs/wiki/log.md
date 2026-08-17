@@ -279,3 +279,17 @@ separately, because that failure is indistinguishable from BUG-011 at the dashbo
 two deliberate departures from US-029's measure-everything rule — OCR gated on the accepted anchor,
 and the reading cached against the previous tick's mask — with the ~75 ms subprocess cost against a
 100 ms Qt timer as the reason, and the deleted name-threshold spin box as an obsolete control.
+
+## [2026-08-17] synthesis | Monster-stats OCR engine diagnostics and anchor wording (BUG-011)
+
+Recorded why a missing Tesseract install reached the dashboard as "OCR failed": `MonsterStatsReader`
+collapsed every recognizer exception into `OCR_FAILED`, so the one failure an operator can act on was
+indistinguishable from one they cannot. Documented `MonsterStatsStatus.ENGINE_UNAVAILABLE` and the
+`LootOcrError`-code branch that produces it, following US-032's `TargetNameStatus` precedent, and why
+the residual broad handler stays (the `TextRecognizer` Protocol admits arbitrary exceptions, and the
+Qt timer tick must not see them). Noted `resolve_tesseract_executable()` probing `shutil.which()` then
+the two documented Windows install directories, because the official installer does not extend `PATH`
+— the actual reason OCR failed on a complete install — and the widening of the `ENGINE_UNAVAILABLE`
+mapping from `FileNotFoundError` to `OSError`, ordered after the `SubprocessError` branch. Recorded
+the reworded shipped anchor row: the fixed placement region is the intended mode, so stating that no
+template is configured framed it as a missing configuration.

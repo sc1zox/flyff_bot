@@ -25,5 +25,7 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-007: Start button causes silent pause loop on focus mismatch and standby perception is completely bypassed**](fixed/BUG-007-start-button-silent-pause-and-standby-perception-bypass.md)
 - [x] [**BUG-009: WASD movement tracking heading error and obstacle stall detection failure against terrain**](fixed/BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md)
 - [x] [**BUG-010: Combat targeting thrashing, false floor clicks, and missing stuck engagement break timeout**](fixed/BUG-010-combat-targeting-thrashing-and-stuck-engagement-timeout.md)
+- [x] [**BUG-011: Target name verification failure engages the wrong target**](fixed/BUG-011-target-name-verification-failure-wrong-target.md)
+- [x] [**BUG-011: Monster stats OCR failure and misleading anchor diagnostics in fixed placeholder mode**](fixed/BUG-011-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md)
 
 

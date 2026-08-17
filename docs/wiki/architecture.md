@@ -38,6 +38,7 @@ related:
   - ../user-stories/completed/US-016-auto-power-ups-and-timed-hotkeys.md
   - ../user-stories/completed/US-032-tesseract-ocr-target-name-verification.md
   - ../bugs/fixed/BUG-011-target-name-verification-failure-wrong-target.md
+  - ../bugs/fixed/BUG-011-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md
 ---
 
 # Architecture
@@ -380,8 +381,8 @@ US-030 instruments the monster-kills HUD OCR the way US-024 instrumented target 
 `MonsterStatsFeed.read()` returns `MonsterStatsMetrics` (`flyff_bot.features.vision.models`) rather
 than a bare `int | None`: the kill count is `parsed_count`, and `anchor_configured`, `anchor_score`,
 `anchor_threshold`, `anchor_passed`, `roi_width`, `roi_height`, `raw_text`, and a typed
-`MonsterStatsStatus` (`IDLE`, `OK`, `ANCHOR_NOT_FOUND`, `ROI_UNAVAILABLE`, `OCR_FAILED`, `NO_MATCH`)
-are measured on the same tick whether or not the reading succeeded. `_extract_anchored_roi` now
+`MonsterStatsStatus` (`IDLE`, `OK`, `ANCHOR_NOT_FOUND`, `ROI_UNAVAILABLE`, `ENGINE_UNAVAILABLE`,
+`OCR_FAILED`, `NO_MATCH`) are measured on the same tick whether or not the reading succeeded. `_extract_anchored_roi` now
 returns the best `cv2.matchTemplate` score alongside its crop instead of discarding it on the
 below-threshold path, so the panel shows how close a missed match came — the same lesson US-029
 applied to `TargetVerifier`. `PerceptionPipeline` carries the value object on
@@ -393,8 +394,27 @@ parsed kill count, raw OCR text rendered as `Qt.TextFormat.PlainText` because OC
 untrusted markup, and the feed status sentence), rendered from `_render_update` independent of the
 toggle. No monster-stats anchor template ships in `models/` and `run_desktop` constructs the reader
 without one, so the shipped app reads the fixed normalized ROI; `anchor_configured` is `False`
-there and the anchor row states that no template is configured rather than showing a Fail badge for
-a criterion that was never evaluated.
+there and the anchor row states that the predefined placement region is read rather than showing a
+Fail badge for a criterion that was never evaluated.
+
+BUG-011 (monster stats) separates a missing OCR install from a failed recognition and stops the
+shipped anchor row from reading as a missing configuration. `TesseractTextRecognizer` no longer
+takes the bare command name as its default: `resolve_tesseract_executable()` prefers
+`shutil.which()` and then probes `TESSERACT_INSTALL_CANDIDATES`, the two documented Windows install
+directories, because the official installer does not extend the system `PATH` — which is what made
+every OCR consumer fail on an otherwise complete install. An explicitly passed executable is still
+honoured verbatim so injected test paths keep working, and the resolver falls back to the bare
+command so a genuinely absent engine still surfaces as `ENGINE_UNAVAILABLE` rather than raising out
+of the lookup. That mapping now also covers an executable that exists but cannot be started
+(`OSError` rather than `FileNotFoundError`), evaluated after the `SubprocessError` branch so a
+non-zero exit or timeout stays `RECOGNITION_FAILED`. `MonsterStatsReader.read()` catches
+`LootOcrError` ahead of its residual broad handler and maps `ENGINE_UNAVAILABLE` to the new
+`MonsterStatsStatus.ENGINE_UNAVAILABLE`, following US-032's `TargetNameStatus` precedent: an
+operator can install Tesseract, but cannot act on "OCR failed". The broad handler is kept because
+`TextRecognizer` is a Protocol whose implementations may raise anything, and narrowing it entirely
+would let an injected engine's exception escape into the Qt timer tick; `PerceptionPipeline` records
+the failure and retains the previous count either way, so `parsed_count` stays `None` and
+`CombatController`'s exact-`+1` kill verification is untouched.
 
 BUG-009 corrects the dead-reckoning movement model and rebuilds stall detection around elapsed
 time and peripheral scenery. `MovementTracker.apply` now treats `A` and `D` as character turns

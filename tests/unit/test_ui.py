@@ -804,8 +804,44 @@ def test_main_window_monster_stats_panel_marks_an_unconfigured_anchor() -> None:
     )
     application.processEvents()
 
-    assert "No anchor template configured" in window.monster_anchor_value.text()
+    assert "predefined placement region" in window.monster_anchor_value.text()
+    assert "No anchor template configured" not in window.monster_anchor_value.text()
     assert window.monster_status_value.text() == "No kill counter found in the text"
+
+
+def test_main_window_monster_stats_panel_names_an_unavailable_ocr_engine() -> None:
+    """A missing Tesseract install must not read as a generic recognition failure."""
+
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    window.update_dashboard(
+        DashboardUpdate(
+            replace(
+                _world_state(),
+                monster_stats=MonsterStatsMetrics(
+                    status=MonsterStatsStatus.ENGINE_UNAVAILABLE, roi_width=145, roi_height=20
+                ),
+            ),
+            BotStatus.STANDBY,
+        )
+    )
+    application.processEvents()
+
+    engine_unavailable = window.monster_status_value.text()
+    window.update_dashboard(
+        DashboardUpdate(
+            replace(
+                _world_state(),
+                monster_stats=MonsterStatsMetrics(status=MonsterStatsStatus.OCR_FAILED),
+            ),
+            BotStatus.STANDBY,
+        )
+    )
+    application.processEvents()
+
+    assert engine_unavailable.strip()
+    assert engine_unavailable != window.monster_status_value.text()
 
 
 def test_main_window_monster_stats_panel_renders_in_german_locale() -> None:

@@ -199,7 +199,7 @@ class Message(StrEnum):
     UI_MONSTER_STATS_DEBUG_TITLE = "ui.monster_stats_debug_title"
     UI_MONSTER_STATS_DEBUG_ANCHOR = "ui.monster_stats_debug_anchor"
     UI_MONSTER_STATS_DEBUG_ANCHOR_VALUE = "ui.monster_stats_debug_anchor_value"
-    UI_MONSTER_STATS_DEBUG_ANCHOR_UNCONFIGURED = "ui.monster_stats_debug_anchor_unconfigured"
+    UI_MONSTER_STATS_DEBUG_ANCHOR_FIXED_REGION = "ui.monster_stats_debug_anchor_fixed_region"
     UI_MONSTER_STATS_DEBUG_ROI = "ui.monster_stats_debug_roi"
     UI_MONSTER_STATS_DEBUG_ROI_VALUE = "ui.monster_stats_debug_roi_value"
     UI_MONSTER_STATS_DEBUG_KILLS = "ui.monster_stats_debug_kills"
@@ -213,6 +213,9 @@ class Message(StrEnum):
         "ui.monster_stats_debug_status_anchor_not_found"
     )
     UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE = "ui.monster_stats_debug_status_roi_unavailable"
+    UI_MONSTER_STATS_DEBUG_STATUS_ENGINE_UNAVAILABLE = (
+        "ui.monster_stats_debug_status_engine_unavailable"
+    )
     UI_MONSTER_STATS_DEBUG_STATUS_OCR_FAILED = "ui.monster_stats_debug_status_ocr_failed"
     UI_MONSTER_STATS_DEBUG_STATUS_NO_MATCH = "ui.monster_stats_debug_status_no_match"
     UI_CARD_STATUS = "ui.card_status"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import tempfile
 from collections.abc import Callable, Iterable
@@ -25,6 +26,12 @@ DEFAULT_LOOT_REGION_HEIGHT = 0.18
 DEFAULT_ADAPTIVE_THRESHOLD_BLOCK_SIZE = 31
 DEFAULT_ADAPTIVE_THRESHOLD_OFFSET = 5
 TESSERACT_EXECUTABLE = "tesseract"
+# The official Windows installer does not extend the system PATH, so its documented default
+# install directories are probed before the engine is declared unavailable.
+TESSERACT_INSTALL_CANDIDATES = (
+    Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+    Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+)
 TESSERACT_LANGUAGE = "eng+deu"
 TESSERACT_PAGE_SEGMENTATION_MODE = 6
 TESSERACT_TIMEOUT_SECONDS = 10.0
@@ -110,11 +117,28 @@ class TextRecognizer(Protocol):
         """Return recognized notification lines from a monochrome image."""
 
 
+def resolve_tesseract_executable() -> str:
+    """Return the Tesseract command to invoke, probing the known install locations.
+
+    PATH wins, then the documented Windows install directories. When nothing is found the
+    bare command name is returned so the invocation still fails with `ENGINE_UNAVAILABLE`
+    rather than this lookup raising on its own.
+    """
+
+    located = shutil.which(TESSERACT_EXECUTABLE)
+    if located is not None:
+        return located
+    for candidate in TESSERACT_INSTALL_CANDIDATES:
+        if candidate.is_file():
+            return str(candidate)
+    return TESSERACT_EXECUTABLE
+
+
 class TesseractTextRecognizer:
     """Production OCR adapter for a locally installed Tesseract executable."""
 
-    def __init__(self, executable: str = TESSERACT_EXECUTABLE) -> None:
-        self._executable = executable
+    def __init__(self, executable: str | None = None) -> None:
+        self._executable = executable or resolve_tesseract_executable()
 
     def recognize(self, image: npt.NDArray[np.uint8]) -> tuple[str, ...]:
         success, encoded_image = cv2.imencode(".png", image)
@@ -139,10 +163,12 @@ class TesseractTextRecognizer:
                     text=True,
                     timeout=TESSERACT_TIMEOUT_SECONDS,
                 )
-            except FileNotFoundError as error:
-                raise LootOcrError(LootOcrErrorCode.ENGINE_UNAVAILABLE) from error
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
                 raise LootOcrError(LootOcrErrorCode.RECOGNITION_FAILED) from error
+            except OSError as error:
+                # A missing binary raises FileNotFoundError; one that exists but cannot be
+                # executed raises another OSError. Both mean the engine is unusable.
+                raise LootOcrError(LootOcrErrorCode.ENGINE_UNAVAILABLE) from error
         return tuple(line for line in result.stdout.splitlines() if line.strip())
 
 

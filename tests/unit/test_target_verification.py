@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import cast
@@ -29,7 +28,6 @@ from flyff_bot.features.vision import (
     match_whitelisted_name,
     preprocess_target_name_region,
 )
-from flyff_bot.features.vision.loot_ocr import TESSERACT_EXECUTABLE
 from flyff_bot.features.vision.target_verification import DEFAULT_ANCHOR_MATCH_THRESHOLD
 
 HP_BAR_COLOR = (0, 0, 220)
@@ -58,12 +56,11 @@ REAL_EMPTY_FIXTURE = "Screenshot 2026-08-15 203618.png"
 def _tesseract_is_usable() -> bool:
     """Report whether a Tesseract install can actually recognize the configured languages.
 
-    The binary being on PATH is not enough: an install without the English and German
-    language data exits non-zero, which would fail the fixture tests instead of skipping.
+    Locating the binary is not enough: an install without the English and German language
+    data exits non-zero, which would fail the fixture tests instead of skipping. A binary
+    that cannot be located at all surfaces here as `ENGINE_UNAVAILABLE`.
     """
 
-    if shutil.which(TESSERACT_EXECUTABLE) is None:
-        return False
     try:
         TesseractTextRecognizer().recognize(np.full((32, 64), 255, dtype=np.uint8))
     except LootOcrError:

@@ -1,7 +1,7 @@
 ---
 id: BUG-011
 title: Monster stats OCR failure and misleading anchor diagnostics in fixed placeholder mode
-status: reported
+status: resolved
 severity: medium
 created: 2026-08-17
 updated: 2026-08-17
@@ -48,7 +48,24 @@ updated: 2026-08-17
 
 ## Regression verification
 
-- [ ] Clear diagnostic readouts reflect the predefined fixed placement guide mode without confusing anchor warnings.
-- [ ] OCR engine dependency is cleanly managed/bundled or provides explicit, localized diagnostic status when unavailable.
-- [ ] Automated unit tests in `tests/unit/test_monster_stats.py` and `tests/unit/test_ui.py` verify distinct status reporting for engine unavailability vs recognition errors.
-- [ ] Related documentation is current.
+- [x] Clear diagnostic readouts reflect the predefined fixed placement guide mode without confusing anchor warnings.
+- [x] OCR engine dependency is cleanly managed/bundled or provides explicit, localized diagnostic status when unavailable.
+- [x] Automated unit tests in `tests/unit/test_monster_stats.py` and `tests/unit/test_ui.py` verify distinct status reporting for engine unavailability vs recognition errors.
+- [x] Related documentation is current.
+
+## Resolution
+
+- `resolve_tesseract_executable()` (`features/vision/loot_ocr.py`) prefers `shutil.which()` and then
+  probes the two documented Windows install directories, because the official Tesseract installer
+  does not extend the system `PATH`. An explicitly passed executable is still honoured verbatim.
+- `ENGINE_UNAVAILABLE` now also covers an executable that exists but cannot be started (`OSError`
+  rather than only `FileNotFoundError`), evaluated after the `SubprocessError` branch so a non-zero
+  exit or timeout stays `RECOGNITION_FAILED`.
+- `MonsterStatsStatus.ENGINE_UNAVAILABLE` is reported when `MonsterStatsReader` catches a
+  `LootOcrError` carrying that code, with its own localized sentence in both locales. The residual
+  broad handler is kept so an injected `TextRecognizer` cannot raise into the Qt timer tick.
+- The shipped anchor row states that the predefined placement region is read instead of reporting a
+  missing anchor template, since the fixed region is the intended mode.
+- Known limitation: no Tesseract binary is bundled. When none is installed the dashboard now names
+  that condition explicitly instead of failing generically, which is the alternative the regression
+  criteria allow.

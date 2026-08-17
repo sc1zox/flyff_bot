@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from flyff_bot.features.vision.loot_ocr import LootOcrError, LootOcrErrorCode
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     ClientSize,
@@ -37,6 +38,16 @@ class _RaisingRecognizer:
 
     def recognize(self, image: npt.NDArray[np.uint8]) -> tuple[str, ...]:
         raise RuntimeError("ocr backend unavailable")
+
+
+class _FailingOcrRecognizer:
+    """An OCR backend that reports one known engine failure code."""
+
+    def __init__(self, code: LootOcrErrorCode) -> None:
+        self._code = code
+
+    def recognize(self, image: npt.NDArray[np.uint8]) -> tuple[str, ...]:
+        raise LootOcrError(self._code)
 
 
 def _frame(width: int = 1600, height: int = 900) -> CapturedFrame:
@@ -93,6 +104,22 @@ def test_reader_reports_ocr_failure_without_raising() -> None:
 
     assert metrics.parsed_count is None
     assert metrics.status is MonsterStatsStatus.OCR_FAILED
+
+
+def test_reader_reports_a_missing_engine_distinctly_from_a_recognition_failure() -> None:
+    """A missing Tesseract install is actionable; a failed recognition is not the same fault."""
+
+    unavailable = MonsterStatsReader(
+        _FailingOcrRecognizer(LootOcrErrorCode.ENGINE_UNAVAILABLE)
+    ).read(_frame())
+    failed = MonsterStatsReader(_FailingOcrRecognizer(LootOcrErrorCode.RECOGNITION_FAILED)).read(
+        _frame()
+    )
+
+    assert unavailable.status is MonsterStatsStatus.ENGINE_UNAVAILABLE
+    assert unavailable.parsed_count is None
+    assert failed.status is MonsterStatsStatus.OCR_FAILED
+    assert failed.parsed_count is None
 
 
 def test_reader_reports_an_unavailable_region_for_a_frame_smaller_than_the_roi() -> None:

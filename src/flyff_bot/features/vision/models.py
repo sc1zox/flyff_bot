@@ -123,6 +123,7 @@ class MonsterStatsStatus(StrEnum):
     OK = "ok"
     ANCHOR_NOT_FOUND = "anchor_not_found"
     ROI_UNAVAILABLE = "roi_unavailable"
+    ENGINE_UNAVAILABLE = "engine_unavailable"
     OCR_FAILED = "ocr_failed"
     NO_MATCH = "no_match"
 

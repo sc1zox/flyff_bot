@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from flyff_bot.features.vision.loot_ocr import TextRecognizer
+from flyff_bot.features.vision.loot_ocr import LootOcrError, LootOcrErrorCode, TextRecognizer
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     MonsterStatsMetrics,
@@ -137,7 +137,15 @@ class MonsterStatsReader:
         preprocessed = self._preprocess(roi)
         try:
             lines = self._recognizer.recognize(preprocessed)
-        except Exception:  # OCR failures are non-fatal
+        except LootOcrError as error:
+            # A missing engine install is the operator's to fix and is named separately from a
+            # recognition that ran and failed, which is not actionable.
+            return measured(
+                MonsterStatsStatus.ENGINE_UNAVAILABLE
+                if error.code is LootOcrErrorCode.ENGINE_UNAVAILABLE
+                else MonsterStatsStatus.OCR_FAILED
+            )
+        except Exception:  # any other injected recognizer failure is non-fatal
             return measured(MonsterStatsStatus.OCR_FAILED)
 
         raw_text = " ".join(line.strip() for line in lines if line.strip())

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
+import pytest
 
 from flyff_bot.features.vision import (
     CapturedFrame,
@@ -14,7 +17,11 @@ from flyff_bot.features.vision import (
     LootLogReader,
     LootLogRegion,
     LootOcrConfig,
+    LootOcrError,
+    LootOcrErrorCode,
+    TesseractTextRecognizer,
     extract_loot_region,
+    loot_ocr,
     parse_loot_lines,
     preprocess_loot_region,
 )
@@ -93,3 +100,44 @@ def test_loot_region_rejects_bounds_outside_frame() -> None:
         assert "inside the client frame" in str(error)
     else:
         raise AssertionError("LootLogRegion accepted bounds outside the client frame.")
+
+
+def test_recognizer_prefers_an_executable_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/tesseract")
+
+    assert loot_ocr.resolve_tesseract_executable() == "/usr/bin/tesseract"
+
+
+def test_recognizer_falls_back_to_a_known_windows_install_location(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The official Windows installer does not extend PATH, which is BUG-011's root cause."""
+
+    installed = tmp_path / "tesseract.exe"
+    installed.write_bytes(b"")
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    monkeypatch.setattr(loot_ocr, "TESSERACT_INSTALL_CANDIDATES", (installed,))
+
+    assert loot_ocr.resolve_tesseract_executable() == str(installed)
+
+
+def test_recognizer_falls_back_to_the_bare_command_when_nothing_is_installed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    monkeypatch.setattr(loot_ocr, "TESSERACT_INSTALL_CANDIDATES", (tmp_path / "absent.exe",))
+
+    assert loot_ocr.resolve_tesseract_executable() == loot_ocr.TESSERACT_EXECUTABLE
+
+
+def test_recognizer_reports_an_unavailable_engine_for_a_missing_executable(
+    tmp_path: Path,
+) -> None:
+    recognizer = TesseractTextRecognizer(str(tmp_path / "absent.exe"))
+
+    try:
+        recognizer.recognize(np.full((32, 64), 255, dtype=np.uint8))
+    except LootOcrError as error:
+        assert error.code is LootOcrErrorCode.ENGINE_UNAVAILABLE
+    else:
+        raise AssertionError("A missing Tesseract executable was not reported as unavailable.")
