@@ -32,7 +32,7 @@ stories are moved to `docs/user-stories/completed/`.
 - [x] [**US-023: Reliable combat targeting, click debouncing, and monster kill verification**](completed/US-023-reliable-combat-targeting-and-kill-verification.md) — Target click debouncing, reliable attack hotkey dispatching, and kill verification via health decay and HUD monster stats counter.
 - [x] [**US-025: Streamlined auto-looting and loot-log OCR decoupling**](completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md) — Seamless kill-to-search transition with in-game loot pets and removal of fragile Tesseract OCR from active farming loop.
 - [ ] [**US-027: Minimap radar mob detection and calibrated navigation clicks**](US-027-minimap-radar-mob-detection-and-calibrated-navigation.md) — **Rejected**: superseded by the US-019 spawn heatmap and patrol circuits, which already reach spawns outside the viewport without a second guarded click path aimed at the HUD.
-- [ ] [**US-031: Target selection cooldown and dead mob spatial lockout**](US-031-target-cooldown-and-dead-mob-blacklist.md) — Prevent re-clicking dying mob corpses and empty ground by locking out recently defeated or failed mob positions for 4.0s.
+- [x] [**US-031: Target selection cooldown and dead mob spatial lockout**](completed/US-031-target-cooldown-and-dead-mob-blacklist.md) — Prevent re-clicking dying mob corpses and empty ground by locking out recently defeated or failed mob positions for 4.0s. Delivered by BUG-010.
 
 ### Phase 4: Desktop UI & Visual Debugging
 - [x] [**US-010: Native PySide6 dashboard and visual debug overlay**](completed/US-010-pyside6-dashboard-and-overlay.md) — Desktop monitoring, live YOLO overlay, recipe progress, and killswitch controls.

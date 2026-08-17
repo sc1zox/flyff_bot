@@ -14,6 +14,7 @@ from flyff_bot.features.automation.controllers import (
     CombatConfig,
     CombatController,
     CombatMode,
+    EngagementBreakReason,
     KeyBinding,
     SearchConfig,
     SearchController,
@@ -155,6 +156,7 @@ class FarmingOrchestrator:
         self._last_persist_at_seconds = 0.0
         self._window_status = WindowStatus.NOT_FOREGROUND
         self._has_live_frame = False
+        self._engagement_break: EngagementBreakReason | None = None
 
     @property
     def mode(self) -> FarmingMode:
@@ -320,8 +322,8 @@ class FarmingOrchestrator:
         if self._mode is FarmingMode.SEARCHING:
             combat = self._combat.step(self._state)
             if combat.mode is not CombatMode.IDLE:
-                self._search.reset()
                 self._mode = FarmingMode.TARGETING
+                self._engagement_break = None
                 return self._combat_dispatcher.dispatch(combat)
             if self._advance_pathing():
                 return True
@@ -340,14 +342,20 @@ class FarmingOrchestrator:
 
         if self._mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:
             combat = self._combat.step(self._state)
+            if combat.break_reason is not None:
+                self._engagement_break = combat.break_reason
             if combat.mode in {CombatMode.IDLE, CombatMode.TARGET_LOST}:
-                self._search.reset()
                 self._mode = FarmingMode.SEARCHING
                 return False
             if combat.mode is CombatMode.TARGET_DEAD:
                 self._state = replace(self._state, progress_marker=self._state.progress_marker + 1)
                 self._mode = FarmingMode.RECONCILING
                 return False
+            if combat.mode in {CombatMode.ENGAGING, CombatMode.FIGHTING}:
+                # Only a verified engagement restarts the idle timeout. A click that never
+                # confirmed is not progress, so repeated lockout retries cannot keep
+                # postponing camera search recovery (BUG-010).
+                self._search.reset()
             self._mode = FarmingMode.COMBAT
             return self._combat_dispatcher.dispatch(combat)
 
@@ -410,6 +418,7 @@ class FarmingOrchestrator:
                         else None
                     ),
                     window=self._window_status,
+                    engagement_break=self._engagement_break,
                 )
             )
         return tick

@@ -12,7 +12,6 @@ bugs are moved to `docs/bugs/fixed/`.
 ## Active Defect Backlog
 
 - [ ] [**BUG-008: Placement guides in-game overlay**](BUG-008-placement-guides-in-game-overlay.md)
-- [ ] [**BUG-010: Combat targeting thrashing, false floor clicks, and missing stuck engagement break timeout**](BUG-010-combat-targeting-thrashing-and-stuck-engagement-timeout.md)
 
 
 ## Fixed Defects
@@ -25,5 +24,6 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-006: Player vitals resolution scaling and flicker spam**](fixed/BUG-006-player-vitals-resolution-scaling-and-flicker-spam.md)
 - [x] [**BUG-007: Start button causes silent pause loop on focus mismatch and standby perception is completely bypassed**](fixed/BUG-007-start-button-silent-pause-and-standby-perception-bypass.md)
 - [x] [**BUG-009: WASD movement tracking heading error and obstacle stall detection failure against terrain**](fixed/BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md)
+- [x] [**BUG-010: Combat targeting thrashing, false floor clicks, and missing stuck engagement break timeout**](fixed/BUG-010-combat-targeting-thrashing-and-stuck-engagement-timeout.md)
 
 

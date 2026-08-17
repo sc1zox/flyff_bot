@@ -37,6 +37,9 @@ VIRTUAL_KEY_DOWN = 0x28
 DEFAULT_LOOT_PICKUP_WAIT_SECONDS = 2.0
 DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS = 0.8
 DEFAULT_ENGAGEMENT_GRACE_SECONDS = 0.5
+DEFAULT_TARGET_LOCKOUT_SECONDS = 4.0
+DEFAULT_TARGET_LOCKOUT_RADIUS_PIXELS = 50
+DEFAULT_ENGAGEMENT_TIMEOUT_SECONDS = 10.0
 DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS = 5.0
 DEFAULT_SEARCH_ROTATION_DURATION_SECONDS = 0.2
 DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS = 0.3
@@ -81,6 +84,14 @@ class CombatInputKind(StrEnum):
 
     CLICK = "click"
     KEY = "key"
+
+
+class EngagementBreakReason(StrEnum):
+    """Why the combat state machine abandoned an engagement without a kill."""
+
+    ACQUISITION_TIMEOUT = "acquisition_timeout"
+    TARGET_UNVERIFIED = "target_unverified"
+    ENGAGEMENT_TIMEOUT = "engagement_timeout"
 
 
 class LootMode(StrEnum):
@@ -187,6 +198,9 @@ class CombatConfig:
     target_acquisition_grace_seconds: float = DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS
     engagement_grace_seconds: float = DEFAULT_ENGAGEMENT_GRACE_SECONDS
     kill_verification_enabled: bool = False
+    target_lockout_seconds: float = DEFAULT_TARGET_LOCKOUT_SECONDS
+    target_lockout_radius_pixels: int = DEFAULT_TARGET_LOCKOUT_RADIUS_PIXELS
+    engagement_timeout_seconds: float = DEFAULT_ENGAGEMENT_TIMEOUT_SECONDS
 
     def __post_init__(self) -> None:
         if not self.rotation:
@@ -197,6 +211,12 @@ class CombatConfig:
             raise ValueError("Target acquisition grace period must not be negative.")
         if self.engagement_grace_seconds < 0.0:
             raise ValueError("Engagement grace period must not be negative.")
+        if self.target_lockout_seconds < 0.0:
+            raise ValueError("Target lockout duration must not be negative.")
+        if self.target_lockout_radius_pixels < 0:
+            raise ValueError("Target lockout radius must not be negative.")
+        if self.engagement_timeout_seconds <= 0.0:
+            raise ValueError("Engagement timeout must be positive.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +230,15 @@ class CombatDecision:
     key_press_duration_seconds: float | None = None
     progress_observed: bool = False
     damage_dealt: bool = False
+    break_reason: EngagementBreakReason | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetLockout:
+    """One client-space location candidate selection ignores until it expires."""
+
+    position: Position
+    expires_at_seconds: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +281,9 @@ class CombatController:
         self._targeting_started_at_seconds: float | None = None
         self._engagement_grace_expires_at: float | None = None
         self._damage_dealt = False
+        self._engaged_position: Position | None = None
+        self._last_progress_at_seconds: float | None = None
+        self._lockouts: list[TargetLockout] = []
 
     def update_config(self, config: CombatConfig) -> None:
         """Apply a new configuration without resetting the in-progress engagement."""
@@ -268,10 +300,11 @@ class CombatController:
             self._mode = CombatMode.TARGETING
             self._targeting_started_at_seconds = state.observed_at_seconds
             self._previous_kill_count = state.monster_kill_count
+            self._engaged_position = _mob_center(candidate)
             return CombatDecision(
                 CombatMode.TARGETING,
                 CombatInputKind.CLICK,
-                _mob_center(candidate),
+                self._engaged_position,
             )
 
         if self._mode is CombatMode.TARGETING:
@@ -279,32 +312,32 @@ class CombatController:
                 self._previous_hp_pixel_count = state.selected_target.hp_pixel_count
                 self._mode = CombatMode.ENGAGING
                 self._targeting_started_at_seconds = None
+                self._last_progress_at_seconds = state.observed_at_seconds
                 return self._attack_if_ready(state)
             grace_deadline = (
                 self._targeting_started_at_seconds or 0.0
             ) + self._config.target_acquisition_grace_seconds
             if state.observed_at_seconds < grace_deadline:
                 return CombatDecision(CombatMode.TARGETING)
-            self._reset()
-            return CombatDecision(CombatMode.IDLE)
+            return self._break_engagement(state, EngagementBreakReason.ACQUISITION_TIMEOUT)
 
         if self._mode is CombatMode.ENGAGING:
             if self._kill_count_incremented(state):
-                self._mode = CombatMode.TARGET_DEAD
-                return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=True)
+                return self._confirm_kill(state)
+            if self._engagement_timed_out(state):
+                return self._break_engagement(state, EngagementBreakReason.ENGAGEMENT_TIMEOUT)
+            self._track_engaged_position(state)
             return self._attack_if_ready(state)
 
         if self._mode is CombatMode.FIGHTING:
             if self._kill_count_incremented(state):
-                self._mode = CombatMode.TARGET_DEAD
-                return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=True)
+                return self._confirm_kill(state)
             if state.selected_target.hp_pixel_count == 0 and self._damage_dealt:
-                self._mode = CombatMode.TARGET_DEAD
-                return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=self._damage_dealt)
+                return self._confirm_kill(state)
             if state.selected_target.state is TargetState.NONE:
                 if self._damage_dealt:
-                    self._mode = CombatMode.TARGET_DEAD
-                    return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=True)
+                    return self._confirm_kill(state)
+                self._register_lockout(state.observed_at_seconds)
                 self._mode = CombatMode.TARGET_LOST
                 return CombatDecision(CombatMode.TARGET_LOST, damage_dealt=False)
             if state.selected_target.state is not TargetState.VALID:
@@ -314,21 +347,21 @@ class CombatController:
                     )
                 if state.observed_at_seconds < self._engagement_grace_expires_at:
                     return CombatDecision(CombatMode.FIGHTING, damage_dealt=self._damage_dealt)
-                self._reset()
-                return CombatDecision(CombatMode.IDLE)
+                return self._break_engagement(state, EngagementBreakReason.TARGET_UNVERIFIED)
             self._engagement_grace_expires_at = None
             progress = self._target_hp_decreased(state)
+            if self._engagement_timed_out(state):
+                return self._break_engagement(state, EngagementBreakReason.ENGAGEMENT_TIMEOUT)
+            self._track_engaged_position(state)
             return self._attack_if_ready(state, progress)
 
         self._reset()
         return CombatDecision(CombatMode.IDLE)
 
     def _best_candidate(self, state: WorldState) -> VisibleMob | None:
+        self._purge_lockouts(state.observed_at_seconds)
         candidates = [
-            mob
-            for mob in state.visible_mobs
-            if not self._config.allowed_class_names
-            or mob.class_name in self._config.allowed_class_names
+            mob for mob in self._allowed_mobs(state) if not self._is_locked_out(_mob_center(mob))
         ]
         if not candidates:
             return None
@@ -364,6 +397,78 @@ class CombatController:
             damage_dealt=self._damage_dealt,
         )
 
+    def _allowed_mobs(self, state: WorldState) -> list[VisibleMob]:
+        return [
+            mob
+            for mob in state.visible_mobs
+            if not self._config.allowed_class_names
+            or mob.class_name in self._config.allowed_class_names
+        ]
+
+    def _purge_lockouts(self, observed_at_seconds: float) -> None:
+        self._lockouts = [
+            lockout
+            for lockout in self._lockouts
+            if lockout.expires_at_seconds > observed_at_seconds
+        ]
+
+    def _is_locked_out(self, position: Position) -> bool:
+        radius = self._config.target_lockout_radius_pixels
+        return any(
+            _distance_squared(position, lockout.position) <= radius * radius
+            for lockout in self._lockouts
+        )
+
+    def _register_lockout(self, observed_at_seconds: float) -> None:
+        """Blacklist the engaged screen location so the next tick cannot re-click it."""
+
+        if self._engaged_position is None or self._config.target_lockout_seconds <= 0.0:
+            return
+        self._lockouts.append(
+            TargetLockout(
+                self._engaged_position,
+                observed_at_seconds + self._config.target_lockout_seconds,
+            )
+        )
+
+    def _track_engaged_position(self, state: WorldState) -> None:
+        """Follow the engaged mob's detection so its lockout lands on the corpse.
+
+        The engagement has no detection identity, so the nearest allowed mob still
+        inside the lockout radius is assumed to be the one being fought.
+        """
+
+        anchor = self._engaged_position
+        if anchor is None:
+            return
+        radius = self._config.target_lockout_radius_pixels
+        nearby = [
+            _mob_center(mob)
+            for mob in self._allowed_mobs(state)
+            if _distance_squared(_mob_center(mob), anchor) <= radius * radius
+        ]
+        if nearby:
+            self._engaged_position = min(
+                nearby, key=lambda center: _distance_squared(center, anchor)
+            )
+
+    def _engagement_timed_out(self, state: WorldState) -> bool:
+        last_progress = self._last_progress_at_seconds
+        return (
+            last_progress is not None
+            and state.observed_at_seconds - last_progress >= self._config.engagement_timeout_seconds
+        )
+
+    def _confirm_kill(self, state: WorldState) -> CombatDecision:
+        self._register_lockout(state.observed_at_seconds)
+        self._mode = CombatMode.TARGET_DEAD
+        return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=True)
+
+    def _break_engagement(self, state: WorldState, reason: EngagementBreakReason) -> CombatDecision:
+        self._register_lockout(state.observed_at_seconds)
+        self._reset()
+        return CombatDecision(CombatMode.IDLE, break_reason=reason)
+
     def _target_hp_decreased(self, state: WorldState) -> bool:
         hp_pixel_count = state.selected_target.hp_pixel_count
         progress = (
@@ -372,6 +477,7 @@ class CombatController:
         )
         if progress:
             self._damage_dealt = True
+            self._last_progress_at_seconds = state.observed_at_seconds
         self._previous_hp_pixel_count = hp_pixel_count
         return progress
 
@@ -392,6 +498,8 @@ class CombatController:
         )
 
     def _reset(self) -> None:
+        """Clear one engagement. Lockouts deliberately survive; they outlive engagements."""
+
         self._mode = CombatMode.IDLE
         self._previous_hp_pixel_count = None
         self._previous_kill_count = None
@@ -399,6 +507,8 @@ class CombatController:
         self._engagement_grace_expires_at = None
         self._damage_dealt = False
         self._next_attack_at_seconds = 0.0
+        self._engaged_position = None
+        self._last_progress_at_seconds = None
 
 
 def _mob_center(mob: VisibleMob) -> Position:

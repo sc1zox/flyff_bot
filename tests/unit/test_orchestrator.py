@@ -10,6 +10,7 @@ import pytest
 from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_F1,
     VIRTUAL_KEY_RIGHT,
+    EngagementBreakReason,
 )
 from flyff_bot.features.automation.models import (
     InventoryEntry,
@@ -137,6 +138,8 @@ def test_runs_full_target_combat_and_reconciliation_cycle_without_looting() -> N
     assert orchestrator.tick().mode is FarmingMode.RECONCILING
     assert orchestrator.tick().mode is FarmingMode.SEARCHING
     assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
+    # Only attack keys: a confirmed fight restarts the search idle timeout (BUG-010),
+    # so camera recovery must not fire on the tick right after a kill.
     assert [key for key, _duration in adapter.keys] == [0x20, 0x20]
 
 
@@ -484,3 +487,67 @@ def test_orchestrator_prioritizes_vitals_trigger_ahead_of_combat() -> None:
 
     assert tick.dispatched is True
     assert (0x70, 0.05) in adapter.keys
+
+
+def test_failed_acquisition_does_not_thrash_between_search_and_targeting() -> None:
+    """BUG-010: an unverified click must not be re-issued on every grace expiry."""
+
+    adapter = _InputAdapter()
+    states = [_state(index * 0.1, mobs=(MOB,)) for index in range(41)]
+    orchestrator = _orchestrator(states, adapter)
+    orchestrator.start()
+
+    modes = [orchestrator.tick().mode for _ in states]
+
+    assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
+    assert modes.count(FarmingMode.TARGETING) == 1
+    assert orchestrator.mode is FarmingMode.SEARCHING
+
+
+def test_stuck_engagement_breaks_and_returns_to_searching() -> None:
+    """BUG-010: a fight without progress must abort after the engagement timeout."""
+
+    adapter = _InputAdapter()
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    states = [_state(1.0, mobs=(MOB,))] + [
+        _state(1.0 + index * 0.5, target=valid, mobs=(MOB,)) for index in range(1, 25)
+    ]
+    orchestrator = _orchestrator(states, adapter)
+    orchestrator.start()
+
+    modes = [orchestrator.tick().mode for _ in states]
+
+    assert FarmingMode.COMBAT in modes
+    assert orchestrator.mode is FarmingMode.SEARCHING
+    assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
+
+
+def test_engagement_break_reason_is_published_to_the_dashboard() -> None:
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    states = [_state(0.0, mobs=(MOB,)), _state(1.0, mobs=(MOB,))]
+    orchestrator = _orchestrator(states, adapter, dashboard_feed=feed)
+    orchestrator.start()
+
+    orchestrator.tick()
+    orchestrator.tick()
+
+    assert updates[0].engagement_break is None
+    assert updates[1].engagement_break is EngagementBreakReason.ACQUISITION_TIMEOUT
+
+
+def test_locked_out_mob_lets_camera_search_recovery_take_over() -> None:
+    """BUG-010: repeated unverified clicks must not keep postponing search recovery."""
+
+    adapter = _InputAdapter()
+    states = [_state(index * 0.1, mobs=(MOB,)) for index in range(121)]
+    orchestrator = _orchestrator(states, adapter)
+    orchestrator.start()
+
+    for _ in states:
+        orchestrator.tick()
+
+    assert len(adapter.clicks) < 4
+    assert (VIRTUAL_KEY_RIGHT, 0.2) in adapter.keys

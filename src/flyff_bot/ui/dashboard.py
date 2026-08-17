@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from PySide6.QtCore import QObject, Signal
 
+from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.vision.models import CapturedFrame
 
@@ -98,6 +99,7 @@ class DashboardUpdate:
     frame: CapturedFrame | None = None
     navigation: NavigationSnapshot | None = None
     window: WindowStatus = WindowStatus.OK
+    engagement_break: EngagementBreakReason | None = None
 
 
 class DashboardFeed(QObject):

@@ -236,3 +236,17 @@ Documented why the stall verdict no longer latches (`_register_stall` consumes t
 `Supervisor` sees `STUCK` for the registration tick only) and why a stalled cell can never become
 the retreat anchor. Stated the known limitation that the centre mask leaves the HUD bands sampled
 and that the mask fractions are uncalibrated estimates.
+
+## [2026-08-17] synthesis | Combat targeting lockout and engagement timeout (BUG-010, US-031)
+
+Recorded the combat-thrashing fix: `CombatController`'s `TargetLockout` list, registered on every
+terminal engagement exit including a confirmed `TARGET_DEAD`, filtered by `_best_candidate()` inside
+`target_lockout_radius_pixels` for `target_lockout_seconds`, and deliberately surviving `_reset()`
+because `_reset()` is what runs on the failure paths. Documented `engagement_timeout_seconds`
+measuring elapsed time since the last observed HP decrease and evaluated after the kill-count and
+HP-zero checks so a kill on the timeout tick still counts. Noted the orchestrator change that limits
+the staged-search idle-timeout reset to verified engagements, without which the lockout retry cycle
+sat just under `SearchConfig.idle_timeout_seconds` and camera recovery never ran. Recorded
+`EngagementBreakReason` travelling on `CombatDecision`/`DashboardUpdate` rather than `WorldState`,
+and the two screen-space limitations of the lockout anchor. Linked BUG-010 and US-031, which this
+change delivered together.

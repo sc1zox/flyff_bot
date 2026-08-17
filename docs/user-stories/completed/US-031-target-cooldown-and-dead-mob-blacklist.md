@@ -1,7 +1,7 @@
 ---
 id: US-031
 title: Target selection cooldown and dead mob spatial lockout
-status: draft
+status: completed
 created: 2026-08-17
 updated: 2026-08-17
 ---
@@ -27,14 +27,20 @@ so that **the bot does not repeatedly re-click dying mob corpses or empty ground
   - [US-008: Reactive combat controller](file:///home/sc1zox/code/flyff_bot/docs/user-stories/completed/US-008-reactive-combat-controller.md)
   - [US-023: Reliable combat targeting and kill verification](file:///home/sc1zox/code/flyff_bot/docs/user-stories/completed/US-023-reliable-combat-targeting-and-kill-verification.md)
 
+> Delivered by [BUG-010](file:///home/sc1zox/code/flyff_bot/docs/bugs/fixed/BUG-010-combat-targeting-thrashing-and-stuck-engagement-timeout.md),
+> which needed the same spatial lockout to stop targeting thrashing.
+
 ## Acceptance criteria
 
-- [ ] Given a monster that transitions to `CombatMode.TARGET_DEAD` or fails target acquisition after `target_acquisition_grace_seconds`, its center coordinate is registered into an active target lockout blacklist in `CombatController` with a timestamp and expiration deadline (default lockout duration: 4.0 seconds).
-- [ ] Given `CombatController._best_candidate()`, any `VisibleMob` whose center coordinate falls within a configured spatial tolerance radius (e.g. 50 pixels) of an actively locked-out target location is excluded from candidate selection until its lockout expires.
-- [ ] Expired lockout entries are automatically purged during `step()` or when querying candidates to prevent unbounded memory growth.
-- [ ] Lockout state is cleared upon session reset or emergency stop.
-- [ ] If all visible mobs on screen are currently locked out, `_best_candidate()` returns `None`, allowing `FarmingOrchestrator` to seamlessly transition into search/rotation or navigation without clicking the floor.
-- [ ] Failure and cancellation behavior is defined: lost focus or emergency stop immediately halts combat without retaining stale locks on next fresh session start.
+- [x] Given a monster that transitions to `CombatMode.TARGET_DEAD` or fails target acquisition after `target_acquisition_grace_seconds`, its center coordinate is registered into an active target lockout blacklist in `CombatController` with a timestamp and expiration deadline (default lockout duration: 4.0 seconds).
+- [x] Given `CombatController._best_candidate()`, any `VisibleMob` whose center coordinate falls within a configured spatial tolerance radius (e.g. 50 pixels) of an actively locked-out target location is excluded from candidate selection until its lockout expires.
+- [x] Expired lockout entries are automatically purged during `step()` or when querying candidates to prevent unbounded memory growth.
+- [x] Lockout state is cleared upon session reset. No explicit clear on emergency stop was added:
+  `FarmingOrchestrator.emergency_stop()` latches the session permanently, so the next session always
+  builds a fresh `CombatController` with an empty lockout list. A public clear would have been dead
+  code.
+- [x] If all visible mobs on screen are currently locked out, `_best_candidate()` returns `None`, allowing `FarmingOrchestrator` to seamlessly transition into search/rotation or navigation without clicking the floor.
+- [x] Failure and cancellation behavior is defined: lost focus or emergency stop immediately halts combat without retaining stale locks on next fresh session start.
 
 ## Out of scope
 
@@ -44,7 +50,7 @@ so that **the bot does not repeatedly re-click dying mob corpses or empty ground
 ## Verification
 
 - Automated:
-  - Unit tests in `tests/unit/test_combat_controller.py` verifying that defeated mobs and acquisition timeouts register a lockout, subsequent candidate selection ignores mobs within the lockout radius, and locks expire after the configured duration.
-  - Integration tests in `tests/unit/test_orchestrator.py` verifying that the orchestrator transitions to search when all visible mobs are locked out rather than re-clicking corpses.
-- Manual (Windows):
+  - Done. Unit tests in `tests/unit/test_combat_controller.py` verifying that defeated mobs and acquisition timeouts register a lockout, subsequent candidate selection ignores mobs within the lockout radius, and locks expire after the configured duration.
+  - Done. Integration tests in `tests/unit/test_orchestrator.py` verifying that the orchestrator transitions to search when all visible mobs are locked out rather than re-clicking corpses.
+- Manual (Windows) — not performed, developed on Linux without a Flyff client:
   - Defeat a mob in Flyff and observe that the cursor does not click on the dying mob corpse while it plays its death animation, immediately targeting the next live mob or initiating search rotation.

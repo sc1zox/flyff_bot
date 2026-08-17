@@ -13,6 +13,7 @@ from flyff_bot.features.automation.controllers import (
     CombatController,
     CombatInputKind,
     CombatMode,
+    EngagementBreakReason,
     KeyBinding,
 )
 from flyff_bot.features.automation.models import (
@@ -178,12 +179,111 @@ def test_new_engagement_attacks_immediately_despite_previous_cooldown() -> None:
     assert dead.mode is CombatMode.TARGET_DEAD
     assert controller.step(_state(time=1.3)).mode is CombatMode.IDLE
 
-    controller.step(_state(time=1.4, mobs=(_mob(),)))
+    # A different mob, far enough away that the BUG-010 corpse lockout does not cover it.
+    controller.step(_state(time=1.4, mobs=(_mob(x=120, y=60),)))
     new_attack = controller.step(_state(time=1.5, target=VALID_TARGET))
 
     assert new_attack.mode is CombatMode.FIGHTING
     assert new_attack.input_kind is CombatInputKind.KEY
     assert new_attack.virtual_key == VIRTUAL_KEY_1
+
+
+def test_failed_acquisition_locks_out_the_clicked_location_instead_of_reclicking() -> None:
+    """BUG-010: an unverified click must not be repeated on the very next tick."""
+
+    controller = CombatController()
+    mob = _mob(x=80, y=40)
+
+    assert controller.step(_state(mobs=(mob,))).mode is CombatMode.TARGETING
+    timed_out = controller.step(_state(time=1.0, mobs=(mob,)))
+
+    assert timed_out.mode is CombatMode.IDLE
+    assert timed_out.break_reason is EngagementBreakReason.ACQUISITION_TIMEOUT
+    assert controller.step(_state(time=1.1, mobs=(mob,))).input_kind is None
+    assert controller.step(_state(time=4.9, mobs=(mob,))).input_kind is None
+    assert controller.step(_state(time=5.1, mobs=(mob,))).input_kind is CombatInputKind.CLICK
+
+
+def test_lockout_ignores_only_mobs_inside_its_radius() -> None:
+    controller = CombatController()
+    locked = _mob(x=80, y=40)
+    distant = _mob(x=0, y=0)
+
+    controller.step(_state(mobs=(locked,)))
+    assert controller.step(_state(time=1.0, mobs=(locked,))).mode is CombatMode.IDLE
+
+    reselected = controller.step(_state(time=1.1, mobs=(locked, distant)))
+
+    assert reselected.mode is CombatMode.TARGETING
+    assert reselected.position == Position(10, 5)
+
+
+def test_confirmed_kill_locks_out_the_corpse_location() -> None:
+    """BUG-010: a corpse stays detected for seconds and must not be clicked again."""
+
+    controller = CombatController()
+    mob = _mob(x=80, y=40)
+    controller.step(_state(mobs=(mob,)))
+    controller.step(_state(time=1.0, target=VALID_TARGET, mobs=(mob,)))
+    controller.step(_state(time=1.5, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)))
+    dead = controller.step(_state(time=2.0, target=NO_TARGET, mobs=(mob,)))
+    assert dead.mode is CombatMode.TARGET_DEAD
+
+    assert controller.step(_state(time=2.1, mobs=(mob,))).mode is CombatMode.IDLE
+    assert controller.step(_state(time=2.2, mobs=(mob,))).input_kind is None
+
+
+def test_stuck_engagement_breaks_after_the_configured_timeout() -> None:
+    """BUG-010: a fight without HP progress must abort instead of attacking forever."""
+
+    controller = CombatController()
+    mob = _mob(x=80, y=40)
+    controller.step(_state(mobs=(mob,)))
+    assert controller.step(_state(time=1.0, target=VALID_TARGET)).mode is CombatMode.FIGHTING
+
+    assert controller.step(_state(time=10.9, target=VALID_TARGET)).mode is CombatMode.FIGHTING
+    broken = controller.step(_state(time=11.1, target=VALID_TARGET))
+
+    assert broken.mode is CombatMode.IDLE
+    assert broken.break_reason is EngagementBreakReason.ENGAGEMENT_TIMEOUT
+    assert controller.step(_state(time=11.2, mobs=(mob,))).input_kind is None
+
+
+def test_observed_damage_extends_the_stuck_engagement_timeout() -> None:
+    controller = CombatController()
+    controller.step(_state(mobs=(_mob(),)))
+    controller.step(_state(time=1.0, target=VALID_TARGET))
+
+    damaged = controller.step(
+        _state(time=9.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50))
+    )
+    assert damaged.progress_observed
+
+    still_fighting = controller.step(
+        _state(time=15.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50))
+    )
+
+    assert still_fighting.mode is CombatMode.FIGHTING
+    assert still_fighting.break_reason is None
+
+
+def test_kill_count_increment_confirms_death_on_the_timeout_tick() -> None:
+    controller = CombatController(CombatConfig(kill_verification_enabled=True))
+    controller.step(_state(mobs=(_mob(),), monster_kill_count=5))
+    controller.step(_state(time=1.0, target=VALID_TARGET, monster_kill_count=5))
+
+    confirmed = controller.step(_state(time=99.0, target=VALID_TARGET, monster_kill_count=6))
+
+    assert confirmed.mode is CombatMode.TARGET_DEAD
+
+
+def test_combat_config_rejects_invalid_lockout_and_timeout_values() -> None:
+    with pytest.raises(ValueError):
+        CombatConfig(target_lockout_seconds=-1.0)
+    with pytest.raises(ValueError):
+        CombatConfig(target_lockout_radius_pixels=-1)
+    with pytest.raises(ValueError):
+        CombatConfig(engagement_timeout_seconds=0.0)
 
 
 @pytest.mark.parametrize("virtual_key", [ord("0"), ord("A"), VIRTUAL_KEY_F1])

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
     MonsterStatsStatus,
@@ -229,6 +230,8 @@ class MainWindow(QMainWindow):
         self._target_state_value = QLabel()
         self._target_reason_label = QLabel()
         self._target_reason_value = QLabel()
+        self._target_break_label = QLabel()
+        self._target_break_value = QLabel()
 
         # Monster stats OCR debug panel
         self._monster_stats_panel = QGroupBox()
@@ -724,6 +727,7 @@ class MainWindow(QMainWindow):
             (self._target_name_label, self._target_name_value),
             (self._target_state_label, self._target_state_value),
             (self._target_reason_label, self._target_reason_value),
+            (self._target_break_label, self._target_break_value),
         ):
             row = QHBoxLayout()
             row.addWidget(label)
@@ -1216,6 +1220,7 @@ class MainWindow(QMainWindow):
         self._target_name_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_NAME))
         self._target_state_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_STATE))
         self._target_reason_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_REASON))
+        self._target_break_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_BREAK))
         self._monster_stats_toggle.setText(
             self._translator.text(Message.UI_MONSTER_STATS_DEBUG_TOGGLE)
         )
@@ -1356,6 +1361,9 @@ class MainWindow(QMainWindow):
         if update.navigation is not None:
             self._path_inspector.set_navigation(update.navigation)
         self._render_target_debug(update.state.selected_target)
+        self._target_break_value.setText(
+            self._translator.text(_engagement_break_message(update.engagement_break))
+        )
         self._render_monster_stats_debug(update.state.monster_stats)
         self._update_overlay_visibility(self._debug_toggle.isChecked())
         is_active = update.status in {
@@ -1546,6 +1554,16 @@ def _monster_stats_status_message(status: MonsterStatsStatus) -> Message:
         MonsterStatsStatus.OCR_FAILED: Message.UI_MONSTER_STATS_DEBUG_STATUS_OCR_FAILED,
         MonsterStatsStatus.NO_MATCH: Message.UI_MONSTER_STATS_DEBUG_STATUS_NO_MATCH,
     }[status]
+
+
+def _engagement_break_message(reason: EngagementBreakReason | None) -> Message:
+    if reason is None:
+        return Message.UI_TARGET_DEBUG_BREAK_NONE
+    return {
+        EngagementBreakReason.ACQUISITION_TIMEOUT: Message.UI_TARGET_DEBUG_BREAK_ACQUISITION,
+        EngagementBreakReason.TARGET_UNVERIFIED: Message.UI_TARGET_DEBUG_BREAK_UNVERIFIED,
+        EngagementBreakReason.ENGAGEMENT_TIMEOUT: Message.UI_TARGET_DEBUG_BREAK_TIMEOUT,
+    }[reason]
 
 
 def _target_failure_reason_message(target: SelectedTarget) -> Message:

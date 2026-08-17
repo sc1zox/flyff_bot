@@ -33,6 +33,8 @@ related:
   - ../user-stories/completed/US-029-configurable-target-verification-thresholds.md
   - ../user-stories/completed/US-030-monster-stats-hud-ocr-diagnostics-and-debug-panel.md
   - ../bugs/fixed/BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md
+  - ../bugs/fixed/BUG-010-combat-targeting-thrashing-and-stuck-engagement-timeout.md
+  - ../user-stories/completed/US-031-target-cooldown-and-dead-mob-blacklist.md
 ---
 
 # Architecture
@@ -416,6 +418,34 @@ observation, so `WorldState.is_stuck` marks the registration tick instead of lat
 into `STUCK` for the whole retreat. `_remember_safe_waypoint` refuses to promote a cell that has
 recorded stalls into `_safe_waypoint`, which previously let a retreat target the obstacle cell it
 had just fled.
+
+BUG-010 stops combat targeting from thrashing and bounds a stuck engagement, delivering US-031 in
+the same change. `CombatController` keeps a list of `TargetLockout` values — a client-space
+`Position` and an expiry — registered on every terminal exit that is not an in-progress fight:
+acquisition-grace expiry, mid-fight loss of the target header, the new engagement timeout, an
+undamaged `TARGET_LOST`, and a confirmed `TARGET_DEAD`. `_best_candidate()` purges expired entries
+against `observed_at_seconds` and rejects any mob whose center lies within
+`CombatConfig.target_lockout_radius_pixels` (default 50 px) of an active lockout, so the 0.8 s
+acquisition grace can no longer expire straight back into a re-click of the same corpse or
+unverifiable mob. The lockouts deliberately survive `_reset()`, which is exactly what runs on those
+failure paths; nothing clears them early, because `emergency_stop()` latches a session permanently
+and a new session builds a new controller. `CombatConfig.engagement_timeout_seconds` (default
+10.0 s) measures elapsed time since the last observed HP decrease, seeded at the tick the target
+header was first confirmed, and breaks the engagement when it expires. Kill-count and HP-zero
+confirmation are evaluated before the timeout so a genuine kill on the timeout tick still counts.
+`FarmingOrchestrator` now resets the staged-search idle timeout only for a verified engagement
+(`ENGAGING`/`FIGHTING`), not for every dispatched click: the 4.0 s lockout retry cycle otherwise sat
+just under the 5.0 s `SearchConfig.idle_timeout_seconds` and camera recovery never ran at all.
+A typed `EngagementBreakReason` (`ACQUISITION_TIMEOUT`, `TARGET_UNVERIFIED`, `ENGAGEMENT_TIMEOUT`)
+travels on `CombatDecision.break_reason`, is latched by the orchestrator, and is published on
+`DashboardUpdate.engagement_break` for one localized sentence in the target debug panel, cleared
+when the next engagement begins. It is kept off `WorldState`/`SelectedTarget` so it cannot
+re-create the US-024 spurious `TARGET_CHANGED` problem. Two limitations are inherent to anchoring a
+lockout in screen space rather than to a world object: `_track_engaged_position()` follows the
+nearest allowed detection inside the radius during the fight so the lockout lands on the corpse
+instead of the original click point, but it is a proximity heuristic with no detection identity;
+and a camera rotation remaps the screen, so an active lockout can briefly shadow a different live
+mob that moves into that position until the 4.0 s expiry.
 
 US-022 overhauls the desktop dashboard boundary (`flyff_bot.ui`) with a cohesive Dark Slate Qt Style Sheet (QSS) theme, card-based panel grouping, streamlined visual hierarchy, a standalone pop-out navigation map window (`NavigationMapWindow`), and an `Escape` key emergency stop shortcut. All UI windows, inputs, buttons, and modal dialogs adopt dark slate styling with emerald green (Start), amber (Pause), and danger crimson (Emergency Stop) action accents alongside responsive hover/pressed states. Dashboard controls are organized into logical card panels—*Status & Metrics Card* (with colored status pill badges and metric chips), *Action Controls Card*, *Navigation & Profiles Card*, and *Telemetry & Diagnostics Toolbar*—eliminating redundant text clutter. Operators can pop out `PathInspectorWidget` into a secondary standalone window (`NavigationMapWindow`) to maintain a compact controller dashboard while monitoring live 2D pathing and heatmap telemetry on a separate display. Pressing `Escape` (`Qt.Key.Key_Escape`) while any UI window has focus instantly triggers an emergency stop (`emergency_stop_requested.emit()`), matching the physical UI button and the global Win32 `END` key safeguard. All user-visible strings, badge labels, and tooltips are localized across German and English.
 
