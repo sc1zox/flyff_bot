@@ -55,8 +55,13 @@ updated: 2026-08-17
 - **Impact:** Critical blocker for autonomous combat. The bot detects monsters and clicks them, but is unable to attack or defeat them due to false wrong-target rejection.
 - **Frequency:** 100% reproducible when running at 1600x900 resolution or whenever name template pixel differences drop the correlation score below the threshold.
 
+## Resolution
+
+Addressed by [US-032: Tesseract OCR Target Name Verification](../user-stories/US-032-tesseract-ocr-target-name-verification.md). Replacing rigid RGB template matching with preprocessed Tesseract OCR text recognition on the target header name ROI enables resolution-independent, robust string matching against the configured mob whitelist.
+
 ## Regression verification
 
 - [ ] A failing automated test or deterministic manual check exists.
 - [ ] The check passes after the fix.
 - [ ] Related documentation is current.
+
