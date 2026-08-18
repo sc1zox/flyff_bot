@@ -32,6 +32,10 @@ TESSERACT_INSTALL_CANDIDATES = (
     Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
     Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
 )
+# The loot log is localized, so both trained languages are required there. Callers reading a
+# HUD region that Flyff renders in English only should pass TESSERACT_LANGUAGE_ENGLISH instead,
+# so a missing German language pack cannot fail an otherwise readable region.
+TESSERACT_LANGUAGE_ENGLISH = "eng"
 TESSERACT_LANGUAGE = "eng+deu"
 TESSERACT_PAGE_SEGMENTATION_MODE = 6
 TESSERACT_TIMEOUT_SECONDS = 10.0
@@ -137,8 +141,9 @@ def resolve_tesseract_executable() -> str:
 class TesseractTextRecognizer:
     """Production OCR adapter for a locally installed Tesseract executable."""
 
-    def __init__(self, executable: str | None = None) -> None:
+    def __init__(self, executable: str | None = None, language: str = TESSERACT_LANGUAGE) -> None:
         self._executable = executable or resolve_tesseract_executable()
+        self._language = language
 
     def recognize(self, image: npt.NDArray[np.uint8]) -> tuple[str, ...]:
         success, encoded_image = cv2.imencode(".png", image)
@@ -154,7 +159,7 @@ class TesseractTextRecognizer:
                         str(image_path),
                         _TESSERACT_OUTPUT_FORMAT,
                         "-l",
-                        TESSERACT_LANGUAGE,
+                        self._language,
                         _TESSERACT_CONFIG_ARGUMENT,
                         str(TESSERACT_PAGE_SEGMENTATION_MODE),
                     ],

@@ -293,3 +293,20 @@ the two documented Windows install directories, because the official installer d
 mapping from `FileNotFoundError` to `OSError`, ordered after the `SubprocessError` branch. Recorded
 the reworded shipped anchor row: the fixed placement region is the intended mode, so stating that no
 template is configured framed it as a missing configuration.
+
+## 2026-08-18 — synthesis: US-034 background-independent monster stats
+
+Ingested US-034 into `architecture.md`. Recorded the measurement that drove it: the stats HUD is
+transparent, and the client renders every glyph in the constant colour BGR `(255, 209, 249)` = HSV
+`(146, 46, 255)`, so keying that colour isolates the text where CLAHE + `adaptiveThreshold` kept the
+scenery behind the panel — verified on both shipped screenshots, whose backgrounds are unrelated.
+Noted that the same mask is what makes `data/monster_stats.png` usable as an anchor template
+(`1.00` match against the reference screenshot versus `0.67` for raw colour, threshold `0.85`), which
+reverses the note added on 2026-08-17 that the fixed placement region is the intended mode: that note
+recorded a consequence of having no working template, not a design preference. Recorded the removal
+of `MonsterStatsStatus.ANCHOR_NOT_FOUND` in favour of `MonsterStatsMetrics.source`, since a missed
+anchor now falls back to the fixed region and the operator needs to know which crop produced the
+number rather than that a reading did not happen. Also recorded the three combat-side changes
+(sampling interval, baseline-gated increase instead of an exact `+1`, kill verification on by
+default) and the replacement of the `QTimer` tick with `SessionWorker`, which brings the desktop app
+back in line with the project's own rule that the Qt GUI thread never runs OCR.

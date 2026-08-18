@@ -17,6 +17,8 @@ from flyff_bot.features.automation.controllers import (
     KeyBinding,
 )
 from flyff_bot.features.automation.models import (
+    MonsterStatsMetrics,
+    MonsterStatsStatus,
     Position,
     SelectedTarget,
     TargetState,
@@ -48,6 +50,7 @@ def _state(
     mobs: tuple[VisibleMob, ...] = (),
     viewport: Viewport = DEFAULT_VIEWPORT,
     monster_kill_count: int = 0,
+    monster_stats_status: MonsterStatsStatus = MonsterStatsStatus.OK,
 ) -> WorldState:
     return WorldState(
         observed_at_seconds=time,
@@ -59,6 +62,12 @@ def _state(
         visible_mobs=mobs,
         viewport=viewport,
         monster_kill_count=monster_kill_count,
+        monster_stats=MonsterStatsMetrics(
+            status=monster_stats_status,
+            parsed_count=(
+                monster_kill_count if monster_stats_status is MonsterStatsStatus.OK else None
+            ),
+        ),
     )
 
 
@@ -151,17 +160,72 @@ def test_kill_count_increment_confirms_death_without_hp_evidence() -> None:
 
 
 def test_stale_kill_count_jump_does_not_falsely_confirm_death() -> None:
-    """A first successful OCR read mid-fight reports the session total, not a +1 delta."""
+    """A first successful OCR read mid-fight reports the session total, not a kill delta."""
 
     controller = CombatController(CombatConfig(kill_verification_enabled=True))
 
-    controller.step(_state(mobs=(_mob(),), monster_kill_count=0))
-    attack = controller.step(_state(time=1.0, target=VALID_TARGET, monster_kill_count=0))
+    controller.step(_state(mobs=(_mob(),), monster_stats_status=MonsterStatsStatus.NO_MATCH))
+    attack = controller.step(
+        _state(time=1.0, target=VALID_TARGET, monster_stats_status=MonsterStatsStatus.NO_MATCH)
+    )
     assert attack.mode is CombatMode.FIGHTING
 
+    # The first reading that succeeds only establishes the baseline.
     stale_jump = controller.step(_state(time=1.5, target=VALID_TARGET, monster_kill_count=47))
-
     assert stale_jump.mode is CombatMode.FIGHTING
+
+    confirmed = controller.step(_state(time=2.0, target=VALID_TARGET, monster_kill_count=48))
+    assert confirmed.mode is CombatMode.TARGET_DEAD
+
+
+def test_kill_count_rise_beyond_one_still_confirms_death() -> None:
+    """OCR is sampled on its own interval, so two kills can land between two readings."""
+
+    controller = CombatController(CombatConfig(kill_verification_enabled=True))
+
+    controller.step(_state(mobs=(_mob(),), monster_kill_count=5))
+    attack = controller.step(_state(time=1.0, target=VALID_TARGET, monster_kill_count=5))
+    assert attack.mode is CombatMode.FIGHTING
+
+    confirmed = controller.step(_state(time=1.5, target=VALID_TARGET, monster_kill_count=7))
+
+    assert confirmed.mode is CombatMode.TARGET_DEAD
+    assert confirmed.damage_dealt
+
+
+def test_repeated_identical_reading_across_throttled_ticks_does_not_confirm_death() -> None:
+    """Between two OCR samples the pipeline replays the last reading; that is not a kill."""
+
+    controller = CombatController(CombatConfig(kill_verification_enabled=True))
+
+    controller.step(_state(mobs=(_mob(),), monster_kill_count=5))
+    for elapsed in (1.0, 1.1, 1.2, 1.3):
+        decision = controller.step(_state(time=elapsed, target=VALID_TARGET, monster_kill_count=5))
+        assert decision.mode is CombatMode.FIGHTING
+
+    confirmed = controller.step(_state(time=1.4, target=VALID_TARGET, monster_kill_count=6))
+
+    assert confirmed.mode is CombatMode.TARGET_DEAD
+
+
+def test_failed_reading_between_two_kills_does_not_confirm_death() -> None:
+    """A failed reading carries the previous count forward; that is not evidence of a kill."""
+
+    controller = CombatController(CombatConfig(kill_verification_enabled=True))
+
+    controller.step(_state(mobs=(_mob(),), monster_kill_count=5))
+    controller.step(_state(time=1.0, target=VALID_TARGET, monster_kill_count=5))
+
+    unread = controller.step(
+        _state(
+            time=1.5,
+            target=VALID_TARGET,
+            monster_kill_count=9,
+            monster_stats_status=MonsterStatsStatus.OCR_FAILED,
+        )
+    )
+
+    assert unread.mode is CombatMode.FIGHTING
 
 
 def test_new_engagement_attacks_immediately_despite_previous_cooldown() -> None:

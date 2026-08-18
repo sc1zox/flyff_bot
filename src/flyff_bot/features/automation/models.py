@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from flyff_bot.features.vision.models import MonsterStatsMetrics as MonsterStatsMetrics
+from flyff_bot.features.vision.models import MonsterStatsSource as MonsterStatsSource
 from flyff_bot.features.vision.models import MonsterStatsStatus as MonsterStatsStatus
 from flyff_bot.features.vision.models import PlayerVitals as PlayerVitals
 from flyff_bot.features.vision.models import TargetNameStatus as TargetNameStatus

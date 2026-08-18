@@ -202,6 +202,9 @@ class Message(StrEnum):
     UI_MONSTER_STATS_DEBUG_ANCHOR_FIXED_REGION = "ui.monster_stats_debug_anchor_fixed_region"
     UI_MONSTER_STATS_DEBUG_ROI = "ui.monster_stats_debug_roi"
     UI_MONSTER_STATS_DEBUG_ROI_VALUE = "ui.monster_stats_debug_roi_value"
+    UI_MONSTER_STATS_DEBUG_SOURCE = "ui.monster_stats_debug_source"
+    UI_MONSTER_STATS_DEBUG_SOURCE_ANCHORED = "ui.monster_stats_debug_source_anchored"
+    UI_MONSTER_STATS_DEBUG_SOURCE_FIXED_REGION = "ui.monster_stats_debug_source_fixed_region"
     UI_MONSTER_STATS_DEBUG_KILLS = "ui.monster_stats_debug_kills"
     UI_MONSTER_STATS_DEBUG_NO_COUNT = "ui.monster_stats_debug_no_count"
     UI_MONSTER_STATS_DEBUG_TEXT = "ui.monster_stats_debug_text"
@@ -209,9 +212,6 @@ class Message(StrEnum):
     UI_MONSTER_STATS_DEBUG_STATUS = "ui.monster_stats_debug_status"
     UI_MONSTER_STATS_DEBUG_STATUS_IDLE = "ui.monster_stats_debug_status_idle"
     UI_MONSTER_STATS_DEBUG_STATUS_OK = "ui.monster_stats_debug_status_ok"
-    UI_MONSTER_STATS_DEBUG_STATUS_ANCHOR_NOT_FOUND = (
-        "ui.monster_stats_debug_status_anchor_not_found"
-    )
     UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE = "ui.monster_stats_debug_status_roi_unavailable"
     UI_MONSTER_STATS_DEBUG_STATUS_ENGINE_UNAVAILABLE = (
         "ui.monster_stats_debug_status_engine_unavailable"

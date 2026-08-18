@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from flyff_bot.features.automation.models import (
     ActionKind,
+    MonsterStatsStatus,
     Position,
     TargetState,
     VisibleMob,
@@ -197,7 +198,7 @@ class CombatConfig:
     key_press_duration_seconds: float = DEFAULT_KEY_PRESS_DURATION_SECONDS
     target_acquisition_grace_seconds: float = DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS
     engagement_grace_seconds: float = DEFAULT_ENGAGEMENT_GRACE_SECONDS
-    kill_verification_enabled: bool = False
+    kill_verification_enabled: bool = True
     target_lockout_seconds: float = DEFAULT_TARGET_LOCKOUT_SECONDS
     target_lockout_radius_pixels: int = DEFAULT_TARGET_LOCKOUT_RADIUS_PIXELS
     engagement_timeout_seconds: float = DEFAULT_ENGAGEMENT_TIMEOUT_SECONDS
@@ -299,7 +300,11 @@ class CombatController:
                 return CombatDecision(CombatMode.IDLE)
             self._mode = CombatMode.TARGETING
             self._targeting_started_at_seconds = state.observed_at_seconds
-            self._previous_kill_count = state.monster_kill_count
+            self._previous_kill_count = (
+                state.monster_kill_count
+                if state.monster_stats.status is MonsterStatsStatus.OK
+                else None
+            )
             self._engaged_position = _mob_center(candidate)
             return CombatDecision(
                 CombatMode.TARGETING,
@@ -482,19 +487,23 @@ class CombatController:
         return progress
 
     def _kill_count_incremented(self, state: WorldState) -> bool:
-        """Track the HUD kill counter and report a clean single-kill increment.
+        """Report a rise of the HUD kill counter above this engagement's baseline.
 
-        Requiring exactly +1 (rather than any increase) rejects the large jump produced
-        when OCR first succeeds mid-engagement and reports the session's true running
-        total instead of a genuine one-kill delta.
+        Only a successful reading may set or move the baseline. That is what rejects the
+        large jump produced when OCR first succeeds mid-engagement and reports the session's
+        running total: until then there is no baseline to compare against. Because the
+        baseline is trustworthy, any increase counts, so two kills landing between two
+        successful readings still confirm instead of being discarded as an unclean delta.
         """
 
+        if state.monster_stats.status is not MonsterStatsStatus.OK:
+            return False
         previous = self._previous_kill_count
         self._previous_kill_count = state.monster_kill_count
         return (
             self._config.kill_verification_enabled
             and previous is not None
-            and state.monster_kill_count == previous + 1
+            and state.monster_kill_count > previous
         )
 
     def _reset(self) -> None:

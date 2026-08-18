@@ -39,6 +39,7 @@ related:
   - ../user-stories/completed/US-032-tesseract-ocr-target-name-verification.md
   - ../bugs/fixed/BUG-011-target-name-verification-failure-wrong-target.md
   - ../bugs/fixed/BUG-012-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md
+  - ../user-stories/completed/US-034-background-independent-monster-stats-kill-confirmation.md
 ---
 
 # Architecture
@@ -381,23 +382,19 @@ US-030 instruments the monster-kills HUD OCR the way US-024 instrumented target 
 `MonsterStatsFeed.read()` returns `MonsterStatsMetrics` (`flyff_bot.features.vision.models`) rather
 than a bare `int | None`: the kill count is `parsed_count`, and `anchor_configured`, `anchor_score`,
 `anchor_threshold`, `anchor_passed`, `roi_width`, `roi_height`, `raw_text`, and a typed
-`MonsterStatsStatus` (`IDLE`, `OK`, `ANCHOR_NOT_FOUND`, `ROI_UNAVAILABLE`, `ENGINE_UNAVAILABLE`,
-`OCR_FAILED`, `NO_MATCH`) are measured on the same tick whether or not the reading succeeded. `_extract_anchored_roi` now
+`MonsterStatsStatus` (`IDLE`, `OK`, `ROI_UNAVAILABLE`, `ENGINE_UNAVAILABLE`, `OCR_FAILED`,
+`NO_MATCH`) are measured on the same tick whether or not the reading succeeded. `_extract_anchored_roi` now
 returns the best `cv2.matchTemplate` score alongside its crop instead of discarding it on the
 below-threshold path, so the panel shows how close a missed match came — the same lesson US-029
 applied to `TargetVerifier`. `PerceptionPipeline` carries the value object on
 `WorldState.monster_stats` and still leaves `monster_kill_count` untouched when `parsed_count` is
-`None`, because `CombatController` confirms a kill from an exact `+1` delta and a zero written on a
-failed read would fake one. The dashboard adds a "Monster Stats Debug" toggle and panel with five
-read-only rows (anchor score/threshold with the shared PASS/FAIL badge, cropped ROI dimensions,
+`None`, because a zero written on a failed read would look like the counter had been reset. The
+dashboard adds a "Monster Stats Debug" toggle and panel with read-only rows (anchor score/threshold with the shared PASS/FAIL badge, cropped ROI dimensions,
 parsed kill count, raw OCR text rendered as `Qt.TextFormat.PlainText` because OCR output is
 untrusted markup, and the feed status sentence), rendered from `_render_update` independent of the
-toggle. No monster-stats anchor template ships in `models/` and `run_desktop` constructs the reader
-without one, so the shipped app reads the fixed client-pixel ROI docked directly to the right edge of
-the Player Vitals HUD (`x=260..410`, `y=0..120` px); `anchor_configured` is `False` there and the
-anchor row states that the predefined placement region is read rather than showing a Fail badge for a
-criterion that was never evaluated. The placement guide overlay renders this docked region as a red
-guide box (`QColor(255, 70, 70)`).
+toggle. The fixed client-pixel ROI stays docked directly to the right edge of the Player Vitals HUD
+(`x=260..410`, `y=0..120` px), and the placement guide overlay renders it as a red guide box
+(`QColor(255, 70, 70)`). US-034 supersedes this section's anchor handling; see below.
 
 BUG-012 (monster stats) separates a missing OCR install from a failed recognition and stops the
 shipped anchor row from reading as a missing configuration. `TesseractTextRecognizer` no longer
@@ -539,3 +536,40 @@ the mechanism it tuned; `MainWindow.anchor_threshold_changed` now carries one fl
 `models/labels.txt` and the CLI from `--target-name`, `--class-name`, or that same labels file in
 that order, so the names combat is allowed to engage and the names the header will accept cannot
 drift apart.
+
+US-034 makes the monster-stats reading independent of the game world drawn behind it and turns the
+kill counter into dependable combat evidence. The stats window has no opaque backing, so contrast
+thresholding (CLAHE + `adaptiveThreshold`) kept whatever scenery happened to be behind the panel and
+merged it with the glyphs; verified against
+`data/full_screen_view_with_monster_stats_1600_900_Res.png`, that produced no readable text at all.
+The client renders every stats glyph in one constant colour instead — BGR `(255, 209, 249)` = HSV
+`(146, 46, 255)`, with a pure black outline — so `extract_hud_text_mask()`
+(`flyff_bot.features.vision.monster_stats`) keys that colour with `cv2.inRange` and yields glyphs
+alone on both shipped screenshots, whose backgrounds are unrelated. The same mask drives anchor
+matching: `data/monster_stats.png` ships as the reference stats window,
+`load_header_anchor_template()` crops its "Time:" header line, and `run_desktop` passes it to
+`MonsterStatsReader`, reversing BUG-012's "the fixed region is the intended mode" note. Matching
+masks rather than raw pixels is what makes the shipped template usable — measured against the
+reference screenshot it scores `1.00`, where raw-colour matching scores `0.67` and would never clear
+the `0.85` threshold. From a match, the panel origin is recovered by subtracting the template's
+inset (`anchor_inset_x`/`anchor_inset_y`) and the full panel extent is cropped, because the narrow
+single-line crop US-026 used produced OCR garbage. A missed anchor falls back to the fixed region
+rather than reporting nothing, and `MonsterStatsMetrics.source` (`MonsterStatsSource.ANCHORED` /
+`FIXED_REGION`) names which crop produced the number, so the fallback cannot silently masquerade as
+an anchored reading — `MonsterStatsStatus.ANCHOR_NOT_FOUND` is gone with the failure it described.
+The reader asks Tesseract for `eng` alone (`TESSERACT_LANGUAGE_ENGLISH`), since the stats HUD is
+English in every client locale and a missing German pack would otherwise fail it.
+
+Three changes make the counter trustworthy for `CombatController`. `PerceptionPipeline` samples the
+reader on its own `DEFAULT_MONSTER_STATS_INTERVAL_SECONDS` (0.5 s) interval instead of on every
+tick, because each reading spawns an OCR subprocess. `_kill_count_incremented` no longer demands an
+exact `+1`: it takes a baseline only from a reading whose status is `OK`, and then accepts any
+increase. The old rule rejected the session-total jump that appears when OCR first succeeds
+mid-engagement, but it also discarded a genuine two-kill delta — gating the baseline on a successful
+reading rejects the former without the latter. `CombatConfig.kill_verification_enabled` now defaults
+to `True`, and the dashboard checkbox is initialized from that default. Finally, `run_desktop` no
+longer drives ticks from a `QTimer` on the Qt event loop, which ran frame capture and OCR on the GUI
+thread against the project's own PySide6 rule. `SessionWorker` (`flyff_bot.ui.session_worker`) runs
+the loop on a `threading.Thread`, waiting on a stop `Event` rather than sleeping so teardown is
+immediate; `MainWindow.register_teardown()` stops it from `closeEvent` before the widgets go away,
+and results still reach the UI only through `DashboardFeed`'s signal.

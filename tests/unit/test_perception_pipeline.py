@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import numpy as np
+import pytest
 
 from flyff_bot.features.automation.models import (
     InventoryEntry,
@@ -331,8 +332,49 @@ def test_tick_forwards_monster_stats_metrics_and_the_parsed_kill_count() -> None
     assert tick.state.monster_kill_count == 12
 
 
+def test_monster_stats_are_sampled_on_their_own_interval() -> None:
+    """OCR is far slower than a tick, so it must not run on every captured frame."""
+
+    reader = _MonsterStatsReader(MonsterStatsMetrics(status=MonsterStatsStatus.OK, parsed_count=3))
+    now = 100.0
+    pipeline = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        clock=lambda: now,
+        monster_stats_reader=reader,
+        monster_stats_interval_seconds=0.5,
+    )
+
+    state = _previous_state()
+    for elapsed in (0.0, 0.1, 0.2, 0.4):
+        now = 100.0 + elapsed
+        state = pipeline.tick(WINDOW_HANDLE, state).state
+    assert len(reader.frames) == 1
+
+    # CombatController takes its kill baseline only from an OK reading, so a skipped tick must
+    # carry the last one forward unchanged rather than reverting to the IDLE default.
+    assert state.monster_stats.status is MonsterStatsStatus.OK
+    assert state.monster_kill_count == 3
+
+    now = 100.5
+    pipeline.tick(WINDOW_HANDLE, state)
+
+    assert len(reader.frames) == 2
+
+
+def test_pipeline_rejects_a_negative_monster_stats_interval() -> None:
+    with pytest.raises(ValueError, match="interval"):
+        PerceptionPipeline(
+            _FrameSource(),
+            _Detector([]),
+            _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+            monster_stats_interval_seconds=-1.0,
+        )
+
+
 def test_tick_retains_the_previous_kill_count_when_the_reading_fails() -> None:
-    """A zero written here would fake the exact +1 delta CombatController confirms kills by."""
+    """A zero written here would look like the HUD counter had been reset."""
 
     previous = WorldState(
         observed_at_seconds=1.0,
@@ -342,9 +384,7 @@ def test_tick_retains_the_previous_kill_count_when_the_reading_fails() -> None:
         progress_marker=0,
         monster_kill_count=17,
     )
-    metrics = MonsterStatsMetrics(
-        anchor_configured=True, status=MonsterStatsStatus.ANCHOR_NOT_FOUND
-    )
+    metrics = MonsterStatsMetrics(anchor_configured=True, status=MonsterStatsStatus.NO_MATCH)
 
     tick = PerceptionPipeline(
         _FrameSource(),
@@ -355,7 +395,7 @@ def test_tick_retains_the_previous_kill_count_when_the_reading_fails() -> None:
     ).tick(WINDOW_HANDLE, previous)
 
     assert tick.state.monster_kill_count == 17
-    assert tick.state.monster_stats.status is MonsterStatsStatus.ANCHOR_NOT_FOUND
+    assert tick.state.monster_stats.status is MonsterStatsStatus.NO_MATCH
 
 
 class _VitalsReader:

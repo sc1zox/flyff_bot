@@ -24,6 +24,7 @@ stories are moved to `docs/user-stories/completed/`.
 - [x] [**US-011: Multi-mob training dataset pipeline and custom YOLO model training**](completed/US-011-multi-mob-training-dataset-pipeline.md) — Manual annotation pipeline, dataset manifest, and lightweight ONNX export.
 - [x] [**US-012: Real-world vision refactoring for robust target verification and multi-mob detection**](completed/US-012-real-world-vision-refactoring.md) — Sky/cloud-immune target-bar verification and multi-mob fixtures from real game data.
 - [x] [**US-026: Static HUD anchoring and field hardening for vitals and monster stats**](completed/US-026-static-hud-anchoring-and-field-hardening.md) — Fixed top-left pixel bounding for player vitals (HP/MP/FP) and template-anchored session stats HUD detection across all window resolutions.
+- [x] [**US-034: Background-independent monster stats reading and reliable kill confirmation**](completed/US-034-background-independent-monster-stats-kill-confirmation.md) — HUD text colour keying instead of contrast thresholding, mask-based anchoring on the shipped `data/monster_stats.png`, sampled OCR off the GUI thread, and baseline-gated kill confirmation.
 
 ### Phase 3: Closed-Loop Execution & Reactive Controllers
 - [x] [**US-008: Reactive combat controller and target engagement**](completed/US-008-reactive-combat-controller.md) — Target selection, skill rotation, and post-action visual verification.

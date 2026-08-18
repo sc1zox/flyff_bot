@@ -11,6 +11,9 @@ DEFAULT_MOB_MODEL_PATH = "models/mob_detector.onnx"
 DEFAULT_MOB_LABELS_PATH = "models/labels.txt"
 DEFAULT_TRAINING_EPOCHS = 100
 DEFAULT_NAVIGATION_MAP_PATH = "data/navigation/spatial_map.json"
+# Reference screenshot of the in-game session stats window; its header line is the template
+# that locates the same window in a live frame.
+DEFAULT_MONSTER_STATS_PANEL_PATH = "data/monster_stats.png"
 
 
 class ExitCode(IntEnum):

@@ -10,12 +10,12 @@ from typing import Protocol, cast
 import cv2
 import numpy as np
 import numpy.typing as npt
-from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from flyff_bot.constants import (
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
+    DEFAULT_MONSTER_STATS_PANEL_PATH,
     DEFAULT_NAVIGATION_MAP_PATH,
     DEFAULT_PROCESS_NAME,
 )
@@ -36,13 +36,18 @@ from flyff_bot.features.vision import (
     WindowsFrameSource,
     load_class_names,
 )
-from flyff_bot.features.vision.monster_stats import MonsterStatsReader
+from flyff_bot.features.vision.loot_ocr import TESSERACT_LANGUAGE_ENGLISH
+from flyff_bot.features.vision.monster_stats import (
+    MonsterStatsReader,
+    load_header_anchor_template,
+)
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import DashboardFeed, WindowStatus
 from flyff_bot.ui.main_window import MainWindow
+from flyff_bot.ui.session_worker import SessionWorker
 from flyff_bot.ui.theme import apply_theme
 
-STANDBY_TICK_INTERVAL_MILLISECONDS = 100
+STANDBY_TICK_INTERVAL_SECONDS = 0.1
 
 
 class FarmingControls(Protocol):
@@ -159,7 +164,14 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         DetectionConfig(confidence_threshold=0.3),
                     ),
                     target_verifier,
-                    monster_stats_reader=MonsterStatsReader(TesseractTextRecognizer()),
+                    monster_stats_reader=MonsterStatsReader(
+                        # The stats HUD is English in every client locale, so requiring the
+                        # German language pack here would only add a way for it to fail.
+                        TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
+                        header_anchor_template=load_header_anchor_template(
+                            Path(DEFAULT_MONSTER_STATS_PANEL_PATH)
+                        ),
+                    ),
                 )
                 navigation_map_path = Path(DEFAULT_NAVIGATION_MAP_PATH)
                 orchestrator = FarmingOrchestrator(
@@ -189,9 +201,11 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     orchestrator,
                     on_start=lambda: start_farming(controller, window_handle, orchestrator),
                 )
-                timer = QTimer(window)
-                timer.timeout.connect(orchestrator.tick)
-                timer.start(STANDBY_TICK_INTERVAL_MILLISECONDS)
+                # Ticking on a worker thread keeps frame capture and OCR out of the Qt event
+                # loop; results reach the widgets only through the dashboard feed's signal.
+                worker = SessionWorker(orchestrator.tick, STANDBY_TICK_INTERVAL_SECONDS)
+                window.register_teardown(worker.stop)
+                worker.start()
     else:
         window.set_window_status(WindowStatus.NOT_FOUND)
 

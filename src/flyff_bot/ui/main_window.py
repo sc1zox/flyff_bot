@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal, Slot
@@ -23,9 +24,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from flyff_bot.features.automation.controllers import EngagementBreakReason
+from flyff_bot.features.automation.controllers import CombatConfig, EngagementBreakReason
 from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
+    MonsterStatsSource,
     MonsterStatsStatus,
     SelectedTarget,
     TargetNameStatus,
@@ -176,6 +178,7 @@ class MainWindow(QMainWindow):
         self._map_window = NavigationMapWindow(self._translator)
         self._popout_map_button = QPushButton()
         self._is_map_popped_out = False
+        self._teardowns: list[Callable[[], None]] = []
 
         # Profile Controls
         self._profile_selector = QComboBox()
@@ -222,6 +225,7 @@ class MainWindow(QMainWindow):
         self._target_grace_spin.setSuffix(" s")
         self._kill_verification_label = QLabel()
         self._kill_verification_toggle = QCheckBox()
+        self._kill_verification_toggle.setChecked(CombatConfig().kill_verification_enabled)
         self._anchor_threshold_label = QLabel()
         self._anchor_threshold_spin = _match_threshold_spin(DEFAULT_ANCHOR_MATCH_THRESHOLD)
 
@@ -252,6 +256,8 @@ class MainWindow(QMainWindow):
         self._monster_anchor_value = QLabel()
         self._monster_roi_label = QLabel()
         self._monster_roi_value = QLabel()
+        self._monster_source_label = QLabel()
+        self._monster_source_value = QLabel()
         self._monster_kills_label = QLabel()
         self._monster_kills_value = QLabel()
         self._monster_text_label = QLabel()
@@ -605,6 +611,12 @@ class MainWindow(QMainWindow):
         return self._monster_anchor_value
 
     @property
+    def monster_source_value(self) -> QLabel:
+        """Expose the monster stats region-source debug readout for testing."""
+
+        return self._monster_source_value
+
+    @property
     def monster_roi_value(self) -> QLabel:
         """Expose the monster stats region debug readout for testing."""
 
@@ -758,6 +770,7 @@ class MainWindow(QMainWindow):
         for label, value in (
             (self._monster_anchor_label, self._monster_anchor_value),
             (self._monster_roi_label, self._monster_roi_value),
+            (self._monster_source_label, self._monster_source_value),
             (self._monster_kills_label, self._monster_kills_value),
             (self._monster_text_label, self._monster_text_value),
             (self._monster_status_label, self._monster_status_value),
@@ -1272,6 +1285,9 @@ class MainWindow(QMainWindow):
             self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ANCHOR)
         )
         self._monster_roi_label.setText(self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ROI))
+        self._monster_source_label.setText(
+            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_SOURCE)
+        )
         self._monster_kills_label.setText(
             self._translator.text(Message.UI_MONSTER_STATS_DEBUG_KILLS)
         )
@@ -1472,6 +1488,9 @@ class MainWindow(QMainWindow):
                 height=metrics.roi_height,
             )
         )
+        self._monster_source_value.setText(
+            self._translator.text(_monster_stats_source_message(metrics.source))
+        )
         self._monster_kills_value.setText(
             str(metrics.parsed_count)
             if metrics.parsed_count is not None
@@ -1486,10 +1505,19 @@ class MainWindow(QMainWindow):
             self._translator.text(_monster_stats_status_message(metrics.status))
         )
 
+    def register_teardown(self, teardown: Callable[[], None]) -> None:
+        """Register a worker shutdown callback to run before the window closes."""
+
+        self._teardowns.append(teardown)
+
     def closeEvent(self, event: QCloseEvent) -> None:
         """Ensure the session is paused, secondary windows closed, and navigation data persisted."""
 
         self.pause_requested.emit()
+        # Worker threads are stopped before the widgets go away, so no background tick can
+        # publish into a half-destroyed window.
+        for teardown in self._teardowns:
+            teardown()
         if self._map_window is not None:
             self._map_window.close()
         self._placement_overlay.stop()
@@ -1589,9 +1617,6 @@ def _monster_stats_status_message(status: MonsterStatsStatus) -> Message:
     return {
         MonsterStatsStatus.IDLE: Message.UI_MONSTER_STATS_DEBUG_STATUS_IDLE,
         MonsterStatsStatus.OK: Message.UI_MONSTER_STATS_DEBUG_STATUS_OK,
-        MonsterStatsStatus.ANCHOR_NOT_FOUND: (
-            Message.UI_MONSTER_STATS_DEBUG_STATUS_ANCHOR_NOT_FOUND
-        ),
         MonsterStatsStatus.ROI_UNAVAILABLE: Message.UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE,
         MonsterStatsStatus.ENGINE_UNAVAILABLE: (
             Message.UI_MONSTER_STATS_DEBUG_STATUS_ENGINE_UNAVAILABLE
@@ -1599,6 +1624,13 @@ def _monster_stats_status_message(status: MonsterStatsStatus) -> Message:
         MonsterStatsStatus.OCR_FAILED: Message.UI_MONSTER_STATS_DEBUG_STATUS_OCR_FAILED,
         MonsterStatsStatus.NO_MATCH: Message.UI_MONSTER_STATS_DEBUG_STATUS_NO_MATCH,
     }[status]
+
+
+def _monster_stats_source_message(source: MonsterStatsSource) -> Message:
+    return {
+        MonsterStatsSource.ANCHORED: Message.UI_MONSTER_STATS_DEBUG_SOURCE_ANCHORED,
+        MonsterStatsSource.FIXED_REGION: Message.UI_MONSTER_STATS_DEBUG_SOURCE_FIXED_REGION,
+    }[source]
 
 
 def _engagement_break_message(reason: EngagementBreakReason | None) -> Message:

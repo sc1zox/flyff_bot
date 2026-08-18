@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from flyff_bot.features.automation.models import (
     InventoryEntry,
     MonsterStatsMetrics,
+    MonsterStatsSource,
     MonsterStatsStatus,
     PlayerVitals,
     Position,
@@ -684,11 +685,12 @@ def test_main_window_combat_panel_toggle_and_config_signals() -> None:
     window.kill_verification_changed.connect(kill_verification_values.append)
 
     window.target_grace_spin.setValue(1.5)
-    window.kill_verification_toggle.setChecked(True)
+    # Kill verification is on by default, so toggling it off is the observable change.
+    window.kill_verification_toggle.setChecked(False)
     application.processEvents()
 
     assert grace_values[-1] == pytest.approx(1.5)
-    assert kill_verification_values == [True]
+    assert kill_verification_values == [False]
 
 
 def test_main_window_target_debug_panel_toggle_and_renders_failure_metrics() -> None:
@@ -774,7 +776,8 @@ def test_main_window_monster_stats_panel_reports_a_failed_reading_and_stays_upda
         anchor_configured=True,
         anchor_score=0.42,
         anchor_threshold=0.85,
-        status=MonsterStatsStatus.ANCHOR_NOT_FOUND,
+        status=MonsterStatsStatus.NO_MATCH,
+        source=MonsterStatsSource.FIXED_REGION,
     )
     window.update_dashboard(
         DashboardUpdate(replace(_world_state(), monster_stats=metrics), BotStatus.STANDBY)
@@ -785,7 +788,9 @@ def test_main_window_monster_stats_panel_reports_a_failed_reading_and_stays_upda
     assert window.monster_anchor_value.text() == "FAIL 0.42 / 0.85"
     assert window.monster_kills_value.text() == "Not recognized"
     assert window.monster_text_value.text() == "No text recognized"
-    assert window.monster_status_value.text() == "Anchor not found"
+    assert window.monster_status_value.text() == "No kill counter found in the text"
+    # A missed anchor still reads, so the panel must name which crop produced the number.
+    assert window.monster_source_value.text() == "Predefined placement region"
 
 
 def test_main_window_monster_stats_panel_marks_an_unconfigured_anchor() -> None:
