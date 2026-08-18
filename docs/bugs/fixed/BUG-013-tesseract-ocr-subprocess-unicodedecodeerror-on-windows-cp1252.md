@@ -1,7 +1,7 @@
 ---
 id: BUG-013
 title: Tesseract OCR subprocess UnicodeDecodeError on Windows CP1252
-status: reported
+status: resolved
 severity: medium
 created: 2026-08-18
 updated: 2026-08-18
@@ -69,6 +69,6 @@ Because the UI standby tick continuously executes perception feeds, hundreds of 
 
 ## Regression verification
 
-- [ ] `TesseractTextRecognizer.recognize()` specifies `encoding="utf-8"` and `errors="replace"` in `subprocess.run()`.
-- [ ] Automated unit tests in `tests/unit/test_loot_ocr.py` verify that `TesseractTextRecognizer` successfully decodes UTF-8 and non-CP1252 character streams without raising `UnicodeDecodeError`.
-- [ ] Related documentation is current.
+- [x] `TesseractTextRecognizer.recognize()` specifies `encoding="utf-8"` and `errors="replace"` in `subprocess.run()`.
+- [x] Automated unit tests in `tests/unit/test_loot_ocr.py` verify that `TesseractTextRecognizer` successfully decodes UTF-8 and non-CP1252 character streams without raising `UnicodeDecodeError`.
+- [x] Related documentation is current.

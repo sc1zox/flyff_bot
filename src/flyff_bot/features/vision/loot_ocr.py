@@ -42,6 +42,10 @@ TESSERACT_TIMEOUT_SECONDS = 10.0
 _TESSERACT_INPUT_FILENAME = "loot-roi.png"
 _TESSERACT_CONFIG_ARGUMENT = "--psm"
 _TESSERACT_OUTPUT_FORMAT = "stdout"
+# Tesseract writes UTF-8, while Python decodes pipes with the platform ANSI code page
+# (CP1252 on Windows). Both are pinned so recognition never fails on a stray byte.
+_TESSERACT_OUTPUT_ENCODING = "utf-8"
+_TESSERACT_DECODE_ERROR_STRATEGY = "replace"
 _DEFAULT_LOOT_COUNT = 1
 _PENYA_NAME = "penya"
 _PICKUP_PATTERNS = (
@@ -166,6 +170,8 @@ class TesseractTextRecognizer:
                     capture_output=True,
                     check=True,
                     text=True,
+                    encoding=_TESSERACT_OUTPUT_ENCODING,
+                    errors=_TESSERACT_DECODE_ERROR_STRATEGY,
                     timeout=TESSERACT_TIMEOUT_SECONDS,
                 )
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:

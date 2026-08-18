@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -141,3 +143,41 @@ def test_recognizer_reports_an_unavailable_engine_for_a_missing_executable(
         assert error.code is LootOcrErrorCode.ENGINE_UNAVAILABLE
     else:
         raise AssertionError("A missing Tesseract executable was not reported as unavailable.")
+
+
+def test_recognizer_decodes_engine_output_as_utf_8_with_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BUG-013: the engine invocation must not inherit the platform ANSI code page."""
+
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, "Du hast 2x M�ndstein erhalten.\n", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    lines = TesseractTextRecognizer("tesseract").recognize(np.full((32, 64), 255, dtype=np.uint8))
+
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
+    assert lines == ("Du hast 2x M�ndstein erhalten.",)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="The stub engine requires a POSIX executable script."
+)
+def test_recognizer_survives_undecodable_engine_output(tmp_path: Path) -> None:
+    """Byte 0x9d is neither valid UTF-8 nor mapped by CP1252, which is BUG-013's trigger."""
+
+    stub = tmp_path / "tesseract-stub"
+    stub.write_text(
+        f"#!{sys.executable}\nimport os, sys\nos.write(1, b'Item \\x9d name\\n')\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+
+    lines = TesseractTextRecognizer(str(stub)).recognize(np.full((32, 64), 255, dtype=np.uint8))
+
+    assert lines == ("Item � name",)
