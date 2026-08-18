@@ -341,3 +341,35 @@ Also recorded the unit rename across the navigation feature (`cell_size_pixels`,
 than only in the story, and the repair of the navigation-automation import cycle that had made
 `flyff_bot.features.navigation.tracking` unimportable without initialising the automation package
 first.
+
+## 2026-08-18 — US-037 leash enforcement synthesis
+
+Recorded that the patrol leash stopped being decorative. `leash_radius_pixels` had been validated,
+carried in `NavigationSnapshot`, and drawn as a circle by the path inspector while `RoutePlanner`
+considered every recorded hotspot regardless of distance from the session anchor, so the drawing
+promised a constraint the engine never applied. The bound is now `LeashBound` around the origin of
+the relative navigation frame — the session start point, which is why no second anchor is
+configured — and it filters both goal selection and Dijkstra expansion, so no waypoint of a leashed
+route can lie outside it.
+
+Recorded the one case the constraint is deliberately dropped for: a character that is already
+outside the bound. `RoutePlanner.return_route` searches unconstrained and stops at the first cell
+inside, because walking back in is only possible through the cells the character actually stands
+among; refusing to leave the bound there would strand the session instead of recalling it.
+
+Recorded that the drawn radius and the enforced radius are one value on `PathingController`, so the
+inspector cannot describe a radius the planner does not apply, and that a runtime change to it takes
+effect at the next replan. The radius is operator configuration rather than learned state, so it
+survives a map reset or profile load.
+
+Recorded the re-derived default. The previous 50 was carried over from before the US-035 unit rename
+and derived from nothing; now that the number constrains behaviour it is the measured usable minimap
+surface radius of 62 px, which defines the camp as the terrain visible around the anchor on the
+minimap and is already expressed in minimap pixels. No persisted operator setting for the leash
+exists, so nothing was silently reinterpreted.
+
+Recorded that a sighting arriving without a known viewport is no longer placed at a fixed distance
+ahead but dropped, which removed the last spawn-distance fallback literal. The remaining
+bounding-box distance constants are now named and documented as provisional; the fitted
+inverse-projection relation of US-037 criterion 1 stays blocked on approach sequences that must be
+recorded on Windows.

@@ -87,6 +87,9 @@ class NavigationSnapshot:
     safe_waypoint: tuple[float, float] | None = None
     cell_size_pixels: float = 15.0
     leash_radius_pixels: float = 50.0
+    # How many spawn hotspots the most recent plan discarded for lying outside the leash, so
+    # a silently shrinking patrol is visible rather than mistaken for an empty camp (US-037).
+    hotspots_outside_leash: int = 0
     tracking_quality: TrackingQuality = TrackingQuality.DEGRADED
     # Positions are minimap pixels at the zoom level this session was anchored to, so the
     # anchor travels with them (US-035).

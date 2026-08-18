@@ -105,6 +105,7 @@ class Message(StrEnum):
     UI_NAV_LEGEND_OBSTACLE = "ui.nav_legend_obstacle"
     UI_NAV_LEGEND_ROUTE = "ui.nav_legend_route"
     UI_NAV_LEGEND_SAFE = "ui.nav_legend_safe"
+    UI_NAV_LEASH_SKIPPED = "ui.nav_leash_skipped"
     UI_LANGUAGE = "ui.language"
     UI_LANGUAGE_GERMAN = "ui.language_german"
     UI_LANGUAGE_ENGLISH = "ui.language_english"

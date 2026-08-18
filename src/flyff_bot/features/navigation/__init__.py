@@ -14,7 +14,12 @@ from flyff_bot.features.navigation.persistence import (
     sanitize_profile_name,
     save_spatial_map,
 )
-from flyff_bot.features.navigation.planning import Route, RouteConfig, RoutePlanner
+from flyff_bot.features.navigation.planning import (
+    LeashBound,
+    Route,
+    RouteConfig,
+    RoutePlanner,
+)
 from flyff_bot.features.navigation.spatial import (
     GridCell,
     SpatialMap,
@@ -24,6 +29,7 @@ from flyff_bot.features.navigation.spatial import (
 
 __all__ = [
     "GridCell",
+    "LeashBound",
     "NavigationProfileSummary",
     "PathingConfig",
     "PathingController",

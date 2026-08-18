@@ -86,6 +86,7 @@
   "ui.nav_legend_obstacle": "Obstacle / Stall",
   "ui.nav_legend_route": "Active Route",
   "ui.nav_legend_safe": "Safe Waypoint",
+  "ui.nav_leash_skipped": "Outside leash: {count}",
   "ui.language": "Language",
   "ui.language_german": "German",
   "ui.language_english": "English",

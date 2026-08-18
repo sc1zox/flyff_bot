@@ -27,6 +27,7 @@ related:
   - ../user-stories/completed/US-020-visual-navigation-path-and-heatmap-inspector.md
   - ../user-stories/completed/US-021-navigation-map-profiles-and-session-reset.md
   - ../user-stories/completed/US-035-measured-minimap-odometry-and-tracking-quality.md
+  - ../user-stories/US-037-measured-spawn-distance-and-enforced-leash.md
   - ../user-stories/completed/US-022-modern-dark-theme-and-streamlined-dashboard-ui.md
   - ../user-stories/completed/US-023-reliable-combat-targeting-and-kill-verification.md
   - ../user-stories/completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md
@@ -214,7 +215,15 @@ region.
 
 `RoutePlanner` runs Dijkstra over the recorded edges and scores candidate goals by decayed spawn
 density per unit of travel cost, chaining the densest reachable clusters into a patrol circuit that
-returns to its start. `PathingController` owns the loop: it observes each snapshot, steers toward
+returns to its start. US-037 made the patrol leash an enforced planning bound rather than a
+drawing: `LeashBound` is the circle around the session anchor — which is the origin of the
+relative frame, so no separate anchor is configured — and the planner refuses to expand into or
+target any cell whose centre lies outside it. `RoutePlanner.return_route` covers the case of a
+character that starts outside the bound, searching without the constraint and stopping at the first
+cell inside it, because walking back in is only possible through the cells it actually stands
+among. `PathingController.leash_radius_pixels` is the single value the inspector draws and the
+planner enforces, so the two cannot drift apart, and changing it applies at the next replan without
+restarting the session. `PathingController` owns the loop: it observes each snapshot, steers toward
 the next waypoint with camera-rotation and forward pulses, retreats to the last verified stall-free
 waypoint after a stall, and replans a bypass that avoids the blocked cell. `FarmingOrchestrator`
 consults it before the staged search stages and falls back to `SearchController` whenever the map

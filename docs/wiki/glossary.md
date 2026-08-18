@@ -156,6 +156,12 @@ related:
   minimap surface at the zoom level the session was anchored to. No conversion to world units
   exists, because the client does not display the run speed one would need to fit it. One pixel at
   maximum zoom-out covers exactly two at the default zoom.
+- **Patrol leash** — The circle of `leash_radius_pixels` around the session anchor that route
+  planning may not leave. The anchor is the origin of the relative navigation frame, so it is the
+  point the session started at. Its default is the measured usable minimap surface radius, i.e. the
+  camp is the terrain visible around the anchor on the minimap. Hotspots outside it are not
+  selectable as route targets, and how many were skipped is reported to the dashboard so a
+  shrinking patrol is not mistaken for an empty camp.
 - **Tracking quality** — How the current position estimate was obtained: `MEASURED` from a
   confident minimap correlation, `PREDICTED` by the command model inside the grace period after the
   last measurement, or `DEGRADED` beyond it. Map learning is written only while the quality is not

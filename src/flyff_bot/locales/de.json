@@ -86,6 +86,7 @@
   "ui.nav_legend_obstacle": "Hindernis / Stall",
   "ui.nav_legend_route": "Aktive Route",
   "ui.nav_legend_safe": "Sicherer Wegpunkt",
+  "ui.nav_leash_skipped": "Außerhalb des Radius: {count}",
   "ui.language": "Sprache",
   "ui.language_german": "Deutsch",
   "ui.language_english": "Englisch",

@@ -14,7 +14,12 @@ from flyff_bot.features.automation.controllers import (
 )
 from flyff_bot.features.automation.models import Viewport, VisibleMob, WorldState
 from flyff_bot.features.navigation.persistence import load_spatial_map, save_spatial_map
-from flyff_bot.features.navigation.planning import Route, RouteConfig, RoutePlanner
+from flyff_bot.features.navigation.planning import (
+    LeashBound,
+    Route,
+    RouteConfig,
+    RoutePlanner,
+)
 from flyff_bot.features.navigation.spatial import GridCell, SpatialMap, WorldPoint
 from flyff_bot.features.navigation.tracking import (
     MovementModel,
@@ -28,6 +33,7 @@ from flyff_bot.features.navigation.tracking import (
     heading_error_degrees,
 )
 from flyff_bot.features.vision.minimap import (
+    MINIMAP_SURFACE_RADIUS_PIXELS,
     MinimapOdometer,
     MinimapOdometryFeed,
     MinimapReading,
@@ -42,8 +48,21 @@ DEFAULT_PATHING_STEP_DURATION_SECONDS = 0.6
 DEFAULT_PATHING_TURN_DURATION_SECONDS = 0.08
 DEFAULT_HEADING_TOLERANCE_DEGREES = 25.0
 DEFAULT_REPLAN_INTERVAL_SECONDS = 20.0
-DEFAULT_LEASH_RADIUS_PIXELS = 50.0
+# The leash became an enforced planning bound in US-037, so its previous value of 50 was
+# re-derived rather than carried over. The camp is defined as the terrain the operator can
+# see around the anchor on the minimap, which is the measured usable minimap surface
+# (docs/sources/2026-08-18-minimap-odometry-calibration.md). Positions are minimap pixels at
+# the anchored zoom level, so the two quantities are already in the same unit.
+DEFAULT_LEASH_RADIUS_PIXELS = float(MINIMAP_SURFACE_RADIUS_PIXELS)
 ARRIVAL_RADIUS_CELL_FRACTION = 0.5
+
+# Provisional spawn-distance relation. These are estimates, not measurements: the fitted
+# inverse-projection relation of US-037 criterion 1 is blocked on recorded approach
+# sequences. They are named here so the estimator carries no bare literals, and they are to
+# be replaced by the fit rather than hand-tuned.
+PROVISIONAL_HORIZONTAL_HALF_ANGLE_DEGREES = 30.0
+PROVISIONAL_NEAREST_SIGHTING_DISTANCE_PIXELS = 15.0
+PROVISIONAL_SIGHTING_DISTANCE_SPAN_PIXELS = 35.0
 
 
 class PathingMode(StrEnum):
@@ -117,6 +136,24 @@ class PathingController:
         self._movement_commanded = False
         self._stalled = False
         self._measured_speed_pixels_per_second: float | None = None
+        # The single leash value: both the enforced planning bound and the inspector circle
+        # read it, so the drawing cannot describe a radius the planner does not apply.
+        self._leash_radius_pixels = self._config.leash_radius_pixels
+        self._hotspots_outside_leash = 0
+
+    @property
+    def leash_radius_pixels(self) -> float:
+        """Return the patrol radius around the session anchor that planning is bound to."""
+
+        return self._leash_radius_pixels
+
+    @leash_radius_pixels.setter
+    def leash_radius_pixels(self, radius_pixels: float) -> None:
+        """Set the patrol radius; the next replan applies it without restarting the session."""
+
+        if radius_pixels <= 0.0:
+            raise ValueError("Pathing leash radius must be positive.")
+        self._leash_radius_pixels = radius_pixels
 
     @property
     def mode(self) -> PathingMode:
@@ -208,7 +245,8 @@ class PathingController:
             waypoints=waypoints,
             safe_waypoint=safe,
             cell_size_pixels=self._map.config.cell_size_pixels,
-            leash_radius_pixels=self._config.leash_radius_pixels,
+            leash_radius_pixels=self._leash_radius_pixels,
+            hotspots_outside_leash=self._hotspots_outside_leash,
             tracking_quality=self._tracker.quality,
             zoom_signature_anchor=self._tracker.zoom_signature_anchor,
         )
@@ -250,6 +288,8 @@ class PathingController:
             mob_point = self._estimate_mob_position(
                 position, self._tracker.heading_degrees, mob, state.viewport
             )
+            if mob_point is None:
+                continue
             self._map.record_spawn(mob_point, at_seconds)
         if stalled and self._mode not in {PathingMode.RETREATING, PathingMode.BLOCKED}:
             self._register_stall(position, at_seconds)
@@ -326,6 +366,9 @@ class PathingController:
         self._movement_commanded = False
         self._stalled = False
         self._measured_speed_pixels_per_second = None
+        # The leash radius is operator configuration rather than learned state, so it
+        # deliberately survives a map reset or profile load.
+        self._hotspots_outside_leash = 0
 
     def _estimate_mob_position(
         self,
@@ -333,22 +376,28 @@ class PathingController:
         heading_degrees: float,
         mob: VisibleMob,
         viewport: Viewport | None,
-    ) -> WorldPoint:
+    ) -> WorldPoint | None:
+        """Place one sighting on the map, or return ``None`` if it cannot be placed.
+
+        Without the client dimensions a bounding box carries no bearing and no distance, so
+        the sighting is dropped instead of being parked at a fixed distance ahead: an
+        unplaceable sighting contributes nothing but noise to the heatmap (US-037).
+        """
+
         if viewport is None or viewport.width <= 0 or viewport.height <= 0:
-            rad = math.radians(heading_degrees)
-            return WorldPoint(
-                player_pos.x + math.sin(rad) * 30.0,
-                player_pos.y + math.cos(rad) * 30.0,
-            )
+            return None
 
         screen_cx = viewport.width / 2.0
         mob_cx = mob.x + mob.width / 2.0
         rel_x = max(-1.0, min(1.0, (mob_cx - screen_cx) / screen_cx))
-        bearing = (heading_degrees + rel_x * 30.0) % 360.0
+        bearing = (heading_degrees + rel_x * PROVISIONAL_HORIZONTAL_HALF_ANGLE_DEGREES) % 360.0
 
         mob_bottom = mob.y + mob.height
         dist_factor = max(0.0, min(1.0, 1.0 - (mob_bottom / viewport.height)))
-        distance = 15.0 + dist_factor * 35.0
+        distance = (
+            PROVISIONAL_NEAREST_SIGHTING_DISTANCE_PIXELS
+            + dist_factor * PROVISIONAL_SIGHTING_DISTANCE_SPAN_PIXELS
+        )
 
         rad = math.radians(bearing)
         return WorldPoint(
@@ -424,9 +473,21 @@ class PathingController:
 
     def _plan(self, at_seconds: float) -> None:
         start = self._map.cell_of(self._tracker.position)
-        route: Route = self._planner.circuit(start, at_seconds, avoided=self._avoided)
-        if route.is_empty:
-            route = self._planner.best_spawn_route(start, at_seconds, avoided=self._avoided)
+        leash = LeashBound(self._leash_radius_pixels)
+        self._hotspots_outside_leash = self._planner.hotspots_outside(at_seconds, leash)
+        route: Route
+        if not leash.contains(self._map.center_of(start)):
+            # Outside the camp the only useful route is the one that leads back into it.
+            # Containment is judged on the cell centre here exactly as it is for every other
+            # cell, so a start cell that still counts as inside can never plan a route to
+            # itself and stall the session.
+            route = self._planner.return_route(start, leash, avoided=self._avoided)
+        else:
+            route = self._planner.circuit(start, at_seconds, avoided=self._avoided, leash=leash)
+            if route.is_empty:
+                route = self._planner.best_spawn_route(
+                    start, at_seconds, avoided=self._avoided, leash=leash
+                )
         self._waypoints = route.waypoints
         self._waypoint_index = 0
         self._planned_at_seconds = at_seconds

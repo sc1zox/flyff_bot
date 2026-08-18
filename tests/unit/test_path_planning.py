@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -29,7 +30,7 @@ from flyff_bot.features.navigation.pathing import (
     PathingDecision,
     PathingMode,
 )
-from flyff_bot.features.navigation.planning import RouteConfig, RoutePlanner
+from flyff_bot.features.navigation.planning import LeashBound, RouteConfig, RoutePlanner
 from flyff_bot.features.navigation.spatial import (
     GridCell,
     SpatialMap,
@@ -58,6 +59,7 @@ PATHING_CONFIG = PathingConfig(
     stall=StallConfig(motion_threshold=1.0, stall_timeout_seconds=0.1),
     route=RouteConfig(minimum_hotspot_weight=1.0),
 )
+REFERENCE_VIEWPORT = Viewport(100, 100)
 
 
 class _Adapter:
@@ -106,7 +108,13 @@ def _walk(spatial_map: SpatialMap, cells: list[GridCell], at_seconds: float = 0.
         spatial_map.record_visit(_center(cell), at_seconds + index)
 
 
-def _state(time: float, *, mobs: tuple[VisibleMob, ...] = (), stuck: bool = False) -> WorldState:
+def _state(
+    time: float,
+    *,
+    mobs: tuple[VisibleMob, ...] = (),
+    stuck: bool = False,
+    viewport: Viewport = REFERENCE_VIEWPORT,
+) -> WorldState:
     return WorldState(
         observed_at_seconds=time,
         position=Position(0, 0),
@@ -116,7 +124,7 @@ def _state(time: float, *, mobs: tuple[VisibleMob, ...] = (), stuck: bool = Fals
         is_stuck=stuck,
         selected_target=SelectedTarget(TargetState.NONE, None, 0),
         visible_mobs=mobs,
-        viewport=Viewport(100, 100),
+        viewport=viewport,
     )
 
 
@@ -557,3 +565,174 @@ def test_the_learned_map_is_persisted_when_a_session_stops(tmp_path: Path) -> No
     orchestrator.pause()
 
     assert map_path.is_file()
+
+
+# --- Leash enforcement (US-037) -------------------------------------------------------------
+#
+# On the 10 px grid of MAP_CONFIG the cell centres sit at 7.07, 15.81 and 25.5 px from the
+# session anchor for (0, 0), (0, 1) and (0, 2), so a 20 px leash splits the corridor cleanly
+# between the second and the third cell.
+LEASH_RADIUS_PIXELS = 20.0
+WIDE_LEASH_RADIUS_PIXELS = 40.0
+
+
+def _column_map() -> SpatialMap:
+    """Return a straight recorded column running away from the session anchor."""
+
+    spatial_map = SpatialMap(MAP_CONFIG)
+    _walk(
+        spatial_map,
+        [GridCell(0, 0), GridCell(0, 1), GridCell(0, 2), GridCell(0, 3), GridCell(0, 4)],
+    )
+    return spatial_map
+
+
+def _leashed_controller(radius_pixels: float = LEASH_RADIUS_PIXELS) -> PathingController:
+    """Return a controller over the recorded column with one hotspot outside the leash."""
+
+    spatial_map = _column_map()
+    for _sighting in range(3):
+        spatial_map.record_spawn(_center(GridCell(0, 2)), 0.0)
+    return PathingController(
+        spatial_map, config=replace(PATHING_CONFIG, leash_radius_pixels=radius_pixels)
+    )
+
+
+def test_hotspots_outside_the_leash_are_not_selectable_route_targets() -> None:
+    spatial_map = _column_map()
+    for _sighting in range(3):
+        spatial_map.record_spawn(_center(GridCell(0, 2)), 0.0)
+    planner = RoutePlanner(spatial_map)
+
+    unleashed = planner.best_spawn_route(GridCell(0, 0), 0.0)
+    leashed = planner.best_spawn_route(GridCell(0, 0), 0.0, leash=LeashBound(LEASH_RADIUS_PIXELS))
+
+    assert unleashed.cells[-1] == GridCell(0, 2)
+    assert leashed.is_empty
+
+
+def test_a_goal_outside_the_leash_is_unreachable_even_when_recorded() -> None:
+    planner = RoutePlanner(_column_map())
+
+    route = planner.plan(GridCell(0, 0), GridCell(0, 3), leash=LeashBound(LEASH_RADIUS_PIXELS))
+
+    assert route.is_empty
+
+
+def test_no_waypoint_of_a_leashed_route_lies_outside_the_leash() -> None:
+    spatial_map = _column_map()
+    for _sighting in range(6):
+        spatial_map.record_spawn(_center(GridCell(0, 4)), 0.0)
+    for _sighting in range(2):
+        spatial_map.record_spawn(_center(GridCell(0, 1)), 0.0)
+    leash = LeashBound(LEASH_RADIUS_PIXELS)
+
+    route = RoutePlanner(spatial_map).circuit(GridCell(0, 0), 0.0, leash=leash)
+
+    assert not route.is_empty
+    assert all(leash.contains(spatial_map.center_of(cell)) for cell in route.waypoints)
+
+
+def test_a_route_planned_from_outside_the_leash_leads_back_inside() -> None:
+    spatial_map = _column_map()
+    leash = LeashBound(LEASH_RADIUS_PIXELS)
+
+    route = RoutePlanner(spatial_map).return_route(GridCell(0, 4), leash)
+
+    assert not route.is_empty
+    assert leash.contains(spatial_map.center_of(route.cells[-1]))
+
+
+def test_the_controller_walks_back_instead_of_idling_when_pushed_out_of_the_leash() -> None:
+    controller = _leashed_controller()
+    # 4.5 s of forward travel at the configured 10 px/s puts the estimate at y = 45, which is
+    # cell (0, 4) and well outside the 20 px leash.
+    controller.integrate_movement(VIRTUAL_KEY_W, 4.5)
+
+    decision = controller.step(0.0)
+
+    assert decision.mode is PathingMode.TRAVELING
+    assert controller.waypoints
+    assert controller.waypoints[-1] == GridCell(0, 1)
+
+
+def test_a_leash_change_applies_at_the_next_replan_without_restarting_the_session() -> None:
+    controller = _leashed_controller()
+
+    assert controller.step(0.0).mode is PathingMode.IDLE
+
+    controller.leash_radius_pixels = WIDE_LEASH_RADIUS_PIXELS
+    decision = controller.step(1.0)
+
+    assert decision.mode is PathingMode.TRAVELING
+    assert GridCell(0, 2) in controller.waypoints
+
+
+def test_the_drawn_leash_and_the_enforced_leash_are_the_same_value() -> None:
+    controller = _leashed_controller()
+    controller.step(0.0)
+
+    narrow = controller.snapshot(0.0)
+
+    controller.leash_radius_pixels = WIDE_LEASH_RADIUS_PIXELS
+    controller.step(1.0)
+    wide = controller.snapshot(1.0)
+
+    # The inspector draws snapshot.leash_radius_pixels; the planner enforced the same number,
+    # which is why the hotspot outside the narrow radius becomes reachable under the wide one.
+    assert narrow.leash_radius_pixels == pytest.approx(LEASH_RADIUS_PIXELS)
+    assert wide.leash_radius_pixels == pytest.approx(WIDE_LEASH_RADIUS_PIXELS)
+    assert controller.leash_radius_pixels == pytest.approx(wide.leash_radius_pixels)
+    assert GridCell(0, 2) in controller.waypoints
+
+
+def test_hotspots_skipped_by_the_leash_are_reported_to_the_dashboard() -> None:
+    controller = _leashed_controller()
+
+    controller.step(0.0)
+    skipped = controller.snapshot(0.0).hotspots_outside_leash
+
+    controller.leash_radius_pixels = WIDE_LEASH_RADIUS_PIXELS
+    controller.step(1.0)
+
+    assert skipped == 1
+    assert controller.snapshot(1.0).hotspots_outside_leash == 0
+
+
+def test_a_leash_radius_that_is_not_positive_is_rejected() -> None:
+    controller = _leashed_controller()
+
+    with pytest.raises(ValueError):
+        controller.leash_radius_pixels = 0.0
+    with pytest.raises(ValueError):
+        LeashBound(-1.0)
+
+    assert controller.leash_radius_pixels == pytest.approx(LEASH_RADIUS_PIXELS)
+
+
+# --- Unplaceable spawn sightings (US-037) ---------------------------------------------------
+
+
+def test_a_sighting_without_a_known_viewport_is_not_recorded_at_all() -> None:
+    spatial_map = SpatialMap(MAP_CONFIG)
+    controller = PathingController(
+        spatial_map, config=PATHING_CONFIG, odometer=MirrorOdometer(PATHING_CONFIG.movement)
+    )
+    mobs = (VisibleMob(0, "Aibatt", 0.9, 40, 40, 20, 20),)
+
+    controller.observe(_state(0.0, mobs=mobs, viewport=Viewport()))
+
+    assert spatial_map.known_cells() == (GridCell(0, 0),)
+    assert spatial_map.spawn_weight(GridCell(0, 0), 0.0) == pytest.approx(0.0)
+
+
+def test_a_sighting_with_a_known_viewport_is_still_recorded() -> None:
+    spatial_map = SpatialMap(MAP_CONFIG)
+    controller = PathingController(
+        spatial_map, config=PATHING_CONFIG, odometer=MirrorOdometer(PATHING_CONFIG.movement)
+    )
+    mobs = (VisibleMob(0, "Aibatt", 0.9, 40, 40, 20, 20),)
+
+    controller.observe(_state(0.0, mobs=mobs))
+
+    assert any(spatial_map.spawn_weight(cell, 0.0) > 0.0 for cell in spatial_map.known_cells())

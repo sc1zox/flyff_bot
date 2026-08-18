@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -337,3 +338,36 @@ def test_rendered_player_marker_and_spawn_cell_are_visually_distinguishable() ->
     # A dense spawn cell is ember red: red dominates both other channels.
     assert heat_pixel.red() > heat_pixel.green()
     assert heat_pixel.red() > heat_pixel.blue()
+
+
+# The status HUD strip drawn at the top of the canvas, in widget coordinates.
+HUD_SAMPLE_TOP_PIXEL = 8
+HUD_SAMPLE_BOTTOM_PIXEL = 56
+
+
+def _hud_ink(image: QImage, width: int) -> int:
+    """Count the pixels the status HUD paints over its own background."""
+
+    background = QColor(image.pixel(width - 2, HUD_SAMPLE_TOP_PIXEL + 2)).rgb()
+    return sum(
+        1
+        for y in range(HUD_SAMPLE_TOP_PIXEL, HUD_SAMPLE_BOTTOM_PIXEL)
+        for x in range(width)
+        if QColor(image.pixel(x, y)).rgb() != background
+    )
+
+
+def test_hotspots_skipped_by_the_leash_are_visible_in_the_status_hud() -> None:
+    _app = QApplication.instance() or QApplication([])
+    widget = PathInspectorWidget(Translator(Language.ENGLISH))
+    widget.resize(640, 480)
+
+    widget.set_navigation(_populated_snapshot())
+    without = QImage(640, 480, QImage.Format.Format_RGB32)
+    widget.render(without)
+
+    widget.set_navigation(replace(_populated_snapshot(), hotspots_outside_leash=3))
+    with_skipped = QImage(640, 480, QImage.Format.Format_RGB32)
+    widget.render(with_skipped)
+
+    assert _hud_ink(with_skipped, 640) > _hud_ink(without, 640)

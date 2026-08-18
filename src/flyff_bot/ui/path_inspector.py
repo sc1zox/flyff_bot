@@ -75,6 +75,11 @@ TEXT_COLOR = QColor(241, 245, 249)
 MUTED_TEXT_COLOR = QColor(148, 163, 184)
 HUD_BG_COLOR = QColor(15, 23, 42, 200)
 HUD_BORDER_COLOR = QColor(51, 65, 85, 160)
+HUD_ROW_HEIGHT_PIXELS = 24.0
+HUD_MAXIMUM_WIDTH_PIXELS = 520.0
+# Amber, so a patrol that is quietly shrinking against the leash reads as a warning rather
+# than as another status figure.
+LEASH_NOTICE_COLOR = QColor(250, 173, 20)
 
 # Spawn density heat palette: translucent gold at sparse density up to dense ember red at
 # hotspots. Every stop stays red-dominant so a heat cell can never be mistaken for the cyan
@@ -479,27 +484,42 @@ class PathInspectorWidget(QWidget):
         assert snapshot is not None
 
         compass = _heading_to_compass(snapshot.heading_degrees)
-        hud_w = min(float(width - 20), 520.0)
-        hud_rect = QRectF(10, 8, hud_w, 24)
+        hud_w = min(float(width - 20), HUD_MAXIMUM_WIDTH_PIXELS)
+        rows: list[tuple[str, QColor]] = [
+            (
+                f"Pos: ({snapshot.player_x:+.1f}, {snapshot.player_y:+.1f})  "
+                f"Facing: {snapshot.heading_degrees:.0f}° ({compass})  "
+                f"Cells: {len(snapshot.cells)}  "
+                f"Route: {len(snapshot.waypoints)}  "
+                f"{self._translator.text(_tracking_quality_message(snapshot.tracking_quality))}",
+                TEXT_COLOR,
+            )
+        ]
+        if snapshot.hotspots_outside_leash > 0:
+            # The status row is already close to its width budget, so the leash notice gets a
+            # row of its own instead of being appended and silently clipped away.
+            rows.append(
+                (
+                    self._translator.text(
+                        Message.UI_NAV_LEASH_SKIPPED, count=snapshot.hotspots_outside_leash
+                    ),
+                    LEASH_NOTICE_COLOR,
+                )
+            )
 
+        hud_rect = QRectF(10, 8, hud_w, HUD_ROW_HEIGHT_PIXELS * len(rows))
         painter.setPen(QPen(HUD_BORDER_COLOR, 1))
         painter.setBrush(QBrush(HUD_BG_COLOR))
         painter.drawRoundedRect(hud_rect, 4.0, 4.0)
 
         painter.setFont(QFont("", 8))
-        painter.setPen(QPen(TEXT_COLOR))
-        status_line = (
-            f"Pos: ({snapshot.player_x:+.1f}, {snapshot.player_y:+.1f})  "
-            f"Facing: {snapshot.heading_degrees:.0f}° ({compass})  "
-            f"Cells: {len(snapshot.cells)}  "
-            f"Route: {len(snapshot.waypoints)}  "
-            f"{self._translator.text(_tracking_quality_message(snapshot.tracking_quality))}"
-        )
-        painter.drawText(
-            QRectF(16, 8, hud_w - 12, 24),
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-            status_line,
-        )
+        for index, (line, color) in enumerate(rows):
+            painter.setPen(QPen(color))
+            painter.drawText(
+                QRectF(16, 8 + index * HUD_ROW_HEIGHT_PIXELS, hud_w - 12, HUD_ROW_HEIGHT_PIXELS),
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                line,
+            )
 
     def _draw_legend(self, painter: QPainter, width: int, height: int) -> None:
         legend_y = height - 22
