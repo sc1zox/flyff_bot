@@ -40,3 +40,6 @@ runs/
 # Locally learned navigation maps and spawn heatmaps
 data/navigation/
 data/powerups_config.json
+
+# Calibration recordings from scripts/capture_minimap_samples.py (large PNG sequences)
+data/calibration/

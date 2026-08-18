@@ -53,3 +53,13 @@ stories are moved to `docs/user-stories/completed/`.
 - [x] [**US-032: Tesseract OCR target name verification and robust whitelist matching**](completed/US-032-tesseract-ocr-target-name-verification.md) — Robust OCR-based target name verification replacing rigid template matching.
 - [ ] [**US-033: Automated Tesseract OCR installation via winget and live reload**](US-033-tesseract-ocr-automated-installation-and-detection.md) — One-click background `winget` installation of Tesseract OCR with UI guidance and non-restarting live reload.
 
+### Phase 5: Navigation Accuracy (Planned)
+
+Closes the open-loop gap in the US-019 pathing stack: today every learned cell, edge, hotspot, and
+route rests on a dead-reckoned position built from unmeasured key-press constants. Grounded in the
+[minimap odometry spike](../sources/2026-08-18-minimap-odometry-feasibility-spike.md).
+
+- [ ] [**US-035: Measured minimap odometry, tracking quality gating, and calibrated movement constants**](US-035-measured-minimap-odometry-and-tracking-quality.md) — Read position and heading from the north-up minimap by phase correlation and marker orientation, gate map learning on measurement confidence, and fit the movement constants from recorded frames.
+- [ ] [**US-036: Navigation profile anchoring so saved maps mean the same place in a later session**](US-036-navigation-profile-anchoring-across-sessions.md) — Schema v2 anchor record per profile, re-anchoring on load against the live minimap, and a defined refusal path instead of a silently shifted map.
+- [ ] [**US-037: Measured spawn distance model and an enforced patrol leash**](US-037-measured-spawn-distance-and-enforced-leash.md) — Replace the guessed bounding-box distance literals with a fitted inverse-projection relation and make `leash_radius_units` constrain planning instead of only the drawing.
+
