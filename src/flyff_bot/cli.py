@@ -41,7 +41,7 @@ from flyff_bot.features.input_control import (
     parse_virtual_key,
 )
 from flyff_bot.features.navigation.pathing import PathingController
-from flyff_bot.features.navigation.persistence import load_spatial_map
+from flyff_bot.features.navigation.persistence import load_profile
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.training import TrainingError, train_and_export, validate_dataset
 from flyff_bot.features.vision import (
@@ -438,7 +438,7 @@ def _farming_orchestrator(
         controller,
         window_handle,
         pathing=PathingController(
-            load_spatial_map(navigation_map_path), map_path=navigation_map_path
+            load_profile(navigation_map_path).spatial_map, map_path=navigation_map_path
         ),
         config=FarmingConfig(
             combat=CombatConfig(

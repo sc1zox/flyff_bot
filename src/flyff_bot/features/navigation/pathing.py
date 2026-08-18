@@ -13,7 +13,18 @@ from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.automation.models import Viewport, VisibleMob, WorldState
-from flyff_bot.features.navigation.persistence import load_spatial_map, save_spatial_map
+from flyff_bot.features.navigation.anchoring import (
+    AnchorMatchOutcome,
+    MapAnchor,
+    ProfileAnchorState,
+    capture_anchor,
+    match_anchor,
+)
+from flyff_bot.features.navigation.persistence import (
+    NavigationProfile,
+    load_profile,
+    save_profile,
+)
 from flyff_bot.features.navigation.planning import (
     LeashBound,
     Route,
@@ -63,6 +74,30 @@ ARRIVAL_RADIUS_CELL_FRACTION = 0.5
 PROVISIONAL_HORIZONTAL_HALF_ANGLE_DEGREES = 30.0
 PROVISIONAL_NEAREST_SIGHTING_DISTANCE_PIXELS = 15.0
 PROVISIONAL_SIGHTING_DISTANCE_SPAN_PIXELS = 35.0
+
+
+class ProfileLoadOutcome(StrEnum):
+    """What loading one navigation profile did, or why it did nothing (US-036)."""
+
+    # The stored landmark was matched, so the map is writable in this session's frame.
+    ANCHORED = "anchored"
+    # The profile carries no landmark and was loaded read-only.
+    UNANCHORED = "unanchored"
+    # The landmark could not be matched and the operator accepted a read-only load.
+    READ_ONLY = "read_only"
+    # The landmark could not be matched. Nothing was loaded; the previous map is intact.
+    UNMATCHED = "unmatched"
+    # The profile was recorded at another minimap scale. Nothing was loaded.
+    SCALE_MISMATCH = "scale_mismatch"
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileLoadResult:
+    """The outcome of one profile load, with the evidence a refusal has to name."""
+
+    outcome: ProfileLoadOutcome
+    stored_zoom_signature: float | None = None
+    live_zoom_signature: float | None = None
 
 
 class PathingMode(StrEnum):
@@ -136,6 +171,9 @@ class PathingController:
         self._movement_commanded = False
         self._stalled = False
         self._measured_speed_pixels_per_second: float | None = None
+        self._anchor_candidate: MapAnchor | None = None
+        self._anchor_state = ProfileAnchorState.SESSION
+        self._map_read_only = False
         # The single leash value: both the enforced planning bound and the inspector circle
         # read it, so the drawing cannot describe a radius the planner does not apply.
         self._leash_radius_pixels = self._config.leash_radius_pixels
@@ -178,6 +216,18 @@ class PathingController:
         """Return how the current position estimate was obtained."""
 
         return self._tracker.quality
+
+    @property
+    def profile_anchor_state(self) -> ProfileAnchorState:
+        """Return how the active map relates to the frame its coordinates were recorded in."""
+
+        return self._anchor_state
+
+    @property
+    def map_is_read_only(self) -> bool:
+        """Return whether learning is suspended because the map frame is unverified."""
+
+        return self._map_read_only
 
     @property
     def is_stalled(self) -> bool:
@@ -249,6 +299,7 @@ class PathingController:
             hotspots_outside_leash=self._hotspots_outside_leash,
             tracking_quality=self._tracker.quality,
             zoom_signature_anchor=self._tracker.zoom_signature_anchor,
+            profile_anchor_state=self._anchor_state,
         )
 
     def track(self, state: WorldState, frame: CapturedFrame | None = None) -> TrackingQuality:
@@ -261,6 +312,13 @@ class PathingController:
         reading: MinimapReading | None = self._odometer.observe(frame)
         update = self._tracker.observe(reading, state.observed_at_seconds)
         self._measured_speed_pixels_per_second = update.measured_speed_pixels_per_second
+        if reading is not None and update.quality is TrackingQuality.MEASURED:
+            # The freshest confidently measured disk is both what a save stores as the
+            # profile's landmark and what a load matches a stored landmark against, so
+            # standby tracking alone keeps anchoring possible while the session is paused.
+            self._anchor_candidate = capture_anchor(
+                reading, self._tracker.position, self._tracker.heading_degrees
+            )
         return update.quality
 
     def observe(self, state: WorldState, frame: CapturedFrame | None = None) -> None:
@@ -276,10 +334,12 @@ class PathingController:
             at_seconds=at_seconds,
         )
         self._movement_commanded = False
-        if quality is TrackingQuality.DEGRADED:
-            # The map stays read-only while the position is unknown: routes may still be
-            # followed or abandoned, but nothing new is learned, and the trail is broken so
-            # recovery cannot link an edge across the unobserved span.
+        if self._map_read_only or quality is TrackingQuality.DEGRADED:
+            # The map stays read-only while the position is unknown, and equally while a
+            # loaded profile could not be re-anchored (US-036): routes may still be followed
+            # or abandoned, but nothing new is learned, and the trail is broken so recovery
+            # cannot link an edge across the unobserved span. Stall-driven retreat needs the
+            # map to record the obstacle, so it stays off on this path too.
             self._map.break_trail()
             self._stalled = stalled
             return
@@ -329,27 +389,96 @@ class PathingController:
 
         self.save_map()
 
-    def load_map(self, path: Path) -> None:
-        """Load a persisted map snapshot from disk and reset pathing state."""
+    def load_map(self, path: Path, *, accept_unmatched: bool = False) -> ProfileLoadResult:
+        """Re-anchor a persisted profile to where the character stands, or refuse it.
 
-        self._map = load_spatial_map(path, self._map.config)
-        self._planner = RoutePlanner(self._map, self._config.route)
-        self._map_path = path
-        self._reset_state()
+        A profile's coordinates only mean a place while they are read in the frame they were
+        recorded in, so loading is a decision rather than a file read (US-036). Without a
+        usable landmark match nothing is loaded and the active map stays intact, unless the
+        operator has explicitly accepted a read-only load through `accept_unmatched`.
+        """
 
-    def save_map(self, path: Path | None = None) -> None:
-        """Save the current spatial map to disk under the specified or configured path."""
+        profile = load_profile(path, self._map.config)
+        if profile.anchor is None:
+            self._adopt(profile, path, ProfileAnchorState.UNANCHORED, read_only=True)
+            return ProfileLoadResult(ProfileLoadOutcome.UNANCHORED)
+
+        # Matching needs a live landmark. Standby tracking supplies one every tick the
+        # minimap is readable, so its absence means there is nothing to match against.
+        candidate = self._anchor_candidate
+        if candidate is not None:
+            match = match_anchor(profile.anchor, candidate.surface, candidate.zoom_signature)
+            if match.outcome is AnchorMatchOutcome.SCALE_MISMATCH:
+                return ProfileLoadResult(
+                    ProfileLoadOutcome.SCALE_MISMATCH,
+                    stored_zoom_signature=match.stored_zoom_signature,
+                    live_zoom_signature=match.live_zoom_signature,
+                )
+            if match.position is not None:
+                # The landmark was captured a moment before the load, so whatever the
+                # character covered since then is added on top. Both frames share rotation
+                # and scale, which makes that live displacement the same vector in the
+                # profile's frame.
+                drift_x = self._tracker.position.x - candidate.position.x
+                drift_y = self._tracker.position.y - candidate.position.y
+                self._adopt(profile, path, ProfileAnchorState.ANCHORED, read_only=False)
+                self._tracker.relocate(
+                    WorldPoint(match.position.x + drift_x, match.position.y + drift_y)
+                )
+                return ProfileLoadResult(ProfileLoadOutcome.ANCHORED)
+
+        if not accept_unmatched:
+            return ProfileLoadResult(ProfileLoadOutcome.UNMATCHED)
+        self._adopt(profile, path, ProfileAnchorState.READ_ONLY, read_only=True)
+        return ProfileLoadResult(ProfileLoadOutcome.READ_ONLY)
+
+    def save_map(self, path: Path | None = None) -> ProfileAnchorState:
+        """Save the active map and its landmark, and report what a later load will get.
+
+        A read-only map is never written back: its coordinates are offset from the profile's
+        frame by an unknown amount, so persisting them would corrupt the very profile the
+        session failed to re-anchor to.
+        """
 
         target_path = path or self._map_path
-        if target_path is not None:
-            self._map_path = target_path
-            save_spatial_map(self._map, target_path)
+        if self._map_read_only or target_path is None:
+            return self._anchor_state
+        anchor = (
+            self._anchor_candidate
+            if self._tracker.quality is not TrackingQuality.DEGRADED
+            else None
+        )
+        self._map_path = target_path
+        save_profile(NavigationProfile(self._map, anchor), target_path)
+        self._anchor_state = (
+            ProfileAnchorState.ANCHORED if anchor is not None else ProfileAnchorState.UNANCHORED
+        )
+        return self._anchor_state
+
+    def _adopt(
+        self,
+        profile: NavigationProfile,
+        path: Path,
+        anchor_state: ProfileAnchorState,
+        *,
+        read_only: bool,
+    ) -> None:
+        """Make one loaded profile the active map and reset every derived session state."""
+
+        self._map = profile.spatial_map
+        self._planner = RoutePlanner(self._map, self._config.route)
+        self._map_path = path
+        self._anchor_state = anchor_state
+        self._map_read_only = read_only
+        self._reset_state()
 
     def reset(self) -> None:
-        """Clear all learned cells, routes, and dead-reckoned positions."""
+        """Clear all learned cells, routes, and measured positions."""
 
         self._map = SpatialMap(self._map.config)
         self._planner = RoutePlanner(self._map, self._config.route)
+        self._anchor_state = ProfileAnchorState.SESSION
+        self._map_read_only = False
         self._reset_state()
 
     def _reset_state(self) -> None:
@@ -366,6 +495,7 @@ class PathingController:
         self._movement_commanded = False
         self._stalled = False
         self._measured_speed_pixels_per_second = None
+        self._anchor_candidate = None
         # The leash radius is operator configuration rather than learned state, so it
         # deliberately survives a map reset or profile load.
         self._hotspots_outside_leash = 0

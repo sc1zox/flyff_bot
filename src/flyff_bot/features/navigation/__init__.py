@@ -1,18 +1,25 @@
 """Internal spatial memory, spawn heatmap, and route planning for farming sessions."""
 
+from flyff_bot.features.navigation.anchoring import (
+    MapAnchor,
+    ProfileAnchorState,
+)
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
 from flyff_bot.features.navigation.pathing import (
     PathingConfig,
     PathingController,
     PathingDecision,
     PathingMode,
+    ProfileLoadOutcome,
+    ProfileLoadResult,
 )
 from flyff_bot.features.navigation.persistence import (
+    NavigationProfile,
     NavigationProfileSummary,
     list_navigation_profiles,
-    load_spatial_map,
+    load_profile,
     sanitize_profile_name,
-    save_spatial_map,
+    save_profile,
 )
 from flyff_bot.features.navigation.planning import (
     LeashBound,
@@ -30,6 +37,8 @@ from flyff_bot.features.navigation.spatial import (
 __all__ = [
     "GridCell",
     "LeashBound",
+    "MapAnchor",
+    "NavigationProfile",
     "NavigationProfileSummary",
     "PathingConfig",
     "PathingController",
@@ -37,6 +46,9 @@ __all__ = [
     "PathingInputAdapter",
     "PathingInputDispatcher",
     "PathingMode",
+    "ProfileAnchorState",
+    "ProfileLoadOutcome",
+    "ProfileLoadResult",
     "Route",
     "RouteConfig",
     "RoutePlanner",
@@ -44,7 +56,7 @@ __all__ = [
     "SpatialMapConfig",
     "WorldPoint",
     "list_navigation_profiles",
-    "load_spatial_map",
+    "load_profile",
     "sanitize_profile_name",
-    "save_spatial_map",
+    "save_profile",
 ]

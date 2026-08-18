@@ -29,9 +29,10 @@ from flyff_bot.features.automation.controllers import (
 )
 from flyff_bot.features.navigation.spatial import WorldPoint
 from flyff_bot.features.vision.minimap import (
+    FULL_TURN_DEGREES,
     MAXIMUM_INTER_FRAME_DISPLACEMENT_PIXELS,
-    ZOOM_SIGNATURE_TOLERANCE_FRACTION,
     MinimapReading,
+    zoom_signature_matches,
 )
 from flyff_bot.features.vision.models import CapturedFrame
 
@@ -76,7 +77,6 @@ DEFAULT_CENTER_MASK_WIDTH_FRACTION = 0.34
 DEFAULT_CENTER_MASK_HEIGHT_FRACTION = 0.5
 # One delayed or dropped capture must not be able to satisfy the whole stall timeout by itself.
 MAXIMUM_STALL_SAMPLE_SECONDS = 1.0
-FULL_TURN_DEGREES = 360.0
 HALF_TURN_DEGREES = 180.0
 
 # Flyff's default controls turn the character with `A`/`D` exactly as the arrow keys do, so all
@@ -238,6 +238,17 @@ class MovementTracker:
         self._zoom_deviations = 0
         self._zoom_changed = False
 
+    def relocate(self, position: WorldPoint) -> None:
+        """Re-express the estimate in a loaded profile's coordinate frame (US-036).
+
+        Only the translational origin moves. Heading is measured from the north-up minimap
+        and is therefore already absolute (US-035), and the zoom anchor is left untouched
+        because the caller has just verified that the live scale matches the stored one.
+        """
+
+        self._anchor = position
+        self._predicted_offset = WorldPoint(0.0, 0.0)
+
     def reanchor(self) -> None:
         """Accept the current minimap zoom as the level this session is measured in."""
 
@@ -323,7 +334,7 @@ class MovementTracker:
             self._zoom_signature_anchor = signature
             self._zoom_deviations = 0
             return
-        if abs(signature - anchor) / anchor > ZOOM_SIGNATURE_TOLERANCE_FRACTION:
+        if not zoom_signature_matches(anchor, signature):
             self._zoom_deviations += 1
             if self._zoom_deviations >= self._config.zoom_change_confirmations:
                 self._zoom_changed = True

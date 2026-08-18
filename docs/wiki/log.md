@@ -414,3 +414,28 @@ perspective, and the blocking sequence runs on the session worker thread, never 
 
 No measurement was ingested: the ~45° pitch remains the protocol US-041 documented, and the
 coefficients of the distance relation still wait on recorded approach runs.
+
+
+## 2026-08-18 — synthesis: US-036 navigation profile anchoring
+
+Recorded that a navigation profile now states which frame its coordinates belong to. The architecture
+page describes the stored landmark (greyscale minimap disk, capture coordinates, heading, zoom
+signature), the five load outcomes, and why loading is a decision rather than a file read: before
+this, a loaded profile was silently reinterpreted relative to wherever the new session happened to
+start, so its routes and hotspots pointed at an arbitrary offset.
+
+Recorded that matching reuses the US-035 odometry machinery instead of duplicating it — the same
+surface preparation, the same response-gated phase correlation, and the same map-scroll-to-player sign
+rule — and that only the translation is recovered, because the north-up minimap already makes rotation
+absolute and the zoom signature is checked rather than solved for.
+
+Recorded the ADR-003 consequence as implemented: schema version 2 is the only format, version 1 is
+rejected by name, and `save_spatial_map` / `load_spatial_map` were deleted in favour of
+`save_profile` / `load_profile` over a `NavigationProfile` rather than kept as compatibility shims.
+
+No measurement was ingested. The matching thresholds are the ones the feasibility spike already
+measured (0.30 response gate; 0.665-0.928 for genuine overlap against -0.052 for unrelated content),
+and the confidence separation is now asserted against the shipped frames in
+`tests/unit/test_profile_anchoring.py`. The usable re-anchoring radius inside the one-surface-radius
+bound remains an open field measurement, as does the manual Windows walkthrough US-036 lists.
+

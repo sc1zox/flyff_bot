@@ -26,8 +26,12 @@ from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrc
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import VitalsTriggerConfig
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
-from flyff_bot.features.navigation.pathing import PathingController
-from flyff_bot.features.navigation.persistence import load_spatial_map
+from flyff_bot.features.navigation.pathing import (
+    PathingController,
+    ProfileLoadOutcome,
+    ProfileLoadResult,
+)
+from flyff_bot.features.navigation.persistence import load_profile
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision import (
     DetectionConfig,
@@ -51,6 +55,15 @@ from flyff_bot.ui.session_worker import SessionWorker
 from flyff_bot.ui.theme import apply_theme
 
 STANDBY_TICK_INTERVAL_SECONDS = 0.1
+# Shown in place of a minimap scale that is not known. It is deliberately not a word, so the
+# refusal message stays one localized sentence rather than an assembled one.
+UNKNOWN_SCALE_TEXT = "?"
+
+
+def _scale_text(zoom_signature: float | None) -> str:
+    """Return one minimap scale as it appears inside an operator-facing sentence."""
+
+    return UNKNOWN_SCALE_TEXT if zoom_signature is None else f"{zoom_signature:.1f}"
 
 
 class FarmingControls(Protocol):
@@ -64,7 +77,9 @@ class FarmingControls(Protocol):
 
     def save_navigation_profile(self, path: Path) -> None: ...
 
-    def load_navigation_profile(self, path: Path) -> None: ...
+    def load_navigation_profile(
+        self, path: Path, *, accept_unmatched: bool = False
+    ) -> ProfileLoadResult | None: ...
 
     def reset_navigation_map(self) -> None: ...
 
@@ -105,7 +120,31 @@ def connect_farming_controls(
 
     def _safe_load_profile(path: Path) -> None:
         try:
-            orchestrator.load_navigation_profile(path)
+            result = orchestrator.load_navigation_profile(path)
+        except Exception as exc:
+            window.show_error_dialog(
+                window._translator.text(Message.UI_PROFILE_LOAD_ERROR_TITLE),
+                window._translator.text(Message.UI_PROFILE_LOAD_ERROR_PROMPT, reason=str(exc)),
+            )
+            return
+        if result is None:
+            return
+        if result.outcome is ProfileLoadOutcome.SCALE_MISMATCH:
+            window.show_error_dialog(
+                window._translator.text(Message.UI_PROFILE_SCALE_MISMATCH_TITLE),
+                window._translator.text(
+                    Message.UI_PROFILE_SCALE_MISMATCH_PROMPT,
+                    stored=_scale_text(result.stored_zoom_signature),
+                    live=_scale_text(result.live_zoom_signature),
+                ),
+            )
+            return
+        if result.outcome is ProfileLoadOutcome.UNMATCHED and window.confirm_read_only_profile():
+            _safe_load_profile_read_only(path)
+
+    def _safe_load_profile_read_only(path: Path) -> None:
+        try:
+            orchestrator.load_navigation_profile(path, accept_unmatched=True)
         except Exception as exc:
             window.show_error_dialog(
                 window._translator.text(Message.UI_PROFILE_LOAD_ERROR_TITLE),
@@ -202,7 +241,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     ),
                     dashboard_feed=feed,
                     pathing=PathingController(
-                        load_spatial_map(navigation_map_path), map_path=navigation_map_path
+                        load_profile(navigation_map_path).spatial_map, map_path=navigation_map_path
                     ),
                     camera_aligner=CameraAligner(controller, window_handle),
                 )

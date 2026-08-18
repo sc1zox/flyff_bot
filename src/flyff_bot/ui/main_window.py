@@ -52,6 +52,7 @@ from flyff_bot.features.automation.vitals_persistence import (
     save_vitals_config,
 )
 from flyff_bot.features.input_control import parse_virtual_key
+from flyff_bot.features.navigation.anchoring import ProfileAnchorState
 from flyff_bot.features.navigation.persistence import (
     DEFAULT_NAVIGATION_DIR,
     list_navigation_profiles,
@@ -194,6 +195,9 @@ class MainWindow(QMainWindow):
         self._load_profile_button = QPushButton()
         self._reset_map_button = QPushButton()
         self._reset_map_button.setObjectName("ActionDanger")
+        self._profile_anchor_label = QLabel()
+        self._profile_anchor_label.setObjectName("StatChip")
+        self._profile_anchor_state = ProfileAnchorState.SESSION
 
         # Primary Action Controls
         self._start_button = QPushButton()
@@ -1124,6 +1128,7 @@ class MainWindow(QMainWindow):
         profile_layout.addWidget(self._save_profile_button)
         profile_layout.addWidget(self._load_profile_button)
         profile_layout.addWidget(self._reset_map_button)
+        profile_layout.addWidget(self._profile_anchor_label)
         self._profile_card.setLayout(profile_layout)
 
         # Telemetry & Diagnostics Toolbar Card
@@ -1260,6 +1265,35 @@ class MainWindow(QMainWindow):
 
         QMessageBox.warning(self, title, message)
 
+    def confirm_read_only_profile(self) -> bool:
+        """Offer the two defined outcomes for a profile that could not be re-anchored.
+
+        Exactly two are offered, and cancelling is the default: a silently shifted map is
+        worse than no map at all (US-036).
+        """
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(self._translator.text(Message.UI_PROFILE_UNMATCHED_TITLE))
+        box.setText(self._translator.text(Message.UI_PROFILE_UNMATCHED_PROMPT))
+        read_only = box.addButton(
+            self._translator.text(Message.UI_PROFILE_UNMATCHED_READ_ONLY),
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        cancel = box.addButton(
+            self._translator.text(Message.UI_PROFILE_UNMATCHED_CANCEL),
+            QMessageBox.ButtonRole.RejectRole,
+        )
+        box.setDefaultButton(cancel)
+        box.exec()
+        return box.clickedButton() is read_only
+
+    @property
+    def profile_anchor_label(self) -> QLabel:
+        """Expose the profile anchor-state chip for testing."""
+
+        return self._profile_anchor_label
+
     def _retranslate(self) -> None:
         self.setWindowTitle(self._translator.text(Message.UI_TITLE))
         self._status_card.setTitle(self._translator.text(Message.UI_CARD_STATUS))
@@ -1350,6 +1384,7 @@ class MainWindow(QMainWindow):
         self._mp_label.setText(self._translator.text(Message.UI_VITALS_MP))
         self._fp_label.setText(self._translator.text(Message.UI_VITALS_FP))
         self._path_inspector.set_translator(self._translator)
+        self._render_profile_anchor_state()
         self._save_profile_button.setText(self._translator.text(Message.UI_PROFILE_SAVE))
         self._load_profile_button.setText(self._translator.text(Message.UI_PROFILE_LOAD))
         self._reset_map_button.setText(self._translator.text(Message.UI_PROFILE_RESET))
@@ -1429,6 +1464,11 @@ class MainWindow(QMainWindow):
             self._translator.text(_tracking_quality_message(self._tracking_quality))
         )
 
+    def _render_profile_anchor_state(self) -> None:
+        self._profile_anchor_label.setText(
+            self._translator.text(_profile_anchor_message(self._profile_anchor_state))
+        )
+
     def _render_update(self) -> None:
         if self._latest_update is None:
             return
@@ -1442,6 +1482,12 @@ class MainWindow(QMainWindow):
             else TrackingQuality.DEGRADED
         )
         self._render_tracking_quality()
+        self._profile_anchor_state = (
+            update.navigation.profile_anchor_state
+            if update.navigation is not None
+            else ProfileAnchorState.SESSION
+        )
+        self._render_profile_anchor_state()
         self._mob_label.setText(
             self._translator.text(Message.UI_WORLD_STATUS, mob_count=update.state.nearby_mob_count)
         )
@@ -1641,6 +1687,15 @@ def _tracking_quality_message(quality: TrackingQuality) -> Message:
         TrackingQuality.PREDICTED: Message.UI_TRACKING_PREDICTED,
         TrackingQuality.DEGRADED: Message.UI_TRACKING_DEGRADED,
     }[quality]
+
+
+def _profile_anchor_message(state: ProfileAnchorState) -> Message:
+    return {
+        ProfileAnchorState.SESSION: Message.UI_PROFILE_ANCHOR_SESSION,
+        ProfileAnchorState.ANCHORED: Message.UI_PROFILE_ANCHOR_ANCHORED,
+        ProfileAnchorState.READ_ONLY: Message.UI_PROFILE_ANCHOR_READ_ONLY,
+        ProfileAnchorState.UNANCHORED: Message.UI_PROFILE_ANCHOR_UNANCHORED,
+    }[state]
 
 
 def _window_status_message(status: WindowStatus) -> Message:

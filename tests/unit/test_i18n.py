@@ -48,6 +48,8 @@ def test_each_language_contains_every_message() -> None:
                 pixels=0,
                 percentage="0.0",
                 text="x",
+                stored="0.0",
+                live="0.0",
             )
 
 

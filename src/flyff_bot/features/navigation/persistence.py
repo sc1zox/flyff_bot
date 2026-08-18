@@ -6,11 +6,21 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from flyff_bot.features.navigation.anchoring import MapAnchor
 from flyff_bot.features.navigation.spatial import SpatialMap, SpatialMapConfig
 
 JSON_INDENT_SPACES = 2
 DEFAULT_NAVIGATION_DIR = Path("data/navigation")
 INVALID_FILENAME_CHARS = frozenset(r'\/:*?"<>|')
+PROFILE_ANCHOR_KEY = "anchor"
+
+
+@dataclass(frozen=True, slots=True)
+class NavigationProfile:
+    """One persisted map profile: the learned map and the landmark it was recorded at."""
+
+    spatial_map: SpatialMap
+    anchor: MapAnchor | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,19 +74,35 @@ def list_navigation_profiles(
     return profiles
 
 
-def save_spatial_map(spatial_map: SpatialMap, path: Path) -> None:
-    """Write the learned map so a later session can restore it."""
+def save_profile(profile: NavigationProfile, path: Path) -> None:
+    """Write the learned map and its landmark so a later session can restore both."""
 
+    document = profile.spatial_map.to_dict()
+    if profile.anchor is not None:
+        document[PROFILE_ANCHOR_KEY] = profile.anchor.to_dict()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(spatial_map.to_dict(), indent=JSON_INDENT_SPACES, sort_keys=True),
+        json.dumps(document, indent=JSON_INDENT_SPACES, sort_keys=True),
         encoding="utf-8",
     )
 
 
-def load_spatial_map(path: Path, config: SpatialMapConfig | None = None) -> SpatialMap:
-    """Restore a learned map, returning an empty one when no snapshot exists yet."""
+def load_profile(path: Path, config: SpatialMapConfig | None = None) -> NavigationProfile:
+    """Restore a profile, returning an empty unanchored one when no snapshot exists yet.
+
+    An unsupported schema version or an unreadable map is an explicit failure (ADR-003), but
+    a corrupted anchor record only costs the profile its landmark: it then loads unanchored,
+    exactly as one saved while tracking was degraded does (US-036).
+    """
 
     if not path.is_file():
-        return SpatialMap(config)
-    return SpatialMap.from_dict(json.loads(path.read_text(encoding="utf-8")), config)
+        return NavigationProfile(SpatialMap(config))
+    document: object = json.loads(path.read_text(encoding="utf-8"))
+    spatial_map = SpatialMap.from_dict(document, config)
+    anchor: MapAnchor | None = None
+    if isinstance(document, dict) and PROFILE_ANCHOR_KEY in document:
+        try:
+            anchor = MapAnchor.from_dict(document[PROFILE_ANCHOR_KEY])
+        except ValueError:
+            anchor = None
+    return NavigationProfile(spatial_map, anchor)

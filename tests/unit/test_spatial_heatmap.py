@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from flyff_bot.features.navigation.persistence import load_spatial_map, save_spatial_map
+from flyff_bot.features.navigation.persistence import (
+    NavigationProfile,
+    load_profile,
+    save_profile,
+)
 from flyff_bot.features.navigation.spatial import (
     DEFAULT_MAXIMUM_LINK_SPAN_CELLS,
     DEFAULT_MAXIMUM_STALL_COST_FACTOR,
@@ -133,8 +137,8 @@ def test_learned_map_survives_a_serialization_round_trip(tmp_path: Path) -> None
     spatial_map.record_spawn(WorldPoint(15.0, 5.0), 3.0)
     path = tmp_path / "nested" / "spatial_map.json"
 
-    save_spatial_map(spatial_map, path)
-    restored = load_spatial_map(path, spatial_map.config)
+    save_profile(NavigationProfile(spatial_map), path)
+    restored = load_profile(path, spatial_map.config).spatial_map
 
     assert restored.known_cells() == spatial_map.known_cells()
     assert restored.visit_count(GridCell(1, 0)) == 1
@@ -149,13 +153,13 @@ def test_learned_map_survives_a_serialization_round_trip(tmp_path: Path) -> None
 def test_missing_map_file_starts_an_empty_map_and_corrupt_content_is_rejected(
     tmp_path: Path,
 ) -> None:
-    assert load_spatial_map(tmp_path / "absent.json").known_cells() == ()
+    assert load_profile(tmp_path / "absent.json").spatial_map.known_cells() == ()
 
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text(json.dumps({"version": 99, "cells": [], "edges": []}), encoding="utf-8")
 
     with pytest.raises(ValueError):
-        load_spatial_map(corrupt)
+        load_profile(corrupt)
 
 
 def test_invalid_map_configuration_is_rejected() -> None:

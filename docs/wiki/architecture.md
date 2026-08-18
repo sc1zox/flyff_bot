@@ -28,6 +28,7 @@ related:
   - ../user-stories/completed/US-020-visual-navigation-path-and-heatmap-inspector.md
   - ../user-stories/completed/US-021-navigation-map-profiles-and-session-reset.md
   - ../user-stories/completed/US-035-measured-minimap-odometry-and-tracking-quality.md
+  - ../user-stories/completed/US-036-navigation-profile-anchoring-across-sessions.md
   - ../user-stories/US-037-measured-spawn-distance-and-enforced-leash.md
   - ../user-stories/completed/US-041-spawn-distance-calibration-capture-script.md
   - ../user-stories/completed/US-042-automated-camera-alignment-and-standardized-viewport-initialization.md
@@ -644,6 +645,69 @@ The measured turn rate is 240 deg/s, not the 90 deg/s that was assumed, so the d
 pulse dropped from 0.15 s to 0.08 s to keep one pulse inside the 25 deg heading tolerance. The added
 measurement costs 1.06 ms per tick with the geometry cached, on the existing `SessionWorker` thread,
 never on the Qt GUI thread.
+
+## Navigation profile anchoring (US-036)
+
+A learned map is a set of minimap-pixel coordinates relative to wherever its session started, so
+loading one into a later session used to reinterpret it relative to the new start point: every cell,
+edge, hotspot, and stall marker shifted by an arbitrary offset. Since US-035 the frame's *rotation* is
+absolute (the minimap is north-up), which leaves exactly one unknown — the translation. US-036 closes
+it with a stored landmark.
+
+**Schema version 2 is the only format.** `SPATIAL_MAP_SCHEMA_VERSION` is 2 and
+`SpatialMap.from_dict` rejects anything else by name. There is no migration branch and no read-only
+legacy mode for pre-odometry version 1 documents: their dead-reckoned coordinates carry no physical
+ground truth to remap (ADR-003). Profiles recorded before this change are invalid and must be newly
+recorded.
+
+**The landmark.** `flyff_bot.features.navigation.anchoring` owns the anchor record: the greyscale
+minimap disk the profile was recorded at, the map coordinates (in minimap pixels) it was captured at,
+the measured heading, and the zoom signature that *is* the scale. It is stored inside the same profile
+document as a base64 PNG under an `anchor` key, so a profile stays one self-contained file.
+`MinimapSample` now also carries the unprepared `surface_greyscale` disk and `MinimapReading` passes
+it up, which is how the navigation layer obtains a landmark without decoding frames itself.
+`PathingController.track` keeps the freshest `MEASURED` disk as the anchor candidate, so standby
+ticks alone keep both saving and loading possible while the session is paused.
+
+**Loading is a decision, not a file read.** `PathingController.load_map` returns a
+`ProfileLoadResult` and takes one of five outcomes:
+
+| Outcome | Condition | Effect |
+| --- | --- | --- |
+| `ANCHORED` | landmark correlated above 0.30 within one surface radius | map loaded and writable; `MovementTracker.relocate` moves the tracker into the profile's frame |
+| `SCALE_MISMATCH` | stored zoom signature deviates from the live one by more than 12 % | nothing loaded; the active map stays intact |
+| `UNMATCHED` | no live disk, or correlation below the gate | nothing loaded; the operator is offered read-only or cancel, defaulting to cancel |
+| `READ_ONLY` | the operator accepted a read-only load (`accept_unmatched`) | map loaded, learning suspended |
+| `UNANCHORED` | the profile carries no landmark (saved while `DEGRADED`) | map loaded read-only |
+
+Matching reuses the odometry machinery rather than a second implementation:
+`windowed_surface` applies the same marker masking and Hanning window to a stored disk that
+`read_minimap` applies to a live one, `correlate_surfaces` is the shared response-gated phase
+correlation (`measure_translation` adds only the per-frame 24 px bound, anchoring the one-radius
+bound), and the map-scroll-to-player sign rule comes from `MinimapReading.player_dx/player_dy`. The
+recovered offset is the position of the *capture point*; whatever the character covered since is added
+from the live prediction offset, which is the same vector in both frames because they share rotation
+and scale. Heading is not re-applied from the anchor — it is measured absolutely every tick.
+
+**Read-only maps never learn and are never written back.** A read-only load takes the same branch in
+`PathingController.observe` as `DEGRADED` tracking: no visit, spawn, or stall is recorded and
+`break_trail()` runs, so stall-driven retreat is off too (it needs the map to record the obstacle).
+`save_map` refuses while read-only, because persisting coordinates offset from the profile's frame by
+an unknown amount would corrupt the very profile the session failed to re-anchor to. It otherwise
+returns the `ProfileAnchorState` a later load will get, and stores no anchor at all when tracking is
+`DEGRADED` at save time.
+
+**Operator visibility.** `NavigationSnapshot.profile_anchor_state` publishes `SESSION`, `ANCHORED`,
+`READ_ONLY`, or `UNANCHORED`, rendered as a chip beside the profile controls. The refusal paths get
+their own localized dialogs: the two-outcome prompt (`MainWindow.confirm_read_only_profile`, exactly
+two buttons with cancel as the default) and the scale-mismatch notice, which names both signatures.
+
+**Persistence API.** `save_spatial_map` / `load_spatial_map` were replaced by `save_profile` /
+`load_profile` over a `NavigationProfile` (map plus optional anchor); the obsolete pair was deleted
+rather than kept as a shim. A corrupted or truncated anchor record costs the profile only its
+landmark — it then loads unanchored, and no exception escapes to the UI, matching the corrupt-profile
+behaviour of US-021. The usable matching radius inside the one-radius bound is a field measurement
+that is still open.
 
 ## Standardized camera alignment (US-042)
 

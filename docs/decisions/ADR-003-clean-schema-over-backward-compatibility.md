@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-08-18
-- Related stories: [US-036](../user-stories/US-036-navigation-profile-anchoring-across-sessions.md)
+- Related stories: [US-036](../user-stories/completed/US-036-navigation-profile-anchoring-across-sessions.md)
 
 ## Context
 

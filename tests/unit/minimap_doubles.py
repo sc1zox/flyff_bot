@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+import numpy.typing as npt
+
 from flyff_bot.features.automation.controllers import VIRTUAL_KEY_W
 from flyff_bot.features.navigation.tracking import (
     CLOCKWISE_VIRTUAL_KEYS,
-    FULL_TURN_DEGREES,
     ROTATION_VIRTUAL_KEYS,
     MovementModel,
 )
 from flyff_bot.features.vision.minimap import (
+    FULL_TURN_DEGREES,
     MinimapDisplacement,
     MinimapReading,
 )
@@ -50,10 +53,16 @@ class MirrorOdometer:
     """
 
     def __init__(
-        self, model: MovementModel, zoom_signature: float = REFERENCE_ZOOM_SIGNATURE
+        self,
+        model: MovementModel,
+        zoom_signature: float = REFERENCE_ZOOM_SIGNATURE,
+        surface: npt.NDArray[np.uint8] | None = None,
     ) -> None:
         self._model = model
         self._zoom_signature = zoom_signature
+        # Only anchoring tests need a landmark, so the disk stays absent by default and the
+        # controller then has nothing to store in a saved profile (US-036).
+        self._surface = surface
         self._heading_degrees = 0.0
         self._pending_x = 0.0
         self._pending_y = 0.0
@@ -106,6 +115,7 @@ class MirrorOdometer:
             ),
             heading_degrees=self._heading_degrees,
             zoom_signature=self._zoom_signature,
+            surface=self._surface,
         )
         self._pending_x = 0.0
         self._pending_y = 0.0

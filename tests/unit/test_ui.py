@@ -53,13 +53,18 @@ from flyff_bot.features.input_control import (
     ScreenRect,
     parse_virtual_key,
 )
-from flyff_bot.features.navigation.pathing import PathingController
+from flyff_bot.features.navigation.anchoring import ProfileAnchorState
+from flyff_bot.features.navigation.pathing import (
+    PathingController,
+    ProfileLoadOutcome,
+    ProfileLoadResult,
+)
 from flyff_bot.features.navigation.spatial import SpatialMap, WorldPoint
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import TargetVerifier
-from flyff_bot.i18n import Language, Translator
+from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.app import connect_farming_controls, start_farming
 from flyff_bot.ui.dashboard import (
     BotStatus,
@@ -195,8 +200,11 @@ def test_farming_controls_connect_dashboard_intent() -> None:
         def save_navigation_profile(self, path: Path) -> None:
             self.requests.append(f"save:{path.name}")
 
-        def load_navigation_profile(self, path: Path) -> None:
+        def load_navigation_profile(
+            self, path: Path, *, accept_unmatched: bool = False
+        ) -> ProfileLoadResult:
             self.requests.append(f"load:{path.name}")
+            return ProfileLoadResult(ProfileLoadOutcome.ANCHORED)
 
         def reset_navigation_map(self) -> None:
             self.requests.append("reset")
@@ -585,6 +593,143 @@ def test_main_window_profile_save_and_load_signals(tmp_path: Path) -> None:
     application.processEvents()
 
     assert loaded_paths == [saved_paths[0]]
+
+
+class _ProfileSession:
+    """A farming session that only records how a profile load was attempted."""
+
+    def __init__(self, outcome: ProfileLoadOutcome) -> None:
+        self._outcome = outcome
+        self.load_attempts: list[bool] = []
+
+    def start(self) -> None: ...
+
+    def pause(self) -> None: ...
+
+    def emergency_stop(self) -> None: ...
+
+    def save_navigation_profile(self, path: Path) -> None: ...
+
+    def load_navigation_profile(
+        self, path: Path, *, accept_unmatched: bool = False
+    ) -> ProfileLoadResult:
+        self.load_attempts.append(accept_unmatched)
+        return ProfileLoadResult(
+            self._outcome, stored_zoom_signature=110.7, live_zoom_signature=88.5
+        )
+
+    def reset_navigation_map(self) -> None: ...
+
+    def configure_vitals(self, config: VitalsTriggerConfig) -> None: ...
+
+    def configure_powerups(self, config: PowerUpConfig) -> None: ...
+
+    def request_camera_alignment(self) -> None: ...
+
+    def configure_auto_align(self, enabled: bool) -> None: ...
+
+
+@pytest.mark.parametrize(
+    ("accepted", "expected_attempts"),
+    [(True, [False, True]), (False, [False])],
+)
+def test_refused_anchor_only_loads_read_only_when_the_operator_accepts(
+    monkeypatch: pytest.MonkeyPatch, accepted: bool, expected_attempts: list[bool]
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    session = _ProfileSession(ProfileLoadOutcome.UNMATCHED)
+    connect_farming_controls(window, session)
+    monkeypatch.setattr(MainWindow, "confirm_read_only_profile", lambda _self: accepted)
+
+    window.load_profile_requested.emit(Path("spot.json"))
+    application.processEvents()
+
+    assert session.load_attempts == expected_attempts
+
+
+def test_a_scale_mismatch_is_reported_and_never_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    application = QApplication.instance() or QApplication([])
+    translator = Translator(Language.ENGLISH)
+    window = MainWindow(translator)
+    session = _ProfileSession(ProfileLoadOutcome.SCALE_MISMATCH)
+    connect_farming_controls(window, session)
+    dialogs: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        MainWindow,
+        "show_error_dialog",
+        lambda _self, title, message: dialogs.append((title, message)),
+    )
+
+    window.load_profile_requested.emit(Path("spot.json"))
+    application.processEvents()
+
+    assert session.load_attempts == [False]
+    assert dialogs[0][0] == translator.text(Message.UI_PROFILE_SCALE_MISMATCH_TITLE)
+    assert "110.7" in dialogs[0][1]
+    assert "88.5" in dialogs[0][1]
+
+
+@pytest.mark.parametrize(
+    ("state", "message"),
+    [
+        (ProfileAnchorState.SESSION, Message.UI_PROFILE_ANCHOR_SESSION),
+        (ProfileAnchorState.ANCHORED, Message.UI_PROFILE_ANCHOR_ANCHORED),
+        (ProfileAnchorState.READ_ONLY, Message.UI_PROFILE_ANCHOR_READ_ONLY),
+        (ProfileAnchorState.UNANCHORED, Message.UI_PROFILE_ANCHOR_UNANCHORED),
+    ],
+)
+def test_main_window_shows_the_profile_anchor_state(
+    state: ProfileAnchorState, message: Message
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    translator = Translator(Language.ENGLISH)
+    window = MainWindow(translator)
+    snapshot = NavigationSnapshot(
+        player_x=0.0,
+        player_y=0.0,
+        heading_degrees=90.0,
+        cells=(),
+        edges=(),
+        profile_anchor_state=state,
+    )
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.PAUSED, navigation=snapshot))
+    application.processEvents()
+
+    assert window.profile_anchor_label.text() == translator.text(message)
+
+
+def test_unanchored_profile_prompt_offers_read_only_or_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _application = QApplication.instance() or QApplication([])
+    translator = Translator(Language.ENGLISH)
+    window = MainWindow(translator)
+    prompts: list[QMessageBox] = []
+
+    def _decline(box: QMessageBox) -> int:
+        prompts.append(box)
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", _decline)
+
+    assert window.confirm_read_only_profile() is False
+
+    prompt = prompts[0]
+    assert len(prompt.buttons()) == 2
+    assert prompt.defaultButton() is not None
+    assert prompt.defaultButton().text() == translator.text(Message.UI_PROFILE_UNMATCHED_CANCEL)
+
+    def _accept(box: QMessageBox) -> int:
+        for button in box.buttons():
+            if box.buttonRole(button) is QMessageBox.ButtonRole.AcceptRole:
+                button.click()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", _accept)
+
+    assert window.confirm_read_only_profile() is True
 
 
 def test_main_window_reset_map_dialog_confirmation(

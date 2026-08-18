@@ -58,7 +58,7 @@ from flyff_bot.ui.dashboard import (
 if TYPE_CHECKING:
     # Only needed as an annotation; importing it eagerly would close the pre-existing
     # navigation -> automation -> navigation package cycle at module load time.
-    from flyff_bot.features.navigation.pathing import PathingController
+    from flyff_bot.features.navigation.pathing import PathingController, ProfileLoadResult
 
 
 DEFAULT_TICK_INTERVAL_SECONDS = 0.1
@@ -294,14 +294,23 @@ class FarmingOrchestrator:
             self._pathing.save_map(path)
             self._publish(False)
 
-    def load_navigation_profile(self, path: Path) -> None:
-        """Load a persisted map profile from disk and update the live navigation state."""
+    def load_navigation_profile(
+        self, path: Path, *, accept_unmatched: bool = False
+    ) -> ProfileLoadResult | None:
+        """Re-anchor a persisted map profile to the live session, or report the refusal.
+
+        The caller owns the operator decision a refused load needs: nothing is loaded unless
+        the profile re-anchored or `accept_unmatched` was set from a confirmed prompt.
+        Returns ``None`` when this session runs without learned navigation at all.
+        """
 
         if self._mode not in {FarmingMode.PAUSED, FarmingMode.EMERGENCY_STOPPED}:
             raise RuntimeError("Navigation profiles can only be loaded while farming is paused.")
-        if self._pathing is not None:
-            self._pathing.load_map(path)
-            self._publish(False)
+        if self._pathing is None:
+            return None
+        result = self._pathing.load_map(path, accept_unmatched=accept_unmatched)
+        self._publish(False)
+        return result
 
     def reset_navigation_map(self) -> None:
         """Reset the active spatial map and tracking origin."""

@@ -179,3 +179,18 @@ related:
 - **Correlation response** — The confidence `cv2.phaseCorrelate` reports for one minimap
   displacement. Genuine motion measured 0.34-0.99; a zoom step measured 0.062 and unrelated minimap
   content -0.006 to 0.097, so the 0.30 gate separates them by a factor of three.
+- **Map anchor** — The landmark a navigation profile stores so a later session can tell where its
+  coordinates mean: the greyscale minimap disk at save time, the map coordinates it was captured at,
+  the measured heading, and the zoom signature. Held as a base64 PNG inside the profile document.
+- **Re-anchoring** — Recovering the translational offset between a loaded profile's coordinate frame
+  and the live session's, by phase-correlating the stored anchor disk against the live one. Rotation
+  needs no recovery because the minimap is north-up; scale is verified against the stored zoom
+  signature rather than recovered.
+- **Read-only profile** — A loaded profile whose frame could not be verified, either because its
+  anchor did not match or because it carries none. Its routes may be followed, but no visit, spawn, or
+  stall is recorded and it is never written back to disk.
+- **Profile anchor state** — What the dashboard shows beside the profile controls: `SESSION` for this
+  session's own recording, `ANCHORED`, `READ_ONLY`, or `UNANCHORED`.
+- **Schema version 2** — The only navigation profile format. It is the first whose coordinates are
+  measured minimap pixels and which can carry a map anchor; version 1 documents are rejected by name
+  rather than migrated (ADR-003).

@@ -11,7 +11,10 @@ DEFAULT_SPAWN_WEIGHT_PER_SIGHTING = 1.0
 DEFAULT_STALL_COST_PENALTY = 3.0
 DEFAULT_MAXIMUM_STALL_COST_FACTOR = 12.0
 DEFAULT_MAXIMUM_LINK_SPAN_CELLS = 3
-SPATIAL_MAP_SCHEMA_VERSION = 1
+# Version 2 is the single authoritative format. It is the first one whose coordinates are
+# measured minimap pixels (US-035) and whose profiles carry a spatial anchor (US-036), so the
+# pre-odometry version 1 documents are rejected rather than migrated (ADR-003).
+SPATIAL_MAP_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)

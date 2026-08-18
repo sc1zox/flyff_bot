@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Signal
 
 from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.navigation.anchoring import ProfileAnchorState
 from flyff_bot.features.navigation.tracking import TrackingQuality
 from flyff_bot.features.vision.models import CapturedFrame
 
@@ -96,6 +97,10 @@ class NavigationSnapshot:
     # Positions are minimap pixels at the zoom level this session was anchored to, so the
     # anchor travels with them (US-035).
     zoom_signature_anchor: float | None = None
+    # Whether the active map's coordinates were verified against the frame they were
+    # recorded in, so a read-only or unanchored profile is never mistaken for a learning
+    # one (US-036).
+    profile_anchor_state: ProfileAnchorState = ProfileAnchorState.SESSION
 
 
 @dataclass(frozen=True, slots=True)

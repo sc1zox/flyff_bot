@@ -90,7 +90,7 @@ ZOOM_SIGNATURE_TOLERANCE_FRACTION = 0.12
 _ZOOM_SIGNATURE_MARGIN_PIXELS = 3
 _ZOOM_SIGNATURE_MARKER_MARGIN_PIXELS = 2
 
-_FULL_TURN_DEGREES = 360.0
+FULL_TURN_DEGREES = 360.0
 _MINIMUM_MARKER_AXIS_LENGTH = 1e-6
 
 
@@ -115,6 +115,10 @@ class MinimapSample:
     windowed_surface: npt.NDArray[np.float32]
     zoom_signature: float
     heading_degrees: float | None
+    # The unprepared greyscale disk. It is the landmark a navigation profile stores to
+    # recover the offset between two sessions' coordinate frames (US-036), which is why the
+    # raw picture is kept alongside the correlation input derived from it.
+    surface_greyscale: npt.NDArray[np.uint8]
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,11 +138,14 @@ class MinimapDisplacement:
 
 @dataclass(frozen=True, slots=True)
 class MinimapReading:
-    """One tick of minimap odometry: player motion, facing, and zoom signature."""
+    """One tick of minimap odometry: player motion, facing, zoom signature, and landmark."""
 
     displacement: MinimapDisplacement | None
     heading_degrees: float | None
     zoom_signature: float
+    # The greyscale disk this reading was measured from, or ``None`` when the caller
+    # synthesised the reading instead of decoding a frame.
+    surface: npt.NDArray[np.uint8] | None = None
 
     @property
     def player_dx(self) -> float:
@@ -303,7 +310,7 @@ def _marker_axis_bearing(surface_pixels: npt.NDArray[np.uint8], centre: int) -> 
     # point from the centroid" flipped on 8 of 53 frames of the recorded turn.
     if float((projection**3).mean()) < 0.0:
         axis = -axis
-    return math.degrees(math.atan2(axis[0], -axis[1])) % _FULL_TURN_DEGREES
+    return math.degrees(math.atan2(axis[0], -axis[1])) % FULL_TURN_DEGREES
 
 
 def _zoom_signature(surface: npt.NDArray[np.float32], kernels: _SurfaceKernels) -> float:
@@ -312,6 +319,43 @@ def _zoom_signature(surface: npt.NDArray[np.float32], kernels: _SurfaceKernels) 
     gradient_x = cv2.Sobel(surface, cv2.CV_32F, 1, 0, ksize=3)
     gradient_y = cv2.Sobel(surface, cv2.CV_32F, 0, 1, ksize=3)
     return float(np.hypot(gradient_x, gradient_y)[kernels.signature].mean())
+
+
+def _prepare_correlation_surface(
+    surface: npt.NDArray[np.float32], kernels: _SurfaceKernels
+) -> npt.NDArray[np.float32]:
+    """Blank the marker, flatten the bevel, and window one greyscale disk in place.
+
+    The caller hands over ownership of `surface`: it is mutated rather than copied, because
+    this runs once per captured frame.
+    """
+
+    outside_marker = kernels.surface & ~kernels.marker
+    surface[kernels.marker] = float(surface[outside_marker].mean())
+    surface[~kernels.surface] = float(surface[kernels.surface].mean())
+    windowed = (surface - float(surface[kernels.surface].mean())) * kernels.window
+    return windowed.astype(np.float32)
+
+
+def windowed_surface(greyscale: npt.NDArray[np.uint8]) -> npt.NDArray[np.float32]:
+    """Prepare one stored greyscale minimap disk for correlation.
+
+    A disk restored from a navigation profile has to travel the exact same preparation the
+    live sample went through, or the two are not comparable (US-036).
+    """
+
+    height, width = greyscale.shape[:2]
+    if greyscale.ndim != 2 or height != width or height % 2 != 0:
+        raise ValueError("A minimap disk must be a square greyscale image of even size.")
+    return _prepare_correlation_surface(greyscale.astype(np.float32), _kernels(height // 2))
+
+
+def zoom_signature_matches(reference: float, candidate: float) -> bool:
+    """Return whether two zoom signatures describe the same minimap scale."""
+
+    if reference <= 0.0:
+        return False
+    return abs(candidate - reference) / reference <= ZOOM_SIGNATURE_TOLERANCE_FRACTION
 
 
 def read_minimap(frame: CapturedFrame, geometry: MinimapGeometry) -> MinimapSample:
@@ -324,16 +368,39 @@ def read_minimap(frame: CapturedFrame, geometry: MinimapGeometry) -> MinimapSamp
     colour = frame.pixels[top : top + 2 * radius, left : left + 2 * radius]
     surface = _to_greyscale(colour, frame.pixel_format)
     signature = _zoom_signature(surface, kernels)
-    outside_marker = kernels.surface & ~kernels.marker
-    surface[kernels.marker] = float(surface[outside_marker].mean())
-    surface[~kernels.surface] = float(surface[kernels.surface].mean())
-    windowed = (surface - float(surface[kernels.surface].mean())) * kernels.window
+    # Taken before the preparation masks the marker, so the stored landmark is the picture
+    # the client actually drew.
+    greyscale = surface.astype(np.uint8)
     return MinimapSample(
         geometry=geometry,
-        windowed_surface=windowed.astype(np.float32),
+        windowed_surface=_prepare_correlation_surface(surface, kernels),
         zoom_signature=signature,
         heading_degrees=_marker_axis_bearing(colour, radius),
+        surface_greyscale=greyscale,
     )
+
+
+def correlate_surfaces(
+    reference: npt.NDArray[np.float32], current: npt.NDArray[np.float32]
+) -> MinimapDisplacement | None:
+    """Return the scroll between two prepared disks, or ``None`` below the confidence gate.
+
+    Only the response gate is applied here. How far the content may legitimately have
+    scrolled depends on what the two disks are: consecutive frames of one session and the
+    two ends of a re-anchoring both use this measurement under different bounds.
+    """
+
+    if reference.shape != current.shape:
+        return None
+    (raw_x, raw_y), response = cv2.phaseCorrelate(reference, current)
+    displacement = MinimapDisplacement(
+        x=raw_x - PHASE_CORRELATION_CENTRE_OFFSET_PIXELS,
+        y=raw_y - PHASE_CORRELATION_CENTRE_OFFSET_PIXELS,
+        response=float(response),
+    )
+    if displacement.response < MINIMUM_CORRELATION_RESPONSE:
+        return None
+    return displacement
 
 
 def measure_translation(
@@ -341,17 +408,8 @@ def measure_translation(
 ) -> MinimapDisplacement | None:
     """Return how far the minimap content scrolled, or ``None`` below the confidence gate."""
 
-    if previous.windowed_surface.shape != current.windowed_surface.shape:
-        return None
-    (raw_x, raw_y), response = cv2.phaseCorrelate(
-        previous.windowed_surface, current.windowed_surface
-    )
-    displacement = MinimapDisplacement(
-        x=raw_x - PHASE_CORRELATION_CENTRE_OFFSET_PIXELS,
-        y=raw_y - PHASE_CORRELATION_CENTRE_OFFSET_PIXELS,
-        response=float(response),
-    )
-    if displacement.response < MINIMUM_CORRELATION_RESPONSE:
+    displacement = correlate_surfaces(previous.windowed_surface, current.windowed_surface)
+    if displacement is None:
         return None
     if displacement.magnitude > MAXIMUM_INTER_FRAME_DISPLACEMENT_PIXELS:
         return None
@@ -412,4 +470,5 @@ class MinimapOdometer:
             displacement=displacement,
             heading_degrees=sample.heading_degrees,
             zoom_signature=sample.zoom_signature,
+            surface=sample.surface_greyscale,
         )
