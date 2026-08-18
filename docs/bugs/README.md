@@ -11,7 +11,7 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-- [ ] [**BUG-014: Camera alignment uses inverted wheel direction and non-functional pitch keys**](BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md)
+- [ ] [**BUG-015: Camera alignment mouse wheel zoom-out has no observable effect on game viewport**](BUG-015-camera-alignment-zoom-out-has-no-effect.md)
 
 
 ## Fixed Defects
@@ -29,5 +29,6 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-011: Target name verification failure engages the wrong target**](fixed/BUG-011-target-name-verification-failure-wrong-target.md)
 - [x] [**BUG-012: Monster stats OCR failure and misleading anchor diagnostics in fixed placeholder mode**](fixed/BUG-012-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md)
 - [x] [**BUG-013: Tesseract OCR subprocess UnicodeDecodeError on Windows CP1252**](fixed/BUG-013-tesseract-ocr-subprocess-unicodedecodeerror-on-windows-cp1252.md)
+- [x] [**BUG-014: Camera alignment uses inverted wheel direction and non-functional pitch keys**](fixed/BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md)
 
 
