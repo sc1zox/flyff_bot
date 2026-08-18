@@ -27,7 +27,6 @@ class ActionKind(StrEnum):
 
     ATTACK = "attack"
     MOVE = "move"
-    LOOT = "loot"
     RECOVER = "recover"
 
 
@@ -36,7 +35,6 @@ class ObservationKind(StrEnum):
 
     TARGET_ENGAGED = "target_engaged"
     POSITION_CHANGED = "position_changed"
-    LOOT_COLLECTED = "loot_collected"
     RECOVERY_COMPLETE = "recovery_complete"
 
 
@@ -105,15 +103,6 @@ class SelectedTarget:
 
 
 @dataclass(frozen=True, slots=True)
-class RecentLoot:
-    """One pickup carried into a world-state snapshot."""
-
-    item_name: str
-    count: int
-    raw_text: str
-
-
-@dataclass(frozen=True, slots=True)
 class WorldState:
     """One immutable perception snapshot used by all decision layers."""
 
@@ -125,7 +114,6 @@ class WorldState:
     is_stuck: bool = False
     selected_target: SelectedTarget = SelectedTarget(TargetState.NONE, None, 0)
     visible_mobs: tuple[VisibleMob, ...] = ()
-    recent_loot: tuple[RecentLoot, ...] = ()
     viewport: Viewport = Viewport()
     player_vitals: PlayerVitals = field(default_factory=PlayerVitals)
     monster_kill_count: int = 0

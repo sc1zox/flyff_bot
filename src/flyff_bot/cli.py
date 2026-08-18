@@ -49,9 +49,6 @@ from flyff_bot.features.vision import (
     DetectionError,
     FrameCaptureError,
     FrameCaptureErrorCode,
-    LootLogReader,
-    LootOcrError,
-    LootOcrErrorCode,
     OpenCVDnnYoloDetector,
     TargetVerifier,
     TesseractTextRecognizer,
@@ -144,11 +141,6 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         "--detect-mobs",
         action="store_true",
         help=translator.text(Message.HELP_DETECT_MOBS),
-    )
-    actions.add_argument(
-        "--read-loot",
-        action="store_true",
-        help=translator.text(Message.HELP_READ_LOOT),
     )
     actions.add_argument(
         "--farm",
@@ -307,11 +299,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 )
             )
         if args.list or (
-            args.key is None
-            and args.click is None
-            and not args.detect_mobs
-            and not args.read_loot
-            and not args.farm
+            args.key is None and args.click is None and not args.detect_mobs and not args.farm
         ):
             return ExitCode.SUCCESS
 
@@ -372,21 +360,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 )
             return ExitCode.SUCCESS
 
-        if args.read_loot:
-            frame = WindowsFrameSource().capture(window_handle)
-            events = LootLogReader(TesseractTextRecognizer()).read(frame)
-            print(translator.text(Message.LOOT_SUMMARY, count=len(events)))
-            for event in events:
-                print(
-                    translator.text(
-                        Message.LOOT_LINE,
-                        timestamp=event.timestamp.isoformat(),
-                        item_name=event.item_name,
-                        count=event.count,
-                    )
-                )
-            return ExitCode.SUCCESS
-
         if args.key is not None:
             controller.send_key(args.key, max(MINIMUM_KEY_DURATION_SECONDS, args.duration))
         else:
@@ -403,14 +376,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
         }
         print(translator.text(capture_messages[error.code]), file=sys.stderr)
         return ExitCode.DETECTION_FAILURE
-    except LootOcrError as error:
-        message = (
-            Message.LOOT_OCR_ENGINE_UNAVAILABLE
-            if error.code is LootOcrErrorCode.ENGINE_UNAVAILABLE
-            else Message.LOOT_OCR_FAILED
-        )
-        print(translator.text(message), file=sys.stderr)
-        return ExitCode.LOOT_OCR_FAILURE
     except TrainingError as error:
         print(translator.text(Message.TRAINING_FAILED, reason=error), file=sys.stderr)
         return ExitCode.TRAINING_FAILURE

@@ -72,11 +72,10 @@ Game Client
      It returns structured client-space detections with a bounding box, confidence, class ID, and
      class name; the `Detector` protocol supports deterministic mock implementations.
    - **Template Matching:** Detection of fixed 2D UI elements and anchors.
-   - **ROI OCR:** `LootLogReader` extracts a configurable normalized central loot/system-log
-     region, applies CLAHE contrast enhancement and adaptive thresholding, and delegates text
-     recognition to an injectable engine. Its Tesseract adapter reads English and German text;
-     pickup parsing produces typed timestamped loot events without dispatching input.
-  - **Frame capture:** `WindowsFrameSource` captures the foreground client's exact client area
+   - **OCR Engine:** `TesseractTextRecognizer` (`features/vision/ocr.py`) implements the `TextRecognizer`
+     protocol, providing localized OCR text recognition for target nameplate verification and HUD
+     monster stats extraction with UTF-8 decoding resilience.
+   - **Frame capture:** `WindowsFrameSource` captures the foreground client's exact client area
      through documented Win32 GDI APIs and exposes contiguous BGR or RGB `numpy.ndarray` frames.
      Its `FrameSource` protocol is injectable for deterministic tests, and capture failures use
      typed error codes. `require_foreground=False` relaxes only the foreground precondition for
@@ -88,9 +87,8 @@ Game Client
      `NO_TARGET`, including an HP percentage calculated only from the HP-bar crop, without
      dispatching any input.
    - **Perception pipeline:** `PerceptionPipeline` captures one frame per tick and passes that
-     shared frame to mob detection, target verification, and an optional loot-log OCR feed, which
-     defaults to a no-op reader that performs no subprocess or disk I/O when none is attached. It
-     maps their outputs into a fresh immutable `WorldState`, emits target-change and
+     shared frame to mob detection, target verification, player vitals reading, and monster stats
+     reading. It maps their outputs into a fresh immutable `WorldState`, emits target-change and
      newly-visible-mob events, and records feed-specific failures while retaining the prior value
      for a failed feed.
    - **Training dataset:** `flyff_bot.features.training` provides an offline standard-YOLO

@@ -13,13 +13,6 @@ import numpy.typing as npt
 import pytest
 
 from flyff_bot.constants import DEFAULT_MONSTER_STATS_PANEL_PATH
-from flyff_bot.features.vision.loot_ocr import (
-    TESSERACT_LANGUAGE_ENGLISH,
-    LootOcrError,
-    LootOcrErrorCode,
-    TesseractTextRecognizer,
-    resolve_tesseract_executable,
-)
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     ClientSize,
@@ -36,6 +29,13 @@ from flyff_bot.features.vision.monster_stats import (
     compute_monster_stats_roi,
     extract_hud_text_mask,
     load_header_anchor_template,
+)
+from flyff_bot.features.vision.ocr import (
+    TESSERACT_LANGUAGE_ENGLISH,
+    OcrError,
+    OcrErrorCode,
+    TesseractTextRecognizer,
+    resolve_tesseract_executable,
 )
 
 # The constant colour the client renders every stats-HUD glyph in, in BGR order.
@@ -71,11 +71,11 @@ class _RaisingRecognizer:
 class _FailingOcrRecognizer:
     """An OCR backend that reports one known engine failure code."""
 
-    def __init__(self, code: LootOcrErrorCode) -> None:
+    def __init__(self, code: OcrErrorCode) -> None:
         self._code = code
 
     def recognize(self, image: npt.NDArray[np.uint8]) -> tuple[str, ...]:
-        raise LootOcrError(self._code)
+        raise OcrError(self._code)
 
 
 def _frame(width: int = 1600, height: int = 900) -> CapturedFrame:
@@ -163,10 +163,10 @@ def test_reader_reports_ocr_failure_without_raising() -> None:
 def test_reader_reports_a_missing_engine_distinctly_from_a_recognition_failure() -> None:
     """A missing Tesseract install is actionable; a failed recognition is not the same fault."""
 
-    unavailable = MonsterStatsReader(
-        _FailingOcrRecognizer(LootOcrErrorCode.ENGINE_UNAVAILABLE)
-    ).read(_frame())
-    failed = MonsterStatsReader(_FailingOcrRecognizer(LootOcrErrorCode.RECOGNITION_FAILED)).read(
+    unavailable = MonsterStatsReader(_FailingOcrRecognizer(OcrErrorCode.ENGINE_UNAVAILABLE)).read(
+        _frame()
+    )
+    failed = MonsterStatsReader(_FailingOcrRecognizer(OcrErrorCode.RECOGNITION_FAILED)).read(
         _frame()
     )
 

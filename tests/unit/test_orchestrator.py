@@ -90,7 +90,6 @@ def _state(
     target: SelectedTarget | None = None,
     mobs: tuple[VisibleMob, ...] = (),
     inventory: tuple[InventoryEntry, ...] = (),
-    loot: bool = False,
 ) -> WorldState:
     return WorldState(
         observed_at_seconds=time,
@@ -100,7 +99,6 @@ def _state(
         progress_marker=0,
         selected_target=target or SelectedTarget(TargetState.NONE, None, 0),
         visible_mobs=mobs,
-        recent_loot=(),
         viewport=Viewport(100, 100),
     )
 

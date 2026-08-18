@@ -11,9 +11,7 @@ from typing import Protocol
 import cv2
 
 from flyff_bot.features.automation.models import (
-    InventoryEntry,
     PlayerVitals,
-    RecentLoot,
     SelectedTarget,
     TargetState,
     Viewport,
@@ -22,7 +20,6 @@ from flyff_bot.features.automation.models import (
 )
 from flyff_bot.features.vision.capture import FrameSource
 from flyff_bot.features.vision.detection import Detection, DetectionError, Detector
-from flyff_bot.features.vision.loot_ocr import LootEvent, LootOcrError
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.features.vision.monster_stats import MonsterStatsFeed
 from flyff_bot.features.vision.target_verification import (
@@ -41,7 +38,6 @@ class PerceptionFailure(StrEnum):
 
     DETECTION = "detection"
     TARGET_VERIFICATION = "target_verification"
-    LOOT_READING = "loot_reading"
     VITALS_READING = "vitals_reading"
     MONSTER_STATS = "monster_stats"
 
@@ -53,28 +49,11 @@ class TargetVerificationFeed(Protocol):
         """Return the current target classification."""
 
 
-class LootFeed(Protocol):
-    """A component that reads pickup notifications from a captured frame."""
-
-    def read(self, frame: CapturedFrame) -> tuple[LootEvent, ...]:
-        """Return pickups visible in this frame."""
-
-
-class _NullLootFeed:
-    """Default no-op loot feed used when no OCR-based reader is attached."""
-
-    def read(self, frame: CapturedFrame) -> tuple[LootEvent, ...]:
-        """Return no pickups without touching the frame or spawning a subprocess."""
-
-        return ()
-
-
 class PerceptionEventKind(StrEnum):
     """State transitions emitted by one perception tick."""
 
     TARGET_CHANGED = "target_changed"
     MOB_APPEARED = "mob_appeared"
-    LOOT_COLLECTED = "loot_collected"
     VITALS_CHANGED = "vitals_changed"
 
 
@@ -85,7 +64,6 @@ class PerceptionEvent:
     kind: PerceptionEventKind
     target: SelectedTarget | None = None
     mob: VisibleMob | None = None
-    loot: RecentLoot | None = None
     vitals: PlayerVitals | None = None
 
 
@@ -107,7 +85,6 @@ class PerceptionPipeline:
         frame_source: FrameSource,
         detector: Detector,
         target_verifier: TargetVerificationFeed,
-        loot_log_reader: LootFeed | None = None,
         clock: Callable[[], float] = monotonic,
         vitals_reader: PlayerVitalsFeed | None = None,
         monster_stats_reader: MonsterStatsFeed | None = None,
@@ -118,13 +95,11 @@ class PerceptionPipeline:
         self._frame_source = frame_source
         self._detector = detector
         self._target_verifier = target_verifier
-        self._loot_log_reader = loot_log_reader or _NullLootFeed()
         self._clock = clock
         self._vitals_reader = vitals_reader or PlayerVitalsReader()
         self._monster_stats_reader = monster_stats_reader
         self._monster_stats_interval_seconds = monster_stats_interval_seconds
         self._next_monster_stats_read_at_seconds = 0.0
-        self._visible_loot_fingerprints: frozenset[tuple[str, int, str]] = frozenset()
 
     def tick(self, window_handle: int, previous_state: WorldState) -> PerceptionTick:
         """Build a new snapshot, retaining a feed's prior data if that feed fails."""
@@ -133,11 +108,9 @@ class PerceptionPipeline:
         failures: set[PerceptionFailure] = set()
         visible_mobs = previous_state.visible_mobs
         selected_target = previous_state.selected_target
-        recent_loot = previous_state.recent_loot
         player_vitals = previous_state.player_vitals
         monster_kill_count = previous_state.monster_kill_count
         monster_stats = previous_state.monster_stats
-        confirmed_loot: tuple[LootEvent, ...] = ()
 
         try:
             visible_mobs = tuple(
@@ -149,12 +122,6 @@ class PerceptionPipeline:
             selected_target = _selected_target(self._target_verifier.verify(frame))
         except ValueError, cv2.error:
             failures.add(PerceptionFailure.TARGET_VERIFICATION)
-        try:
-            observed_loot = self._loot_log_reader.read(frame)
-            confirmed_loot = self._new_loot_events(observed_loot)
-            recent_loot = tuple(_recent_loot(event) for event in confirmed_loot)
-        except LootOcrError:
-            failures.add(PerceptionFailure.LOOT_READING)
         try:
             player_vitals = self._vitals_reader.read(frame)
         except ValueError, cv2.error:
@@ -178,36 +145,21 @@ class PerceptionPipeline:
             except Exception:  # OCR failures are non-fatal
                 failures.add(PerceptionFailure.MONSTER_STATS)
 
-        inventory = _apply_loot(previous_state.inventory, confirmed_loot)
-
         state = WorldState(
             observed_at_seconds=observed_at_seconds,
             position=previous_state.position,
             nearby_mob_count=len(visible_mobs),
-            inventory=inventory,
+            inventory=previous_state.inventory,
             progress_marker=previous_state.progress_marker,
             is_stuck=previous_state.is_stuck,
             selected_target=selected_target,
             visible_mobs=visible_mobs,
-            recent_loot=recent_loot,
             viewport=Viewport(frame.client_size.width, frame.client_size.height),
             player_vitals=player_vitals,
             monster_kill_count=monster_kill_count,
             monster_stats=monster_stats,
         )
         return PerceptionTick(state, _events(previous_state, state), frozenset(failures), frame)
-
-    def _new_loot_events(self, observed_loot: tuple[LootEvent, ...]) -> tuple[LootEvent, ...]:
-        """Return notifications newly visible since the preceding successful OCR read."""
-
-        fingerprints = frozenset(_loot_fingerprint(event) for event in observed_loot)
-        new_events = tuple(
-            event
-            for event in observed_loot
-            if _loot_fingerprint(event) not in self._visible_loot_fingerprints
-        )
-        self._visible_loot_fingerprints = fingerprints
-        return new_events
 
 
 def _visible_mob(detection: Detection) -> VisibleMob:
@@ -238,23 +190,6 @@ def _selected_target(result: TargetVerificationResult) -> SelectedTarget:
     )
 
 
-def _recent_loot(event: LootEvent) -> RecentLoot:
-    return RecentLoot(event.item_name, event.count, event.raw_text)
-
-
-def _loot_fingerprint(event: LootEvent) -> tuple[str, int, str]:
-    return (event.item_name, event.count, event.raw_text)
-
-
-def _apply_loot(
-    inventory: tuple[InventoryEntry, ...], loot_events: tuple[LootEvent, ...]
-) -> tuple[InventoryEntry, ...]:
-    quantities = {entry.item: entry.quantity for entry in inventory}
-    for event in loot_events:
-        quantities[event.item_name] = quantities.get(event.item_name, 0) + event.count
-    return tuple(InventoryEntry(item, quantity) for item, quantity in quantities.items())
-
-
 def _events(previous_state: WorldState, state: WorldState) -> tuple[PerceptionEvent, ...]:
     events: list[PerceptionEvent] = []
     if state.selected_target != previous_state.selected_target:
@@ -270,10 +205,5 @@ def _events(previous_state: WorldState, state: WorldState) -> tuple[PerceptionEv
         PerceptionEvent(PerceptionEventKind.MOB_APPEARED, mob=mob)
         for mob in state.visible_mobs
         if mob not in previous_mobs
-    )
-    events.extend(
-        PerceptionEvent(PerceptionEventKind.LOOT_COLLECTED, loot=loot)
-        for loot in state.recent_loot
-        if loot not in previous_state.recent_loot
     )
     return tuple(events)

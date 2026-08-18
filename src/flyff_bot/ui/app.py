@@ -37,11 +37,11 @@ from flyff_bot.features.vision import (
     WindowsFrameSource,
     load_class_names,
 )
-from flyff_bot.features.vision.loot_ocr import TESSERACT_LANGUAGE_ENGLISH
 from flyff_bot.features.vision.monster_stats import (
     MonsterStatsReader,
     load_header_anchor_template,
 )
+from flyff_bot.features.vision.ocr import TESSERACT_LANGUAGE_ENGLISH
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import DashboardFeed, WindowStatus
 from flyff_bot.ui.main_window import MainWindow

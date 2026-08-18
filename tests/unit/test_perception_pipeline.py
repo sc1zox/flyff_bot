@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import numpy as np
 import pytest
 
@@ -29,9 +27,6 @@ from flyff_bot.features.vision import (
     Detection,
     DetectionError,
     DetectionErrorCode,
-    LootEvent,
-    LootOcrError,
-    LootOcrErrorCode,
     TargetNameStatus,
     TargetStatus,
     TargetVerificationMetrics,
@@ -76,18 +71,6 @@ class _TargetVerifier:
         return self.result
 
 
-class _LootLogReader:
-    def __init__(self, result: tuple[LootEvent, ...] | Exception) -> None:
-        self.result = result
-        self.frames: list[CapturedFrame] = []
-
-    def read(self, frame: CapturedFrame) -> tuple[LootEvent, ...]:
-        self.frames.append(frame)
-        if isinstance(self.result, Exception):
-            raise self.result
-        return self.result
-
-
 def _previous_state() -> WorldState:
     return WorldState(
         observed_at_seconds=1.0,
@@ -107,26 +90,22 @@ def test_tick_aggregates_one_shared_frame_into_a_new_world_state() -> None:
     frame_source = _FrameSource()
     detector = _Detector([_mob()])
     verifier = _TargetVerifier(TargetVerificationResult(TargetStatus.VALID_TARGET, "Aibatt", 20))
-    loot_reader = _LootLogReader(
-        (LootEvent(datetime(2026, 8, 15, tzinfo=UTC), "Sword", 1, "You received Sword."),)
-    )
 
     tick = PerceptionPipeline(
-        frame_source, detector, verifier, loot_reader, clock=lambda: OBSERVED_AT_SECONDS
+        frame_source, detector, verifier, clock=lambda: OBSERVED_AT_SECONDS
     ).tick(WINDOW_HANDLE, _previous_state())
 
     assert tick.state is not _previous_state()
     assert tick.state.observed_at_seconds == OBSERVED_AT_SECONDS
     assert tick.state.position == Position(3, 4)
-    assert tick.state.inventory == (InventoryEntry("potion", 2), InventoryEntry("Sword", 1))
+    assert tick.state.inventory == (InventoryEntry("potion", 2),)
     assert tick.state.progress_marker == 9
     assert tick.state.nearby_mob_count == 1
     assert tick.state.visible_mobs[0].class_name == "Aibatt"
     assert tick.state.selected_target == SelectedTarget(TargetState.VALID, "Aibatt", 20)
-    assert tick.state.recent_loot[0].item_name == "Sword"
     assert tick.frame is FRAME
     assert frame_source.handles == [WINDOW_HANDLE]
-    assert detector.frames == verifier.frames == loot_reader.frames == [FRAME]
+    assert detector.frames == verifier.frames == [FRAME]
 
 
 def test_tick_emits_target_transition_and_new_mob_events() -> None:
@@ -134,7 +113,6 @@ def test_tick_emits_target_transition_and_new_mob_events() -> None:
         _FrameSource(),
         _Detector([_mob()]),
         _TargetVerifier(TargetVerificationResult(TargetStatus.VALID_TARGET, "Aibatt", 20)),
-        _LootLogReader(()),
         clock=lambda: OBSERVED_AT_SECONDS,
     ).tick(WINDOW_HANDLE, _previous_state())
 
@@ -162,7 +140,6 @@ def test_tick_forwards_full_target_verification_metrics_into_selected_target() -
         _FrameSource(),
         _Detector([]),
         _TargetVerifier(result),
-        _LootLogReader(()),
         clock=lambda: OBSERVED_AT_SECONDS,
     ).tick(WINDOW_HANDLE, _previous_state())
 
@@ -188,7 +165,6 @@ def test_tick_does_not_emit_target_changed_for_metrics_only_jitter() -> None:
         _FrameSource(),
         _Detector([]),
         verifier,
-        _LootLogReader(()),
         clock=lambda: OBSERVED_AT_SECONDS,
     )
     first = pipeline.tick(WINDOW_HANDLE, _previous_state())
@@ -206,16 +182,15 @@ def test_tick_does_not_emit_target_changed_for_metrics_only_jitter() -> None:
     assert all(event.kind is not PerceptionEventKind.TARGET_CHANGED for event in second.events)
 
 
-def test_tick_isolates_detector_and_loot_failures() -> None:
+def test_tick_isolates_detector_failure() -> None:
     tick = PerceptionPipeline(
         _FrameSource(),
         _Detector(DetectionError(DetectionErrorCode.INFERENCE_FAILED)),
         _TargetVerifier(TargetVerificationResult(TargetStatus.VALID_TARGET, "Aibatt", 20)),
-        _LootLogReader(LootOcrError(LootOcrErrorCode.RECOGNITION_FAILED)),
         clock=lambda: OBSERVED_AT_SECONDS,
     ).tick(WINDOW_HANDLE, _previous_state())
 
-    assert tick.failures == frozenset({PerceptionFailure.DETECTION, PerceptionFailure.LOOT_READING})
+    assert tick.failures == frozenset({PerceptionFailure.DETECTION})
     assert tick.state.nearby_mob_count == 0
     assert tick.state.selected_target == SelectedTarget(TargetState.VALID, "Aibatt", 20)
 
@@ -225,76 +200,11 @@ def test_tick_isolates_target_verification_failure() -> None:
         _FrameSource(),
         _Detector([]),
         _TargetVerifier(ValueError("invalid target region")),
-        _LootLogReader(()),
         clock=lambda: OBSERVED_AT_SECONDS,
     ).tick(WINDOW_HANDLE, _previous_state())
 
     assert tick.failures == frozenset({PerceptionFailure.TARGET_VERIFICATION})
     assert tick.state.selected_target == SelectedTarget(TargetState.NONE, None, 0)
-
-
-def test_tick_counts_new_loot_only_once_until_the_notification_clears() -> None:
-    reader = _LootLogReader(
-        (LootEvent(datetime(2026, 8, 15, tzinfo=UTC), "Sword", 2, "You received 2 Sword."),)
-    )
-    pipeline = PerceptionPipeline(
-        _FrameSource(),
-        _Detector([]),
-        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
-        reader,
-        clock=lambda: OBSERVED_AT_SECONDS,
-    )
-
-    first = pipeline.tick(WINDOW_HANDLE, _previous_state())
-    repeated = pipeline.tick(WINDOW_HANDLE, first.state)
-    reader.result = ()
-    cleared = pipeline.tick(WINDOW_HANDLE, repeated.state)
-    reader.result = (
-        LootEvent(datetime(2026, 8, 15, tzinfo=UTC), "Sword", 2, "You received 2 Sword."),
-    )
-    after_clear = pipeline.tick(WINDOW_HANDLE, cleared.state)
-
-    assert first.state.inventory == (InventoryEntry("potion", 2), InventoryEntry("Sword", 2))
-    assert first.state.progress_marker == 9
-    assert repeated.state.inventory == first.state.inventory
-    assert repeated.state.progress_marker == first.state.progress_marker
-    assert cleared.state.recent_loot == ()
-    assert after_clear.state.inventory == (InventoryEntry("potion", 2), InventoryEntry("Sword", 4))
-    assert after_clear.state.progress_marker == 9
-
-
-def test_loot_read_failure_retains_prior_inventory_and_progress() -> None:
-    previous = WorldState(
-        observed_at_seconds=1.0,
-        position=Position(3, 4),
-        nearby_mob_count=0,
-        inventory=(InventoryEntry("Sword", 3),),
-        progress_marker=3,
-    )
-
-    tick = PerceptionPipeline(
-        _FrameSource(),
-        _Detector([]),
-        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
-        _LootLogReader(LootOcrError(LootOcrErrorCode.RECOGNITION_FAILED)),
-        clock=lambda: OBSERVED_AT_SECONDS,
-    ).tick(WINDOW_HANDLE, previous)
-
-    assert tick.state.inventory == previous.inventory
-    assert tick.state.progress_marker == previous.progress_marker
-
-
-def test_tick_operates_without_an_attached_loot_feed() -> None:
-    tick = PerceptionPipeline(
-        _FrameSource(),
-        _Detector([]),
-        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
-        clock=lambda: OBSERVED_AT_SECONDS,
-    ).tick(WINDOW_HANDLE, _previous_state())
-
-    assert tick.state.recent_loot == ()
-    assert tick.state.inventory == _previous_state().inventory
-    assert PerceptionFailure.LOOT_READING not in tick.failures
 
 
 class _MonsterStatsReader:
@@ -417,7 +327,6 @@ def test_tick_reads_player_vitals_and_emits_event() -> None:
         _FrameSource(),
         _Detector([]),
         _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
-        _LootLogReader(()),
         vitals_reader=vitals_feed,
         clock=lambda: OBSERVED_AT_SECONDS,
     )
@@ -434,7 +343,6 @@ def test_tick_isolates_vitals_reading_failure() -> None:
         _FrameSource(),
         _Detector([]),
         _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
-        _LootLogReader(()),
         vitals_reader=vitals_feed,
         clock=lambda: OBSERVED_AT_SECONDS,
     )

@@ -11,19 +11,6 @@ from flyff_bot.features.vision.detection import (
     OpenCVDnnYoloDetector,
     load_class_names,
 )
-from flyff_bot.features.vision.loot_ocr import (
-    LootEvent,
-    LootLogReader,
-    LootLogRegion,
-    LootOcrConfig,
-    LootOcrError,
-    LootOcrErrorCode,
-    TesseractTextRecognizer,
-    TextRecognizer,
-    extract_loot_region,
-    parse_loot_lines,
-    preprocess_loot_region,
-)
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     ClientPoint,
@@ -36,6 +23,13 @@ from flyff_bot.features.vision.models import (
     PlayerVitals,
     TargetNameStatus,
     TargetVerificationMetrics,
+)
+from flyff_bot.features.vision.ocr import (
+    OcrError,
+    OcrErrorCode,
+    TesseractTextRecognizer,
+    TextRecognizer,
+    resolve_tesseract_executable,
 )
 from flyff_bot.features.vision.target_verification import (
     AnchorOffsetRegion,
@@ -72,14 +66,10 @@ __all__ = [
     "FrameCaptureErrorCode",
     "FrameSource",
     "GaugeRegion",
-    "LootEvent",
-    "LootLogReader",
-    "LootLogRegion",
-    "LootOcrConfig",
-    "LootOcrError",
-    "LootOcrErrorCode",
     "MonsterStatsMetrics",
     "MonsterStatsStatus",
+    "OcrError",
+    "OcrErrorCode",
     "OpenCVDnnYoloDetector",
     "PixelFormat",
     "PlayerVitals",
@@ -98,11 +88,9 @@ __all__ = [
     "VitalGaugeType",
     "WindowsFrameSource",
     "extract_anchor_relative_region",
-    "extract_loot_region",
     "extract_target_region",
     "load_class_names",
     "match_whitelisted_name",
-    "parse_loot_lines",
-    "preprocess_loot_region",
     "preprocess_target_name_region",
+    "resolve_tesseract_executable",
 ]

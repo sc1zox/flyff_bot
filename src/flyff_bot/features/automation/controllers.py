@@ -26,7 +26,6 @@ VIRTUAL_KEY_F1 = 0x70
 VIRTUAL_KEY_F12 = 0x7B
 DEFAULT_KEY_PRESS_DURATION_SECONDS = 0.05
 DEFAULT_ATTACK_COOLDOWN_SECONDS = 0.5
-VIRTUAL_KEY_F = 0x46
 VIRTUAL_KEY_A = 0x41
 VIRTUAL_KEY_D = 0x44
 VIRTUAL_KEY_S = 0x53
@@ -35,7 +34,6 @@ VIRTUAL_KEY_LEFT = 0x25
 VIRTUAL_KEY_UP = 0x26
 VIRTUAL_KEY_RIGHT = 0x27
 VIRTUAL_KEY_DOWN = 0x28
-DEFAULT_LOOT_PICKUP_WAIT_SECONDS = 2.0
 DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS = 0.8
 DEFAULT_ENGAGEMENT_GRACE_SECONDS = 0.5
 DEFAULT_TARGET_LOCKOUT_SECONDS = 4.0
@@ -90,15 +88,6 @@ class EngagementBreakReason(StrEnum):
     ACQUISITION_TIMEOUT = "acquisition_timeout"
     TARGET_UNVERIFIED = "target_unverified"
     ENGAGEMENT_TIMEOUT = "engagement_timeout"
-
-
-class LootMode(StrEnum):
-    """The pickup and confirmation stages after one combat death."""
-
-    IDLE = "idle"
-    PICKING_UP = "picking_up"
-    WAITING = "waiting"
-    TIMED_OUT = "timed_out"
 
 
 class SearchMode(StrEnum):
@@ -229,33 +218,6 @@ class TargetLockout:
 
     position: Position
     expires_at_seconds: float
-
-
-@dataclass(frozen=True, slots=True)
-class LootConfig:
-    """The pickup key and confirmation window for one loot attempt."""
-
-    pickup_virtual_key: int = VIRTUAL_KEY_F
-    key_press_duration_seconds: float = DEFAULT_KEY_PRESS_DURATION_SECONDS
-    pickup_wait_seconds: float = DEFAULT_LOOT_PICKUP_WAIT_SECONDS
-
-    def __post_init__(self) -> None:
-        if self.pickup_virtual_key != VIRTUAL_KEY_F:
-            raise ValueError("Loot pickup must use the configured F key.")
-        if self.key_press_duration_seconds <= 0.0:
-            raise ValueError("Loot key press duration must be positive.")
-        if self.pickup_wait_seconds <= 0.0:
-            raise ValueError("Loot pickup wait duration must be positive.")
-
-
-@dataclass(frozen=True, slots=True)
-class LootDecision:
-    """One loot-controller transition and optional guarded pickup key request."""
-
-    mode: LootMode
-    action_kind: ActionKind | None = None
-    virtual_key: int | None = None
-    key_press_duration_seconds: float | None = None
 
 
 class CombatController:
@@ -600,50 +562,3 @@ class SearchController:
             )
 
         return SearchDecision(self._mode)
-
-
-class LootController:
-    """Collect drops after explicit combat death evidence and await OCR confirmation."""
-
-    def __init__(self, config: LootConfig | None = None) -> None:
-        self._config = config or LootConfig()
-        self._mode = LootMode.IDLE
-        self._pickup_deadline_seconds = 0.0
-        self._awaiting_new_death = False
-
-    def step(self, state: WorldState, combat: CombatDecision) -> LootDecision:
-        """Advance pickup state using explicit death and newly emitted loot evidence."""
-
-        if combat.mode is not CombatMode.TARGET_DEAD:
-            self._awaiting_new_death = False
-
-        if self._mode is LootMode.IDLE:
-            if combat.mode is not CombatMode.TARGET_DEAD or self._awaiting_new_death:
-                return LootDecision(LootMode.IDLE)
-            self._awaiting_new_death = True
-            self._mode = LootMode.PICKING_UP
-            self._pickup_deadline_seconds = (
-                state.observed_at_seconds + self._config.pickup_wait_seconds
-            )
-            return LootDecision(
-                LootMode.PICKING_UP,
-                ActionKind.LOOT,
-                self._config.pickup_virtual_key,
-                self._config.key_press_duration_seconds,
-            )
-
-        if self._mode is LootMode.PICKING_UP:
-            self._mode = LootMode.WAITING
-            return LootDecision(LootMode.WAITING)
-
-        if self._mode is LootMode.WAITING:
-            if state.recent_loot:
-                self._mode = LootMode.IDLE
-                return LootDecision(LootMode.IDLE)
-            if state.observed_at_seconds >= self._pickup_deadline_seconds:
-                self._mode = LootMode.TIMED_OUT
-                return LootDecision(LootMode.TIMED_OUT, ActionKind.MOVE)
-            return LootDecision(LootMode.WAITING)
-
-        self._mode = LootMode.IDLE
-        return LootDecision(LootMode.IDLE)

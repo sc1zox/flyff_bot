@@ -11,7 +11,6 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from flyff_bot.features.vision.loot_ocr import LootOcrError, LootOcrErrorCode, TextRecognizer
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     MonsterStatsMetrics,
@@ -19,6 +18,7 @@ from flyff_bot.features.vision.models import (
     MonsterStatsStatus,
     PixelFormat,
 )
+from flyff_bot.features.vision.ocr import OcrError, OcrErrorCode, TextRecognizer
 
 # Fixed top-left client-pixel bounds for the monster stats HUD window docked to Player Vitals.
 # The player vitals orb occupies (0, 0, 260, 113) px; stats HUD attaches directly at
@@ -46,7 +46,8 @@ DEFAULT_ANCHOR_MATCH_THRESHOLD = 0.85
 DEFAULT_ANCHOR_INSET_X = 3
 DEFAULT_ANCHOR_INSET_Y = 4
 
-# Bounds of the "Time:" header line inside `data/assets/stats/monster_stats.png`, used as the anchor template.
+# Bounds of the "Time:" header line inside `data/assets/stats/monster_stats.png`,
+# used as the anchor template.
 HEADER_ANCHOR_TEMPLATE_LEFT = 3
 HEADER_ANCHOR_TEMPLATE_TOP = 4
 HEADER_ANCHOR_TEMPLATE_RIGHT = 50
@@ -211,12 +212,12 @@ class MonsterStatsReader:
         try:
             # Tesseract reads dark text on a light ground, so the glyph mask is inverted.
             lines = self._recognizer.recognize(cast("npt.NDArray[np.uint8]", cv2.bitwise_not(roi)))
-        except LootOcrError as error:
+        except OcrError as error:
             # A missing engine install is the operator's to fix and is named separately from a
             # recognition that ran and failed, which is not actionable.
             return measured(
                 MonsterStatsStatus.ENGINE_UNAVAILABLE
-                if error.code is LootOcrErrorCode.ENGINE_UNAVAILABLE
+                if error.code is OcrErrorCode.ENGINE_UNAVAILABLE
                 else MonsterStatsStatus.OCR_FAILED
             )
         except Exception:  # any other injected recognizer failure is non-fatal

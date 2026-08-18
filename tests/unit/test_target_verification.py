@@ -16,8 +16,8 @@ from flyff_bot.features.vision import (
     AnchorOffsetRegion,
     CapturedFrame,
     ClientSize,
-    LootOcrError,
-    LootOcrErrorCode,
+    OcrError,
+    OcrErrorCode,
     TargetNameStatus,
     TargetRegion,
     TargetStatus,
@@ -49,7 +49,7 @@ HP_OFFSET = AnchorOffsetRegion(dx=2, dy=6, width=10, height=2)
 NAME_OFFSET = AnchorOffsetRegion(dx=3, dy=2, width=2, height=2)
 WHITELISTED_NAMEPLATE = "Flame <Lvl 175>"
 FOREIGN_NAMEPLATE = "MiniMushu <Lvl 12>"
-REAL_FIXTURE_DIRECTORY = Path("data/eden/flame")
+REAL_FIXTURE_DIRECTORY = Path("data/assets/mobs/eden/flame")
 # BUG-011 reproduction: the header anchor matches on both captures, but the shipped
 # `models/target_flame.png` scored ~0.25 against the 2559x1439 nameplate because the
 # arbitrary world scenery behind the glyphs dominates the correlation.
@@ -71,7 +71,7 @@ def _tesseract_is_usable() -> bool:
 
     try:
         TesseractTextRecognizer().recognize(np.full((32, 64), 255, dtype=np.uint8))
-    except LootOcrError:
+    except OcrError:
         return False
     return True
 
@@ -261,7 +261,7 @@ def test_verifier_re_reads_the_nameplate_once_it_changes() -> None:
 def test_verifier_retries_ocr_after_a_failed_recognition() -> None:
     """A recoverable engine problem must not be latched by the nameplate cache."""
 
-    recognizer = _FakeRecognizer(error=LootOcrError(LootOcrErrorCode.ENGINE_UNAVAILABLE))
+    recognizer = _FakeRecognizer(error=OcrError(OcrErrorCode.ENGINE_UNAVAILABLE))
     verifier, _ = _verifier(recognizer)
     frame = _frame(include_hp=True)
 
@@ -322,10 +322,8 @@ def test_verifier_reports_an_empty_reading_as_unreadable() -> None:
 
 
 def test_verifier_separates_a_missing_ocr_engine_from_a_failed_reading() -> None:
-    unavailable, _ = _verifier(
-        _FakeRecognizer(error=LootOcrError(LootOcrErrorCode.ENGINE_UNAVAILABLE))
-    )
-    failed, _ = _verifier(_FakeRecognizer(error=LootOcrError(LootOcrErrorCode.RECOGNITION_FAILED)))
+    unavailable, _ = _verifier(_FakeRecognizer(error=OcrError(OcrErrorCode.ENGINE_UNAVAILABLE)))
+    failed, _ = _verifier(_FakeRecognizer(error=OcrError(OcrErrorCode.RECOGNITION_FAILED)))
 
     unavailable_result = unavailable.verify(_frame(include_hp=True))
     failed_result = failed.verify(_frame(include_hp=True))

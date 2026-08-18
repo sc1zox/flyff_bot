@@ -11,13 +11,13 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from flyff_bot.features.vision.loot_ocr import LootOcrError, LootOcrErrorCode, TextRecognizer
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     ClientSize,
     TargetNameStatus,
     TargetVerificationMetrics,
 )
+from flyff_bot.features.vision.ocr import OcrError, OcrErrorCode, TextRecognizer
 
 DEFAULT_TARGET_REGION_X = 0.40
 DEFAULT_TARGET_REGION_Y = 0.0
@@ -319,8 +319,8 @@ class TargetVerifier:
             return self._last_name_reading
         try:
             lines = self._recognizer.recognize(image)
-        except LootOcrError as error:
-            unavailable = error.code is LootOcrErrorCode.ENGINE_UNAVAILABLE
+        except OcrError as error:
+            unavailable = error.code is OcrErrorCode.ENGINE_UNAVAILABLE
             return (
                 None,
                 "",
