@@ -316,10 +316,10 @@ Select an input method to test on the live Flyff client:
             harness.test_numpad_keys()
         elif choice == "A":
             harness.focus()
-            print("Testing Arrow Keys UP (0.8s) and DOWN (0.62s)...")
+            print("Testing Arrow Keys UP (0.8s) and DOWN (0.55s)...")
             harness.controller.send_key_while_guarded(harness.handle, VK_UP, 0.8)
             time.sleep(0.2)
-            harness.controller.send_key_while_guarded(harness.handle, VK_DOWN, 0.62)
+            harness.controller.send_key_while_guarded(harness.handle, VK_DOWN, 0.55)
             print("Done.")
         elif choice == "C":
             harness.focus()

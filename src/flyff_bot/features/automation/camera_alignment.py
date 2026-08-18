@@ -33,7 +33,7 @@ from flyff_bot.features.vision.models import FrameCaptureError
 # from a fully zoomed-in start, so the camera always settles on the engine's clamped maximum.
 ZOOM_OUT_WHEEL_NOTCHES = 20
 PITCH_UP_HOLD_SECONDS = 0.8
-PITCH_DOWN_PULSE_SECONDS = 0.62
+PITCH_DOWN_PULSE_SECONDS = 0.55
 # The minimap HUD carries its zoom buttons on a circle just outside the ring stroke. The
 # zoom-out button's pale disk spans x 1442-1451 and y 146-156 in both client-area stills
 # shipped under `data/assets/fixtures/minimap/`, whose ring `locate_minimap` places at
