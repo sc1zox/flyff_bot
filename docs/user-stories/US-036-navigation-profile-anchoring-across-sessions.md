@@ -61,14 +61,9 @@ from wherever the session happened to start**.
   scale to store; the zoom level *is* the scale, which is why it is mandatory rather than optional.
 - [ ] Given tracking quality is `DEGRADED` at save time, when the operator saves, then the profile is
   written without an anchor and the UI states that the profile will load unanchored.
-- [ ] Given a version 1 profile on disk, when it is loaded, then it still loads and is treated as
-  unanchored rather than rejected.
-- [ ] Given a version 1 profile, when it is loaded, then its coordinates are never reinterpreted as
-  minimap pixels: they were produced by the old dead-reckoning integrator in its own guessed unit,
-  so the profile loads read-only with the unit mismatch stated, and it is never written to. This is
-  a separate defect from the missing anchor — the anchor is about *where* the coordinates are, the
-  unit is about *what they mean*, and silently rescaling them would corrupt the map without any
-  visible symptom.
+- [ ] Given a profile on disk with an unsupported schema version (such as legacy version 1), when it is
+  loaded, then loading is explicitly rejected with a clear error naming the unsupported schema version
+  ([ADR-003](../decisions/ADR-003-clean-schema-over-backward-compatibility.md)).
 
 ### 2. Loading re-anchors or refuses
 
@@ -82,7 +77,7 @@ from wherever the session happened to start**.
 - [ ] Given an anchored profile that cannot be matched above the confidence threshold, when the
   profile is loaded, then the operator is offered exactly two defined outcomes: load read-only
   (routes may be followed, nothing is written to the map) or cancel. The default is cancel.
-- [ ] Given an unanchored (version 1 or degraded) profile, when it is loaded, then it loads
+- [ ] Given an unanchored profile (saved while degraded), when it is loaded, then it loads
   read-only and the UI states why, so a stale frame can never silently accumulate new cells.
 - [ ] Given a corrupted or truncated anchor record, when the profile is loaded, then it is treated
   as unanchored and no exception escapes to the UI, matching the existing corrupt-profile behaviour
@@ -100,13 +95,14 @@ from wherever the session happened to start**.
   scope. No mosaic, no loop closure, no global relocalisation.
 - Merging two profiles recorded in the same camp into one map.
 - Automatic zone detection or automatic profile selection.
+- Backward compatibility or mathematical migration for legacy schema v1 profiles (rejected per ADR-003).
 - Changing the profile management UI layout introduced by US-021.
 
 ## Verification
 
 - Automated:
-  - Round-trip tests for schema version 2 including anchor serialisation, and a version 1 fixture
-    that still loads as unanchored.
+  - Round-trip tests for schema version 2 including anchor serialisation, and a test asserting that
+    unsupported schema versions (like legacy v1) are rejected with a ValueError.
   - Matching tests using the shipped frames: a shifted crop of one frame's disk must re-anchor to
     the expected offset; the cross-zone disk from the spike must fall below the threshold and
     trigger the refusal path.

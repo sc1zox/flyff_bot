@@ -11,6 +11,7 @@ related:
   - glossary.md
   - ../decisions/ADR-001-cli-before-http-server.md
   - ../decisions/ADR-002-target-architecture-and-pyside6.md
+  - ../decisions/ADR-003-clean-schema-over-backward-compatibility.md
   - ../user-stories/completed/US-002-vision-frame-capture.md
   - ../user-stories/completed/US-003-mob-detection-yolo.md
   - ../user-stories/completed/US-004-target-mob-verification.md
