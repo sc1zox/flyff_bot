@@ -756,7 +756,7 @@ measured at, so `features/automation/camera_alignment.py` restores both instead 
 operator to reproduce them by hand. `CameraAligner.align()` runs four steps against one client: ten
 clicks on the minimap's zoom-out button past the widget's own range, twenty forward wheel notches to
 the engine's hard-clamped zoom limit, a 0.8 s hold on the pitch-up key (`VK_UP`) into the vertical
-ceiling, and a 0.70 s pitch-down pulse (`VK_DOWN`) onto the standardized elevation that keeps
+ceiling, and a 0.62 s pitch-down pulse (`VK_DOWN`) onto the standardized elevation that keeps
 horizon spawns visible. Every camera step settles for 0.2 s before the next one, because the client
 interpolates the camera, and every minimap click settles for 0.12 s, because the widget swallows a
 click that lands during its redraw. Nothing about the game's memory or rendering is inspected: the

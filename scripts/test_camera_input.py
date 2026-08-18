@@ -110,7 +110,7 @@ def test_pitch(
     controller: WindowsInputController,
     handle: int,
     up_seconds: float = 0.8,
-    down_seconds: float = 0.70,
+    down_seconds: float = 0.62,
 ) -> None:
     """Test pitch adjustment keys."""
     print(f"\n--- Testing Camera Pitch (Hold UP {up_seconds}s, Pulse DOWN {down_seconds}s) ---")
@@ -141,11 +141,11 @@ def test_interactive(controller: WindowsInputController, handle: int) -> None:
     controller.send_key_while_guarded(handle, VIRTUAL_KEY_UP, 0.8)
     print("[DONE] Pitch up sent.")
 
-    print("\nStep 3: Test Pitch-Down (0.70s Down Arrow)")
+    print("\nStep 3: Test Pitch-Down (0.62s Down Arrow)")
     input("Press ENTER to execute Step 3...")
     controller.focus_window(handle)
     time.sleep(0.3)
-    controller.send_key_while_guarded(handle, VIRTUAL_KEY_DOWN, 0.70)
+    controller.send_key_while_guarded(handle, VIRTUAL_KEY_DOWN, 0.62)
     print("[DONE] Pitch down pulse sent.")
 
     print("\n=== Interactive Test Completed ===")
@@ -180,8 +180,8 @@ def main() -> None:
     parser.add_argument(
         "--down-seconds",
         type=float,
-        default=0.70,
-        help="Seconds to pulse Down Arrow in 'pitch' mode (default: 0.70)",
+        default=0.62,
+        help="Seconds to pulse Down Arrow in 'pitch' mode (default: 0.62)",
     )
     parser.add_argument(
         "--skip-minimap",
