@@ -53,7 +53,11 @@ RING_BAND_RADIUS_STEP_PIXELS = 0.25
 RING_BAND_ANGULAR_SAMPLES = 180
 RING_REFERENCE_INTENSITY = 185.0
 RING_MAXIMUM_INTENSITY_DEVIATION = 15.0
-RING_MAXIMUM_ANGULAR_DEVIATION = 15.0
+# Widened from 15.0 to 20.0 (US-043): the stroke is drawn over the map, so terrain with
+# strong contrast under the annulus lifts the deviation past the original bound and drops a
+# contiguous run into `degraded` half way through. The intensity bound still rejects every
+# recorded scenery sample, so nothing that is not the ring passes both.
+RING_MAXIMUM_ANGULAR_DEVIATION = 20.0
 # The anchored centre is refined once per client size. Whole-window captures of a 1280 px
 # and a 1600 px client put the ring within 2 px of the same right offset, so a small search
 # absorbs the residual title-bar and border differences without a resolution rule.
@@ -84,9 +88,11 @@ MAXIMUM_INTER_FRAME_DISPLACEMENT_PIXELS = 24.0
 
 # Mean Sobel gradient magnitude over the map surface. It is translation invariant but scales
 # with the zoom level: 88.3-95.3 across both recorded bursts and the default-zoom still,
-# 110.0 at maximum zoom-out. A 12 % tolerance sits above the 4.2 % spread measured inside one
-# zoom level and well below the 24.6 % step between the two.
-ZOOM_SIGNATURE_TOLERANCE_FRACTION = 0.12
+# 110.0 at maximum zoom-out. The 4.2 % spread of the recorded bursts understates what a long
+# walk sees, because scrolling from open grassland into dense forest changes the amount of
+# drawn detail without changing the scale. 20 % absorbs that terrain variation and still
+# sits below the 24.6 % step between the two zoom levels (US-043).
+ZOOM_SIGNATURE_TOLERANCE_FRACTION = 0.20
 _ZOOM_SIGNATURE_MARGIN_PIXELS = 3
 _ZOOM_SIGNATURE_MARKER_MARGIN_PIXELS = 2
 

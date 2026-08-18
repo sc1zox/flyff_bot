@@ -19,6 +19,14 @@ pitch. Because apparent bounding box height changes dramatically when camera zoo
 with a **controlled ~45° camera pitch** (navigated from vertical hard-stop/reset to preserve
 forward field of view), both during calibration and active bot farming.
 
+Multiple mobs of the target class usually share the viewport, so the approach target is
+identified once, on the first frame that detects it, as the candidate closest to the
+viewport's vertical centreline -- the mob the operator lined the character up with -- and is
+then followed from frame to frame by bounding-box overlap and centroid proximity
+(`ApproachTargetTracker`). Picking the most confident candidate per frame instead let the
+recorded height jump between foreground and background mobs of the same cluster, which
+destroyed the monotonic height/travel relation the fit depends on (US-043).
+
 A walk-in approach never reaches the mob: the client stops the character at melee range.
 The absolute distance to the mob is therefore never observable. What *is* observable, per
 frame, is how far the character still travels from that frame until the approach ends,
@@ -76,12 +84,17 @@ from flyff_bot.constants import (
     DEFAULT_MOB_MODEL_PATH,
     DEFAULT_PROCESS_NAME,
 )
-from flyff_bot.features.automation.camera_alignment import CameraAligner, CameraAlignmentStatus
+from flyff_bot.features.automation.camera_alignment import (
+    CameraAligner,
+    CameraAlignmentStatus,
+    frame_minimap_locator,
+)
 from flyff_bot.features.input_control import WindowRef, WindowsInputController, parse_virtual_key
 from flyff_bot.features.navigation.tracking import MovementTracker, TrackingQuality
 from flyff_bot.features.vision.capture import WindowsFrameSource
 from flyff_bot.features.vision.detection import (
     DEFAULT_CONFIDENCE_THRESHOLD,
+    BoundingBox,
     Detection,
     DetectionConfig,
     Detector,
@@ -91,7 +104,9 @@ from flyff_bot.features.vision.minimap import MinimapOdometer
 from flyff_bot.features.vision.models import CapturedFrame, FrameCaptureError
 
 # Bumping this invalidates every recorded run rather than migrating it, per ADR-003.
-MANIFEST_SCHEMA_VERSION = 1
+# Version 2 marks the tracked approach target on every frame's detections (US-043); runs
+# recorded before it picked a per-frame most-confident mob and cannot be re-interpreted.
+MANIFEST_SCHEMA_VERSION = 2
 MANIFEST_FILE_NAME = "manifest.json"
 DEFAULT_OUTPUT_ROOT = Path("data/calibration/spawn_distance")
 # `WindowsFrameSource` captures through `GetClientRect`, so frame row 0 is the first pixel
@@ -120,6 +135,19 @@ DETECTION_CROP_MARGIN_PIXELS = 8
 PNG_COMPRESSION_LEVEL = 3
 FIRST_REFERENCE_FILE_NAME = "reference_first.png"
 LAST_REFERENCE_FILE_NAME = "reference_last.png"
+
+# Frame-to-frame gates of the approach tracker. Consecutive frames of a walk-in overlap
+# heavily, so any candidate that overlaps the previous box by this much is the same mob even
+# when it grew fast enough to move its centroid a long way.
+APPROACH_TARGET_MINIMUM_OVERLAP = 0.2
+# Without overlap the match has to come from proximity alone. 120 px is wider than one
+# frame's centroid drift at the near end of an approach and far narrower than the spacing of
+# a spawn cluster, so a briefly hidden mob is recovered without ever adopting its neighbour.
+APPROACH_TARGET_MAXIMUM_CENTROID_SHIFT_PIXELS = 120.0
+# The detector drops the tracked mob for the odd frame when another model passes in front of
+# it. Beyond this many consecutive misses the run has genuinely lost its target, and
+# re-acquiring a different one would corrupt the height series the fit reads.
+APPROACH_TARGET_MAXIMUM_MISSED_FRAMES = 2
 
 # `d = a / h + b` has two free parameters, so a residual needs at least a third sample.
 MINIMUM_FIT_SAMPLE_COUNT = 3
@@ -162,6 +190,9 @@ class DetectionRecord:
     width: int
     height: int
     centre_x_offset_pixels: float
+    # True on exactly one detection per frame: the mob this walk-in is approaching, as
+    # followed across the run by `ApproachTargetTracker`.
+    is_approach_target: bool = False
     crop_file_name: str | None = None
 
 
@@ -238,6 +269,145 @@ class InverseDistanceFit:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ApproachTrackingConfig:
+    """Association gates that keep one walk-in locked onto the mob it started on."""
+
+    minimum_overlap: float = APPROACH_TARGET_MINIMUM_OVERLAP
+    maximum_centroid_shift_pixels: float = APPROACH_TARGET_MAXIMUM_CENTROID_SHIFT_PIXELS
+    maximum_missed_frames: int = APPROACH_TARGET_MAXIMUM_MISSED_FRAMES
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.minimum_overlap <= 1.0:
+            raise ValueError("The overlap gate must lie between zero and one.")
+        if self.maximum_centroid_shift_pixels <= 0.0:
+            raise ValueError("The re-acquisition radius must be positive.")
+        if self.maximum_missed_frames < 0:
+            raise ValueError("The missed-frame budget must not be negative.")
+
+
+def _centroid(box: BoundingBox) -> tuple[float, float]:
+    """Return the centre of one bounding box in client-frame pixels."""
+
+    return box.x + box.width / 2.0, box.y + box.height / 2.0
+
+
+def centroid_shift(first: BoundingBox, second: BoundingBox) -> float:
+    """Return how far two bounding-box centres lie apart, in client-frame pixels."""
+
+    first_x, first_y = _centroid(first)
+    second_x, second_y = _centroid(second)
+    return math.hypot(first_x - second_x, first_y - second_y)
+
+
+def overlap_ratio(first: BoundingBox, second: BoundingBox) -> float:
+    """Return the intersection over union of two bounding boxes."""
+
+    width = min(first.x + first.width, second.x + second.width) - max(first.x, second.x)
+    height = min(first.y + first.height, second.y + second.height) - max(first.y, second.y)
+    if width <= 0 or height <= 0:
+        return 0.0
+    intersection = float(width * height)
+    union = float(first.width * first.height + second.width * second.height) - intersection
+    return intersection / union
+
+
+class ApproachTargetTracker:
+    """Follow the one mob a walk-in approaches across every frame of the run (US-043).
+
+    The operator lines the character up with the mob before starting, so the target is
+    acquired as the candidate whose box centre sits closest to the viewport's vertical
+    centreline. Every later frame is matched against the *previous* tracked box rather than
+    re-selected on its own merits, which is what keeps the recorded height series attached
+    to one physical mob while a whole spawn cluster drifts through the viewport.
+
+    A frame that offers no acceptable match leaves the last known box in place and is simply
+    not recorded, so a mob hidden behind another model for a frame or two is picked up again
+    where it reappears. Once the miss budget is spent the target counts as lost and nothing
+    further is tracked, because adopting whatever is nearby afterwards is exactly the jump
+    this tracker exists to prevent.
+    """
+
+    def __init__(self, mob_class: str, *, config: ApproachTrackingConfig | None = None) -> None:
+        self._mob_class = mob_class
+        self._config = config or ApproachTrackingConfig()
+        self._tracked: BoundingBox | None = None
+        self._missed_frames = 0
+        self._lost = False
+
+    @property
+    def is_lost(self) -> bool:
+        """Return whether the approach target was dropped for longer than the budget."""
+
+        return self._lost
+
+    @property
+    def tracked_box(self) -> BoundingBox | None:
+        """Return the last accepted box of the approach target, if there was one."""
+
+        return self._tracked
+
+    def track(self, detections: Sequence[Detection], viewport_width: int) -> Detection | None:
+        """Return this frame's approach target, or ``None`` when it was not seen."""
+
+        if self._lost:
+            return None
+        candidates = [
+            detection for detection in detections if detection.class_name == self._mob_class
+        ]
+        chosen = (
+            self._acquire(candidates, viewport_width)
+            if self._tracked is None
+            else self._associate(candidates)
+        )
+        if chosen is None:
+            self._missed_frames += 1
+            if (
+                self._tracked is not None
+                and self._missed_frames > self._config.maximum_missed_frames
+            ):
+                self._lost = True
+            return None
+        self._missed_frames = 0
+        self._tracked = chosen.bounding_box
+        return chosen
+
+    @staticmethod
+    def _acquire(candidates: Sequence[Detection], viewport_width: int) -> Detection | None:
+        """Pick the candidate the character is facing: the one nearest the centreline."""
+
+        if not candidates:
+            return None
+        centre = viewport_width / 2.0
+
+        def distance_from_centreline(detection: Detection) -> tuple[float, int]:
+            offset, _ = _centroid(detection.bounding_box)
+            # A tie between two equally centred mobs goes to the taller, and therefore
+            # nearer, of the two.
+            return abs(offset - centre), -detection.bounding_box.height
+
+        return min(candidates, key=distance_from_centreline)
+
+    def _associate(self, candidates: Sequence[Detection]) -> Detection | None:
+        """Match the previous tracked box against this frame's candidates."""
+
+        tracked = self._tracked
+        assert tracked is not None
+        scored: list[tuple[float, float, Detection]] = []
+        for candidate in candidates:
+            overlap = overlap_ratio(tracked, candidate.bounding_box)
+            shift = centroid_shift(tracked, candidate.bounding_box)
+            if (
+                overlap < self._config.minimum_overlap
+                and shift > self._config.maximum_centroid_shift_pixels
+            ):
+                continue
+            scored.append((-overlap, shift, candidate))
+        if not scored:
+            return None
+        return min(scored, key=lambda entry: (entry[0], entry[1]))[2]
+
+
 @dataclass(slots=True)
 class _HeldKeyTiming:
     """Perf-counter bracket around the guarded key hold running on its own thread."""
@@ -303,13 +473,13 @@ def resolve_manifest_paths(patterns: Sequence[str]) -> list[Path]:
 # --------------------------------------------------------------------------------------
 
 
-def _primary_detection(frame: FrameRecord, mob_class: str) -> DetectionRecord | None:
-    """Return the most confident detection of the recorded mob class on one frame."""
+def _approach_detection(frame: FrameRecord, mob_class: str) -> DetectionRecord | None:
+    """Return the tracked approach target of one frame, if the tracker held it there."""
 
-    candidates = [detection for detection in frame.detections if detection.class_name == mob_class]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda detection: detection.confidence)
+    for detection in frame.detections:
+        if detection.is_approach_target and detection.class_name == mob_class:
+            return detection
+    return None
 
 
 def _measured_increment(frame: FrameRecord) -> float | None:
@@ -354,7 +524,7 @@ def walk_in_samples(manifest: RunManifest) -> list[DistanceSample]:
 
     samples: list[DistanceSample] = []
     for frame, travel in cumulative:
-        detection = _primary_detection(frame, manifest.mob_class)
+        detection = _approach_detection(frame, manifest.mob_class)
         if detection is None or detection.height <= 0:
             continue
         samples.append(
@@ -441,7 +611,11 @@ def group_samples_by_class(
 
 
 def _detection_record(
-    detection: Detection, client_width: int, crop_file_name: str | None
+    detection: Detection,
+    client_width: int,
+    *,
+    is_approach_target: bool,
+    crop_file_name: str | None,
 ) -> DetectionRecord:
     """Describe one detection in the coordinates the offline fit reads."""
 
@@ -457,6 +631,7 @@ def _detection_record(
         width=box.width,
         height=box.height,
         centre_x_offset_pixels=centre_x - client_width / 2.0,
+        is_approach_target=is_approach_target,
         crop_file_name=crop_file_name,
     )
 
@@ -480,7 +655,7 @@ def _observe_frame(
     odometer: MinimapOdometer,
     tracker: MovementTracker,
     detector: Detector,
-    mob_class: str | None,
+    approach_tracker: ApproachTargetTracker | None,
 ) -> tuple[FrameRecord, npt.NDArray[np.uint8] | None]:
     """Fold one frame into odometry and detection, returning its record and target crop."""
 
@@ -490,16 +665,18 @@ def _observe_frame(
     displacement = None if reading is None else reading.displacement
 
     detections = detector.detect(frame)
-    target = None
-    if mob_class is not None:
-        matching = [detection for detection in detections if detection.class_name == mob_class]
-        target = max(matching, key=lambda item: item.confidence) if matching else None
+    target = (
+        None
+        if approach_tracker is None
+        else approach_tracker.track(detections, frame.client_size.width)
+    )
     crop_file_name = None if target is None else _crop_file_name(index)
     records = [
         _detection_record(
             detection,
             frame.client_size.width,
-            crop_file_name if detection is target else None,
+            is_approach_target=detection is target,
+            crop_file_name=crop_file_name if detection is target else None,
         )
         for detection in detections
     ]
@@ -572,17 +749,27 @@ def acquire_window(
     return window
 
 
-def align_camera(controller: WindowsInputController, window_handle: int) -> None:
-    """Put the client on the standardized zoom hard-stop and pitch before recording.
+def align_viewport(
+    controller: WindowsInputController, source: WindowsFrameSource, window_handle: int
+) -> None:
+    """Put the client on the standardized viewport state before recording.
 
-    The fitted relation only holds at the camera state it was recorded at, so a run that
-    could not reach that state is refused rather than written as if it had (US-042).
+    The fitted relation only holds at the camera state it was recorded at and the odometry
+    only reports calibrated pixels at the minimap's zoom-out hard stop, so a run that could
+    not reach that state is refused rather than written as if it had (US-042, US-043).
     """
 
-    status = CameraAligner(controller, window_handle).align()
+    status = CameraAligner(
+        controller,
+        window_handle,
+        locate_minimap_geometry=frame_minimap_locator(source, window_handle),
+    ).align()
     if status is not CameraAlignmentStatus.ALIGNED:
         raise SystemExit(f"Camera alignment did not complete ({status.value}); nothing recorded.")
-    print("Camera aligned to the zoom hard-stop and standardized pitch.")
+    print(
+        "Minimap zoomed out to its hard stop; camera aligned to the zoom hard-stop "
+        "and standardized pitch."
+    )
 
 
 def _hold_key_on_thread(
@@ -639,10 +826,11 @@ def _run_walk_in(args: argparse.Namespace) -> int:
     virtual_key = parse_virtual_key(args.key)
     window = acquire_window(controller, args.process, args.countdown)
     if args.align_camera:
-        align_camera(controller, window.handle)
+        align_viewport(controller, source, window.handle)
 
     odometer = MinimapOdometer()
     tracker = MovementTracker()
+    approach_tracker = ApproachTargetTracker(args.mob_class)
     probe = source.capture(window.handle)
 
     timing = _HeldKeyTiming()
@@ -663,7 +851,7 @@ def _run_walk_in(args: argparse.Namespace) -> int:
         odometer,
         tracker,
         detector,
-        args.mob_class,
+        approach_tracker,
         frames,
         crops,
     )
@@ -717,7 +905,7 @@ def _capture_walk_in(
     odometer: MinimapOdometer,
     tracker: MovementTracker,
     detector: Detector,
-    mob_class: str,
+    approach_tracker: ApproachTargetTracker,
     frames: list[FrameRecord],
     crops: list[tuple[int, npt.NDArray[np.uint8]]],
 ) -> str | None:
@@ -736,7 +924,7 @@ def _capture_walk_in(
         except FrameCaptureError as error:
             return error.code.value
         record, crop = _observe_frame(
-            len(frames), frame, captured_at, odometer, tracker, detector, mob_class
+            len(frames), frame, captured_at, odometer, tracker, detector, approach_tracker
         )
         frames.append(record)
         if crop is not None:
@@ -752,10 +940,11 @@ def _run_bearing(args: argparse.Namespace) -> int:
     detector = _build_detector(args)
     window = acquire_window(controller, args.process, args.countdown)
     if args.align_camera:
-        align_camera(controller, window.handle)
+        align_viewport(controller, source, window.handle)
 
     odometer = MinimapOdometer()
     tracker = MovementTracker()
+    approach_tracker = None if args.mob_class is None else ApproachTargetTracker(args.mob_class)
     frames: list[FrameRecord] = []
     crops: list[tuple[int, npt.NDArray[np.uint8]]] = []
     probe = source.capture(window.handle)
@@ -767,7 +956,7 @@ def _run_bearing(args: argparse.Namespace) -> int:
         captured_at = time.perf_counter()
         frame = source.capture(window.handle)
         record, crop = _observe_frame(
-            len(frames), frame, captured_at, odometer, tracker, detector, args.mob_class
+            len(frames), frame, captured_at, odometer, tracker, detector, approach_tracker
         )
         frames.append(record)
         if crop is not None:
@@ -808,7 +997,13 @@ def _report_run(output_directory: Path, manifest: RunManifest) -> None:
     """Print what a finished run produced, including why it stopped early."""
 
     detections = sum(len(frame.detections) for frame in manifest.frames)
+    tracked = sum(
+        1
+        for frame in manifest.frames
+        if any(detection.is_approach_target for detection in frame.detections)
+    )
     print(f"Wrote {len(manifest.frames)} frames ({detections} detections) to {output_directory}.")
+    print(f"Approach target tracked on {tracked} of {len(manifest.frames)} frames.")
     if manifest.aborted_reason is not None:
         print(f"Capture stopped early: {manifest.aborted_reason}")
 
@@ -821,7 +1016,12 @@ def _run_fit(args: argparse.Namespace) -> int:
         raise SystemExit("No run manifests matched the given input.")
     samples: list[DistanceSample] = []
     for path in manifest_paths:
-        manifest = load_manifest(path)
+        try:
+            manifest = load_manifest(path)
+        except ValueError as error:
+            # Runs recorded before the tracked approach target was marked cannot be
+            # re-interpreted, so they are named rather than skipped silently (ADR-003).
+            raise SystemExit(f"{path}: {error}") from error
         run_samples = walk_in_samples(manifest)
         print(f"{path}: {len(run_samples)} samples")
         samples.extend(run_samples)

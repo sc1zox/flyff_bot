@@ -454,3 +454,28 @@ than a second set of constants in `camera_alignment.py`.
 No measurement was ingested. The notch count is an overshoot bound, not a measured zoom range, and the
 0.8 s / 0.35 s pitch timings still await confirmation against a live client; the fitted coefficients of
 the distance relation remain open. Moved BUG-014 to fixed bugs.
+
+
+## [2026-08-18] synthesis | Approach target tracking and minimap zoom initialization (US-043)
+
+Recorded that a calibration walk-in now follows one mob rather than re-picking the most confident
+candidate per frame. `ApproachTargetTracker` acquires the target on the first frame that detects it,
+as the candidate closest to the viewport's vertical centreline, and matches every later frame against
+the previous tracked box by bounding-box overlap (0.2 IoU) and centroid proximity (120 px), with a
+two-frame miss budget after which the target counts as lost rather than re-acquired. Manifest schema
+version 2 marks the tracked mob per frame; version 1 runs are rejected, not migrated (ADR-003).
+
+Recorded the minimap zoom-out hard stop as the first step of the viewport pre-flight. The click point
+is derived from the located `MinimapGeometry` at a measured offset of (-66.5, +45.5) px from the ring
+centre, read off the client-area stills shipped under `data/assets/fixtures/minimap/`, where the
+button's pale disk spans x 1442-1451 and y 146-156 against a located ring centre of (1513.0, 105.5).
+A widget that cannot be located reports `MINIMAP_NOT_FOUND` before any input is dispatched.
+
+Widened two odometry tolerances against terrain variation: the zoom signature tolerance from 12 % to
+20 %, and the ring locator's angular deviation bound from 15.0 to 20.0. The 12 % figure was fitted to
+the 4.2 % spread inside one recorded burst and dropped contiguous linear runs into `degraded`. No new
+measurement was ingested for either bound; the 20 % tolerance still sits below the 24.6 % step between
+the two recorded zoom levels, but that margin is now thin enough that the scale-mismatch test states
+its intent relative to the tolerance instead of pinning the recorded pair. The fitted coefficients of
+the distance relation, and the 0.8 s / 0.35 s pitch timings, remain open. Moved US-043 to completed
+user stories.

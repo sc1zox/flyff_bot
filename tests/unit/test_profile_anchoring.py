@@ -43,7 +43,11 @@ from flyff_bot.features.navigation.spatial import (
     WorldPoint,
 )
 from flyff_bot.features.navigation.tracking import MovementModel
-from flyff_bot.features.vision.minimap import locate_minimap, read_minimap
+from flyff_bot.features.vision.minimap import (
+    ZOOM_SIGNATURE_TOLERANCE_FRACTION,
+    locate_minimap,
+    read_minimap,
+)
 from flyff_bot.features.vision.models import CapturedFrame
 
 # The walk burst holds `W` for three seconds. Correlating its first frame against its last
@@ -53,7 +57,12 @@ RECORDED_WALK_TRAVEL_EAST_PIXELS = 19.15
 RECORDED_WALK_TRAVEL_NORTH_PIXELS = -20.96
 FIXTURE_OFFSET_TOLERANCE_PIXELS = 0.5
 
-MAXIMUM_ZOOM_OUT_SIGNATURE = 110.68
+# A profile recorded at a different minimap zoom level. It is expressed relative to the
+# accepted tolerance rather than pinned to the recorded maximum zoom-out signature, because
+# the two recorded levels sit only just outside the tolerance US-043 widened it to.
+MISMATCHED_ZOOM_SIGNATURE = REFERENCE_ZOOM_SIGNATURE * (
+    1.0 + 2.0 * ZOOM_SIGNATURE_TOLERANCE_FRACTION
+)
 STORED_ANCHOR_POSITION = WorldPoint(120.0, -45.0)
 
 
@@ -413,7 +422,7 @@ def test_scale_mismatch_load_leaves_the_active_map_untouched(tmp_path: Path) -> 
     surface, _ = _disk(still("zoom_default"))
     path = tmp_path / "zoomed.json"
     save_profile(
-        NavigationProfile(_learned_map(), _anchor(surface, MAXIMUM_ZOOM_OUT_SIGNATURE)), path
+        NavigationProfile(_learned_map(), _anchor(surface, MISMATCHED_ZOOM_SIGNATURE)), path
     )
     controller, _ = _tracked_controller(surface)
     active_cells = controller.spatial_map.known_cells()
@@ -421,7 +430,7 @@ def test_scale_mismatch_load_leaves_the_active_map_untouched(tmp_path: Path) -> 
     result = controller.load_map(path)
 
     assert result.outcome is ProfileLoadOutcome.SCALE_MISMATCH
-    assert result.stored_zoom_signature == pytest.approx(MAXIMUM_ZOOM_OUT_SIGNATURE)
+    assert result.stored_zoom_signature == pytest.approx(MISMATCHED_ZOOM_SIGNATURE)
     assert result.live_zoom_signature == pytest.approx(REFERENCE_ZOOM_SIGNATURE)
     assert controller.spatial_map.known_cells() == active_cells
     assert controller.profile_anchor_state is ProfileAnchorState.SESSION

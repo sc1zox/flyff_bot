@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from capture_spawn_distance_samples import (
+    APPROACH_TARGET_MAXIMUM_MISSED_FRAMES,
     BEARING_PROTOCOL,
     DEFAULT_BEARING_FRAME_COUNT,
     DEFAULT_FORWARD_KEY,
@@ -16,23 +17,29 @@ from capture_spawn_distance_samples import (
     DEFAULT_WALK_IN_HOLD_SECONDS,
     MANIFEST_SCHEMA_VERSION,
     WALK_IN_PROTOCOL,
+    ApproachTargetTracker,
+    ApproachTrackingConfig,
     DetectionRecord,
     DistanceSample,
     FrameRecord,
     RunManifest,
     acquire_window,
     build_parser,
+    centroid_shift,
     fit_inverse_distance,
     group_samples_by_class,
     load_manifest,
+    main,
     manifest_from_mapping,
     manifest_to_mapping,
+    overlap_ratio,
     resolve_manifest_paths,
     walk_in_samples,
 )
 
 from flyff_bot.features.input_control import WindowRef
 from flyff_bot.features.navigation.tracking import TrackingQuality
+from flyff_bot.features.vision.detection import BoundingBox, Detection
 
 MOB_CLASS = "aibatt"
 CLIENT_WIDTH = 1600
@@ -62,7 +69,13 @@ class _FakeController:
         return self._aborted
 
 
-def _detection(height: int, *, confidence: float = 0.9, x: int = 800) -> DetectionRecord:
+def _detection(
+    height: int,
+    *,
+    confidence: float = 0.9,
+    x: int = 800,
+    is_approach_target: bool = True,
+) -> DetectionRecord:
     return DetectionRecord(
         class_name=MOB_CLASS,
         confidence=confidence,
@@ -73,6 +86,26 @@ def _detection(height: int, *, confidence: float = 0.9, x: int = 800) -> Detecti
         width=60,
         height=height,
         centre_x_offset_pixels=x + 30.0 - CLIENT_WIDTH / 2.0,
+        is_approach_target=is_approach_target,
+    )
+
+
+def _live(
+    height: int,
+    *,
+    x: int,
+    y: int = 400,
+    width: int = 60,
+    confidence: float = 0.9,
+    class_name: str = MOB_CLASS,
+) -> Detection:
+    """Build one live detector output for the approach tracker."""
+
+    return Detection(
+        bounding_box=BoundingBox(x=x, y=y, width=width, height=height),
+        confidence=confidence,
+        class_id=0,
+        class_name=class_name,
     )
 
 
@@ -321,16 +354,33 @@ def test_walk_in_samples_skip_frames_without_the_target_class() -> None:
     assert [sample.remaining_travel_pixels for sample in samples] == [5.0, 0.0]
 
 
-def test_walk_in_samples_take_the_most_confident_detection_of_the_class() -> None:
+def test_walk_in_samples_read_the_tracked_target_and_ignore_the_rest_of_the_cluster() -> None:
+    """US-043: the recorded height must follow the tracked mob, not the confident one."""
+
     # Arrange
     crowded = replace(
         _frame(0, height=30, increment=None),
         detections=[
-            _detection(30, confidence=0.55, x=200),
-            _detection(64, confidence=0.95, x=800),
+            _detection(30, confidence=0.95, x=200, is_approach_target=False),
+            _detection(64, confidence=0.55, x=800, is_approach_target=True),
         ],
     )
     manifest = _manifest([crowded])
+
+    # Act
+    samples = walk_in_samples(manifest)
+
+    # Assert
+    assert [sample.bounding_box_height for sample in samples] == [64]
+
+
+def test_walk_in_samples_skip_frames_where_the_tracker_lost_the_target() -> None:
+    # Arrange
+    untracked = replace(
+        _frame(0, height=30, increment=None),
+        detections=[_detection(30, x=200, is_approach_target=False)],
+    )
+    manifest = _manifest([untracked, _frame(1, height=64, increment=4.0)])
 
     # Act
     samples = walk_in_samples(manifest)
@@ -487,3 +537,196 @@ def test_acquire_window_returns_the_focused_client() -> None:
     # Assert
     assert acquired == window
     assert controller.focused == [WINDOW_HANDLE]
+
+
+# --------------------------------------------------------------------------------------
+# Continuous approach target tracking (US-043)
+# --------------------------------------------------------------------------------------
+
+
+def test_the_tracker_acquires_the_candidate_closest_to_the_viewport_centreline() -> None:
+    # Arrange
+    tracker = ApproachTargetTracker(MOB_CLASS)
+    # A background mob with a much taller box sits off to the side; the approach target is
+    # the smaller, centred one the operator lined the character up with.
+    off_centre = _live(196, x=200)
+    centred = _live(49, x=CLIENT_WIDTH // 2 - 30)
+
+    # Act
+    acquired = tracker.track([off_centre, centred], CLIENT_WIDTH)
+
+    # Assert
+    assert acquired is centred
+
+
+def test_the_tracker_ignores_candidates_of_another_class() -> None:
+    # Arrange
+    tracker = ApproachTargetTracker(MOB_CLASS)
+    other = _live(60, x=CLIENT_WIDTH // 2 - 30, class_name="wolf")
+    mine = _live(60, x=CLIENT_WIDTH // 2 + 200)
+
+    # Act
+    acquired = tracker.track([other, mine], CLIENT_WIDTH)
+
+    # Assert
+    assert acquired is mine
+
+
+def test_the_tracker_never_jumps_to_a_more_confident_mob_of_the_same_cluster() -> None:
+    """The bug US-043 fixes: confidence flapping swapped foreground and background mobs."""
+
+    # Arrange
+    tracker = ApproachTargetTracker(MOB_CLASS)
+    approach_heights = [49, 58, 70, 86, 110, 143, 196]
+    background = _live(196, x=120, y=380, confidence=0.99)
+    tracked: list[int] = []
+
+    # Act
+    for step, height in enumerate(approach_heights):
+        # The approach target grows and drifts a few pixels per frame while a large, very
+        # confident mob sits off to the left for the whole run.
+        target = _live(height, x=CLIENT_WIDTH // 2 - 30 + step * 4, y=400 - step * 3)
+        chosen = tracker.track([background, target], CLIENT_WIDTH)
+        assert chosen is target
+        tracked.append(chosen.bounding_box.height)
+
+    # Assert
+    assert tracked == approach_heights
+
+
+def test_the_tracker_prefers_the_overlapping_box_over_a_nearer_centroid() -> None:
+    # Arrange
+    tracker = ApproachTargetTracker(MOB_CLASS)
+    first = tracker.track([_live(80, x=760, y=400)], CLIENT_WIDTH)
+    assert first is not None
+    # The target grew downwards, which moved its centroid further than a neighbour that
+    # happens to sit closer to where the target was.
+    grown = _live(200, x=756, y=400)
+    neighbour = _live(40, x=800, y=430)
+
+    # Act
+    chosen = tracker.track([neighbour, grown], CLIENT_WIDTH)
+
+    # Assert
+    assert chosen is grown
+    assert centroid_shift(first.bounding_box, grown.bounding_box) > centroid_shift(
+        first.bounding_box, neighbour.bounding_box
+    )
+    assert overlap_ratio(first.bounding_box, grown.bounding_box) > overlap_ratio(
+        first.bounding_box, neighbour.bounding_box
+    )
+
+
+def test_the_tracker_refuses_a_candidate_outside_the_re_acquisition_radius() -> None:
+    # Arrange
+    tracker = ApproachTargetTracker(MOB_CLASS)
+    first = tracker.track([_live(80, x=760, y=400)], CLIENT_WIDTH)
+    assert first is not None
+    distant = _live(80, x=200, y=700)
+    assert centroid_shift(first.bounding_box, distant.bounding_box) > (
+        ApproachTrackingConfig().maximum_centroid_shift_pixels
+    )
+
+    # Act
+    chosen = tracker.track([distant], CLIENT_WIDTH)
+
+    # Assert
+    assert chosen is None
+    assert not tracker.is_lost
+
+
+def test_the_tracker_re_acquires_the_target_after_a_short_occlusion() -> None:
+    # Arrange
+    tracker = ApproachTargetTracker(MOB_CLASS)
+    tracker.track([_live(80, x=760, y=400)], CLIENT_WIDTH)
+    for _ in range(APPROACH_TARGET_MAXIMUM_MISSED_FRAMES):
+        assert tracker.track([], CLIENT_WIDTH) is None
+    reappeared = _live(92, x=756, y=396)
+
+    # Act
+    chosen = tracker.track([reappeared], CLIENT_WIDTH)
+
+    # Assert
+    assert chosen is reappeared
+    assert not tracker.is_lost
+
+
+def test_the_tracker_gives_up_rather_than_adopting_a_neighbour_after_the_miss_budget() -> None:
+    # Arrange
+    tracker = ApproachTargetTracker(MOB_CLASS)
+    tracker.track([_live(80, x=760, y=400)], CLIENT_WIDTH)
+    for _ in range(APPROACH_TARGET_MAXIMUM_MISSED_FRAMES + 1):
+        assert tracker.track([], CLIENT_WIDTH) is None
+
+    # Act
+    chosen = tracker.track([_live(80, x=758, y=402)], CLIENT_WIDTH)
+
+    # Assert
+    assert chosen is None
+    assert tracker.is_lost
+
+
+def test_the_tracker_keeps_acquiring_while_the_target_has_never_been_seen() -> None:
+    # Arrange
+    tracker = ApproachTargetTracker(MOB_CLASS)
+    for _ in range(APPROACH_TARGET_MAXIMUM_MISSED_FRAMES + 2):
+        assert tracker.track([], CLIENT_WIDTH) is None
+    late = _live(49, x=CLIENT_WIDTH // 2 - 30)
+
+    # Act
+    chosen = tracker.track([late], CLIENT_WIDTH)
+
+    # Assert
+    assert chosen is late
+    assert not tracker.is_lost
+
+
+def test_the_tracker_remembers_the_last_box_across_a_missed_frame() -> None:
+    # Arrange
+    tracker = ApproachTargetTracker(MOB_CLASS)
+    first = tracker.track([_live(80, x=760, y=400)], CLIENT_WIDTH)
+    assert first is not None
+
+    # Act
+    tracker.track([], CLIENT_WIDTH)
+
+    # Assert
+    assert tracker.tracked_box == first.bounding_box
+
+
+def test_overlap_and_shift_describe_disjoint_and_identical_boxes() -> None:
+    box = BoundingBox(x=100, y=100, width=40, height=80)
+
+    assert overlap_ratio(box, box) == pytest.approx(1.0)
+    assert overlap_ratio(box, BoundingBox(x=400, y=400, width=40, height=80)) == 0.0
+    assert centroid_shift(box, box) == 0.0
+    assert centroid_shift(box, BoundingBox(x=100, y=180, width=40, height=80)) == pytest.approx(
+        80.0
+    )
+
+
+def test_tracking_config_rejects_gates_that_could_never_match() -> None:
+    with pytest.raises(ValueError):
+        ApproachTrackingConfig(minimum_overlap=0.0)
+    with pytest.raises(ValueError):
+        ApproachTrackingConfig(minimum_overlap=1.5)
+    with pytest.raises(ValueError):
+        ApproachTrackingConfig(maximum_centroid_shift_pixels=0.0)
+    with pytest.raises(ValueError):
+        ApproachTrackingConfig(maximum_missed_frames=-1)
+
+
+def test_fit_names_a_run_it_cannot_read_instead_of_raising_a_traceback(tmp_path: Path) -> None:
+    """US-043: runs recorded under the previous manifest schema are rejected by name."""
+
+    # Arrange
+    run = tmp_path / "20260818-000000-walk-in-old"
+    run.mkdir()
+    payload = manifest_to_mapping(_manifest([_frame(0, height=40, increment=None)]))
+    payload["schema_version"] = MANIFEST_SCHEMA_VERSION - 1
+    (run / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    # Act / Assert
+    with pytest.raises(SystemExit) as excinfo:
+        main(["fit", "--input", str(run)])
+    assert "Unsupported manifest schema version" in str(excinfo.value)

@@ -48,6 +48,7 @@ related:
   - ../bugs/fixed/BUG-012-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md
   - ../user-stories/completed/US-034-background-independent-monster-stats-kill-confirmation.md
   - ../bugs/fixed/BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md
+  - ../user-stories/completed/US-043-continuous-approach-target-tracking-and-minimap-zoom-initialization.md
 ---
 
 # Architecture
@@ -639,7 +640,13 @@ conversion anywhere, because deriving one would need a run speed the client does
 pixel at maximum zoom-out covers exactly two at the default zoom, and the ring geometry itself does
 not change between them. The tracker anchors a zoom signature on its first measurement, publishes it
 alongside every position, and drops to `DEGRADED` until `reanchor()` when five consecutive readings
-deviate from it by more than 12 %. Backward speed was removed rather than guessed: no `S` burst was
+deviate from it by more than 20 %. The tolerance was 12 %, which was fitted to the 4.2 % spread
+*inside* one recorded burst; a longer contiguous walk crosses terrain whose drawn detail varies far
+more than that without any scale change, and dropped into `DEGRADED` mid-run. 20 % absorbs that and
+still sits below the 24.6 % step between the two zoom levels (US-043). The ring locator's angular
+deviation bound moved from 15.0 to 20.0 for the same reason: the stroke is drawn over the map, so
+high-contrast terrain under the annulus lifts the deviation past the original bound while the
+intensity bound still rejects every recorded scenery sample. Backward speed was removed rather than guessed: no `S` burst was
 recorded, no controller dispatches `S`, and backward motion is observed anyway.
 
 The measured turn rate is 240 deg/s, not the 90 deg/s that was assumed, so the default pathing turn
@@ -676,7 +683,7 @@ ticks alone keep both saving and loading possible while the session is paused.
 | Outcome | Condition | Effect |
 | --- | --- | --- |
 | `ANCHORED` | landmark correlated above 0.30 within one surface radius | map loaded and writable; `MovementTracker.relocate` moves the tracker into the profile's frame |
-| `SCALE_MISMATCH` | stored zoom signature deviates from the live one by more than 12 % | nothing loaded; the active map stays intact |
+| `SCALE_MISMATCH` | stored zoom signature deviates from the live one by more than 20 % | nothing loaded; the active map stays intact |
 | `UNMATCHED` | no live disk, or correlation below the gate | nothing loaded; the operator is offered read-only or cancel, defaulting to cancel |
 | `READ_ONLY` | the operator accepted a read-only load (`accept_unmatched`) | map loaded, learning suspended |
 | `UNANCHORED` | the profile carries no landmark (saved while `DEGRADED`) | map loaded read-only |
@@ -710,22 +717,34 @@ landmark — it then loads unanchored, and no exception escapes to the UI, match
 behaviour of US-021. The usable matching radius inside the one-radius bound is a field measurement
 that is still open.
 
-## Standardized camera alignment (US-042)
+## Standardized viewport alignment (US-042, US-043)
 
 The inverse-perspective distance relation of US-037/US-041 only holds at the camera state it was
-fitted at, so `features/automation/camera_alignment.py` restores that state instead of trusting the
-operator to reproduce it by hand. `CameraAligner.align()` runs three steps against one client:
-thirty forward wheel notches to the engine's hard-clamped zoom limit, a 0.8 s hold on the pitch-up
-key (`VK_UP`) into the vertical ceiling, and a 0.35 s pitch-down pulse (`VK_DOWN`) onto the
-standardized ~45° elevation that keeps horizon spawns visible. Every step settles for 0.2 s before
-the next one, because the client interpolates the camera. Nothing about the game's memory or
-rendering is inspected: the sequence is deterministic only because the zoom limit is clamped by the
-engine and the pitch is measured from its own limit rather than from wherever the camera happened to
-be.
+fitted at, and the odometry of US-035 only reports calibrated minimap pixels at the zoom level it was
+measured at, so `features/automation/camera_alignment.py` restores both instead of trusting the
+operator to reproduce them by hand. `CameraAligner.align()` runs four steps against one client: ten
+clicks on the minimap's zoom-out button past the widget's own range, thirty forward wheel notches to
+the engine's hard-clamped zoom limit, a 0.8 s hold on the pitch-up key (`VK_UP`) into the vertical
+ceiling, and a 0.35 s pitch-down pulse (`VK_DOWN`) onto the standardized ~45° elevation that keeps
+horizon spawns visible. Every camera step settles for 0.2 s before the next one, because the client
+interpolates the camera, and every minimap click settles for 0.12 s, because the widget swallows a
+click that lands during its redraw. Nothing about the game's memory or rendering is inspected: the
+sequence is deterministic only because both limits are clamped by the engine and the pitch is
+measured from its own limit rather than from wherever the camera happened to be.
 
-`CameraAligner` re-checks the emergency stop and foreground focus before every step and once more
-after the last one, returning `CameraAlignmentStatus.ABORTED` or `FOCUS_LOST` instead of dispatching
-the remainder. The wheel itself goes through the new
+**The minimap step is located, not hard-coded to the screen.** `minimap_zoom_out_button` derives the
+click point from the `MinimapGeometry` the odometry locator already returns, at a measured offset of
+(-66.5, +45.5) px from the ring centre — the button's pale disk in the client-area stills shipped
+under `data/assets/fixtures/minimap/`. `frame_minimap_locator` binds a `FrameSource` and window handle
+into the `MinimapLocator` callable the aligner takes, and a widget that cannot be found (collapsed,
+or a frame that could not be captured) returns the new `CameraAlignmentStatus.MINIMAP_NOT_FOUND`
+before any input is dispatched, which the orchestrator treats like any other failed pre-flight. The
+minimap runs first so the pointer ends over the client centre, where the camera's wheel notches have
+to land. An aligner constructed without a locator skips the step and runs the camera sequence alone.
+
+`CameraAligner` re-checks the emergency stop and foreground focus before every step — including
+before each of the ten minimap clicks — and once more after the last one, returning
+`CameraAlignmentStatus.ABORTED` or `FOCUS_LOST` instead of dispatching the remainder. The wheel itself goes through the new
 `WindowsInputController.scroll_wheel_while_guarded`, which centres the cursor over the client area —
 Windows routes wheel input by cursor position — and stops between notches on either condition.
 
@@ -749,7 +768,7 @@ is enabled only while the session is idle. `capture_spawn_distance_samples.py` r
 routine after `acquire_window` and refuses to record a run it could not align (`--no-camera-align`
 opts out).
 
-## Developer calibration harnesses (US-035, US-041)
+## Developer calibration harnesses (US-035, US-041, US-043)
 
 `scripts/` holds the offline harnesses that produce the measurements the shipped constants cite.
 They are never imported by `flyff_bot` and ship with nothing: they depend inward on the same feature
@@ -775,7 +794,25 @@ by standardizing on the **zoom hard-stop** (mouse wheel scrolled all the way bac
 zoom limit) and a **controlled ~45° camera pitch** (navigated from vertical limit/reset to preserve
 forward FOV for spawn sightings), both during calibration captures and live bot farming. US-042
 automated that protocol as `CameraAligner`, which both the harness and the farming pre-flight run, so
-the two can no longer drift apart.
+the two can no longer drift apart. US-043 added the minimap zoom-out hard stop to the same routine,
+which fixes the odometry scale the walk-in's travel is measured in as well.
+
+**One walk-in follows one mob.** A spawn cluster puts ten or more mobs of the target class in the
+viewport at once, and the harness used to record the most confident candidate per frame. Confidence
+flaps frame to frame, so the recorded height jumped between foreground and background mobs of the
+same cluster (49 px, then 196 px, then 85 px) and destroyed the monotonic height/travel relation the
+fit depends on. `ApproachTargetTracker` acquires the target once, on the first frame that detects it,
+as the candidate whose box centre sits closest to the viewport's vertical centreline — the mob the
+operator lined the character up with — and every later frame is matched against the *previous*
+tracked box rather than re-selected on its own merits: any candidate overlapping it by 0.2 IoU, or
+whose centroid moved less than 120 px, is eligible, and the highest overlap wins with centroid
+distance breaking ties. A frame with no acceptable match leaves the last box in place and records
+nothing, so a mob hidden behind another model for a frame or two is picked up where it reappears;
+beyond two consecutive misses the target counts as lost and nothing further is tracked, because
+adopting whatever is nearby is exactly the jump the tracker exists to prevent. Manifest schema
+version 2 marks the tracked mob with `is_approach_target` on exactly one detection per frame, which
+is what the offline fit reads and what the stored crop pictures. Runs recorded under version 1 are
+rejected rather than migrated (ADR-003): their per-frame selection cannot be reconstructed.
 
 **A walk-in measures remaining travel, not distance.** The client stops the character at melee
 range, so the absolute distance to the mob is never observable. Per frame the harness records how far

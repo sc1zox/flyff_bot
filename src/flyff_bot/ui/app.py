@@ -20,7 +20,10 @@ from flyff_bot.constants import (
     DEFAULT_PROCESS_NAME,
     DEFAULT_TARGET_ANCHOR_PATH,
 )
-from flyff_bot.features.automation.camera_alignment import CameraAligner
+from flyff_bot.features.automation.camera_alignment import (
+    CameraAligner,
+    frame_minimap_locator,
+)
 from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
@@ -207,8 +210,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         anchor_match_threshold=window.anchor_threshold_spin.value(),
                     ),
                 )
+                frame_source = WindowsFrameSource(require_foreground=False)
                 pipeline = PerceptionPipeline(
-                    WindowsFrameSource(require_foreground=False),
+                    frame_source,
                     OpenCVDnnYoloDetector.from_files(
                         model_path,
                         labels_path,
@@ -243,7 +247,11 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     pathing=PathingController(
                         load_profile(navigation_map_path).spatial_map, map_path=navigation_map_path
                     ),
-                    camera_aligner=CameraAligner(controller, window_handle),
+                    camera_aligner=CameraAligner(
+                        controller,
+                        window_handle,
+                        locate_minimap_geometry=frame_minimap_locator(frame_source, window_handle),
+                    ),
                 )
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
