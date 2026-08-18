@@ -20,6 +20,7 @@ from flyff_bot.constants import (
     DEFAULT_PROCESS_NAME,
     DEFAULT_TARGET_ANCHOR_PATH,
 )
+from flyff_bot.features.automation.camera_alignment import CameraAligner
 from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
@@ -71,6 +72,10 @@ class FarmingControls(Protocol):
 
     def configure_powerups(self, config: PowerUpConfig) -> None: ...
 
+    def request_camera_alignment(self) -> None: ...
+
+    def configure_auto_align(self, enabled: bool) -> None: ...
+
 
 class WindowFocusControls(Protocol):
     """The foreground handoff required before a farming session can run."""
@@ -112,6 +117,8 @@ def connect_farming_controls(
     window.reset_navigation_requested.connect(orchestrator.reset_navigation_map)
     window.vitals_config_changed.connect(orchestrator.configure_vitals)
     window.powerup_config_changed.connect(orchestrator.configure_powerups)
+    window.auto_align_changed.connect(orchestrator.configure_auto_align)
+    window.align_camera_requested.connect(orchestrator.request_camera_alignment)
 
 
 def start_farming(
@@ -191,11 +198,13 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         ),
                         vitals=window.get_vitals_config(),
                         powerups=window.get_powerup_config(),
+                        auto_align_camera=window.auto_align_toggle.isChecked(),
                     ),
                     dashboard_feed=feed,
                     pathing=PathingController(
                         load_spatial_map(navigation_map_path), map_path=navigation_map_path
                     ),
+                    camera_aligner=CameraAligner(controller, window_handle),
                 )
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)

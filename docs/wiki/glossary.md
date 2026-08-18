@@ -111,6 +111,12 @@ related:
 - **Visual settle pause** — A configurable observation interval (`rotation_settle_pause_seconds`)
   between camera rotation and tilt pulses that allows perception to evaluate clean, unblurred
   frames without overshooting candidate mobs.
+- **Camera alignment pre-flight** — The standardized zoom and pitch routine (`CameraAligner`) that
+  runs before a farming session or a calibration recording, so the fitted spawn distance relation is
+  read off the same perspective it was measured at.
+- **Zoom hard-stop** — The maximum camera distance the game engine clamps the mouse wheel to. Because
+  the clamp is the engine's, scrolling backwards past it yields the same focal length in every
+  session without inspecting game memory.
 - **Vertical pitch tilt** — Camera elevation adjustments via Up/Down arrow keys during search mode
   to gain bird's-eye or upward perspectives of monsters situated on slopes or hills.
 - **Spawn heatmap** — The internal per-cell accumulation of mob sightings on the relative

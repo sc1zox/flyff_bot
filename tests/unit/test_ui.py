@@ -207,11 +207,19 @@ def test_farming_controls_connect_dashboard_intent() -> None:
         def configure_powerups(self, config: PowerUpConfig) -> None:
             self.requests.append("powerups")
 
+        def request_camera_alignment(self) -> None:
+            self.requests.append("align")
+
+        def configure_auto_align(self, enabled: bool) -> None:
+            self.requests.append(f"auto_align:{enabled}")
+
     session = Session()
     connect_farming_controls(window, session)
     window.start_button.click()
     window.pause_button.click()
     window.emergency_stop_button.click()
+    window.align_camera_button.click()
+    window.auto_align_toggle.setChecked(False)
     window.save_profile_requested.emit(Path("spot.json"))
     window.load_profile_requested.emit(Path("spot.json"))
     window.reset_navigation_requested.emit()
@@ -221,10 +229,50 @@ def test_farming_controls_connect_dashboard_intent() -> None:
         "start",
         "pause",
         "stop",
+        "align",
+        "auto_align:False",
         "save:spot.json",
         "load:spot.json",
         "reset",
     ]
+
+
+def test_main_window_align_camera_button_is_gated_on_an_idle_session() -> None:
+    """US-042: the camera is only realigned while the session is not driving it."""
+
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.PAUSED))
+    assert window.align_camera_button.isEnabled()
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.SEARCH_ROTATING))
+    assert not window.align_camera_button.isEnabled()
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ALIGNING))
+    assert not window.align_camera_button.isEnabled()
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.EMERGENCY_STOPPED))
+    assert not window.align_camera_button.isEnabled()
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ALIGNMENT_FAILED))
+    assert window.align_camera_button.isEnabled()
+
+
+def test_main_window_renders_localized_alignment_states() -> None:
+    """US-042: alignment progress and failure are localized status badges."""
+
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ALIGNING))
+    assert "Aligning camera" in window.status_label.text()
+    assert window.align_camera_button.text() == "Align Camera"
+    assert window.auto_align_toggle.isChecked()
+
+    german = MainWindow(Translator(Language.GERMAN))
+    german.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ALIGNMENT_FAILED))
+    assert "Kameraausrichtung" in german.status_label.text()
+    assert german.align_camera_button.text() == "Kamera ausrichten"
 
 
 def test_start_farming_focuses_the_game_before_starting_the_session() -> None:

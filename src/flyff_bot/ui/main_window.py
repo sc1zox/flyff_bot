@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flyff_bot.features.automation.camera_alignment import DEFAULT_AUTO_ALIGN_CAMERA
 from flyff_bot.features.automation.controllers import CombatConfig, EngagementBreakReason
 from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
@@ -110,6 +111,8 @@ class MainWindow(QMainWindow):
     pause_requested = Signal()
     emergency_stop_requested = Signal()
     attack_key_changed = Signal(int)
+    align_camera_requested = Signal()
+    auto_align_changed = Signal(bool)
     vitals_config_changed = Signal(object)
     powerup_config_changed = Signal(object)
     combat_grace_changed = Signal(float)
@@ -201,6 +204,9 @@ class MainWindow(QMainWindow):
         self._emergency_stop_button.setObjectName("ActionEmergencyStop")
         self._attack_key_label = QLabel()
         self._attack_key_button = QPushButton()
+        self._align_camera_button = QPushButton()
+        self._auto_align_toggle = QCheckBox()
+        self._auto_align_toggle.setChecked(DEFAULT_AUTO_ALIGN_CAMERA)
         self._attack_virtual_key = parse_virtual_key("F3")
         self._attack_key_name = "F3"
         self._is_recording_attack_key = False
@@ -445,6 +451,18 @@ class MainWindow(QMainWindow):
         """Expose the key-capture control for the desktop application and tests."""
 
         return self._attack_key_button
+
+    @property
+    def align_camera_button(self) -> QPushButton:
+        """Expose the on-demand camera alignment control for wiring and tests."""
+
+        return self._align_camera_button
+
+    @property
+    def auto_align_toggle(self) -> QCheckBox:
+        """Expose the pre-flight camera alignment toggle for wiring and tests."""
+
+        return self._auto_align_toggle
 
     @property
     def attack_virtual_key(self) -> int:
@@ -1094,6 +1112,8 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self._emergency_stop_button)
         controls_layout.addWidget(self._attack_key_label)
         controls_layout.addWidget(self._attack_key_button)
+        controls_layout.addWidget(self._align_camera_button)
+        controls_layout.addWidget(self._auto_align_toggle)
         controls_layout.addWidget(self._language_selector)
         self._controls_card.setLayout(controls_layout)
 
@@ -1141,6 +1161,8 @@ class MainWindow(QMainWindow):
         self._pause_button.clicked.connect(self._request_pause)
         self._emergency_stop_button.clicked.connect(self._request_emergency_stop)
         self._attack_key_button.clicked.connect(self._begin_attack_key_recording)
+        self._align_camera_button.clicked.connect(self._request_camera_alignment)
+        self._auto_align_toggle.toggled.connect(self.auto_align_changed)
         self._attack_key_button.installEventFilter(self)
         self._debug_toggle.toggled.connect(self._update_overlay_visibility)
         self._path_toggle.toggled.connect(self._update_path_visibility)
@@ -1261,6 +1283,12 @@ class MainWindow(QMainWindow):
             if self._is_recording_attack_key
             else self._attack_key_name
         )
+        self._align_camera_button.setText(self._translator.text(Message.UI_ALIGN_CAMERA))
+        self._align_camera_button.setToolTip(self._translator.text(Message.UI_ALIGN_CAMERA_TOOLTIP))
+        self._auto_align_toggle.setText(self._translator.text(Message.UI_AUTO_ALIGN_CAMERA))
+        self._auto_align_toggle.setToolTip(
+            self._translator.text(Message.UI_AUTO_ALIGN_CAMERA_TOOLTIP)
+        )
         self._debug_toggle.setText(self._translator.text(Message.UI_DEBUG_OVERLAY))
         self._path_toggle.setText(self._translator.text(Message.UI_PATH_INSPECTOR))
         self._vitals_toggle.setText(self._translator.text(Message.UI_VITALS_TOGGLE))
@@ -1340,6 +1368,10 @@ class MainWindow(QMainWindow):
         )
         self._language_selector.setCurrentIndex(self._language_selector.findData(previous_language))
         self._language_selector.blockSignals(False)
+
+    @Slot()
+    def _request_camera_alignment(self) -> None:
+        self.align_camera_requested.emit()
 
     @Slot()
     def _begin_attack_key_recording(self) -> None:
@@ -1453,6 +1485,11 @@ class MainWindow(QMainWindow):
             BotStatus.SEARCH_ROAMING,
         }
         profile_controls_enabled = not is_active
+        # Alignment drives the camera by hand, so it is offered only while the session is
+        # idle and never while it is already moving the camera or latched in an emergency stop.
+        self._align_camera_button.setEnabled(
+            update.status in {BotStatus.PAUSED, BotStatus.STANDBY, BotStatus.ALIGNMENT_FAILED}
+        )
         self._profile_selector.setEnabled(profile_controls_enabled)
         self._profile_name_input.setEnabled(profile_controls_enabled)
         self._save_profile_button.setEnabled(profile_controls_enabled)
@@ -1593,6 +1630,8 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.RECONCILING: Message.UI_STATUS_RECONCILING,
         BotStatus.SEARCH_ROTATING: Message.UI_STATUS_SEARCH_ROTATING,
         BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
+        BotStatus.ALIGNING: Message.UI_STATUS_ALIGNING,
+        BotStatus.ALIGNMENT_FAILED: Message.UI_STATUS_ALIGNMENT_FAILED,
     }[status]
 
 
@@ -1625,8 +1664,10 @@ def _status_category(status: BotStatus) -> str:
         return "paused"
     if status == BotStatus.EMERGENCY_STOPPED:
         return "emergency_stopped"
-    if status == BotStatus.RECONCILING:
+    if status in {BotStatus.RECONCILING, BotStatus.ALIGNING}:
         return "reconciling"
+    if status == BotStatus.ALIGNMENT_FAILED:
+        return "emergency_stopped"
     return "search"
 
 

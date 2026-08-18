@@ -1,7 +1,7 @@
 ---
 id: US-042
 title: Automated camera alignment and standardized viewport initialization
-status: ready
+status: completed
 created: 2026-08-18
 updated: 2026-08-18
 ---
@@ -45,33 +45,33 @@ As a **bot operator starting a farming session or calibration run**, I want **an
 
 ### 1. Guarded camera alignment routine
 
-- [ ] Given a focused Flyff client window, when `CameraAligner.align()` is called, then it executes the
+- [x] Given a focused Flyff client window, when `CameraAligner.align()` is called, then it executes the
   standardized alignment sequence:
   1. Sends 15 mouse wheel scroll down steps to reach the physical zoom hard-stop.
   2. Holds the vertical pitch-up key to reach the vertical ceiling/limit.
   3. Dispatches a calibrated pitch-down pulse to set the standardized ~45° elevation.
-- [ ] Given an active alignment sequence, when the client loses foreground focus or the operator holds `END`,
+- [x] Given an active alignment sequence, when the client loses foreground focus or the operator holds `END`,
   then the alignment immediately halts and returns an explicit failure status without executing remaining
   actions.
 
 ### 2. Farming session pre-flight integration
 
-- [ ] Given `auto_align_camera` is enabled in `FarmingConfig`, when the operator starts a farming session, then
+- [x] Given `auto_align_camera` is enabled in `FarmingConfig`, when the operator starts a farming session, then
   the orchestrator executes the camera alignment pre-flight before transitioning to active perception and
   combat.
-- [ ] Given pre-flight alignment is executing, when the dashboard renders, then the status displays a dedicated
+- [x] Given pre-flight alignment is executing, when the dashboard renders, then the status displays a dedicated
   localized alignment state ("Aligning camera...").
-- [ ] Given pre-flight alignment fails (due to focus loss, emergency stop, or invalid window), then the
+- [x] Given pre-flight alignment fails (due to focus loss, emergency stop, or invalid window), then the
   orchestrator transitions cleanly to paused/stopped state with an explanatory status message rather than
   crashing or continuing with uncalibrated perspective.
 
 ### 3. Dashboard UI controls and localization
 
-- [ ] Given the desktop dashboard in paused state, when the operator clicks the "Align Camera" button, then the
+- [x] Given the desktop dashboard in paused state, when the operator clicks the "Align Camera" button, then the
   alignment routine runs for the foregrounded game window.
-- [ ] Given the dashboard settings panel, the operator can toggle "Auto-align camera on start" with instant
+- [x] Given the dashboard settings panel, the operator can toggle "Auto-align camera on start" with instant
   effect.
-- [ ] All new user-visible text (button labels, status messages, tooltips, dialogs) is present and synchronized
+- [x] All new user-visible text (button labels, status messages, tooltips, dialogs) is present and synchronized
   in `src/flyff_bot/locales/de.json` and `en.json`.
 
 ## Out of scope
@@ -88,7 +88,7 @@ As a **bot operator starting a farming session or calibration run**, I want **an
   - Unit tests for `FarmingOrchestrator` pre-flight lifecycle (success, abort on focus loss, skip when disabled).
   - Unit tests for UI button and checkbox state wiring.
   - `pwsh -File .\scripts\check.ps1`.
-- Manual (Windows):
+- Manual (Windows) — not executed in this environment; requires a live client:
   - Click "Align Camera" on a live client from arbitrary zoom/pitch and verify the client zooms all the way
     out and sets the ~45° pitch.
   - Start a farming session with auto-align enabled and verify smooth pre-flight execution into active farming.

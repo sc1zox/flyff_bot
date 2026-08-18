@@ -30,6 +30,7 @@ related:
   - ../user-stories/completed/US-035-measured-minimap-odometry-and-tracking-quality.md
   - ../user-stories/US-037-measured-spawn-distance-and-enforced-leash.md
   - ../user-stories/completed/US-041-spawn-distance-calibration-capture-script.md
+  - ../user-stories/completed/US-042-automated-camera-alignment-and-standardized-viewport-initialization.md
   - ../user-stories/completed/US-022-modern-dark-theme-and-streamlined-dashboard-ui.md
   - ../user-stories/completed/US-023-reliable-combat-targeting-and-kill-verification.md
   - ../user-stories/completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md
@@ -644,6 +645,37 @@ pulse dropped from 0.15 s to 0.08 s to keep one pulse inside the 25 deg heading 
 measurement costs 1.06 ms per tick with the geometry cached, on the existing `SessionWorker` thread,
 never on the Qt GUI thread.
 
+## Standardized camera alignment (US-042)
+
+The inverse-perspective distance relation of US-037/US-041 only holds at the camera state it was
+fitted at, so `features/automation/camera_alignment.py` restores that state instead of trusting the
+operator to reproduce it by hand. `CameraAligner.align()` runs three steps against one client:
+fifteen backwards wheel notches to the engine's hard-clamped zoom limit, a 0.8 s hold on the pitch-up
+key (`VK_PRIOR`) into the vertical ceiling, and a 0.35 s pitch-down pulse (`VK_NEXT`) onto the
+standardized ~45° elevation that keeps horizon spawns visible. Every step settles for 0.2 s before
+the next one, because the client interpolates the camera. Nothing about the game's memory or
+rendering is inspected: the sequence is deterministic only because the zoom limit is clamped by the
+engine and the pitch is measured from its own limit rather than from wherever the camera happened to
+be.
+
+`CameraAligner` re-checks the emergency stop and foreground focus before every step and once more
+after the last one, returning `CameraAlignmentStatus.ABORTED` or `FOCUS_LOST` instead of dispatching
+the remainder. The wheel itself goes through the new
+`WindowsInputController.scroll_wheel_while_guarded`, which centres the cursor over the client area —
+Windows routes wheel input by cursor position — and stops between notches on either condition.
+
+`FarmingOrchestrator` owns alignment as a session phase, `FarmingMode.ALIGNING`, entered from
+`start()` when `FarmingConfig.auto_align_camera` is set and left only once the camera is standing
+still. The blocking sequence runs on the existing `SessionWorker` thread, never on the Qt GUI thread,
+and the orchestrator publishes the `BotStatus.ALIGNING` dashboard update *before* it blocks so the
+badge covers the whole sequence. A failed pre-flight never farms on an uncalibrated perspective: a
+lost foreground pauses the session and latches `BotStatus.ALIGNMENT_FAILED` until the next start,
+and a held `END` latches the session-local emergency stop. The dashboard's "Align Camera" button
+queues the same routine for the next worker tick rather than calling it from the click handler, and
+is enabled only while the session is idle. `capture_spawn_distance_samples.py` runs the identical
+routine after `acquire_window` and refuses to record a run it could not align (`--no-camera-align`
+opts out).
+
 ## Developer calibration harnesses (US-035, US-041)
 
 `scripts/` holds the offline harnesses that produce the measurements the shipped constants cite.
@@ -668,7 +700,9 @@ inverse of distance ($d = a / h + b$). Because coefficient $a$ depends directly 
 (zoom) and camera pitch, 100% reproducibility across sessions without memory inspection is guaranteed
 by standardizing on the **zoom hard-stop** (mouse wheel scrolled all the way back to the game's maximum
 zoom limit) and a **controlled ~45° camera pitch** (navigated from vertical limit/reset to preserve
-forward FOV for spawn sightings), both during calibration captures and live bot farming.
+forward FOV for spawn sightings), both during calibration captures and live bot farming. US-042
+automated that protocol as `CameraAligner`, which both the harness and the farming pre-flight run, so
+the two can no longer drift apart.
 
 **A walk-in measures remaining travel, not distance.** The client stops the character at melee
 range, so the absolute distance to the mob is never observable. Per frame the harness records how far

@@ -398,3 +398,19 @@ No measurement was ingested: US-041 delivers the instrument. US-037 criteria 1 a
 bullets of criterion 2 stay open until an operator records approach sequences on Windows and the
 result is ingested into `docs/sources/`.
 
+
+## 2026-08-18 — synthesis: US-042 automated camera alignment
+
+Recorded the standardized camera alignment routine in the architecture page and glossary. The zoom
+hard-stop and ~45° pitch protocol US-041 wrote down as an operator instruction is now executed by
+`CameraAligner`, which the farming pre-flight (`FarmingMode.ALIGNING`) and the spawn distance capture
+harness both run, so the calibration state and the farming state cannot drift apart.
+
+Recorded that the routine dispatches nothing blind: it re-checks the emergency stop and foreground
+focus before every step and after the last one, and the new guarded wheel path centres the cursor
+over the client area because Windows routes wheel input by cursor position. A failed pre-flight
+pauses the session with a localized failure badge rather than farming on an uncalibrated
+perspective, and the blocking sequence runs on the session worker thread, never on the Qt GUI thread.
+
+No measurement was ingested: the ~45° pitch remains the protocol US-041 documented, and the
+coefficients of the distance relation still wait on recorded approach runs.

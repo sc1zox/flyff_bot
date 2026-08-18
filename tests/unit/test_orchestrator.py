@@ -7,6 +7,7 @@ from typing import cast
 
 import pytest
 
+from flyff_bot.features.automation.camera_alignment import CameraAligner, CameraAlignmentStatus
 from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_F1,
     VIRTUAL_KEY_RIGHT,
@@ -632,3 +633,166 @@ def test_power_up_hotkey_is_withheld_while_the_client_is_not_foregrounded() -> N
 
     assert adapter.keys == []
     assert orchestrator.mode is FarmingMode.PAUSED
+
+
+class _CameraAligner:
+    """Stand in for the guarded camera routine with a scripted outcome."""
+
+    def __init__(self, status: CameraAlignmentStatus = CameraAlignmentStatus.ALIGNED) -> None:
+        self._status = status
+        self.calls = 0
+
+    def align(self) -> CameraAlignmentStatus:
+        self.calls += 1
+        return self._status
+
+
+def _aligning_orchestrator(
+    adapter: _InputAdapter,
+    aligner: _CameraAligner,
+    *,
+    auto_align_camera: bool = True,
+    feed: DashboardFeed | None = None,
+    states: list[WorldState] | None = None,
+) -> FarmingOrchestrator:
+    return FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline(states or [_state(index * 1.0) for index in range(6)])),
+        adapter,
+        WINDOW_HANDLE,
+        config=FarmingConfig(auto_align_camera=auto_align_camera),
+        dashboard_feed=feed,
+        camera_aligner=cast(CameraAligner, aligner),
+    )
+
+
+def test_farming_start_runs_the_camera_alignment_pre_flight_before_perception() -> None:
+    """US-042: the perspective is standardized before the first farming tick."""
+
+    adapter = _InputAdapter()
+    aligner = _CameraAligner()
+    updates: list[DashboardUpdate] = []
+    feed = DashboardFeed()
+    feed.update_available.connect(updates.append)
+    pipeline = _Pipeline([_state(index * 1.0) for index in range(6)])
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, pipeline),
+        adapter,
+        WINDOW_HANDLE,
+        config=FarmingConfig(),
+        dashboard_feed=feed,
+        camera_aligner=cast(CameraAligner, aligner),
+    )
+
+    orchestrator.start()
+    mode_before_tick = orchestrator.mode
+    assert mode_before_tick is FarmingMode.ALIGNING
+    # No frame is captured while the camera is still being moved.
+    assert pipeline.calls == []
+
+    orchestrator.tick()
+
+    assert aligner.calls == 1
+    assert orchestrator.mode is FarmingMode.SEARCHING
+    # The dashboard shows the alignment state for the whole sequence, not only afterwards.
+    assert updates[0].status is BotStatus.ALIGNING
+    assert updates[-1].status is not BotStatus.ALIGNING
+
+    orchestrator.tick()
+    assert pipeline.calls == [WINDOW_HANDLE]
+    assert aligner.calls == 1
+
+
+def test_farming_start_skips_the_pre_flight_when_auto_alignment_is_disabled() -> None:
+    """US-042: the pre-flight is a configured step, not an unconditional one."""
+
+    adapter = _InputAdapter()
+    aligner = _CameraAligner()
+    orchestrator = _aligning_orchestrator(adapter, aligner, auto_align_camera=False)
+
+    orchestrator.start()
+
+    assert orchestrator.mode is FarmingMode.SEARCHING
+    assert aligner.calls == 0
+
+
+def test_farming_pauses_with_an_explanatory_status_when_alignment_loses_focus() -> None:
+    """US-042: an uncalibrated perspective pauses the session instead of farming on."""
+
+    adapter = _InputAdapter()
+    aligner = _CameraAligner(CameraAlignmentStatus.FOCUS_LOST)
+    updates: list[DashboardUpdate] = []
+    feed = DashboardFeed()
+    feed.update_available.connect(updates.append)
+    orchestrator = _aligning_orchestrator(adapter, aligner, feed=feed)
+
+    orchestrator.start()
+    orchestrator.tick()
+
+    assert orchestrator.mode is FarmingMode.PAUSED
+    assert updates[-1].status is BotStatus.ALIGNMENT_FAILED
+
+
+def test_farming_emergency_stops_when_alignment_is_aborted_by_the_killswitch() -> None:
+    """US-042: END held during alignment latches the session-local emergency stop."""
+
+    adapter = _InputAdapter()
+    aligner = _CameraAligner(CameraAlignmentStatus.ABORTED)
+    updates: list[DashboardUpdate] = []
+    feed = DashboardFeed()
+    feed.update_available.connect(updates.append)
+    orchestrator = _aligning_orchestrator(adapter, aligner, feed=feed)
+
+    orchestrator.start()
+    orchestrator.tick()
+
+    assert orchestrator.mode is FarmingMode.EMERGENCY_STOPPED
+    assert updates[-1].status is BotStatus.EMERGENCY_STOPPED
+
+
+def test_on_demand_alignment_runs_on_the_worker_tick_and_returns_to_paused() -> None:
+    """US-042: the dashboard button queues alignment instead of blocking the GUI thread."""
+
+    adapter = _InputAdapter()
+    aligner = _CameraAligner()
+    orchestrator = _aligning_orchestrator(adapter, aligner)
+
+    orchestrator.request_camera_alignment()
+    mode_before_tick = orchestrator.mode
+    assert mode_before_tick is FarmingMode.ALIGNING
+    assert aligner.calls == 0
+
+    orchestrator.tick()
+
+    assert aligner.calls == 1
+    assert orchestrator.mode is FarmingMode.PAUSED
+
+
+def test_on_demand_alignment_is_refused_while_a_session_is_running() -> None:
+    """US-042: the camera is never moved out from under an active session."""
+
+    adapter = _InputAdapter()
+    aligner = _CameraAligner()
+    orchestrator = _aligning_orchestrator(adapter, aligner, auto_align_camera=False)
+    orchestrator.start()
+
+    with pytest.raises(RuntimeError):
+        orchestrator.request_camera_alignment()
+    assert aligner.calls == 0
+
+
+def test_auto_alignment_can_be_toggled_from_the_dashboard() -> None:
+    """US-042: the checkbox takes effect on the next session start."""
+
+    adapter = _InputAdapter()
+    aligner = _CameraAligner()
+    orchestrator = _aligning_orchestrator(adapter, aligner)
+
+    orchestrator.configure_auto_align(False)
+    orchestrator.start()
+    mode_without_pre_flight = orchestrator.mode
+    assert mode_without_pre_flight is FarmingMode.SEARCHING
+
+    orchestrator.pause()
+    orchestrator.configure_auto_align(True)
+    orchestrator.start()
+    assert orchestrator.mode is FarmingMode.ALIGNING

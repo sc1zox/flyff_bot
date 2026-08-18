@@ -22,6 +22,11 @@ INPUT_TYPE_KEYBOARD = 1
 KEY_EVENT_KEY_UP = 0x0002
 MOUSE_EVENT_LEFT_DOWN = 0x0002
 MOUSE_EVENT_LEFT_UP = 0x0004
+MOUSE_EVENT_WHEEL = 0x0800
+# One detent of a standard mouse wheel; a positive value rotates the wheel forward.
+WHEEL_DELTA = 120
+DWORD_MASK = 0xFFFFFFFF
+SCROLL_STEP_INTERVAL_SECONDS = 0.03
 VIRTUAL_KEY_END = 0x23
 KEY_IS_DOWN_MASK = 0x8000
 MAXIMUM_PROCESS_PATH_LENGTH = 32_768
@@ -284,6 +289,35 @@ class WindowsInputController:
         finally:
             if self._user32.SendInput(1, ctypes.byref(key_up), ctypes.sizeof(Input)) != 1:
                 raise ctypes.WinError(ctypes.get_last_error())
+
+    def scroll_wheel_while_guarded(self, window_handle: int, notches: int) -> None:
+        """Send discrete wheel notches while END is clear and the client stays foregrounded.
+
+        A negative count rotates the wheel backwards, which is the direction Flyff zooms
+        the camera out towards its hard stop.
+        """
+
+        bounds = self.client_screen_bounds(window_handle)
+        if bounds is not None:
+            # Windows routes wheel input by cursor position, so the notches have to land
+            # over the client area rather than whatever window is under the pointer.
+            self._user32.SetCursorPos(
+                bounds.left + bounds.width // 2, bounds.top + bounds.height // 2
+            )
+        direction = 1 if notches >= 0 else -1
+        for _ in range(abs(notches)):
+            if self.is_aborted() or not self.is_foreground(window_handle):
+                return
+            event = Input(
+                type=INPUT_TYPE_MOUSE,
+                mouse=MouseInput(
+                    mouseData=(direction * WHEEL_DELTA) & DWORD_MASK,
+                    dwFlags=MOUSE_EVENT_WHEEL,
+                ),
+            )
+            if self._user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(Input)) != 1:
+                raise ctypes.WinError(ctypes.get_last_error())
+            time.sleep(SCROLL_STEP_INTERVAL_SECONDS)
 
     def click_client(self, window_handle: int, x_coordinate: int, y_coordinate: int) -> None:
         """Send one left click at client-relative coordinates."""

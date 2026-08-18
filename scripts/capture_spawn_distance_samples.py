@@ -76,6 +76,7 @@ from flyff_bot.constants import (
     DEFAULT_MOB_MODEL_PATH,
     DEFAULT_PROCESS_NAME,
 )
+from flyff_bot.features.automation.camera_alignment import CameraAligner, CameraAlignmentStatus
 from flyff_bot.features.input_control import WindowRef, WindowsInputController, parse_virtual_key
 from flyff_bot.features.navigation.tracking import MovementTracker, TrackingQuality
 from flyff_bot.features.vision.capture import WindowsFrameSource
@@ -571,6 +572,19 @@ def acquire_window(
     return window
 
 
+def align_camera(controller: WindowsInputController, window_handle: int) -> None:
+    """Put the client on the standardized zoom hard-stop and pitch before recording.
+
+    The fitted relation only holds at the camera state it was recorded at, so a run that
+    could not reach that state is refused rather than written as if it had (US-042).
+    """
+
+    status = CameraAligner(controller, window_handle).align()
+    if status is not CameraAlignmentStatus.ALIGNED:
+        raise SystemExit(f"Camera alignment did not complete ({status.value}); nothing recorded.")
+    print("Camera aligned to the zoom hard-stop and standardized pitch.")
+
+
 def _hold_key_on_thread(
     controller: WindowsInputController,
     window_handle: int,
@@ -624,6 +638,8 @@ def _run_walk_in(args: argparse.Namespace) -> int:
     detector = _build_detector(args)
     virtual_key = parse_virtual_key(args.key)
     window = acquire_window(controller, args.process, args.countdown)
+    if args.align_camera:
+        align_camera(controller, window.handle)
 
     odometer = MinimapOdometer()
     tracker = MovementTracker()
@@ -735,6 +751,8 @@ def _run_bearing(args: argparse.Namespace) -> int:
     source = WindowsFrameSource()
     detector = _build_detector(args)
     window = acquire_window(controller, args.process, args.countdown)
+    if args.align_camera:
+        align_camera(controller, window.handle)
 
     odometer = MinimapOdometer()
     tracker = MovementTracker()
@@ -846,6 +864,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--process", default=DEFAULT_PROCESS_NAME)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--countdown", type=float, default=DEFAULT_COUNTDOWN_SECONDS)
+    parser.add_argument(
+        "--no-camera-align",
+        dest="align_camera",
+        action="store_false",
+        help="Skip the standardized camera alignment before recording (US-042).",
+    )
     subparsers = parser.add_subparsers(dest="protocol", required=True)
 
     walk_in = subparsers.add_parser(

@@ -24,6 +24,8 @@ class BotStatus(StrEnum):
     RECONCILING = "reconciling"
     SEARCH_ROTATING = "search_rotating"
     SEARCH_ROAMING = "search_roaming"
+    ALIGNING = "aligning"
+    ALIGNMENT_FAILED = "alignment_failed"
 
 
 class WindowStatus(StrEnum):

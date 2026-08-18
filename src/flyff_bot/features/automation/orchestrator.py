@@ -9,6 +9,11 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from flyff_bot.features.automation.camera_alignment import (
+    DEFAULT_AUTO_ALIGN_CAMERA,
+    CameraAligner,
+    CameraAlignmentStatus,
+)
 from flyff_bot.features.automation.combat_execution import CombatInputAdapter, CombatInputDispatcher
 from flyff_bot.features.automation.controllers import (
     CombatConfig,
@@ -65,6 +70,7 @@ class FarmingMode(StrEnum):
     """The externally observable phases of one farming session."""
 
     PAUSED = "paused"
+    ALIGNING = "aligning"
     SEARCHING = "searching"
     TARGETING = "targeting"
     COMBAT = "combat"
@@ -108,6 +114,7 @@ class FarmingConfig:
     search: SearchConfig = field(default_factory=SearchConfig)
     vitals: VitalsTriggerConfig = field(default_factory=VitalsTriggerConfig)
     powerups: PowerUpConfig = field(default_factory=PowerUpConfig)
+    auto_align_camera: bool = DEFAULT_AUTO_ALIGN_CAMERA
 
     def __post_init__(self) -> None:
         if self.tick_interval_seconds <= 0.0:
@@ -152,6 +159,7 @@ class FarmingOrchestrator:
         config: FarmingConfig | None = None,
         dashboard_feed: DashboardFeed | None = None,
         pathing: PathingController | None = None,
+        camera_aligner: CameraAligner | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._input_adapter = input_adapter
@@ -176,6 +184,9 @@ class FarmingOrchestrator:
         self._window_status = WindowStatus.NOT_FOREGROUND
         self._has_live_frame = False
         self._engagement_break: EngagementBreakReason | None = None
+        self._camera_aligner = camera_aligner
+        self._alignment_failure: CameraAlignmentStatus | None = None
+        self._mode_after_alignment = FarmingMode.SEARCHING
 
     @property
     def mode(self) -> FarmingMode:
@@ -186,8 +197,32 @@ class FarmingOrchestrator:
     def start(self) -> None:
         """Allow cooperative ticks to resume unless an emergency stop is active."""
 
-        if self._mode is not FarmingMode.EMERGENCY_STOPPED:
-            self._mode = FarmingMode.SEARCHING
+        if self._mode is FarmingMode.EMERGENCY_STOPPED:
+            return
+        self._alignment_failure = None
+        # Perception and pathing read distances from a perspective that is only calibrated
+        # at the standardized camera state, so alignment runs before the first farming tick.
+        if self._config.auto_align_camera and self._camera_aligner is not None:
+            self._mode_after_alignment = FarmingMode.SEARCHING
+            self._mode = FarmingMode.ALIGNING
+            return
+        self._mode = FarmingMode.SEARCHING
+
+    def request_camera_alignment(self) -> None:
+        """Queue one on-demand alignment that the next tick performs on its worker thread."""
+
+        if self._mode not in {FarmingMode.PAUSED, FarmingMode.COMPLETED}:
+            raise RuntimeError("Camera alignment can only be requested while farming is paused.")
+        if self._camera_aligner is None:
+            return
+        self._alignment_failure = None
+        self._mode_after_alignment = self._mode
+        self._mode = FarmingMode.ALIGNING
+
+    def configure_auto_align(self, enabled: bool) -> None:
+        """Toggle the pre-flight camera alignment performed when a session starts."""
+
+        self._config = replace(self._config, auto_align_camera=enabled)
 
     def pause(self) -> None:
         """Pause without sending any compensating input to the client."""
@@ -280,6 +315,8 @@ class FarmingOrchestrator:
     def tick(self) -> FarmingTick:
         """Perform at most one perception, decision, and guarded-dispatch cycle."""
 
+        if self._mode is FarmingMode.ALIGNING:
+            return self._run_alignment()
         if self._mode in STANDBY_MODES:
             # Every route into standby freezes the power-up countdowns here, so a
             # paused, completed, or stopped span never expires a timer unobserved.
@@ -335,6 +372,26 @@ class FarmingOrchestrator:
             self.tick()
             if self._mode not in STANDBY_MODES:
                 await sleep(self._config.tick_interval_seconds)
+
+    def _run_alignment(self) -> FarmingTick:
+        """Perform the blocking pre-flight alignment on the calling worker thread."""
+
+        if self._camera_aligner is None:
+            self._mode = self._mode_after_alignment
+            return self._publish(False)
+        # Publishing first lets the dashboard show the alignment state for the whole
+        # sequence instead of only after the camera stopped moving.
+        self._publish(False)
+        status = self._camera_aligner.align()
+        if status is CameraAlignmentStatus.ALIGNED:
+            self._mode = self._mode_after_alignment
+        elif status is CameraAlignmentStatus.ABORTED:
+            self._alignment_failure = status
+            self.emergency_stop()
+        else:
+            self._alignment_failure = status
+            self.pause()
+        return self._publish(False)
 
     def _observe(self) -> bool:
         """Refresh read-only perception state and report whether a frame was captured.
@@ -453,6 +510,7 @@ class FarmingOrchestrator:
                         self._mode,
                         self._search.mode if self._mode is FarmingMode.SEARCHING else None,
                         live_preview=self._has_live_frame,
+                        alignment_failed=self._alignment_failure is not None,
                     ),
                     self._config.goal,
                     frame=self._last_frame,
@@ -473,11 +531,16 @@ def _dashboard_status(
     search_mode: SearchMode | None = None,
     *,
     live_preview: bool = False,
+    alignment_failed: bool = False,
 ) -> BotStatus:
-    if mode is FarmingMode.RECONCILING:
-        return BotStatus.RECONCILING
+    if mode is FarmingMode.ALIGNING:
+        return BotStatus.ALIGNING
     if mode is FarmingMode.EMERGENCY_STOPPED:
         return BotStatus.EMERGENCY_STOPPED
+    if alignment_failed:
+        return BotStatus.ALIGNMENT_FAILED
+    if mode is FarmingMode.RECONCILING:
+        return BotStatus.RECONCILING
     if mode in {FarmingMode.PAUSED, FarmingMode.COMPLETED}:
         return BotStatus.STANDBY if live_preview else BotStatus.PAUSED
     if mode is FarmingMode.SEARCHING:
