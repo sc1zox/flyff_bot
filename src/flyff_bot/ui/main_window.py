@@ -1427,7 +1427,6 @@ class MainWindow(QMainWindow):
             BotStatus.ACTIVE,
             BotStatus.RECONCILING,
             BotStatus.SEARCH_ROTATING,
-            BotStatus.SEARCH_TILTING,
             BotStatus.SEARCH_ROAMING,
         }
         profile_controls_enabled = not is_active
@@ -1570,7 +1569,6 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.EMERGENCY_STOPPED: Message.UI_STATUS_EMERGENCY_STOPPED,
         BotStatus.RECONCILING: Message.UI_STATUS_RECONCILING,
         BotStatus.SEARCH_ROTATING: Message.UI_STATUS_SEARCH_ROTATING,
-        BotStatus.SEARCH_TILTING: Message.UI_STATUS_SEARCH_TILTING,
         BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
     }[status]
 

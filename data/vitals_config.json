@@ -2,16 +2,16 @@
   "rules": [
     {
       "vital_type": "hp",
-      "threshold_percentage": 85.0,
-      "virtual_key": 112,
-      "debounce_seconds": 0.8,
-      "enabled": false,
+      "threshold_percentage": 50.0,
+      "virtual_key": 113,
+      "debounce_seconds": 3.0,
+      "enabled": true,
       "key_press_duration_seconds": 0.05
     },
     {
       "vital_type": "mp",
       "threshold_percentage": 30.0,
-      "virtual_key": 113,
+      "virtual_key": 121,
       "debounce_seconds": 0.8,
       "enabled": false,
       "key_press_duration_seconds": 0.05

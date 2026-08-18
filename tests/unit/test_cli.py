@@ -185,19 +185,13 @@ def test_auto_alias_starts_the_farming_orchestrator(monkeypatch: MonkeyPatch) ->
     assert orchestrator.started
 
 
-def test_search_tilt_and_settle_cli_options() -> None:
+def test_search_settle_cli_options() -> None:
     arguments = cli._argument_parser(Translator(Language.ENGLISH)).parse_args(
         [
             "--farm",
-            "--search-tilt-duration",
-            "0.25",
             "--search-settle-pause",
             "0.35",
-            "--search-tilt-key",
-            "down",
         ]
     )
 
-    assert arguments.search_tilt_duration == 0.25
     assert arguments.search_settle_pause == 0.35
-    assert arguments.search_tilt_key == 0x28

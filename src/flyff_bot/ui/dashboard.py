@@ -22,7 +22,6 @@ class BotStatus(StrEnum):
     COMBAT = "combat"
     RECONCILING = "reconciling"
     SEARCH_ROTATING = "search_rotating"
-    SEARCH_TILTING = "search_tilting"
     SEARCH_ROAMING = "search_roaming"
 
 

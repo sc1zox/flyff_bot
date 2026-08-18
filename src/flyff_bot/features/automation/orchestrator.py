@@ -474,7 +474,6 @@ def _dashboard_status(
     if mode is FarmingMode.SEARCHING:
         return {
             SearchMode.ROTATE: BotStatus.SEARCH_ROTATING,
-            SearchMode.TILT: BotStatus.SEARCH_TILTING,
             SearchMode.ROAM_STEP: BotStatus.SEARCH_ROAMING,
         }[search_mode or SearchMode.ROTATE]
     if mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:

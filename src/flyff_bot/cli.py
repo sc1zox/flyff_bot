@@ -214,22 +214,10 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         help=translator.text(Message.HELP_SEARCH_ROTATION_DURATION, default=0.2),
     )
     parser.add_argument(
-        "--search-tilt-duration",
-        type=float,
-        default=0.2,
-        help=translator.text(Message.HELP_SEARCH_TILT_DURATION, default=0.2),
-    )
-    parser.add_argument(
         "--search-settle-pause",
         type=float,
         default=0.3,
         help=translator.text(Message.HELP_SEARCH_SETTLE_PAUSE, default=0.3),
-    )
-    parser.add_argument(
-        "--search-tilt-key",
-        type=key_type,
-        default=0x26,
-        help=translator.text(Message.HELP_SEARCH_TILT_KEY, default="up"),
     )
     parser.add_argument(
         "--search-movement-duration",
@@ -495,8 +483,6 @@ def _farming_orchestrator(
                 idle_timeout_seconds=args.search_idle_timeout,
                 rotation_step_duration_seconds=args.search_rotation_duration,
                 rotation_settle_pause_seconds=args.search_settle_pause,
-                tilt_step_duration_seconds=args.search_tilt_duration,
-                tilt_virtual_key=args.search_tilt_key,
                 movement_step_duration_seconds=args.search_movement_duration,
             ),
         ),

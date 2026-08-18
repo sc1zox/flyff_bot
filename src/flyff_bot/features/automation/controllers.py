@@ -45,12 +45,9 @@ DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS = 5.0
 DEFAULT_SEARCH_ROTATION_DURATION_SECONDS = 0.2
 DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS = 0.3
 DEFAULT_SEARCH_MOVEMENT_DURATION_SECONDS = 1.0
-DEFAULT_SEARCH_TILT_DURATION_SECONDS = 0.2
 DEFAULT_SEARCH_ROTATION_STEPS = 8
-DEFAULT_SEARCH_TILT_STEPS = 2
 DEFAULT_SEARCH_ROAM_STEPS = 4
 DEFAULT_SEARCH_ROTATION_VIRTUAL_KEY = VIRTUAL_KEY_RIGHT
-DEFAULT_SEARCH_TILT_VIRTUAL_KEY = VIRTUAL_KEY_UP
 
 
 class ControllerMode(StrEnum):
@@ -108,7 +105,6 @@ class SearchMode(StrEnum):
     """The ordered recovery stages used while no eligible mob is visible."""
 
     ROTATE = "rotate"
-    TILT = "tilt"
     ROAM_STEP = "roam_step"
 
 
@@ -128,9 +124,6 @@ class SearchConfig:
     rotation_settle_pause_seconds: float = DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS
     movement_step_duration_seconds: float = DEFAULT_SEARCH_MOVEMENT_DURATION_SECONDS
     rotation_steps: int = DEFAULT_SEARCH_ROTATION_STEPS
-    tilt_step_duration_seconds: float = DEFAULT_SEARCH_TILT_DURATION_SECONDS
-    tilt_virtual_key: int = DEFAULT_SEARCH_TILT_VIRTUAL_KEY
-    tilt_steps: int = DEFAULT_SEARCH_TILT_STEPS
     roam_steps: int = DEFAULT_SEARCH_ROAM_STEPS
     rotation_virtual_key: int = DEFAULT_SEARCH_ROTATION_VIRTUAL_KEY
 
@@ -143,14 +136,10 @@ class SearchConfig:
             raise ValueError("Search rotation settle pause must not be negative.")
         if self.movement_step_duration_seconds <= 0.0:
             raise ValueError("Search movement step duration must be positive.")
-        if self.tilt_step_duration_seconds <= 0.0:
-            raise ValueError("Search tilt step duration must be positive.")
-        if self.rotation_steps <= 0 or self.tilt_steps <= 0 or self.roam_steps <= 0:
+        if self.rotation_steps <= 0 or self.roam_steps <= 0:
             raise ValueError("Search stage step counts must be positive.")
         if self.rotation_virtual_key not in {VIRTUAL_KEY_LEFT, VIRTUAL_KEY_RIGHT}:
             raise ValueError("Search rotation key must be a valid left or right arrow key.")
-        if self.tilt_virtual_key not in {VIRTUAL_KEY_UP, VIRTUAL_KEY_DOWN}:
-            raise ValueError("Search tilt key must be a valid up or down arrow key.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -538,7 +527,7 @@ class NavigationController:
 
 
 class SearchController:
-    """Emit timed rotation, tilt, and roaming actions until a target is found."""
+    """Emit timed rotation and roaming actions until a target is found."""
 
     def __init__(self, config: SearchConfig | None = None) -> None:
         self._config = config or SearchConfig()
@@ -546,7 +535,6 @@ class SearchController:
         self._started_at_seconds: float | None = None
         self._next_action_at_seconds = 0.0
         self._rotation_index = 0
-        self._tilt_index = 0
         self._roam_index = 0
 
     @property
@@ -562,7 +550,6 @@ class SearchController:
         self._started_at_seconds = None
         self._next_action_at_seconds = 0.0
         self._rotation_index = 0
-        self._tilt_index = 0
         self._roam_index = 0
 
     def step(self, observed_at_seconds: float) -> SearchDecision:
@@ -576,7 +563,7 @@ class SearchController:
 
         if self._mode is SearchMode.ROTATE:
             if self._rotation_index >= self._config.rotation_steps:
-                self._mode = SearchMode.TILT
+                self._mode = SearchMode.ROAM_STEP
                 return self.step(observed_at_seconds)
             virtual_key = self._config.rotation_virtual_key
             self._rotation_index += 1
@@ -592,29 +579,10 @@ class SearchController:
                 self._config.rotation_step_duration_seconds,
             )
 
-        if self._mode is SearchMode.TILT:
-            if self._tilt_index >= self._config.tilt_steps:
-                self._mode = SearchMode.ROAM_STEP
-                return self.step(observed_at_seconds)
-            virtual_key = self._config.tilt_virtual_key
-            self._tilt_index += 1
-            self._next_action_at_seconds = (
-                observed_at_seconds
-                + self._config.tilt_step_duration_seconds
-                + self._config.rotation_settle_pause_seconds
-            )
-            return SearchDecision(
-                SearchMode.TILT,
-                SearchInputKind.KEY,
-                virtual_key,
-                self._config.tilt_step_duration_seconds,
-            )
-
         if self._mode is SearchMode.ROAM_STEP:
             if self._roam_index >= self._config.roam_steps:
                 self._mode = SearchMode.ROTATE
                 self._rotation_index = 0
-                self._tilt_index = 0
                 self._roam_index = 0
                 return self.step(observed_at_seconds)
             virtual_key = (VIRTUAL_KEY_W, VIRTUAL_KEY_D, VIRTUAL_KEY_W, VIRTUAL_KEY_A)[
