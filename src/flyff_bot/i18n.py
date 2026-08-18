@@ -223,6 +223,9 @@ class Message(StrEnum):
     UI_WINDOW_MINIMIZED = "ui.window_minimized"
     UI_WINDOW_NOT_FOUND = "ui.window_not_found"
     UI_WINDOW_CAPTURE_FAILED = "ui.window_capture_failed"
+    UI_TRACKING_MEASURED = "ui.tracking_measured"
+    UI_TRACKING_PREDICTED = "ui.tracking_predicted"
+    UI_TRACKING_DEGRADED = "ui.tracking_degraded"
 
 
 class Translator:

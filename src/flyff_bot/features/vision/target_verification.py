@@ -252,7 +252,7 @@ def load_mob_anchor_templates(
             if resolved not in seen_paths:
                 img = cv2.imread(str(anchor_path), cv2.IMREAD_COLOR)
                 if img is not None:
-                    templates.append(img)
+                    templates.append(img.astype(np.uint8))
                     seen_paths.add(resolved)
 
     if not templates and default_anchor_path is not None:
@@ -260,7 +260,7 @@ def load_mob_anchor_templates(
         if default_path.is_file():
             img = cv2.imread(str(default_path), cv2.IMREAD_COLOR)
             if img is not None:
-                templates.append(img)
+                templates.append(img.astype(np.uint8))
 
     return tuple(templates)
 
@@ -280,10 +280,11 @@ class TargetVerifier:
         self._config = config or TargetVerificationConfig()
         if not self._allowed_names or any(not name.strip() for name in self._allowed_names):
             raise ValueError("At least one non-empty target name is required.")
-        if isinstance(header_anchor_template, np.ndarray):
-            self._header_anchor_templates = (header_anchor_template,)
-        else:
-            self._header_anchor_templates = tuple(header_anchor_template)
+        self._header_anchor_templates: tuple[npt.NDArray[np.uint8], ...] = (
+            (header_anchor_template,)
+            if isinstance(header_anchor_template, np.ndarray)
+            else tuple(header_anchor_template)
+        )
         if not self._header_anchor_templates or any(
             t.dtype != np.uint8 or t.ndim != 3 for t in self._header_anchor_templates
         ):

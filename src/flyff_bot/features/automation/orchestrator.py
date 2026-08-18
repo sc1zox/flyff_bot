@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from flyff_bot.features.automation.combat_execution import CombatInputAdapter, CombatInputDispatcher
 from flyff_bot.features.automation.controllers import (
@@ -36,7 +36,6 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerController,
 )
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
-from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision.models import (
     CapturedFrame,
@@ -50,6 +49,12 @@ from flyff_bot.ui.dashboard import (
     FarmingGoal,
     WindowStatus,
 )
+
+if TYPE_CHECKING:
+    # Only needed as an annotation; importing it eagerly would close the pre-existing
+    # navigation -> automation -> navigation package cycle at module load time.
+    from flyff_bot.features.navigation.pathing import PathingController
+
 
 DEFAULT_TICK_INTERVAL_SECONDS = 0.1
 DEFAULT_SEARCH_RETRY_SECONDS = 0.5
@@ -280,6 +285,10 @@ class FarmingOrchestrator:
             # paused, completed, or stopped span never expires a timer unobserved.
             self._powerups.halt()
             self._observe()
+            if self._pathing is not None:
+                # Standby still follows the character: the minimap measures motion the
+                # operator produces by hand, and no input is dispatched on this path.
+                self._pathing.track(self._state, self._last_frame)
             return self._publish(False)
         if self._input_adapter.is_aborted():
             self.emergency_stop()

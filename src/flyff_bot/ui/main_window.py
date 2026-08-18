@@ -56,6 +56,7 @@ from flyff_bot.features.navigation.persistence import (
     list_navigation_profiles,
     sanitize_profile_name,
 )
+from flyff_bot.features.navigation.tracking import TrackingQuality
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig
 from flyff_bot.features.vision.target_verification import (
     DEFAULT_ANCHOR_MATCH_THRESHOLD,
@@ -151,6 +152,9 @@ class MainWindow(QMainWindow):
         self._window_label = QLabel()
         self._window_label.setObjectName("StatChip")
         self._window_status = WindowStatus.NOT_FOUND
+        self._tracking_label = QLabel()
+        self._tracking_label.setObjectName("StatChip")
+        self._tracking_quality = TrackingQuality.DEGRADED
         self._mob_label = QLabel()
         self._mob_label.setObjectName("StatChip")
         self._target_label = QLabel()
@@ -346,6 +350,12 @@ class MainWindow(QMainWindow):
         """Expose the game-window condition chip for lightweight integrations."""
 
         return self._window_label
+
+    @property
+    def tracking_label(self) -> QLabel:
+        """Expose the navigation tracking-quality chip for lightweight integrations."""
+
+        return self._tracking_label
 
     @property
     def mob_label(self) -> QLabel:
@@ -882,6 +892,7 @@ class MainWindow(QMainWindow):
             )
         )
         self._render_window_status()
+        self._render_tracking_quality()
 
     def set_window_status(self, status: WindowStatus) -> None:
         """Display a game-window condition observed outside the perception pipeline."""
@@ -1064,6 +1075,7 @@ class MainWindow(QMainWindow):
         status_top = QHBoxLayout()
         status_top.addWidget(self._status_label)
         status_top.addWidget(self._window_label)
+        status_top.addWidget(self._tracking_label)
         status_top.addStretch()
         status_layout.addLayout(status_top)
 
@@ -1380,6 +1392,11 @@ class MainWindow(QMainWindow):
             self._translator.text(_window_status_message(self._window_status))
         )
 
+    def _render_tracking_quality(self) -> None:
+        self._tracking_label.setText(
+            self._translator.text(_tracking_quality_message(self._tracking_quality))
+        )
+
     def _render_update(self) -> None:
         if self._latest_update is None:
             return
@@ -1387,6 +1404,12 @@ class MainWindow(QMainWindow):
         self._render_status_badge(update.status)
         self._window_status = update.window
         self._render_window_status()
+        self._tracking_quality = (
+            update.navigation.tracking_quality
+            if update.navigation is not None
+            else TrackingQuality.DEGRADED
+        )
+        self._render_tracking_quality()
         self._mob_label.setText(
             self._translator.text(Message.UI_WORLD_STATUS, mob_count=update.state.nearby_mob_count)
         )
@@ -1571,6 +1594,14 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.SEARCH_ROTATING: Message.UI_STATUS_SEARCH_ROTATING,
         BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
     }[status]
+
+
+def _tracking_quality_message(quality: TrackingQuality) -> Message:
+    return {
+        TrackingQuality.MEASURED: Message.UI_TRACKING_MEASURED,
+        TrackingQuality.PREDICTED: Message.UI_TRACKING_PREDICTED,
+        TrackingQuality.DEGRADED: Message.UI_TRACKING_DEGRADED,
+    }[quality]
 
 
 def _window_status_message(status: WindowStatus) -> Message:

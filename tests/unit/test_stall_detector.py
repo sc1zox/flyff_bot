@@ -52,15 +52,28 @@ def test_center_character_animation_over_frozen_scenery_reports_a_stall() -> Non
     detector = StallDetector(STALL_CONFIG)
     seconds = 0.0
 
-    detector.observe(_animation_frame(0), movement_commanded=True, at_seconds=seconds)
+    detector.observe(
+        _animation_frame(0),
+        measured_speed_pixels_per_second=None,
+        movement_commanded=True,
+        at_seconds=seconds,
+    )
     for step in range(1, int(STALL_TIMEOUT_SECONDS / SAMPLE_INTERVAL_SECONDS)):
         seconds += SAMPLE_INTERVAL_SECONDS
         assert not detector.observe(
-            _animation_frame(step), movement_commanded=True, at_seconds=seconds
+            _animation_frame(step),
+            measured_speed_pixels_per_second=None,
+            movement_commanded=True,
+            at_seconds=seconds,
         )
 
     seconds += SAMPLE_INTERVAL_SECONDS
-    assert detector.observe(_animation_frame(0), movement_commanded=True, at_seconds=seconds)
+    assert detector.observe(
+        _animation_frame(0),
+        measured_speed_pixels_per_second=None,
+        movement_commanded=True,
+        at_seconds=seconds,
+    )
     assert detector.is_stalled
     assert detector.stalled_seconds == pytest.approx(STALL_TIMEOUT_SECONDS)
 
@@ -80,6 +93,7 @@ def test_without_the_center_mask_the_same_animation_hides_the_stall() -> None:
     for step in range(20):
         detector.observe(
             _animation_frame(step),
+            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=step * SAMPLE_INTERVAL_SECONDS,
         )
@@ -94,6 +108,7 @@ def test_moving_scenery_never_accumulates_stall_time() -> None:
     for step in range(20):
         detector.observe(
             _frame(background=BACKGROUND_VALUE + step * 5),
+            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=step * SAMPLE_INTERVAL_SECONDS,
         )
@@ -108,40 +123,73 @@ def test_non_commanded_ticks_hold_the_stall_streak_within_the_movement_grace() -
     detector = StallDetector(STALL_CONFIG)
     seconds = 0.0
     for step in range(10):
-        detector.observe(_animation_frame(step), movement_commanded=True, at_seconds=seconds)
+        detector.observe(
+            _animation_frame(step),
+            measured_speed_pixels_per_second=None,
+            movement_commanded=True,
+            at_seconds=seconds,
+        )
         seconds += SAMPLE_INTERVAL_SECONDS
 
     held = detector.stalled_seconds
     assert held == pytest.approx(STALL_TIMEOUT_SECONDS - SAMPLE_INTERVAL_SECONDS)
 
-    detector.observe(_animation_frame(10), movement_commanded=False, at_seconds=seconds)
+    detector.observe(
+        _animation_frame(10),
+        measured_speed_pixels_per_second=None,
+        movement_commanded=False,
+        at_seconds=seconds,
+    )
     assert detector.stalled_seconds == pytest.approx(held)
     assert not detector.is_stalled
 
     seconds += SAMPLE_INTERVAL_SECONDS
-    assert detector.observe(_animation_frame(11), movement_commanded=True, at_seconds=seconds)
+    assert detector.observe(
+        _animation_frame(11),
+        measured_speed_pixels_per_second=None,
+        movement_commanded=True,
+        at_seconds=seconds,
+    )
 
 
 def test_a_movement_pause_beyond_the_grace_clears_the_stall_streak() -> None:
     detector = StallDetector(STALL_CONFIG)
     seconds = 0.0
     for step in range(6):
-        detector.observe(_animation_frame(step), movement_commanded=True, at_seconds=seconds)
+        detector.observe(
+            _animation_frame(step),
+            measured_speed_pixels_per_second=None,
+            movement_commanded=True,
+            at_seconds=seconds,
+        )
         seconds += SAMPLE_INTERVAL_SECONDS
 
     assert detector.stalled_seconds > 0.0
 
     seconds += STALL_CONFIG.movement_grace_seconds + SAMPLE_INTERVAL_SECONDS
-    assert not detector.observe(_animation_frame(6), movement_commanded=False, at_seconds=seconds)
+    assert not detector.observe(
+        _animation_frame(6),
+        measured_speed_pixels_per_second=None,
+        movement_commanded=False,
+        at_seconds=seconds,
+    )
     assert detector.stalled_seconds == pytest.approx(0.0)
 
 
 def test_a_single_delayed_sample_cannot_satisfy_the_stall_timeout() -> None:
     detector = StallDetector(STALL_CONFIG)
 
-    detector.observe(_animation_frame(0), movement_commanded=True, at_seconds=0.0)
     detector.observe(
-        _animation_frame(1), movement_commanded=True, at_seconds=STALL_TIMEOUT_SECONDS * 10.0
+        _animation_frame(0),
+        measured_speed_pixels_per_second=None,
+        movement_commanded=True,
+        at_seconds=0.0,
+    )
+    detector.observe(
+        _animation_frame(1),
+        measured_speed_pixels_per_second=None,
+        movement_commanded=True,
+        at_seconds=STALL_TIMEOUT_SECONDS * 10.0,
     )
 
     assert detector.stalled_seconds == pytest.approx(MAXIMUM_STALL_SAMPLE_SECONDS)
@@ -152,11 +200,18 @@ def test_missing_frames_keep_the_verdict_and_reset_clears_it() -> None:
     detector = StallDetector(STALL_CONFIG)
     seconds = 0.0
     for step in range(11):
-        detector.observe(_animation_frame(step), movement_commanded=True, at_seconds=seconds)
+        detector.observe(
+            _animation_frame(step),
+            measured_speed_pixels_per_second=None,
+            movement_commanded=True,
+            at_seconds=seconds,
+        )
         seconds += SAMPLE_INTERVAL_SECONDS
 
     assert detector.is_stalled
-    assert detector.observe(None, movement_commanded=True, at_seconds=seconds)
+    assert detector.observe(
+        None, measured_speed_pixels_per_second=None, movement_commanded=True, at_seconds=seconds
+    )
 
     detector.reset()
 

@@ -1,4 +1,4 @@
-"""Tests for dead-reckoned movement tracking from dispatched movement keys."""
+"""Tests for the command-model prediction inside the measured movement tracker."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_D,
     VIRTUAL_KEY_LEFT,
     VIRTUAL_KEY_RIGHT,
-    VIRTUAL_KEY_S,
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.navigation.spatial import WorldPoint
@@ -17,7 +16,7 @@ from flyff_bot.features.navigation.tracking import (
     MovementModel,
     MovementTracker,
     bearing_degrees,
-    distance_units,
+    distance_pixels,
     heading_error_degrees,
 )
 
@@ -25,8 +24,7 @@ from flyff_bot.features.navigation.tracking import (
 def _tracker() -> MovementTracker:
     return MovementTracker(
         MovementModel(
-            forward_speed_units_per_second=10.0,
-            backward_speed_units_per_second=5.0,
+            forward_speed_pixels_per_second=10.0,
             turn_degrees_per_second=90.0,
         )
     )
@@ -85,25 +83,7 @@ def test_turn_keys_match_the_arrow_keys_they_share_a_rotation_direction_with() -
     assert turn_keys.heading_degrees == pytest.approx(arrow_keys.heading_degrees)
 
 
-def test_backward_movement_translates_against_the_facing_direction() -> None:
-    """BUG-009: `S` was silently dropped instead of walking the estimate backwards."""
-
-    tracker = _tracker()
-
-    tracker.apply(VIRTUAL_KEY_S, 1.0)
-
-    assert tracker.position.x == pytest.approx(0.0, abs=1e-9)
-    assert tracker.position.y == pytest.approx(-5.0)
-
-    tracker.apply(VIRTUAL_KEY_D, 1.0)
-    tracker.apply(VIRTUAL_KEY_S, 2.0)
-
-    assert tracker.heading_degrees == pytest.approx(90.0)
-    assert tracker.position.x == pytest.approx(-10.0)
-    assert tracker.position.y == pytest.approx(-5.0)
-
-
-def test_a_turn_and_walk_sequence_dead_reckons_a_square_back_to_the_origin() -> None:
+def test_a_turn_and_walk_sequence_predicts_a_square_back_to_the_origin() -> None:
     tracker = _tracker()
 
     for _side in range(4):
@@ -111,7 +91,7 @@ def test_a_turn_and_walk_sequence_dead_reckons_a_square_back_to_the_origin() -> 
         tracker.apply(VIRTUAL_KEY_D, 1.0)
 
     assert tracker.heading_degrees == pytest.approx(0.0)
-    assert distance_units(tracker.position, WorldPoint(0.0, 0.0)) == pytest.approx(0.0, abs=1e-9)
+    assert distance_pixels(tracker.position, WorldPoint(0.0, 0.0)) == pytest.approx(0.0, abs=1e-9)
 
 
 def test_zero_duration_pulses_and_unknown_keys_leave_the_estimate_untouched() -> None:
@@ -137,9 +117,7 @@ def test_reset_returns_the_estimate_to_the_session_origin() -> None:
 
 def test_invalid_movement_models_are_rejected() -> None:
     with pytest.raises(ValueError):
-        MovementModel(forward_speed_units_per_second=0.0)
-    with pytest.raises(ValueError):
-        MovementModel(backward_speed_units_per_second=0.0)
+        MovementModel(forward_speed_pixels_per_second=0.0)
     with pytest.raises(ValueError):
         MovementModel(turn_degrees_per_second=0.0)
 

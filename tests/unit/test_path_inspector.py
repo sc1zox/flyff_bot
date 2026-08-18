@@ -68,8 +68,8 @@ def _populated_snapshot() -> NavigationSnapshot:
         edges=edges,
         waypoints=((40.0, 40.0), (0.0, 40.0)),
         safe_waypoint=(0.0, 0.0),
-        cell_size_units=40.0,
-        leash_radius_units=60.0,
+        cell_size_pixels=40.0,
+        leash_radius_pixels=60.0,
     )
 
 
@@ -145,8 +145,8 @@ def test_viewport_transform_handles_zero_leash_and_wide_aspect() -> None:
         edges=(),
         waypoints=(),
         safe_waypoint=None,
-        cell_size_units=40.0,
-        leash_radius_units=0.0,
+        cell_size_pixels=40.0,
+        leash_radius_pixels=0.0,
     )
     widget.set_navigation(snapshot)
 
@@ -238,8 +238,8 @@ def test_rendered_stall_cell_route_and_safe_waypoint_are_readable() -> None:
         edges=(),
         waypoints=((-60.0, 20.0),),
         safe_waypoint=(0.0, 60.0),
-        cell_size_units=40.0,
-        leash_radius_units=45.0,
+        cell_size_pixels=40.0,
+        leash_radius_pixels=45.0,
     )
     widget.set_navigation(snapshot)
 
@@ -254,7 +254,7 @@ def test_rendered_stall_cell_route_and_safe_waypoint_are_readable() -> None:
     cell = snapshot.cells[0]
     cell_x, cell_y = to_screen(cell.center_x, cell.center_y)
     # Sample along the marker's diagonal cross, clear of the blue graph node at the cell centre.
-    diagonal_offset = round(snapshot.cell_size_units * scale * STALL_DIAGONAL_SAMPLE_FRACTION)
+    diagonal_offset = round(snapshot.cell_size_pixels * scale * STALL_DIAGONAL_SAMPLE_FRACTION)
     stall_pixel = image.pixelColor(cell_x + diagonal_offset, cell_y + diagonal_offset)
 
     assert stall_pixel.red() > stall_pixel.green()
@@ -280,8 +280,8 @@ def test_rendered_stall_cell_route_and_safe_waypoint_are_readable() -> None:
     ring_samples = [
         image.pixelColor(
             *to_screen(
-                snapshot.leash_radius_units * math.cos(math.radians(degrees)),
-                snapshot.leash_radius_units * math.sin(math.radians(degrees)),
+                snapshot.leash_radius_pixels * math.cos(math.radians(degrees)),
+                snapshot.leash_radius_pixels * math.sin(math.radians(degrees)),
             )
         )
         for degrees in range(0, 360, 5)
@@ -310,8 +310,8 @@ def test_rendered_player_marker_and_spawn_cell_are_visually_distinguishable() ->
         edges=(),
         waypoints=(),
         safe_waypoint=None,
-        cell_size_units=40.0,
-        leash_radius_units=0.0,
+        cell_size_pixels=40.0,
+        leash_radius_pixels=0.0,
     )
     widget.set_navigation(snapshot)
 
@@ -328,7 +328,7 @@ def test_rendered_player_marker_and_spawn_cell_are_visually_distinguishable() ->
 
     cell = snapshot.cells[0]
     cell_x, cell_y = to_screen(cell.center_x, cell.center_y)
-    heat_offset = round(snapshot.cell_size_units * scale * HEAT_SAMPLE_RADIUS_FRACTION)
+    heat_offset = round(snapshot.cell_size_pixels * scale * HEAT_SAMPLE_RADIUS_FRACTION)
     heat_pixel = image.pixelColor(cell_x + heat_offset, cell_y - heat_offset)
 
     # The player body is cyan: blue and green dominate red.

@@ -201,5 +201,8 @@
   "ui.window_not_foreground": "Game window: not in foreground",
   "ui.window_minimized": "Game window minimized",
   "ui.window_not_found": "Game window not found",
-  "ui.window_capture_failed": "Game window: capture failed"
+  "ui.window_capture_failed": "Game window: capture failed",
+  "ui.tracking_measured": "Tracking: measured",
+  "ui.tracking_predicted": "Tracking: predicted",
+  "ui.tracking_degraded": "Tracking: no fix"
 }

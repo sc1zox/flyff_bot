@@ -37,7 +37,7 @@ constants were calibrated against.
 
 ### The leash is decorative
 
-`leash_radius_units` is validated in `PathingConfig.__post_init__` (`pathing.py:77`), carried in
+`leash_radius_pixels` is validated in `PathingConfig.__post_init__` (`pathing.py:77`), carried in
 `NavigationSnapshot` (`pathing.py:191`), and drawn as a circle by
 `src/flyff_bot/ui/path_inspector.py:306-310`. Nothing clamps planning to it. `RoutePlanner.circuit`
 and `best_spawn_route` (`features/navigation/planning.py:91-139`) consider every recorded hotspot
@@ -46,7 +46,7 @@ engine does not apply.
 
 ### How to measure instead of guess
 
-[US-035](US-035-measured-minimap-odometry-and-tracking-quality.md) supplies a measured travelled
+[US-035](completed/US-035-measured-minimap-odometry-and-tracking-quality.md) supplies a measured travelled
 distance. That turns the distance relation into an ordinary fitting problem with a recordable
 ground truth: walk toward a stationary mob while logging, per frame, the detected bounding box
 height and the odometry-measured distance travelled. Fitting `distance = a / bbox_height + b` (the
@@ -61,7 +61,7 @@ Two consequences for how the recording must be done:
   fitted across **several mobs observed at different bounding box heights**, not read off one
   approach. A single sample cannot separate the intercept from the melee offset.
 - **Distances are in minimap pixels**, the canonical unit US-035 establishes. This includes
-  `leash_radius_units`, which is renamed accordingly: its numeric value changes meaning, so the
+  `leash_radius_pixels`, which is renamed accordingly: its numeric value changes meaning, so the
   default must be re-derived rather than carried over, and an existing operator setting must not be
   silently reinterpreted.
 

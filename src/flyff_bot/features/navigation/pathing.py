@@ -21,18 +21,28 @@ from flyff_bot.features.navigation.tracking import (
     MovementTracker,
     StallConfig,
     StallDetector,
+    TrackingConfig,
+    TrackingQuality,
     bearing_degrees,
-    distance_units,
+    distance_pixels,
     heading_error_degrees,
+)
+from flyff_bot.features.vision.minimap import (
+    MinimapOdometer,
+    MinimapOdometryFeed,
+    MinimapReading,
 )
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.ui.dashboard import CellSnapshot, EdgeSnapshot, NavigationSnapshot
 
 DEFAULT_PATHING_STEP_DURATION_SECONDS = 0.6
-DEFAULT_PATHING_TURN_DURATION_SECONDS = 0.15
+# One turn pulse must stay inside the heading tolerance or steering oscillates around the
+# target bearing. At the measured 240 deg/s (US-035) the tolerance is reached after 0.104 s,
+# so the pulse is held below that.
+DEFAULT_PATHING_TURN_DURATION_SECONDS = 0.08
 DEFAULT_HEADING_TOLERANCE_DEGREES = 25.0
 DEFAULT_REPLAN_INTERVAL_SECONDS = 20.0
-DEFAULT_LEASH_RADIUS_UNITS = 50.0
+DEFAULT_LEASH_RADIUS_PIXELS = 50.0
 ARRIVAL_RADIUS_CELL_FRACTION = 0.5
 
 
@@ -62,8 +72,9 @@ class PathingConfig:
     turn_duration_seconds: float = DEFAULT_PATHING_TURN_DURATION_SECONDS
     heading_tolerance_degrees: float = DEFAULT_HEADING_TOLERANCE_DEGREES
     replan_interval_seconds: float = DEFAULT_REPLAN_INTERVAL_SECONDS
-    leash_radius_units: float = DEFAULT_LEASH_RADIUS_UNITS
+    leash_radius_pixels: float = DEFAULT_LEASH_RADIUS_PIXELS
     movement: MovementModel = field(default_factory=MovementModel)
+    tracking: TrackingConfig = field(default_factory=TrackingConfig)
     stall: StallConfig = field(default_factory=StallConfig)
     route: RouteConfig = field(default_factory=RouteConfig)
 
@@ -74,7 +85,7 @@ class PathingConfig:
             raise ValueError("Pathing heading tolerance must be between 0 and 180 degrees.")
         if self.replan_interval_seconds <= 0.0:
             raise ValueError("Pathing replan interval must be positive.")
-        if self.leash_radius_units <= 0.0:
+        if self.leash_radius_pixels <= 0.0:
             raise ValueError("Pathing leash radius must be positive.")
 
 
@@ -87,11 +98,13 @@ class PathingController:
         *,
         config: PathingConfig | None = None,
         map_path: Path | None = None,
+        odometer: MinimapOdometryFeed | None = None,
     ) -> None:
         self._config = config or PathingConfig()
         self._map = spatial_map or SpatialMap()
         self._planner = RoutePlanner(self._map, self._config.route)
-        self._tracker = MovementTracker(self._config.movement)
+        self._tracker = MovementTracker(self._config.movement, self._config.tracking)
+        self._odometer: MinimapOdometryFeed = odometer or MinimapOdometer()
         self._stalls = StallDetector(self._config.stall)
         self._map_path = map_path
         self._mode = PathingMode.IDLE
@@ -103,6 +116,7 @@ class PathingController:
         self._avoided: frozenset[GridCell] = frozenset()
         self._movement_commanded = False
         self._stalled = False
+        self._measured_speed_pixels_per_second: float | None = None
 
     @property
     def mode(self) -> PathingMode:
@@ -118,9 +132,15 @@ class PathingController:
 
     @property
     def position(self) -> WorldPoint:
-        """Return the current dead-reckoned position estimate."""
+        """Return the current position estimate."""
 
         return self._tracker.position
+
+    @property
+    def tracking_quality(self) -> TrackingQuality:
+        """Return how the current position estimate was obtained."""
+
+        return self._tracker.quality
 
     @property
     def is_stalled(self) -> bool:
@@ -187,30 +207,55 @@ class PathingController:
             edges=tuple(edges),
             waypoints=waypoints,
             safe_waypoint=safe,
-            cell_size_units=self._map.config.cell_size_units,
-            leash_radius_units=self._config.leash_radius_units,
+            cell_size_pixels=self._map.config.cell_size_pixels,
+            leash_radius_pixels=self._config.leash_radius_pixels,
+            tracking_quality=self._tracker.quality,
+            zoom_signature_anchor=self._tracker.zoom_signature_anchor,
         )
+
+    def track(self, state: WorldState, frame: CapturedFrame | None = None) -> TrackingQuality:
+        """Update the measured position estimate without writing anything to the map.
+
+        This is the standby path: it follows motion the operator produces by hand while the
+        session is paused, and it dispatches no input of any kind.
+        """
+
+        reading: MinimapReading | None = self._odometer.observe(frame)
+        update = self._tracker.observe(reading, state.observed_at_seconds)
+        self._measured_speed_pixels_per_second = update.measured_speed_pixels_per_second
+        return update.quality
 
     def observe(self, state: WorldState, frame: CapturedFrame | None = None) -> None:
         """Record visit history, spawn sightings, and stall evidence for one tick."""
 
         at_seconds = state.observed_at_seconds
+        quality = self.track(state, frame)
         position = self._tracker.position
+        stalled = self._stalls.observe(
+            frame,
+            measured_speed_pixels_per_second=self._measured_speed_pixels_per_second,
+            movement_commanded=self._movement_commanded,
+            at_seconds=at_seconds,
+        )
+        self._movement_commanded = False
+        if quality is TrackingQuality.DEGRADED:
+            # The map stays read-only while the position is unknown: routes may still be
+            # followed or abandoned, but nothing new is learned, and the trail is broken so
+            # recovery cannot link an edge across the unobserved span.
+            self._map.break_trail()
+            self._stalled = stalled
+            return
         cell = self._map.record_visit(position, at_seconds)
         for mob in state.visible_mobs:
             mob_point = self._estimate_mob_position(
                 position, self._tracker.heading_degrees, mob, state.viewport
             )
             self._map.record_spawn(mob_point, at_seconds)
-        stalled = self._stalls.observe(
-            frame, movement_commanded=self._movement_commanded, at_seconds=at_seconds
-        )
         if stalled and self._mode not in {PathingMode.RETREATING, PathingMode.BLOCKED}:
             self._register_stall(position, at_seconds)
         elif not stalled and self._map.stall_count(cell) == 0:
             self._remember_safe_waypoint(cell, position)
         self._stalled = stalled
-        self._movement_commanded = False
 
     def integrate_movement(self, virtual_key: int, duration_seconds: float) -> None:
         """Integrate an external movement or camera-rotation pulse into the position estimate."""
@@ -269,6 +314,7 @@ class PathingController:
 
     def _reset_state(self) -> None:
         self._tracker.reset()
+        self._odometer.reset()
         self._stalls.reset()
         self._mode = PathingMode.IDLE
         self._waypoints = ()
@@ -279,6 +325,7 @@ class PathingController:
         self._avoided = frozenset()
         self._movement_commanded = False
         self._stalled = False
+        self._measured_speed_pixels_per_second = None
 
     def _estimate_mob_position(
         self,
@@ -339,7 +386,7 @@ class PathingController:
         if target is None:
             self._mode = PathingMode.BLOCKED
             return PathingDecision(PathingMode.BLOCKED)
-        if distance_units(self._tracker.position, target) <= self._arrival_radius:
+        if distance_pixels(self._tracker.position, target) <= self._arrival_radius:
             self._stalls.reset()
             self._plan(at_seconds)
             if not self._waypoints:
@@ -351,7 +398,7 @@ class PathingController:
     def _follow_route(self, at_seconds: float) -> PathingDecision:
         while self._waypoint_index < len(self._waypoints):
             target = self._map.center_of(self._waypoints[self._waypoint_index])
-            if distance_units(self._tracker.position, target) > self._arrival_radius:
+            if distance_pixels(self._tracker.position, target) > self._arrival_radius:
                 return self._steer(PathingMode.TRAVELING, target)
             self._waypoint_index += 1
         self._waypoints = ()
@@ -387,4 +434,4 @@ class PathingController:
 
     @property
     def _arrival_radius(self) -> float:
-        return self._map.config.cell_size_units * ARRIVAL_RADIUS_CELL_FRACTION
+        return self._map.config.cell_size_pixels * ARRIVAL_RADIUS_CELL_FRACTION

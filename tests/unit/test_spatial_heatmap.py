@@ -30,7 +30,7 @@ def _map(
 ) -> SpatialMap:
     return SpatialMap(
         SpatialMapConfig(
-            cell_size_units=CELL_SIZE_UNITS,
+            cell_size_pixels=CELL_SIZE_UNITS,
             spawn_half_life_seconds=HALF_LIFE_SECONDS,
             stall_cost_penalty=stall_cost_penalty,
             maximum_stall_cost_factor=maximum_stall_cost_factor,
@@ -160,7 +160,7 @@ def test_missing_map_file_starts_an_empty_map_and_corrupt_content_is_rejected(
 
 def test_invalid_map_configuration_is_rejected() -> None:
     with pytest.raises(ValueError):
-        SpatialMapConfig(cell_size_units=0.0)
+        SpatialMapConfig(cell_size_pixels=0.0)
     with pytest.raises(ValueError):
         SpatialMapConfig(spawn_half_life_seconds=0.0)
     with pytest.raises(ValueError):

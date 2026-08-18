@@ -1,10 +1,11 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-17
+updated: 2026-08-18
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
+  - ../sources/2026-08-18-minimap-odometry-calibration.md
 related:
   - project-overview.md
   - architecture.md
@@ -151,3 +152,18 @@ related:
   of whether an earlier criterion passed, so the target debug panel never blanks; the matching
   fields on `TargetVerificationResult` stay gated on the header anchor being accepted, because
   combat control and target-change events read those.
+- **Minimap pixel** — The canonical unit of the navigation feature: one pixel of the client's
+  minimap surface at the zoom level the session was anchored to. No conversion to world units
+  exists, because the client does not display the run speed one would need to fit it. One pixel at
+  maximum zoom-out covers exactly two at the default zoom.
+- **Tracking quality** — How the current position estimate was obtained: `MEASURED` from a
+  confident minimap correlation, `PREDICTED` by the command model inside the grace period after the
+  last measurement, or `DEGRADED` beyond it. Map learning is written only while the quality is not
+  `DEGRADED`.
+- **Zoom signature** — The mean gradient magnitude of the minimap surface, translation invariant
+  but proportional to the zoom level. Anchored on the tracker's first measurement and rechecked every
+  tick, because a zoom change silently rescales every subsequent measurement without weakening its
+  correlation response.
+- **Correlation response** — The confidence `cv2.phaseCorrelate` reports for one minimap
+  displacement. Genuine motion measured 0.34-0.99; a zoom step measured 0.062 and unrelated minimap
+  content -0.006 to 0.097, so the 0.30 gate separates them by a factor of three.

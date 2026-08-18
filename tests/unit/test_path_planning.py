@@ -7,10 +7,10 @@ from typing import cast
 
 import numpy as np
 import pytest
+from minimap_doubles import MirrorOdometer
 
 from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_RIGHT,
-    VIRTUAL_KEY_S,
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.automation.models import (
@@ -43,7 +43,7 @@ from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 CELL_SIZE_UNITS = 10.0
 WINDOW_HANDLE = 42
 MAP_CONFIG = SpatialMapConfig(
-    cell_size_units=CELL_SIZE_UNITS,
+    cell_size_pixels=CELL_SIZE_UNITS,
     spawn_half_life_seconds=600.0,
     maximum_link_span_cells=1,
 )
@@ -52,8 +52,7 @@ PATHING_CONFIG = PathingConfig(
     turn_duration_seconds=0.25,
     heading_tolerance_degrees=25.0,
     movement=MovementModel(
-        forward_speed_units_per_second=10.0,
-        backward_speed_units_per_second=10.0,
+        forward_speed_pixels_per_second=10.0,
         turn_degrees_per_second=90.0,
     ),
     stall=StallConfig(motion_threshold=1.0, stall_timeout_seconds=0.1),
@@ -276,29 +275,47 @@ def test_an_unlearned_map_stays_idle_so_staged_search_keeps_control() -> None:
     assert decision.virtual_key is None
 
 
+def _advance(controller: PathingController, odometer: MirrorOdometer, seconds: float) -> None:
+    """Dispatch one pathing step and let the client double move accordingly."""
+
+    decision = controller.step(seconds)
+    controller.confirm(decision)
+    if decision.virtual_key is not None and decision.key_press_duration_seconds is not None:
+        odometer.command(decision.virtual_key, decision.key_press_duration_seconds)
+
+
+def _commanded(
+    controller: PathingController, odometer: MirrorOdometer, virtual_key: int, seconds: float
+) -> None:
+    """Fold one externally dispatched pulse into both the estimate and the client double."""
+
+    controller.integrate_movement(virtual_key, seconds)
+    odometer.command(virtual_key, seconds)
+
+
 def test_a_stall_retreats_to_the_last_safe_waypoint_and_bypasses_the_blocked_cell() -> None:
     spatial_map = _corridor_map()
     for _sighting in range(3):
         spatial_map.record_spawn(_center(GridCell(2, 0)), 0.0)
-    controller = PathingController(spatial_map, config=PATHING_CONFIG)
+    odometer = MirrorOdometer(PATHING_CONFIG.movement)
+    controller = PathingController(spatial_map, config=PATHING_CONFIG, odometer=odometer)
     controller.observe(_state(0.0))
     seconds = 0.0
 
     for index in range(30):
         seconds = 1.0 + index * 0.1
-        controller.confirm(controller.step(seconds))
+        _advance(controller, odometer, seconds)
         controller.observe(_state(seconds))
         if spatial_map.cell_of(controller.position) == GridCell(1, 0):
             break
 
     assert controller.safe_waypoint == _center(GridCell(0, 0))
 
-    frozen = _frame()
-    controller.observe(_state(seconds), frozen)
+    odometer.block()
     for _sample in range(6):
         seconds += 0.1
-        controller.confirm(controller.step(seconds))
-        controller.observe(_state(seconds), frozen)
+        _advance(controller, odometer, seconds)
+        controller.observe(_state(seconds))
         if controller.is_stalled:
             break
 
@@ -307,13 +324,15 @@ def test_a_stall_retreats_to_the_last_safe_waypoint_and_bypasses_the_blocked_cel
     assert stalled_mode is PathingMode.RETREATING
     assert spatial_map.stall_count(GridCell(1, 0)) >= 1
 
+    odometer.unblock()
     recovered: PathingMode = stalled_mode
     for _step in range(60):
         seconds += 0.1
         decision = controller.step(seconds)
-        if decision.virtual_key is None:
+        if decision.virtual_key is None or decision.key_press_duration_seconds is None:
             break
         controller.confirm(decision)
+        odometer.command(decision.virtual_key, decision.key_press_duration_seconds)
         controller.observe(_state(seconds))
         recovered = controller.mode
         if recovered is PathingMode.TRAVELING:
@@ -328,20 +347,21 @@ def test_a_registered_stall_marks_the_obstacle_cell_without_latching_the_stuck_v
     """BUG-009: the stall must survive turn ticks, then be consumed by its registration."""
 
     spatial_map = _corridor_map()
-    controller = PathingController(spatial_map, config=PATHING_CONFIG)
+    odometer = MirrorOdometer(PATHING_CONFIG.movement)
+    controller = PathingController(spatial_map, config=PATHING_CONFIG, odometer=odometer)
     controller.observe(_state(0.0))
-    frozen = _frame()
-    seconds = 0.0
+    odometer.block()
+    seconds = 0.1
 
     for _sample in range(10):
-        controller.integrate_movement(VIRTUAL_KEY_W, 0.1)
-        controller.observe(_state(seconds), frozen)
+        _commanded(controller, odometer, VIRTUAL_KEY_W, 0.1)
+        controller.observe(_state(seconds))
         if controller.is_stalled:
             break
         seconds += 0.1
         # A turn tick commands no forward movement and must not discard the stall evidence.
-        controller.integrate_movement(VIRTUAL_KEY_RIGHT, 0.1)
-        controller.observe(_state(seconds), frozen)
+        _commanded(controller, odometer, VIRTUAL_KEY_RIGHT, 0.1)
+        controller.observe(_state(seconds))
         seconds += 0.1
 
     assert controller.is_stalled
@@ -349,7 +369,7 @@ def test_a_registered_stall_marks_the_obstacle_cell_without_latching_the_stuck_v
     assert spatial_map.stall_count(GridCell(0, 0)) == 1
 
     seconds += 0.1
-    controller.observe(_state(seconds), frozen)
+    controller.observe(_state(seconds))
 
     assert not controller.is_stalled
     assert controller.mode is PathingMode.RETREATING
@@ -359,27 +379,29 @@ def test_the_retreat_anchor_never_moves_into_a_cell_that_registered_a_stall() ->
     """BUG-009: retreating must reach verified ground, not the cell the obstacle blocked."""
 
     spatial_map = _corridor_map()
-    controller = PathingController(spatial_map, config=PATHING_CONFIG)
+    odometer = MirrorOdometer(PATHING_CONFIG.movement)
+    controller = PathingController(spatial_map, config=PATHING_CONFIG, odometer=odometer)
     controller.observe(_state(0.0))
 
-    controller.integrate_movement(VIRTUAL_KEY_RIGHT, 1.0)
-    controller.integrate_movement(VIRTUAL_KEY_W, 1.5)
+    _commanded(controller, odometer, VIRTUAL_KEY_RIGHT, 1.0)
+    _commanded(controller, odometer, VIRTUAL_KEY_W, 1.5)
     controller.observe(_state(1.0))
 
     assert controller.safe_waypoint == _center(GridCell(0, 0))
 
-    frozen = _frame()
-    seconds = 1.0
+    odometer.block()
+    seconds = 1.1
     for _sample in range(6):
-        controller.integrate_movement(VIRTUAL_KEY_W, 0.1)
-        controller.observe(_state(seconds), frozen)
+        _commanded(controller, odometer, VIRTUAL_KEY_W, 0.1)
+        controller.observe(_state(seconds))
         seconds += 0.1
         if controller.is_stalled:
             break
 
     assert spatial_map.stall_count(GridCell(1, 0)) == 1
 
-    controller.integrate_movement(VIRTUAL_KEY_S, 1.0)
+    odometer.unblock()
+    odometer.displace(-_center(GridCell(1, 0)).x, 0.0)
     controller.observe(_state(seconds))
 
     assert spatial_map.cell_of(controller.position) == GridCell(0, 0)
@@ -463,6 +485,56 @@ def test_a_visible_mob_interrupts_learned_pathing_immediately() -> None:
     assert tick.mode is FarmingMode.TARGETING
     assert adapter.keys == []
     assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
+
+
+def test_combat_ticks_follow_the_measured_motion_without_a_combat_side_integration() -> None:
+    """US-035: motion during `TARGETING` / `COMBAT` reaches the estimate through the sensor."""
+
+    adapter = _Adapter()
+    mob = VisibleMob(1, "Mushpang", 0.9, 20, 20, 20, 20)
+    odometer = MirrorOdometer(PATHING_CONFIG.movement)
+    pathing = PathingController(SpatialMap(MAP_CONFIG), config=PATHING_CONFIG, odometer=odometer)
+    orchestrator = _orchestrator(
+        [_state(1.0, mobs=(mob,)), _state(1.2, mobs=(mob,)), _state(1.4, mobs=(mob,))],
+        adapter,
+        pathing,
+    )
+    orchestrator.start()
+
+    orchestrator.tick()
+    assert orchestrator.mode is FarmingMode.TARGETING
+    start = pathing.position
+
+    # The client keeps auto-running towards the target; the bot commands no movement key.
+    odometer.displace(6.0, 8.0)
+    orchestrator.tick()
+    odometer.displace(6.0, 8.0)
+    orchestrator.tick()
+
+    assert orchestrator.mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}
+    assert VIRTUAL_KEY_W not in [key for key, _duration in adapter.keys]
+    assert pathing.position.x == pytest.approx(start.x + 12.0)
+    assert pathing.position.y == pytest.approx(start.y + 16.0)
+
+
+def test_standby_ticks_follow_manual_movement_without_learning_anything() -> None:
+    """US-035: the estimate tracks the operator while the session is paused."""
+
+    adapter = _Adapter()
+    odometer = MirrorOdometer(PATHING_CONFIG.movement)
+    spatial_map = SpatialMap(MAP_CONFIG)
+    pathing = PathingController(spatial_map, config=PATHING_CONFIG, odometer=odometer)
+    orchestrator = _orchestrator([_state(1.0), _state(1.2)], adapter, pathing)
+
+    orchestrator.tick()
+    odometer.displace(9.0, -4.0)
+    orchestrator.tick()
+
+    assert orchestrator.mode is FarmingMode.PAUSED
+    assert adapter.keys == []
+    assert pathing.position.x == pytest.approx(9.0)
+    assert pathing.position.y == pytest.approx(-4.0)
+    assert spatial_map.known_cells() == ()
 
 
 def test_emergency_stop_and_lost_focus_send_no_pathing_input() -> None:

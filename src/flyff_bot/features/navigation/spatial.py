@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
-DEFAULT_CELL_SIZE_UNITS = 15.0
+DEFAULT_CELL_SIZE_PIXELS = 15.0
 DEFAULT_SPAWN_HALF_LIFE_SECONDS = 600.0
 DEFAULT_SPAWN_WEIGHT_PER_SIGHTING = 1.0
 DEFAULT_STALL_COST_PENALTY = 3.0
@@ -53,7 +53,7 @@ class EdgeRecord:
 class SpatialMapConfig:
     """Grid resolution, heatmap decay, and stall-cost policy of one learned map."""
 
-    cell_size_units: float = DEFAULT_CELL_SIZE_UNITS
+    cell_size_pixels: float = DEFAULT_CELL_SIZE_PIXELS
     spawn_half_life_seconds: float = DEFAULT_SPAWN_HALF_LIFE_SECONDS
     spawn_weight_per_sighting: float = DEFAULT_SPAWN_WEIGHT_PER_SIGHTING
     stall_cost_penalty: float = DEFAULT_STALL_COST_PENALTY
@@ -61,7 +61,7 @@ class SpatialMapConfig:
     maximum_link_span_cells: int = DEFAULT_MAXIMUM_LINK_SPAN_CELLS
 
     def __post_init__(self) -> None:
-        if self.cell_size_units <= 0.0:
+        if self.cell_size_pixels <= 0.0:
             raise ValueError("Navigation cell size must be positive.")
         if self.spawn_half_life_seconds <= 0.0:
             raise ValueError("Spawn heatmap half-life must be positive.")
@@ -95,13 +95,13 @@ class SpatialMap:
     def cell_of(self, point: WorldPoint) -> GridCell:
         """Return the grid cell containing one estimated continuous position."""
 
-        size = self._config.cell_size_units
+        size = self._config.cell_size_pixels
         return GridCell(math.floor(point.x / size), math.floor(point.y / size))
 
     def center_of(self, cell: GridCell) -> WorldPoint:
         """Return the continuous centre of one grid cell."""
 
-        size = self._config.cell_size_units
+        size = self._config.cell_size_pixels
         return WorldPoint((cell.x + 0.5) * size, (cell.y + 0.5) * size)
 
     def known_cells(self) -> tuple[GridCell, ...]:
@@ -152,6 +152,17 @@ class SpatialMap:
             self._previous_visited = previous
         self._last_visited = cell
         return cell
+
+    def break_trail(self) -> None:
+        """Forget which cell was visited last so no edge spans an unobserved traversal.
+
+        Called whenever tracking stops producing usable positions: without it, the first
+        visit recorded after the gap would be linked to the last cell before it and invent
+        a traversal the session never observed (US-035).
+        """
+
+        self._last_visited = None
+        self._previous_visited = None
 
     def record_spawn(
         self, point: WorldPoint, at_seconds: float, weight: float | None = None

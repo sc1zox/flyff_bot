@@ -1,10 +1,11 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-17
+updated: 2026-08-18
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
+  - ../sources/2026-08-18-minimap-odometry-calibration.md
 related:
   - project-overview.md
   - glossary.md
@@ -25,6 +26,7 @@ related:
   - ../user-stories/completed/US-019-intelligent-pathing-and-spawn-heatmap.md
   - ../user-stories/completed/US-020-visual-navigation-path-and-heatmap-inspector.md
   - ../user-stories/completed/US-021-navigation-map-profiles-and-session-reset.md
+  - ../user-stories/completed/US-035-measured-minimap-odometry-and-tracking-quality.md
   - ../user-stories/completed/US-022-modern-dark-theme-and-streamlined-dashboard-ui.md
   - ../user-stories/completed/US-023-reliable-combat-targeting-and-kill-verification.md
   - ../user-stories/completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md
@@ -571,3 +573,62 @@ thread against the project's own PySide6 rule. `SessionWorker` (`flyff_bot.ui.se
 the loop on a `threading.Thread`, waiting on a stop `Event` rather than sleeping so teardown is
 immediate; `MainWindow.register_teardown()` stops it from `closeEvent` before the widgets go away,
 and results still reach the UI only through `DashboardFeed`'s signal.
+
+
+## Measured minimap odometry and tracking quality (US-035)
+
+US-035 replaces the open-loop position estimate with a measurement. `MovementTracker` no longer
+integrates dispatched key presses into the position it reports: it anchors on the last confident
+minimap measurement and keeps the command model only as a short-term predictor for the ticks in
+between, which the next measurement discards. Every constant in that model is now fitted from
+recorded client frames rather than guessed
+([calibration](../sources/2026-08-18-minimap-odometry-calibration.md)).
+
+`flyff_bot.features.vision.minimap` is the sensor. It is read-only: it locates the ring, reads the
+frame, and dispatches no input of any kind — US-027 stays rejected and `SearchMode.MINIMAP_RADAR`
+stays never-dispatched. `locate_minimap` anchors the ring centre 88 px from the client's right edge
+and 106.5 px from its top edge, in client-area coordinates, then refines that within +-5 px once per
+client size and reports "not found" when no opaque ring stroke survives its intensity and
+angular-deviation bounds. A collapsed minimap, an unexpected window decoration, and a client too
+small for the widget all take that path, and the session keeps running. `read_minimap` returns the
+Hanning-windowed 62 px surface disk, the marker heading, and a zoom signature; `measure_translation`
+phase-correlates two disks and returns the scroll only when the correlation response clears 0.30 and
+the displacement stays inside 24 px.
+
+Because the minimap is north-up and player-centred, its scroll is already expressed in world axes,
+so no heading rotation is applied to it and a heading error cannot corrupt the translation. Because
+it observes motion rather than commands, `TARGETING` and `COMBAT` motion reaches the estimate without
+any `integrate_movement` call on the combat dispatch paths, and standby ticks follow the character
+while the operator moves it by hand (`PathingController.track`, called from the orchestrator's
+standby branch). Heading comes from the colour-keyed marker's principal axis, with the nose picked by
+the third moment of its projection — the wedge tapers towards the nose, which resolves the 180 deg
+ambiguity from the shape instead of from a constant.
+
+`TrackingQuality` gates what the session is allowed to learn. `MEASURED` is a confident measurement;
+`PREDICTED` is the command model covering at most `prediction_grace_seconds` (1.5 s, one grid cell of
+worst-case error at the fitted speed); `DEGRADED` is everything beyond that. While `DEGRADED`,
+`PathingController.observe` writes no visit, spawn, or stall, and calls `SpatialMap.break_trail()` so
+that recovery cannot link an edge across a span the session never observed. Routes may still be
+followed or abandoned; nothing new is created. The quality is published on `NavigationSnapshot` and
+shown as a badge on both the dashboard and the path inspector.
+
+`StallDetector` now has two mutually exclusive paths. With a measured displacement it compares the
+measured speed against 3.0 minimap px/s, which the recordings separate cleanly from both the 0.02
+px/s of standing still and the 9.4 px/s of running, and it never computes the peripheral frame
+signature. The pixel-difference signature from BUG-009 remains only as the fallback for ticks with no
+usable measurement.
+
+**The minimap pixel is the canonical unit** of the whole navigation feature. There is no world-unit
+conversion anywhere, because deriving one would need a run speed the client does not display. The
+`*_units` identifiers were renamed accordingly (`cell_size_pixels`, `leash_radius_pixels`,
+`distance_pixels`, `forward_speed_pixels_per_second`). The unit is only defined per zoom level: one
+pixel at maximum zoom-out covers exactly two at the default zoom, and the ring geometry itself does
+not change between them. The tracker anchors a zoom signature on its first measurement, publishes it
+alongside every position, and drops to `DEGRADED` until `reanchor()` when five consecutive readings
+deviate from it by more than 12 %. Backward speed was removed rather than guessed: no `S` burst was
+recorded, no controller dispatches `S`, and backward motion is observed anyway.
+
+The measured turn rate is 240 deg/s, not the 90 deg/s that was assumed, so the default pathing turn
+pulse dropped from 0.15 s to 0.08 s to keep one pulse inside the 25 deg heading tolerance. The added
+measurement costs 1.06 ms per tick with the geometry cached, on the existing `SessionWorker` thread,
+never on the Qt GUI thread.

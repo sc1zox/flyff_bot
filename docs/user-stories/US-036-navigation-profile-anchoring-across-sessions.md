@@ -31,7 +31,7 @@ from wherever the session happened to start**.
   documented operating requirement.
 - The persisted schema is `SPATIAL_MAP_SCHEMA_VERSION = 1` (`features/navigation/spatial.py:14`) and
   stores only cells and edges — no anchor, no scale, no zoom level.
-- After [US-035](US-035-measured-minimap-odometry-and-tracking-quality.md), heading is measured from
+- After [US-035](completed/US-035-measured-minimap-odometry-and-tracking-quality.md), heading is measured from
   a north-up minimap, so the frame's *rotation* is already absolute and only a *translational*
   anchor is missing. This story depends on US-035.
 - Anchoring approach: the minimap disk is a picture of static terrain around the player. Storing the

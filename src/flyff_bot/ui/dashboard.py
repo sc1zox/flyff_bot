@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Signal
 
 from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.navigation.tracking import TrackingQuality
 from flyff_bot.features.vision.models import CapturedFrame
 
 
@@ -84,8 +85,12 @@ class NavigationSnapshot:
     edges: tuple[EdgeSnapshot, ...]
     waypoints: tuple[tuple[float, float], ...] = ()
     safe_waypoint: tuple[float, float] | None = None
-    cell_size_units: float = 15.0
-    leash_radius_units: float = 50.0
+    cell_size_pixels: float = 15.0
+    leash_radius_pixels: float = 50.0
+    tracking_quality: TrackingQuality = TrackingQuality.DEGRADED
+    # Positions are minimap pixels at the zoom level this session was anchored to, so the
+    # anchor travels with them (US-035).
+    zoom_signature_anchor: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

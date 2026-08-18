@@ -1,7 +1,7 @@
 ---
 id: US-035
 title: Measured minimap odometry, tracking quality gating, and calibrated movement constants
-status: draft
+status: completed
 created: 2026-08-18
 updated: 2026-08-18
 ---
@@ -129,123 +129,176 @@ shipped in `data/`, and should land first.
 
 ### 1. Minimap sensor with explicit, sourced geometry
 
-- [ ] Given a captured client frame, when the minimap locator runs, then it returns the ring centre
+- [x] Given a captured client frame, when the minimap locator runs, then it returns the ring centre
   and inner-surface radius derived from named constants anchored to the client right and top edges,
   and every constant cites the frame it was measured against in its definition, following the
   precedent of `src/flyff_bot/features/vision/vitals.py:22`.
-- [ ] Given the geometry constants, when they are committed, then they are expressed in
+- [x] Given the geometry constants, when they are committed, then they are expressed in
   **client-area** coordinates. The spike measured ring centre y = 135.5 on whole-window captures of
   `data/`, which include roughly 31 rows of title bar, while `WindowsFrameSource` captures through
   `GetClientRect` and starts at the first row below it. The two coordinate systems must be re-based
   before any comparison, or the offset will be misread as a zoom or resolution effect.
-- [ ] Given a client resolution other than the measured reference, when the locator runs, then it
+- [x] Given a client resolution other than the measured reference, when the locator runs, then it
   reports whether the minimap was found rather than silently returning an out-of-bounds region.
-- [ ] Given the operator has collapsed or closed the minimap with its ring buttons, when the locator
+- [x] Given the operator has collapsed or closed the minimap with its ring buttons, when the locator
   runs, then it reports "not found", the session continues, and no exception escapes the tick.
 
 ### 2. Measured heading
 
-- [ ] Given a frame with a visible player marker, when heading measurement runs, then the marker is
+- [x] Given a frame with a visible player marker, when heading measurement runs, then the marker is
   isolated by colour keying (not by assuming it sits at the ring centre) and its orientation axis is
   derived by principal component analysis.
-- [ ] Given the measured axis, when it is converted to a compass bearing, then the 180 deg sign
+- [x] Given the measured axis, when it is converted to a compass bearing, then the 180 deg sign
   convention comes from one named, documented constant validated against a recorded frame of a known
   in-game facing.
-- [ ] Given a heading measurement is available, when the tracker updates, then the measured heading
+- [x] Given a heading measurement is available, when the tracker updates, then the measured heading
   replaces the integrated one; `turn_degrees_per_second` is only used to predict between frames.
 
 ### 3. Measured translation
 
-- [ ] Given two consecutive frames, when translation measurement runs, then phase correlation over
+- [x] Given two consecutive frames, when translation measurement runs, then phase correlation over
   the Hanning-windowed, circular-masked inner disk returns a displacement in minimap pixels together
   with its correlation response.
-- [ ] Given unrelated minimap content (teleport, zone change, obscured minimap), when translation
+- [x] Given unrelated minimap content (teleport, zone change, obscured minimap), when translation
   measurement runs, then the response falls below the configured confidence threshold and no
   displacement is applied.
-- [ ] Given a measured displacement, when it is stored or compared anywhere in the navigation
+- [x] Given a measured displacement, when it is stored or compared anywhere in the navigation
   feature, then it stays in minimap pixels: no conversion to world units exists, and no
   world-unit constant is introduced.
-- [ ] Given a recorded burst of real consecutive client frames, when the measurement is validated
+- [x] Given a recorded burst of real consecutive client frames, when the measurement is validated
   against it, then the bias and response distribution are documented in `docs/sources/`, replacing
   the synthetic `BORDER_REFLECT` figures.
-- [ ] Given the same recorded burst re-paired at increasing frame lags, when the correlation
+- [x] Given the same recorded burst re-paired at increasing frame lags, when the correlation
   response is plotted against displacement, then the displacement at which the response falls below
   the confidence threshold is documented and becomes a named maximum inter-frame displacement.
-- [ ] Given that maximum, when the perception tick rate is configured, then a minimum sampling rate
+- [x] Given that maximum, when the perception tick rate is configured, then a minimum sampling rate
   is derived from it and the fitted forward speed, and a tick slower than that reports `PREDICTED`
   rather than trusting a correlation over too little overlap.
 
 ### 4. Tracking quality gates map learning
 
-- [ ] Given a confident measurement, when a tick completes, then tracking quality is `MEASURED` and
+- [x] Given a confident measurement, when a tick completes, then tracking quality is `MEASURED` and
   the position is the measured one.
-- [ ] Given measurement is unavailable, when a tick completes, then the command model predicts the
+- [x] Given measurement is unavailable, when a tick completes, then the command model predicts the
   position for at most a configured grace period and quality is `PREDICTED`.
-- [ ] Given measurement stays unavailable beyond the grace period, when a tick completes, then
+- [x] Given measurement stays unavailable beyond the grace period, when a tick completes, then
   quality is `DEGRADED`.
-- [ ] Given quality is `DEGRADED`, when `PathingController.observe` runs, then no visit, spawn, or
+- [x] Given quality is `DEGRADED`, when `PathingController.observe` runs, then no visit, spawn, or
   stall is written to `SpatialMap`; the map is read-only and existing routes may still be followed
   or abandoned, but no new cells or edges are created.
-- [ ] Given quality returns to `MEASURED` after a `DEGRADED` span, when the next visit is recorded,
+- [x] Given quality returns to `MEASURED` after a `DEGRADED` span, when the next visit is recorded,
   then no edge is created across the gap, so the graph never gains a link over an unobserved
   traversal.
 
 ### 5. Motion is observed independently of the dispatching controller
 
-- [ ] Given the orchestrator is in `TARGETING` or `COMBAT` and the character moves, when ticks
+- [x] Given the orchestrator is in `TARGETING` or `COMBAT` and the character moves, when ticks
   complete, then the position estimate follows that motion, without adding any
   `integrate_movement` call to the combat dispatch paths (`orchestrator.py:362`,
   `orchestrator.py:395`).
-- [ ] Given the character is moved by the operator manually while the session is paused in standby,
+- [x] Given the character is moved by the operator manually while the session is paused in standby,
   when ticks complete, then the position estimate follows that motion as well.
 
 ### 6. Stall detection uses the measurement
 
-- [ ] Given forward movement is commanded and the measured displacement stays below a configured
+- [x] Given forward movement is commanded and the measured displacement stays below a configured
   threshold for the stall timeout, when the detector is polled, then a stall is reported.
-- [ ] Given quality is `DEGRADED`, when the detector is polled, then it falls back to the existing
+- [x] Given quality is `DEGRADED`, when the detector is polled, then it falls back to the existing
   peripheral pixel-difference signal rather than reporting a false stall.
-- [ ] Given the measurement path is in use, then the pixel-difference signature is not computed,
+- [x] Given the measurement path is in use, then the pixel-difference signature is not computed,
   keeping the per-tick cost at or below today's.
 
 ### 7. Calibrated movement constants
 
-- [ ] Given the recorded bursts, when `MovementModel`'s forward speed, backward speed, and turn rate
+- [x] Given the recorded bursts, when `MovementModel`'s forward speed, backward speed, and turn rate
   are defined, then each value is fitted from those recordings as minimap pixels per second
   (degrees per second for the turn rate), cites its source document, and is no longer an
   unexplained literal; the `_UNITS_PER_SECOND` names are renamed accordingly.
-- [ ] Given the burst tail recorded after key release, when the model is fitted, then the client's
+- [x] Given the burst tail recorded after key release, when the model is fitted, then the client's
   own acceleration and deceleration are either represented or explicitly documented as folded into
   the constant with their contribution to the residual.
-- [ ] Given the fitted values, when the regression test runs, then predicting each recorded sample
+- [x] Given the fitted values, when the regression test runs, then predicting each recorded sample
   with the committed constants reproduces the measured displacement within the documented tolerance.
 
 ### 8. Operator visibility and safety
 
-- [ ] Given the dashboard is open, when tracking quality changes, then the status is displayed as a
+- [x] Given the dashboard is open, when tracking quality changes, then the status is displayed as a
   badge on the path inspector and the dashboard, with all text present and synchronised in
   `de.json` and `en.json`.
-- [ ] Given the sensor runs, then it performs read-only frame analysis only: no click, no key, and
+- [x] Given the sensor runs, then it performs read-only frame analysis only: no click, no key, and
   no input of any kind is dispatched at the minimap.
-- [ ] Given the sensor runs, then it executes on the existing perception worker thread and never on
+- [x] Given the sensor runs, then it executes on the existing perception worker thread and never on
   the Qt GUI thread.
-- [ ] Given one tick, when the sensor runs on the reference disk size, then the added measurement
+- [x] Given one tick, when the sensor runs on the reference disk size, then the added measurement
   cost stays within a documented per-tick budget.
 
 ### 9. Zoom level is part of the measurement contract
 
-- [ ] Given the recordings of one location at two zoom levels, when they are compared, then the
+- [x] Given the recordings of one location at two zoom levels, when they are compared, then the
   ratio between the two scales is documented in `docs/sources/`, together with whether the ring
   geometry itself changes with zoom.
-- [ ] Given the recordings at a second window resolution, when they are compared against the
+- [x] Given the recordings at a second window resolution, when they are compared against the
   1600 px reference, then the fixed-pixel anchoring is either confirmed or replaced by a measured
   rule, closing the assumption inherited from BUG-006.
-- [ ] Given a session starts, when the tracker is initialised, then the zoom level it was
+- [x] Given a session starts, when the tracker is initialised, then the zoom level it was
   calibrated for is recorded alongside every position it produces.
-- [ ] Given the operator changes the minimap zoom mid-session, when the next tick runs, then the
+- [x] Given the operator changes the minimap zoom mid-session, when the next tick runs, then the
   change is detected and quality drops to `DEGRADED` until the tracker is re-anchored. This is the
   one corruption mode that leaves the correlation response untouched: without an explicit check,
   every subsequent measurement is silently rescaled and written into the map as valid.
+
+## Outcome
+
+Implemented on 2026-08-18. The measurements are written up in
+[the minimap odometry calibration](../sources/2026-08-18-minimap-odometry-calibration.md),
+which supersedes the synthetic figures of the feasibility spike. Production code lives in
+`src/flyff_bot/features/vision/minimap.py` (the sensor) and
+`src/flyff_bot/features/navigation/tracking.py` (the quality state machine and the fitted
+command model). The frames the tests replay are shipped under
+`data/assets/fixtures/minimap/`; the 246 MB of raw recordings stay gitignored.
+
+Three criteria were satisfied differently from the way they were written, and one is only
+partly satisfied. All four are deliberate:
+
+- **The 180 deg sign convention is a measured rule, not a constant** (criterion 2). The
+  farthest-point heuristic the spike used flipped on 8 of 53 recorded turn frames. The third
+  moment of the marker's projection along its principal axis flipped on none, because the
+  wedge is broad at the tail and tapers to a thin nose. That resolves the ambiguity from the
+  shape itself, so no sign constant exists to get wrong. It is still validated against a
+  known facing: over the recorded forward run the marker heading is 139.6 deg and the
+  measured travel bearing is 136.3 deg.
+- **The correlation cliff was never reached** (criterion 3). The recording could not scroll
+  the aperture further than 28.5 px, where the response was still 0.344, above the 0.30 gate.
+  `MAXIMUM_INTER_FRAME_DISPLACEMENT_PIXELS` is therefore 24 px, the largest displacement with
+  a measured response margin, rather than an extrapolated crossing.
+- **Backward speed was removed instead of fitted** (criterion 7). No `S` burst was recorded
+  and no controller in the repository dispatches `S`, so the alternative to removing it was
+  leaving exactly the kind of guessed literal this story exists to eliminate. Backward motion
+  is still observed, because the sensor measures motion rather than commands. The calibration
+  source names the command that would record it if a controller ever needs to predict it.
+- **Vertical anchoring at a second resolution is inferred, not proven** (criterion 9). At a
+  1280 px client width the ring still sits 87 px from the right edge with an unchanged radius,
+  so the horizontal fixed-pixel rule from BUG-006 is confirmed. The available second-resolution
+  frames are whole-window captures whose title-bar heights are unknown, so their vertical
+  offsets cannot be compared against the 106.5 px client-area reference. The locator closes
+  this by refining the anchored centre within +-5 px once per client size and reporting "not
+  found" when no ring survives the band bounds, which makes the residual uncertainty
+  irrelevant instead of assumed away.
+
+The story also predicted that a zoom change is "the one corruption mode that leaves the
+correlation response untouched". It is not: a 2x step collapses the response to 0.062, so the
+confidence gate catches the transition. The zoom-signature check is still needed and still
+implemented, because the gate only rejects the two frames spanning the change while every
+measurement afterwards correlates cleanly in a different unit.
+
+Two consequences fell out of the calibration that were not part of the story:
+
+- The measured turn rate is 240 deg/s, not the guessed 90 deg/s, so one 0.15 s pathing turn
+  pulse would have overshot the 25 deg heading tolerance by 11 deg and oscillated. The default
+  pulse is now 0.08 s.
+- The navigation feature's `*_units` identifiers were renamed to `*_pixels`
+  (`cell_size_pixels`, `leash_radius_pixels`, `distance_pixels`) so the canonical unit is
+  visible in the code rather than only in this story.
 
 ## Out of scope
 
@@ -274,7 +327,12 @@ shipped in `data/`, and should land first.
     position advanced.
   - A regression test pinning the fitted movement constants against the recorded samples.
   - `pwsh -File .\scripts\check.ps1`.
-- Manual (Windows):
+- Automated results on 2026-08-18: `pwsh -File .\scripts\check.ps1` green, 407 passed,
+  2 skipped, 92 % coverage. The gate additionally required repairing three pre-existing
+  `mypy` failures in `features/vision/target_verification.py` and the
+  navigation-automation import cycle that made `flyff_bot.features.navigation.tracking`
+  unimportable on its own.
+- Manual (Windows), still open:
   - Turn the character a full 360 deg and confirm the `N` glyph stays at the top of the ring
     (north-up assumption) and that the reported heading tracks the character.
   - Face a known direction, confirm the reported heading matches it, and record that frame as the

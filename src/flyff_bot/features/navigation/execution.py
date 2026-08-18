@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from flyff_bot.features.navigation.pathing import PathingDecision
+if TYPE_CHECKING:
+    # Importing the controller module eagerly would close the
+    # navigation -> automation -> navigation import cycle at module load time.
+    from flyff_bot.features.navigation.pathing import PathingDecision
 
 
 class PathingInputAdapter(Protocol):

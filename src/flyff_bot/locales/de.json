@@ -201,5 +201,8 @@
   "ui.window_not_foreground": "Spielfenster: nicht im Vordergrund",
   "ui.window_minimized": "Spielfenster minimiert",
   "ui.window_not_found": "Spielfenster nicht gefunden",
-  "ui.window_capture_failed": "Spielfenster: Erfassung fehlgeschlagen"
+  "ui.window_capture_failed": "Spielfenster: Erfassung fehlgeschlagen",
+  "ui.tracking_measured": "Tracking: gemessen",
+  "ui.tracking_predicted": "Tracking: vorhergesagt",
+  "ui.tracking_degraded": "Tracking: kein Signal"
 }

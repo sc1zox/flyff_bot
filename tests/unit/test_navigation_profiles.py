@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from minimap_doubles import MirrorOdometer
 
 from flyff_bot.features.automation.models import Position, Viewport, VisibleMob, WorldState
 from flyff_bot.features.automation.orchestrator import (
@@ -21,6 +23,7 @@ from flyff_bot.features.navigation.persistence import (
     sanitize_profile_name,
 )
 from flyff_bot.features.navigation.spatial import SpatialMap, WorldPoint
+from flyff_bot.features.navigation.tracking import MovementModel
 
 
 def test_sanitize_profile_name() -> None:
@@ -69,7 +72,8 @@ def test_count_cells_in_profile_handles_invalid_files(tmp_path: Path) -> None:
 
 
 def test_pathing_controller_save_load_reset(tmp_path: Path) -> None:
-    controller = PathingController()
+    odometer = MirrorOdometer(MovementModel())
+    controller = PathingController(odometer=odometer)
     state = WorldState(
         observed_at_seconds=10.0,
         position=Position(0, 0),
@@ -80,7 +84,9 @@ def test_pathing_controller_save_load_reset(tmp_path: Path) -> None:
         viewport=Viewport(100, 100),
     )
     controller.observe(state)
+    odometer.command(0x57, duration_seconds=1.0)  # the client moves forward
     controller.integrate_movement(0x57, duration_seconds=1.0)  # Move W
+    controller.observe(replace(state, observed_at_seconds=11.0))
 
     assert len(controller.spatial_map.known_cells()) > 0
     assert controller.position != WorldPoint(0.0, 0.0)

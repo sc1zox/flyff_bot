@@ -18,6 +18,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
+from flyff_bot.features.navigation.tracking import TrackingQuality
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import NavigationSnapshot
 
@@ -190,17 +191,14 @@ class PathInspectorWidget(QWidget):
 
         xs: list[float] = [0.0, snapshot.player_x]
         ys: list[float] = [0.0, snapshot.player_y]
-        leash = max(MINIMUM_VIEW_EXTENT, snapshot.leash_radius_units)
+        leash = max(MINIMUM_VIEW_EXTENT, snapshot.leash_radius_pixels)
         xs.extend([-leash, leash])
         ys.extend([-leash, leash])
 
         for cell in snapshot.cells:
-            xs.extend(
-                [cell.center_x - snapshot.cell_size_units, cell.center_x + snapshot.cell_size_units]
-            )
-            ys.extend(
-                [cell.center_y - snapshot.cell_size_units, cell.center_y + snapshot.cell_size_units]
-            )
+            cell_size = snapshot.cell_size_pixels
+            xs.extend([cell.center_x - cell_size, cell.center_x + cell_size])
+            ys.extend([cell.center_y - cell_size, cell.center_y + cell_size])
 
         for wx, wy in snapshot.waypoints:
             xs.append(wx)
@@ -303,11 +301,11 @@ class PathInspectorWidget(QWidget):
     ) -> None:
         snapshot = self._snapshot
         assert snapshot is not None
-        if snapshot.leash_radius_units <= 0.0:
+        if snapshot.leash_radius_pixels <= 0.0:
             return
 
         origin = to_screen(0.0, 0.0)
-        radius_px = abs(to_screen(snapshot.leash_radius_units, 0.0).x() - origin.x())
+        radius_px = abs(to_screen(snapshot.leash_radius_pixels, 0.0).x() - origin.x())
         painter.setPen(QPen(LEASH_COLOR, 1, Qt.PenStyle.DotLine))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(origin, radius_px, radius_px)
@@ -320,7 +318,7 @@ class PathInspectorWidget(QWidget):
 
         max_weight = max((c.spawn_weight for c in snapshot.cells), default=1.0)
         max_weight = max(1.0, max_weight)
-        cell_size_px = snapshot.cell_size_units * scale
+        cell_size_px = snapshot.cell_size_pixels * scale
 
         for cell in snapshot.cells:
             pt = to_screen(cell.center_x, cell.center_y)
@@ -481,7 +479,7 @@ class PathInspectorWidget(QWidget):
         assert snapshot is not None
 
         compass = _heading_to_compass(snapshot.heading_degrees)
-        hud_w = min(float(width - 20), 420.0)
+        hud_w = min(float(width - 20), 520.0)
         hud_rect = QRectF(10, 8, hud_w, 24)
 
         painter.setPen(QPen(HUD_BORDER_COLOR, 1))
@@ -494,7 +492,8 @@ class PathInspectorWidget(QWidget):
             f"Pos: ({snapshot.player_x:+.1f}, {snapshot.player_y:+.1f})  "
             f"Facing: {snapshot.heading_degrees:.0f}° ({compass})  "
             f"Cells: {len(snapshot.cells)}  "
-            f"Route: {len(snapshot.waypoints)}"
+            f"Route: {len(snapshot.waypoints)}  "
+            f"{self._translator.text(_tracking_quality_message(snapshot.tracking_quality))}"
         )
         painter.drawText(
             QRectF(16, 8, hud_w - 12, 24),
@@ -530,6 +529,14 @@ class PathInspectorWidget(QWidget):
         """Return the fading rim color of a spawn cell at the given relative density."""
 
         return _lerp_color(SPAWN_HEAT_EDGE_LOW_COLOR, SPAWN_HEAT_EDGE_HIGH_COLOR, intensity)
+
+
+def _tracking_quality_message(quality: TrackingQuality) -> Message:
+    return {
+        TrackingQuality.MEASURED: Message.UI_TRACKING_MEASURED,
+        TrackingQuality.PREDICTED: Message.UI_TRACKING_PREDICTED,
+        TrackingQuality.DEGRADED: Message.UI_TRACKING_DEGRADED,
+    }[quality]
 
 
 def _heading_to_compass(heading: float) -> str:

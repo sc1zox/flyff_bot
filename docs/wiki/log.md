@@ -310,3 +310,34 @@ number rather than that a reading did not happen. Also recorded the three combat
 (sampling interval, baseline-gated increase instead of an exact `+1`, kill verification on by
 default) and the replacement of the `QTimer` tick with `SessionWorker`, which brings the desktop app
 back in line with the project's own rule that the Qt GUI thread never runs OCR.
+
+## 2026-08-18 — synthesis: US-035 measured minimap odometry
+
+Ingested US-035 into `architecture.md` and `glossary.md`, and ingested the operator's calibration
+recordings as `../sources/2026-08-18-minimap-odometry-calibration.md`. Recorded the ring geometry in
+client-area coordinates (88.0 px from the right edge, 106.5 px from the top, reproduced within
+0.25 px across both zoom levels and both bursts) and the 29-row re-basing that reconciles it with the
+whole-window measurement of the feasibility spike.
+
+Corrected two claims the spike and the story carried. The spike's 0.6-0.9 px systematic underestimate
+is not an artefact of its synthetic `BORDER_REFLECT` edges: `cv2.phaseCorrelate` returns (0.5, 0.5)
+for identical even-sized inputs, and subtracting that offset recovers known shifts to within 0.03 px.
+And a zoom change does not leave the correlation response untouched as the story assumed — a 2x
+step collapses it to 0.062, below the gate — but the zoom-signature check is still required,
+because the gate only rejects the two frames spanning the change while every measurement afterwards
+correlates cleanly in a different unit.
+
+Recorded the fitted constants and what they replaced: forward speed 9.4 minimap px/s (was a guessed
+60 units/s) and turn rate 240 deg/s (was a guessed 90 deg/s). The turn rate is the consequential one:
+the previous default 0.15 s pathing turn pulse would have swung 36 deg past a 25 deg tolerance and
+oscillated, so the pulse is now 0.08 s. Recorded that backward speed was removed rather than fitted,
+since no `S` burst was recorded and no controller dispatches `S`; the minimap observes backward motion
+regardless. Recorded that the marker's nose is resolved by the third moment of its projection rather
+than by a sign constant, because the farthest-point heuristic the spike used flipped on 8 of 53
+recorded turn frames while the skew flipped on none.
+
+Also recorded the unit rename across the navigation feature (`cell_size_pixels`,
+`leash_radius_pixels`, `distance_pixels`), which makes the minimap pixel visible in the code rather
+than only in the story, and the repair of the navigation-automation import cycle that had made
+`flyff_bot.features.navigation.tracking` unimportable without initialising the automation package
+first.

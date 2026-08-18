@@ -303,8 +303,8 @@ def test_path_inspector_widget_renders_cleanly_with_populated_snapshot() -> None
         edges=edges,
         waypoints=((60.0, 60.0),),
         safe_waypoint=(20.0, 20.0),
-        cell_size_units=40.0,
-        leash_radius_units=80.0,
+        cell_size_pixels=40.0,
+        leash_radius_pixels=80.0,
     )
     widget.set_navigation(snapshot)
     assert widget.snapshot == snapshot
