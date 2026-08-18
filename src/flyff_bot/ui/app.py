@@ -36,6 +36,7 @@ from flyff_bot.features.vision import (
     TesseractTextRecognizer,
     WindowsFrameSource,
     load_class_names,
+    load_mob_anchor_templates,
 )
 from flyff_bot.features.vision.monster_stats import (
     MonsterStatsReader,
@@ -145,13 +146,16 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
         labels_path = Path(DEFAULT_MOB_LABELS_PATH)
         anchor_path = Path(DEFAULT_TARGET_ANCHOR_PATH)
 
-        if model_path.is_file() and labels_path.is_file() and anchor_path.is_file():
-            anchor = _read_template(anchor_path)
+        if model_path.is_file() and labels_path.is_file():
             allowed_names = load_class_names(labels_path)
-            if anchor is not None:
+            anchors = load_mob_anchor_templates(
+                allowed_names,
+                default_anchor_path=anchor_path if anchor_path.is_file() else None,
+            )
+            if anchors:
                 target_verifier = TargetVerifier(
                     allowed_names,
-                    anchor,
+                    anchors,
                     TesseractTextRecognizer(),
                     TargetVerificationConfig(
                         anchor_match_threshold=window.anchor_threshold_spin.value(),

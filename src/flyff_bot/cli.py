@@ -54,6 +54,7 @@ from flyff_bot.features.vision import (
     TesseractTextRecognizer,
     WindowsFrameSource,
     load_class_names,
+    load_mob_anchor_templates,
 )
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import FarmingGoal
@@ -398,19 +399,22 @@ def _farming_orchestrator(
 ) -> FarmingOrchestrator:
     model_path = args.model or DEFAULT_MOB_MODEL_PATH
     labels_path = args.labels or DEFAULT_MOB_LABELS_PATH
-    target_anchor = args.target_anchor or (
-        DEFAULT_TARGET_ANCHOR_PATH if Path(DEFAULT_TARGET_ANCHOR_PATH).is_file() else None
-    )
-    if not Path(model_path).is_file() or not Path(labels_path).is_file() or target_anchor is None:
-        raise FarmingConfigurationError(Message.FARM_OPTIONS_REQUIRED)
     if (args.goal_item is None) != (args.goal_count is None):
         raise FarmingConfigurationError(Message.FARM_GOAL_REQUIRED)
-    anchor = _load_template(target_anchor)
-    # The nameplate whitelist has to agree with the classes combat is allowed to engage,
-    # otherwise the bot clicks mobs it then rejects by name.
     allowed_names = (
         tuple(args.target_name) or tuple(args.class_name) or load_class_names(Path(labels_path))
     )
+    if args.target_anchor:
+        anchors: tuple[npt.NDArray[np.uint8], ...] = (_load_template(args.target_anchor),)
+    else:
+        anchors = load_mob_anchor_templates(
+            allowed_names,
+            default_anchor_path=DEFAULT_TARGET_ANCHOR_PATH
+            if Path(DEFAULT_TARGET_ANCHOR_PATH).is_file()
+            else None,
+        )
+    if not Path(model_path).is_file() or not Path(labels_path).is_file() or not anchors:
+        raise FarmingConfigurationError(Message.FARM_OPTIONS_REQUIRED)
     rotation = tuple(
         KeyBinding(virtual_key, args.attack_cooldown)
         for virtual_key in (args.rotation_key or [0x20])
@@ -426,7 +430,7 @@ def _farming_orchestrator(
                 allowed_class_names=frozenset(args.class_name),
             ),
         ),
-        TargetVerifier(allowed_names, anchor, TesseractTextRecognizer()),
+        TargetVerifier(allowed_names, anchors, TesseractTextRecognizer()),
     )
     navigation_map_path = Path(args.navigation_map)
     return FarmingOrchestrator(

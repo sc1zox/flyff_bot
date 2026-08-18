@@ -40,8 +40,10 @@ from flyff_bot.features.vision.target_verification import (
     TargetVerifier,
     extract_anchor_relative_region,
     extract_target_region,
+    load_mob_anchor_templates,
     match_whitelisted_name,
     preprocess_target_name_region,
+    resolve_mob_anchor_path,
 )
 from flyff_bot.features.vision.vitals import (
     GaugeRegion,
@@ -90,7 +92,9 @@ __all__ = [
     "extract_anchor_relative_region",
     "extract_target_region",
     "load_class_names",
+    "load_mob_anchor_templates",
     "match_whitelisted_name",
     "preprocess_target_name_region",
+    "resolve_mob_anchor_path",
     "resolve_tesseract_executable",
 ]

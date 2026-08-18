@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from pathlib import Path
 from typing import cast
 
 import cv2
@@ -208,13 +209,69 @@ def match_whitelisted_name(text: str, allowed_names: Iterable[str]) -> str | Non
     return None
 
 
+def resolve_mob_anchor_path(
+    mob_name: str,
+    assets_root: Path | str | None = None,
+) -> Path | None:
+    """Find the target-header anchor image for a mob, checking mob-specific directories first."""
+
+    root = Path(assets_root) if assets_root is not None else Path("data/assets/mobs")
+    if not root.is_dir():
+        return None
+    direct = root / mob_name / "target_anchor.png"
+    if direct.is_file():
+        return direct
+    for region_folder in sorted(root.iterdir()):
+        if not region_folder.is_dir():
+            continue
+        candidate = region_folder / mob_name / "target_anchor.png"
+        if candidate.is_file():
+            return candidate
+        for child in sorted(region_folder.iterdir()):
+            if child.is_dir() and child.name.casefold() == mob_name.casefold():
+                anchor_file = child / "target_anchor.png"
+                if anchor_file.is_file():
+                    return anchor_file
+    return None
+
+
+def load_mob_anchor_templates(
+    mob_names: Iterable[str],
+    default_anchor_path: Path | str | None = None,
+    assets_root: Path | str | None = None,
+) -> tuple[npt.NDArray[np.uint8], ...]:
+    """Load target-header anchor templates for all requested mobs, falling back to default."""
+
+    templates: list[npt.NDArray[np.uint8]] = []
+    seen_paths: set[Path] = set()
+
+    for mob_name in mob_names:
+        anchor_path = resolve_mob_anchor_path(mob_name, assets_root=assets_root)
+        if anchor_path is not None:
+            resolved = anchor_path.resolve()
+            if resolved not in seen_paths:
+                img = cv2.imread(str(anchor_path), cv2.IMREAD_COLOR)
+                if img is not None:
+                    templates.append(img)
+                    seen_paths.add(resolved)
+
+    if not templates and default_anchor_path is not None:
+        default_path = Path(default_anchor_path)
+        if default_path.is_file():
+            img = cv2.imread(str(default_path), cv2.IMREAD_COLOR)
+            if img is not None:
+                templates.append(img)
+
+    return tuple(templates)
+
+
 class TargetVerifier:
     """Verify a live, whitelisted target from its target-bar appearance."""
 
     def __init__(
         self,
         allowed_names: Iterable[str],
-        header_anchor_template: npt.NDArray[np.uint8],
+        header_anchor_template: npt.NDArray[np.uint8] | Sequence[npt.NDArray[np.uint8]],
         recognizer: TextRecognizer,
         config: TargetVerificationConfig | None = None,
     ) -> None:
@@ -223,9 +280,14 @@ class TargetVerifier:
         self._config = config or TargetVerificationConfig()
         if not self._allowed_names or any(not name.strip() for name in self._allowed_names):
             raise ValueError("At least one non-empty target name is required.")
-        if header_anchor_template.dtype != np.uint8 or header_anchor_template.ndim != 3:
+        if isinstance(header_anchor_template, np.ndarray):
+            self._header_anchor_templates = (header_anchor_template,)
+        else:
+            self._header_anchor_templates = tuple(header_anchor_template)
+        if not self._header_anchor_templates or any(
+            t.dtype != np.uint8 or t.ndim != 3 for t in self._header_anchor_templates
+        ):
             raise ValueError("Target header anchor template must be a uint8 colour image.")
-        self._header_anchor_template = header_anchor_template
         self._last_name_mask: npt.NDArray[np.uint8] | None = None
         self._last_name_reading: _NameReading = (None, "", TargetNameStatus.NOT_EVALUATED)
 
@@ -343,13 +405,20 @@ class TargetVerifier:
     def _match_anchor(self, pixels: npt.NDArray[np.uint8]) -> tuple[float, int, int]:
         """Return the best anchor score and its top-left location inside the region."""
 
-        template = self._header_anchor_template
-        if template.shape[0] > pixels.shape[0] or template.shape[1] > pixels.shape[1]:
-            return 0.0, 0, 0
-        _, score, _, location = cv2.minMaxLoc(
-            cv2.matchTemplate(pixels, template, cv2.TM_CCOEFF_NORMED)
-        )
-        return float(score), int(location[0]), int(location[1])
+        best_score = 0.0
+        best_x = 0
+        best_y = 0
+        for template in self._header_anchor_templates:
+            if template.shape[0] > pixels.shape[0] or template.shape[1] > pixels.shape[1]:
+                continue
+            _, score, _, location = cv2.minMaxLoc(
+                cv2.matchTemplate(pixels, template, cv2.TM_CCOEFF_NORMED)
+            )
+            if float(score) > best_score:
+                best_score = float(score)
+                best_x = int(location[0])
+                best_y = int(location[1])
+        return best_score, best_x, best_y
 
     def _hp_pixel_count(self, pixels: npt.NDArray[np.uint8]) -> int:
         lower = np.array(self._config.hp_color_lower_bound, dtype=np.uint8)
