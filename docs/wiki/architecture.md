@@ -48,6 +48,7 @@ related:
   - ../bugs/fixed/BUG-012-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md
   - ../user-stories/completed/US-034-background-independent-monster-stats-kill-confirmation.md
   - ../bugs/fixed/BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md
+  - ../bugs/fixed/BUG-015-camera-alignment-zoom-out-has-no-effect.md
   - ../user-stories/completed/US-043-continuous-approach-target-tracking-and-minimap-zoom-initialization.md
 ---
 
@@ -747,6 +748,17 @@ before each of the ten minimap clicks — and once more after the last one, retu
 `CameraAlignmentStatus.ABORTED` or `FOCUS_LOST` instead of dispatching the remainder. The wheel itself goes through the new
 `WindowsInputController.scroll_wheel_while_guarded`, which centres the cursor over the client area —
 Windows routes wheel input by cursor position — and stops between notches on either condition.
+
+**The pointer is moved with an injected mouse move, not with `SetCursorPos` (BUG-015).** Teleporting
+the cursor leaves no move in the injected input stream the client reads, so a client that tracks the
+pointer from move events keeps hit-testing later input against the position it last saw — after the
+minimap clicks, the HUD — and every notch was consumed there instead of reaching the camera.
+`scroll_wheel_while_guarded` now dispatches `MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE |
+MOUSEEVENTF_VIRTUALDESK` through `SendInput`, normalized onto the 0-65535 virtual-desktop range, and
+waits 0.15 s for the client to process it before the first notch. The emergency stop and foreground
+focus are checked before that move, so an unfocused client never has the operator's pointer dragged
+across it, and a client area that cannot be measured now dispatches nothing at all rather than
+scrolling wherever the pointer happened to be left.
 
 BUG-014 corrected both halves of that sequence. The client zooms *out* on a forward wheel rotation,
 so the original fifteen backwards notches pulled the camera in towards the character, and thirty

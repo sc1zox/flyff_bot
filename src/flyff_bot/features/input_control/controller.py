@@ -20,13 +20,26 @@ SHOW_WINDOW_RESTORE = 9
 INPUT_TYPE_MOUSE = 0
 INPUT_TYPE_KEYBOARD = 1
 KEY_EVENT_KEY_UP = 0x0002
+MOUSE_EVENT_MOVE = 0x0001
 MOUSE_EVENT_LEFT_DOWN = 0x0002
 MOUSE_EVENT_LEFT_UP = 0x0004
 MOUSE_EVENT_WHEEL = 0x0800
+MOUSE_EVENT_VIRTUAL_DESK = 0x4000
+MOUSE_EVENT_ABSOLUTE = 0x8000
 # One detent of a standard mouse wheel; a positive value rotates the wheel forward.
 WHEEL_DELTA = 120
 DWORD_MASK = 0xFFFFFFFF
+# SendInput maps an absolute mouse move onto this range across the whole virtual desktop.
+ABSOLUTE_COORDINATE_RANGE = 65535
+SYSTEM_METRIC_VIRTUAL_SCREEN_LEFT = 76
+SYSTEM_METRIC_VIRTUAL_SCREEN_TOP = 77
+SYSTEM_METRIC_VIRTUAL_SCREEN_WIDTH = 78
+SYSTEM_METRIC_VIRTUAL_SCREEN_HEIGHT = 79
 SCROLL_STEP_INTERVAL_SECONDS = 0.03
+# The client routes a wheel notch to whatever its own input handling believes the pointer
+# hovers, and it only learns that from a processed mouse move, so the pointer move to the
+# viewport has to be dispatched and consumed before the first notch is sent.
+POINTER_MOVE_SETTLE_SECONDS = 0.15
 VIRTUAL_KEY_END = 0x23
 KEY_IS_DOWN_MASK = 0x8000
 MAXIMUM_PROCESS_PATH_LENGTH = 32_768
@@ -143,6 +156,8 @@ class WindowsInputController:
         self._user32.ClientToScreen.restype = wintypes.BOOL
         self._user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
         self._user32.SetCursorPos.restype = wintypes.BOOL
+        self._user32.GetSystemMetrics.argtypes = [ctypes.c_int]
+        self._user32.GetSystemMetrics.restype = ctypes.c_int
         self._user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(Input), ctypes.c_int]
         self._user32.SendInput.restype = wintypes.UINT
 
@@ -290,6 +305,46 @@ class WindowsInputController:
             if self._user32.SendInput(1, ctypes.byref(key_up), ctypes.sizeof(Input)) != 1:
                 raise ctypes.WinError(ctypes.get_last_error())
 
+    def _send_mouse_event(self, event: Input) -> None:
+        """Dispatch one mouse event, raising the Win32 error when it is not accepted."""
+
+        if self._user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(Input)) != 1:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def _absolute_pointer_coordinates(
+        self, x_coordinate: int, y_coordinate: int
+    ) -> tuple[int, int]:
+        """Normalize desktop pixels onto the absolute range SendInput expects."""
+
+        left = self._user32.GetSystemMetrics(SYSTEM_METRIC_VIRTUAL_SCREEN_LEFT)
+        top = self._user32.GetSystemMetrics(SYSTEM_METRIC_VIRTUAL_SCREEN_TOP)
+        width = max(self._user32.GetSystemMetrics(SYSTEM_METRIC_VIRTUAL_SCREEN_WIDTH), 1)
+        height = max(self._user32.GetSystemMetrics(SYSTEM_METRIC_VIRTUAL_SCREEN_HEIGHT), 1)
+        return (
+            round((x_coordinate - left) * ABSOLUTE_COORDINATE_RANGE / width),
+            round((y_coordinate - top) * ABSOLUTE_COORDINATE_RANGE / height),
+        )
+
+    def _move_pointer(self, x_coordinate: int, y_coordinate: int) -> None:
+        """Move the pointer to desktop pixels through an injected absolute mouse move.
+
+        ``SetCursorPos`` teleports the cursor without placing a move into the injected
+        input stream the client reads, so a client that tracks the pointer from move
+        events keeps hit-testing later input against the position it last saw.
+        """
+
+        absolute_x, absolute_y = self._absolute_pointer_coordinates(x_coordinate, y_coordinate)
+        self._send_mouse_event(
+            Input(
+                type=INPUT_TYPE_MOUSE,
+                mouse=MouseInput(
+                    dx=absolute_x,
+                    dy=absolute_y,
+                    dwFlags=MOUSE_EVENT_MOVE | MOUSE_EVENT_ABSOLUTE | MOUSE_EVENT_VIRTUAL_DESK,
+                ),
+            )
+        )
+
     def scroll_wheel_while_guarded(self, window_handle: int, notches: int) -> None:
         """Send discrete wheel notches while END is clear and the client stays foregrounded.
 
@@ -297,26 +352,30 @@ class WindowsInputController:
         the camera out towards its hard stop.
         """
 
+        if self.is_aborted() or not self.is_foreground(window_handle):
+            return
         bounds = self.client_screen_bounds(window_handle)
-        if bounds is not None:
-            # Windows routes wheel input by cursor position, so the notches have to land
-            # over the client area rather than whatever window is under the pointer.
-            self._user32.SetCursorPos(
-                bounds.left + bounds.width // 2, bounds.top + bounds.height // 2
-            )
+        if bounds is None:
+            # Without the client rectangle the notches would land wherever the pointer was
+            # left, which after the minimap zoom-out clicks is the HUD and not the camera.
+            return
+        # Windows routes wheel input by cursor position, so the notches have to land over
+        # the client area rather than whatever window is under the pointer.
+        self._move_pointer(bounds.left + bounds.width // 2, bounds.top + bounds.height // 2)
+        time.sleep(POINTER_MOVE_SETTLE_SECONDS)
         direction = 1 if notches >= 0 else -1
         for _ in range(abs(notches)):
             if self.is_aborted() or not self.is_foreground(window_handle):
                 return
-            event = Input(
-                type=INPUT_TYPE_MOUSE,
-                mouse=MouseInput(
-                    mouseData=(direction * WHEEL_DELTA) & DWORD_MASK,
-                    dwFlags=MOUSE_EVENT_WHEEL,
-                ),
+            self._send_mouse_event(
+                Input(
+                    type=INPUT_TYPE_MOUSE,
+                    mouse=MouseInput(
+                        mouseData=(direction * WHEEL_DELTA) & DWORD_MASK,
+                        dwFlags=MOUSE_EVENT_WHEEL,
+                    ),
+                )
             )
-            if self._user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(Input)) != 1:
-                raise ctypes.WinError(ctypes.get_last_error())
             time.sleep(SCROLL_STEP_INTERVAL_SECONDS)
 
     def click_client(self, window_handle: int, x_coordinate: int, y_coordinate: int) -> None:

@@ -479,3 +479,22 @@ the two recorded zoom levels, but that margin is now thin enough that the scale-
 its intent relative to the tolerance instead of pinning the recorded pair. The fitted coefficients of
 the distance relation, and the 0.8 s / 0.35 s pitch timings, remain open. Moved US-043 to completed
 user stories.
+
+
+## [2026-08-18] synthesis | Injected pointer move for wheel input (BUG-015)
+
+Recorded why the camera half of the US-042 alignment left the zoom untouched while its minimap and
+pitch steps worked: `scroll_wheel_while_guarded` relocated the pointer with `SetCursorPos`, which
+teleports the cursor without placing a move into the injected input stream the client reads, so a
+client that tracks the pointer from move events kept hit-testing the notches against the position it
+had last seen — the minimap zoom-out button the preceding clicks had left it on. The architecture
+page now states the invariant that a pointer relocation preceding synthetic wheel input is dispatched
+as `MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK` through `SendInput`, normalized
+onto the 0-65535 virtual-desktop range, and is given 0.15 s to be processed before the first notch.
+Two guards were recorded with it: the emergency stop and foreground focus are checked before the
+pointer moves, and an unmeasurable client rectangle dispatches nothing rather than scrolling wherever
+the pointer sat.
+
+No measurement was ingested. The 0.15 s settle is a conservative bound, not a measured client
+latency, and the notch count, the 0.8 s / 0.35 s pitch timings, and the fitted coefficients of the
+distance relation all remain open. Moved BUG-015 to fixed bugs.
