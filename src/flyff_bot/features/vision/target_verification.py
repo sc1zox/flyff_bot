@@ -19,10 +19,10 @@ from flyff_bot.features.vision.models import (
     TargetVerificationMetrics,
 )
 
-DEFAULT_TARGET_REGION_X = 0.38
+DEFAULT_TARGET_REGION_X = 0.40
 DEFAULT_TARGET_REGION_Y = 0.0
-DEFAULT_TARGET_REGION_WIDTH = 0.24
-DEFAULT_TARGET_REGION_HEIGHT = 0.10
+DEFAULT_TARGET_REGION_WIDTH = 0.20
+DEFAULT_TARGET_REGION_HEIGHT = 0.12
 DEFAULT_HP_COLOR_LOWER_BOUND = (100, 100, 220)
 DEFAULT_HP_COLOR_UPPER_BOUND = (140, 180, 255)
 DEFAULT_MINIMUM_HP_PIXEL_COUNT = 10
@@ -85,8 +85,8 @@ class AnchorOffsetRegion:
             raise ValueError("Anchor-relative region dimensions must be positive.")
 
 
-DEFAULT_HP_OFFSET = AnchorOffsetRegion(dx=5, dy=27, width=150, height=12)
-DEFAULT_NAME_OFFSET = AnchorOffsetRegion(dx=40, dy=-4, width=125, height=35)
+DEFAULT_HP_OFFSET = AnchorOffsetRegion(dx=0, dy=23, width=150, height=12)
+DEFAULT_NAME_OFFSET = AnchorOffsetRegion(dx=35, dy=-8, width=125, height=35)
 
 
 @dataclass(frozen=True, slots=True)

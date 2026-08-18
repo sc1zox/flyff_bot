@@ -436,16 +436,16 @@ def test_target_region_rejects_bounds_outside_frame() -> None:
 
 def test_default_target_region_bounds_and_computation() -> None:
     region = TargetRegion()
-    assert region.x == DEFAULT_TARGET_REGION_X == 0.38
+    assert region.x == DEFAULT_TARGET_REGION_X == 0.40
     assert region.y == DEFAULT_TARGET_REGION_Y == 0.0
-    assert region.width == DEFAULT_TARGET_REGION_WIDTH == 0.24
-    assert region.height == DEFAULT_TARGET_REGION_HEIGHT == 0.10
+    assert region.width == DEFAULT_TARGET_REGION_WIDTH == 0.20
+    assert region.height == DEFAULT_TARGET_REGION_HEIGHT == 0.12
 
     left, top, right, bottom = compute_target_header_bounds(1600, 900)
-    assert left == round(1600 * 0.38)
+    assert left == round(1600 * 0.40)
     assert top == 0
-    assert right == round(1600 * 0.62)
-    assert bottom == round(900 * 0.10)
+    assert right == round(1600 * 0.60)
+    assert bottom == round(900 * 0.12)
 
 
 def test_verifier_ignores_sky_colours_outside_the_dedicated_hp_region() -> None:
