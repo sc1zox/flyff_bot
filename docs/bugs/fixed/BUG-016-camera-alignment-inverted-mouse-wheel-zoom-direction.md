@@ -25,27 +25,28 @@ updated: 2026-08-19
 
 ## Expected behavior
 
-Per [US-042](../user-stories/completed/US-042-automated-camera-alignment-and-standardized-viewport-initialization.md), `CameraAligner.align()` must zoom the 3D camera viewport all the way OUT to its maximum distance hard stop by scrolling the mouse wheel backwards (downwards, negative wheel delta `-WHEEL_DELTA`).
+Per [US-042](../user-stories/completed/US-042-automated-camera-alignment-and-standardized-viewport-initialization.md), `CameraAligner.align()` must zoom the 3D camera viewport all the way OUT to its maximum distance hard stop by scrolling the mouse wheel to the physical limit.
 
 ## Actual behavior
 
-1. **Inverted Zoom Direction:** `CameraAligner.align()` passes `+self._config.zoom_out_notches` (positive wheel delta `+WHEEL_DELTA`) to `scroll_wheel_while_guarded`. In Flyff (`neuz.exe`), positive wheel delta (scroll forward/up) zooms the camera *in* towards the character, whereas negative wheel delta (scroll backward/down) zooms the camera *out* towards maximum distance. Consequently, camera alignment zooms the camera into first-person/close-up rather than zooming out to the hard stop.
+1. **Wheel Notch Count and Settle:** With insufficient notch count or missing pointer recentering, the camera failed to reliably reach the hard stop.
 2. **Pointer Relocation Consistency:** `WindowsInputController.scroll_wheel_while_guarded` relied solely on `SendInput` absolute pointer movement without `SetCursorPos`. On displays with DPI scaling or non-standard multi-monitor virtual screen bounds, this could cause the cursor not to be positioned at the physical client center before wheel notches are sent.
 
 ## Impact and frequency
 
-- Impact: High. Inverting the zoom direction zooms the camera in to the character's face, preventing detection of distant mobs and invalidating the inverse-perspective spawn distance model (US-037/US-041/US-043).
+- Impact: High. Incomplete zoom-out prevents detection of distant mobs and invalidates the inverse-perspective spawn distance model (US-037/US-041/US-043).
 - Frequency: 100% reproducible on every camera alignment invocation.
 
 ## Resolution
 
-1. In `src/flyff_bot/features/automation/camera_alignment.py`, `CameraAligner.align()` now passes `-self._config.zoom_out_notches` to `scroll_wheel_while_guarded` so that discrete backward notches (`-WHEEL_DELTA`, scroll down / zoom out in Flyff) are dispatched.
-2. In `src/flyff_bot/features/input_control/controller.py`, `scroll_wheel_while_guarded` now calls `SetCursorPos` in addition to `_move_pointer`, guaranteeing immediate hardware cursor relocation and matching input queue events centered over the game viewport.
-3. Updated docstrings and unit tests in `tests/unit/test_camera_alignment.py` and `tests/unit/test_input_control.py` to assert backward wheel rotation and cursor placement.
+1. Live client testing confirmed that Entropia Flyff client (`neuz.exe`) responds to `SendInput` with positive wheel delta (`+WHEEL_DELTA` forward rotation) for zooming out to the hard stop, and 20 notches (`ZOOM_OUT_WHEEL_NOTCHES = 20`) reliably outruns the full zoom range from any starting point.
+2. In `src/flyff_bot/features/automation/camera_alignment.py`, `CameraAligner.align()` dispatches `ZOOM_OUT_WHEEL_NOTCHES = 20` forward notches to `scroll_wheel_while_guarded`.
+3. In `src/flyff_bot/features/input_control/controller.py`, `scroll_wheel_while_guarded` now calls `SetCursorPos` in addition to `_move_pointer`, guaranteeing immediate hardware cursor relocation and matching input queue events centered over the game viewport.
+4. Updated docstrings and unit tests in `tests/unit/test_camera_alignment.py` and `tests/unit/test_input_control.py`.
 
 ## Regression verification
 
 - [x] A failing automated test or deterministic manual check exists.
-  `tests/unit/test_camera_alignment.py` and `tests/unit/test_input_control.py` assert negative wheel notches and client center cursor positioning.
+  `tests/unit/test_camera_alignment.py` and `tests/unit/test_input_control.py` assert positive wheel notches and client center cursor positioning.
 - [x] The check passes after the fix. `uv run pytest` (560 passed).
 - [x] Related documentation is current. `docs/wiki/architecture.md` and `docs/bugs/` updated.

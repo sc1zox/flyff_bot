@@ -80,7 +80,7 @@ def test_align(controller: WindowsInputController, handle: int, skip_minimap: bo
 
     aligner = CameraAligner(controller, handle, locate_minimap_geometry=locator)
     print("[1/3] Zooming minimap to hard-stop...")
-    print("[2/3] Scrolling wheel backward 30 notches (zoom out to hard-stop)...")
+    print("[2/3] Scrolling wheel forward 20 notches (zoom out to hard-stop)...")
     print("[3/3] Tilting pitch up to ceiling and pulsing down ~45°...")
 
     status = aligner.align()
@@ -92,7 +92,7 @@ def test_align(controller: WindowsInputController, handle: int, skip_minimap: bo
 
 def test_scroll(controller: WindowsInputController, handle: int, notches: int) -> None:
     """Test wheel scroll."""
-    direction_str = "BACKWARD / ZOOM-OUT (down)" if notches < 0 else "FORWARD / ZOOM-IN (up)"
+    direction_str = "FORWARD / ZOOM-OUT (+delta)" if notches > 0 else "BACKWARD / ZOOM-IN (-delta)"
     print(f"\n--- Testing Scroll Wheel ({abs(notches)} notches, {direction_str}) ---")
 
     bounds = controller.client_screen_bounds(handle)
@@ -128,11 +128,11 @@ def test_interactive(controller: WindowsInputController, handle: int) -> None:
     """Interactive step-by-step camera test."""
     print("\n=== Interactive Camera Test Mode ===")
 
-    print("\nStep 1: Test Zoom-Out (30 backward notches)")
+    print("\nStep 1: Test Zoom-Out (20 forward notches)")
     input("Press ENTER to execute Step 1...")
     controller.focus_window(handle)
     time.sleep(0.3)
-    test_scroll(controller, handle, -30)
+    test_scroll(controller, handle, 20)
 
     print("\nStep 2: Test Pitch-Up to Ceiling (0.8s Up Arrow)")
     input("Press ENTER to execute Step 2...")
@@ -168,8 +168,8 @@ def main() -> None:
     parser.add_argument(
         "--notches",
         type=int,
-        default=-30,
-        help="Notches for 'scroll' mode (negative: zoom-out, positive: zoom-in, default: -30)",
+        default=20,
+        help="Notches for 'scroll' mode (default: 20 forward notches)",
     )
     parser.add_argument(
         "--up-seconds",

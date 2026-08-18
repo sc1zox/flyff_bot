@@ -754,7 +754,7 @@ The inverse-perspective distance relation of US-037/US-041 only holds at the cam
 fitted at, and the odometry of US-035 only reports calibrated minimap pixels at the zoom level it was
 measured at, so `features/automation/camera_alignment.py` restores both instead of trusting the
 operator to reproduce them by hand. `CameraAligner.align()` runs four steps against one client: ten
-clicks on the minimap's zoom-out button past the widget's own range, thirty backward wheel notches to
+clicks on the minimap's zoom-out button past the widget's own range, twenty forward wheel notches to
 the engine's hard-clamped zoom limit, a 0.8 s hold on the pitch-up key (`VK_UP`) into the vertical
 ceiling, and a 0.35 s pitch-down pulse (`VK_DOWN`) onto the standardized ~45° elevation that keeps
 horizon spawns visible. Every camera step settles for 0.2 s before the next one, because the client
@@ -788,11 +788,11 @@ it before the first notch. The emergency stop and foreground focus are checked b
 unfocused client never has the operator's pointer dragged across it, and a client area that cannot be
 measured now dispatches nothing at all rather than scrolling wherever the pointer happened to be left.
 
-BUG-014 and BUG-016 corrected the alignment sequence. The client zooms *out* on a backward wheel rotation
-(negative wheel delta / scroll down), so thirty backward notches outrun the zoom range from a fully
-zoomed-in start. Camera pitch is bound to `VK_UP`/`VK_DOWN`; the `VK_PRIOR`/`VK_NEXT` holds the routine
-used to dispatch are unmapped for pitch in the standard client, so the camera stayed at whatever
-elevation it had been left at and the ~45° standardization never happened. The pitch keys are now
+BUG-014 and BUG-016 established the verified alignment sequence. In Entropia Flyff (`neuz.exe`), the
+client zooms *out* on forward wheel rotation (`+WHEEL_DELTA`), so twenty forward notches outrun the
+zoom range from a fully zoomed-in start. Camera pitch is bound to `VK_UP`/`VK_DOWN`; the `VK_PRIOR`/`VK_NEXT`
+holds the routine used to dispatch are unmapped for pitch in the standard client, so the camera stayed at
+whatever elevation it had been left at and the ~45° standardization never happened. The pitch keys are now
 taken from the single `controllers.py` definition the search sequence already tilts with.
 
 `FarmingOrchestrator` owns alignment as a session phase, `FarmingMode.ALIGNING`, entered from

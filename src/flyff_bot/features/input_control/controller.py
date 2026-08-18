@@ -348,8 +348,8 @@ class WindowsInputController:
     def scroll_wheel_while_guarded(self, window_handle: int, notches: int) -> None:
         """Send discrete wheel notches while END is clear and the client stays foregrounded.
 
-        A positive count rotates the wheel forwards (away from user, scroll up, zoom in).
-        A negative count rotates the wheel backwards (towards user, scroll down, zoom out).
+        A positive count rotates the wheel forwards (+WHEEL_DELTA), which is the direction
+        Entropia Flyff zooms the camera out towards its hard stop.
         """
 
         if self.is_aborted() or not self.is_foreground(window_handle):

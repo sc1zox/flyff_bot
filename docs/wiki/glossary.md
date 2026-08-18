@@ -119,7 +119,7 @@ related:
   spawn distance relation is read off the same perspective, and the odometry off the same minimap
   scale, that they were measured at.
 - **Zoom hard-stop** — The maximum camera distance the game engine clamps the mouse wheel to. Because
-  the clamp is the engine's, scrolling backwards past it yields the same focal length in every
+  the clamp is the engine's, scrolling forwards past it yields the same focal length in every
   session without inspecting game memory.
 - **Minimap zoom hard-stop** — The same idea for the minimap widget: ten clicks on its zoom-out
   button outrun the widget's own range, so it ends on the engine's maximum zoom-out in every session

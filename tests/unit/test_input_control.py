@@ -110,7 +110,7 @@ def test_scroll_wheel_injects_a_pointer_move_over_the_client_before_the_notches(
 
     monkeypatch.setattr(controller._user32, "SetCursorPos", record_cursor)
 
-    controller.scroll_wheel_while_guarded(12345, -15)
+    controller.scroll_wheel_while_guarded(12345, 20)
 
     assert cursor_positions == [CLIENT_CENTRE]
     move = events[0].mouse
@@ -121,10 +121,10 @@ def test_scroll_wheel_injects_a_pointer_move_over_the_client_before_the_notches(
         round(CLIENT_CENTRE[1] * ABSOLUTE_COORDINATE_RANGE / 1000),
     )
     # The move is dispatched and given time to be processed before the first notch.
-    assert len(events) == 16
-    assert len(sleeps) == 16
+    assert len(events) == 21
+    assert len(sleeps) == 21
     assert all(event.mouse.dwFlags == MOUSE_EVENT_WHEEL for event in events[1:])
-    assert all(event.mouse.mouseData == ((-WHEEL_DELTA) & 0xFFFFFFFF) for event in events[1:])
+    assert all(event.mouse.mouseData == WHEEL_DELTA for event in events[1:])
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")

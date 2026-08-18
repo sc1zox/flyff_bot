@@ -8,7 +8,7 @@ are restored here without inspecting game memory:
 
 * the minimap zoom-out button is clicked past its own range, so the widget ends on the
   engine's maximum zoom-out hard stop in every session,
-* the wheel is scrolled backwards past Flyff's physical zoom limit, which the engine
+* the wheel is scrolled forwards past Flyff's physical zoom limit, which the engine
   hard-clamps to the same focal length in every session, and
 * the pitch is driven into its vertical limit and then pulled back by one calibrated
   downward pulse, which lands on the standardized ~45 degree elevation that keeps distant
@@ -28,10 +28,10 @@ from flyff_bot.features.vision.capture import FrameSource
 from flyff_bot.features.vision.minimap import MinimapGeometry, locate_minimap
 from flyff_bot.features.vision.models import FrameCaptureError
 
-# Flyff pulls the camera away from the character on a backward wheel rotation (negative delta /
-# scroll down), and thirty notches outrun the zoom range from a fully zoomed-in start, so
-# the camera always settles on the engine's clamped maximum rather than a relative offset.
-ZOOM_OUT_WHEEL_NOTCHES = 30
+# In Entropia Flyff (neuz.exe), the engine pulls the camera away to its zoom-out hard stop
+# on a forward wheel rotation (+WHEEL_DELTA), and twenty notches outrun the zoom range
+# from a fully zoomed-in start, so the camera always settles on the engine's clamped maximum.
+ZOOM_OUT_WHEEL_NOTCHES = 20
 PITCH_UP_HOLD_SECONDS = 0.8
 PITCH_DOWN_PULSE_SECONDS = 0.35
 # The minimap HUD carries its zoom buttons on a circle just outside the ring stroke. The
@@ -166,9 +166,7 @@ class CameraAligner:
         if blocked is not None:
             return blocked
 
-        self._adapter.scroll_wheel_while_guarded(
-            self._window_handle, -self._config.zoom_out_notches
-        )
+        self._adapter.scroll_wheel_while_guarded(self._window_handle, self._config.zoom_out_notches)
         blocked = self._settle_then_check()
         if blocked is not None:
             return blocked

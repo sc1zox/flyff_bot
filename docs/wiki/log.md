@@ -533,12 +533,12 @@ centre-mask fractions they depend on were already marked as estimates in BUG-009
 consequence — a damage-free fight now breaking at 5.0 s instead of 10.0 s — is reasoned from the
 configured timeouts, not observed in a live session. Moved US-039 to completed user stories.
 
-## [2026-08-19] synthesis | Backward wheel zoom-out direction and cursor placement (BUG-016)
+## [2026-08-19] synthesis | Verified forward wheel zoom-out direction and 20 notches (BUG-016)
 
-Recorded BUG-016 on `docs/wiki/architecture.md` and `docs/wiki/glossary.md`: Flyff (`neuz.exe`) zooms the
-3D camera *out* on a backward wheel rotation (negative wheel delta / scroll down), so `CameraAligner.align()`
-dispatches negative notches to `scroll_wheel_while_guarded`. In addition, `scroll_wheel_while_guarded` now sets
-the hardware cursor via `SetCursorPos` in addition to injecting `MOUSEEVENTF_MOVE` absolute mouse events, ensuring
-the pointer is centered over the game viewport across DPI-scaled and multi-monitor setups before wheel notches are sent.
-Moved BUG-016 to fixed bugs.
+Recorded BUG-016 on `docs/wiki/architecture.md` and `docs/wiki/glossary.md`: Entropia Flyff (`neuz.exe`) zooms
+the 3D camera *out* to its hard stop on forward wheel rotation (`+WHEEL_DELTA`), and twenty notches outrun the
+engine's zoom range. `CameraAligner.align()` dispatches 20 positive notches to `scroll_wheel_while_guarded`. In
+addition, `scroll_wheel_while_guarded` now sets the hardware cursor via `SetCursorPos` in addition to injecting
+`MOUSEEVENTF_MOVE` absolute mouse events, ensuring the pointer is centered over the game viewport across DPI-scaled
+and multi-monitor setups before wheel notches are sent. Moved BUG-016 to fixed bugs.
 
