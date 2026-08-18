@@ -779,12 +779,13 @@ before each of the ten minimap clicks — and once more after the last one, retu
 `WindowsInputController.scroll_wheel_while_guarded`, which centres the cursor over the client area —
 Windows routes wheel input by cursor position — and stops between notches on either condition.
 
-**The pointer is moved with `SetCursorPos` and an injected mouse move (BUG-015, BUG-016).** Teleporting
+**The pointer is moved with `SetCursorPos`, injected mouse move, and right-click focus pulse (BUG-015, BUG-016).** Teleporting
 the cursor leaves no move in the injected input stream the client reads, while absolute injection alone
 can diverge on DPI-scaled displays, so `scroll_wheel_while_guarded` sets the hardware cursor via
-`SetCursorPos` and dispatches `MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK` through
-`SendInput` (normalized onto the 0-65535 virtual-desktop range), waiting 0.15 s for the client to process
-it before the first notch. The emergency stop and foreground focus are checked before that move, so an
+`SetCursorPos`, dispatches `MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK` through
+`SendInput` (normalized onto the 0-65535 virtual-desktop range), and pulses a right-click (`MOUSEEVENTF_RIGHTDOWN` / `UP`)
+to reclaim 3D world focus after HUD/minimap interactions without walking or deselecting, waiting 0.15 s for the client to
+process it before the first notch. The emergency stop and foreground focus are checked before that move, so an
 unfocused client never has the operator's pointer dragged across it, and a client area that cannot be
 measured now dispatches nothing at all rather than scrolling wherever the pointer happened to be left.
 

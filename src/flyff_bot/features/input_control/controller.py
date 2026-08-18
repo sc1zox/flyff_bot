@@ -23,6 +23,8 @@ KEY_EVENT_KEY_UP = 0x0002
 MOUSE_EVENT_MOVE = 0x0001
 MOUSE_EVENT_LEFT_DOWN = 0x0002
 MOUSE_EVENT_LEFT_UP = 0x0004
+MOUSE_EVENT_RIGHT_DOWN = 0x0008
+MOUSE_EVENT_RIGHT_UP = 0x0010
 MOUSE_EVENT_WHEEL = 0x0800
 MOUSE_EVENT_VIRTUAL_DESK = 0x4000
 MOUSE_EVENT_ABSOLUTE = 0x8000
@@ -365,6 +367,14 @@ class WindowsInputController:
         target_y = bounds.top + bounds.height // 2
         self._user32.SetCursorPos(target_x, target_y)
         self._move_pointer(target_x, target_y)
+        # Pulse right click to reclaim 3D world/camera focus after minimap or HUD clicks
+        # without moving the character or clearing targets.
+        self._send_mouse_event(
+            Input(type=INPUT_TYPE_MOUSE, mouse=MouseInput(dwFlags=MOUSE_EVENT_RIGHT_DOWN))
+        )
+        self._send_mouse_event(
+            Input(type=INPUT_TYPE_MOUSE, mouse=MouseInput(dwFlags=MOUSE_EVENT_RIGHT_UP))
+        )
         time.sleep(POINTER_MOVE_SETTLE_SECONDS)
         direction = 1 if notches >= 0 else -1
         for _ in range(abs(notches)):
@@ -393,6 +403,22 @@ class WindowsInputController:
         events = (Input * 2)(
             Input(type=INPUT_TYPE_MOUSE, mouse=MouseInput(dwFlags=MOUSE_EVENT_LEFT_DOWN)),
             Input(type=INPUT_TYPE_MOUSE, mouse=MouseInput(dwFlags=MOUSE_EVENT_LEFT_UP)),
+        )
+        if self._user32.SendInput(len(events), events, ctypes.sizeof(Input)) != len(events):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def right_click_client(self, window_handle: int, x_coordinate: int, y_coordinate: int) -> None:
+        """Send one right click at client-relative coordinates."""
+
+        point = wintypes.POINT(x_coordinate, y_coordinate)
+        if not self._user32.ClientToScreen(window_handle, ctypes.byref(point)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not self._user32.SetCursorPos(point.x, point.y):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+        events = (Input * 2)(
+            Input(type=INPUT_TYPE_MOUSE, mouse=MouseInput(dwFlags=MOUSE_EVENT_RIGHT_DOWN)),
+            Input(type=INPUT_TYPE_MOUSE, mouse=MouseInput(dwFlags=MOUSE_EVENT_RIGHT_UP)),
         )
         if self._user32.SendInput(len(events), events, ctypes.sizeof(Input)) != len(events):
             raise ctypes.WinError(ctypes.get_last_error())

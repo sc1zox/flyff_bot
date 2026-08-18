@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import sys
 import time
 
@@ -11,6 +12,8 @@ from flyff_bot.features.input_control.controller import (
     ABSOLUTE_COORDINATE_RANGE,
     MOUSE_EVENT_ABSOLUTE,
     MOUSE_EVENT_MOVE,
+    MOUSE_EVENT_RIGHT_DOWN,
+    MOUSE_EVENT_RIGHT_UP,
     MOUSE_EVENT_VIRTUAL_DESK,
     MOUSE_EVENT_WHEEL,
     WHEEL_DELTA,
@@ -120,11 +123,13 @@ def test_scroll_wheel_injects_a_pointer_move_over_the_client_before_the_notches(
         round(CLIENT_CENTRE[0] * ABSOLUTE_COORDINATE_RANGE / 1000),
         round(CLIENT_CENTRE[1] * ABSOLUTE_COORDINATE_RANGE / 1000),
     )
-    # The move is dispatched and given time to be processed before the first notch.
-    assert len(events) == 21
+    # The move and right-click focus pulse are dispatched and settled before the first notch.
+    assert len(events) == 23
     assert len(sleeps) == 21
-    assert all(event.mouse.dwFlags == MOUSE_EVENT_WHEEL for event in events[1:])
-    assert all(event.mouse.mouseData == WHEEL_DELTA for event in events[1:])
+    assert events[1].mouse.dwFlags == MOUSE_EVENT_RIGHT_DOWN
+    assert events[2].mouse.dwFlags == MOUSE_EVENT_RIGHT_UP
+    assert all(event.mouse.dwFlags == MOUSE_EVENT_WHEEL for event in events[3:])
+    assert all(event.mouse.mouseData == WHEEL_DELTA for event in events[3:])
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")
@@ -138,6 +143,29 @@ def test_scroll_wheel_sends_nothing_when_the_client_area_is_unknown(
     controller.scroll_wheel_while_guarded(12345, 15)
 
     assert events == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")
+def test_right_click_client_dispatches_down_and_up_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = WindowsInputController()
+    dispatched_events: list[Input] = []
+
+    def mock_send_input(count: int, events_array: ctypes.Array[Input], _size: int) -> int:
+        for i in range(count):
+            dispatched_events.append(events_array[i])
+        return count
+
+    monkeypatch.setattr(controller._user32, "ClientToScreen", lambda _h, _p: True)
+    monkeypatch.setattr(controller._user32, "SetCursorPos", lambda _x, _y: True)
+    monkeypatch.setattr(controller._user32, "SendInput", mock_send_input)
+
+    controller.right_click_client(12345, 100, 200)
+
+    assert len(dispatched_events) == 2
+    assert dispatched_events[0].mouse.dwFlags == MOUSE_EVENT_RIGHT_DOWN
+    assert dispatched_events[1].mouse.dwFlags == MOUSE_EVENT_RIGHT_UP
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")
