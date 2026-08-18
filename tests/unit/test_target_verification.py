@@ -26,8 +26,10 @@ from flyff_bot.features.vision import (
     TesseractTextRecognizer,
     extract_anchor_relative_region,
     extract_target_region,
+    load_mob_anchor_templates,
     match_whitelisted_name,
     preprocess_target_name_region,
+    resolve_mob_anchor_path,
 )
 from flyff_bot.features.vision.target_verification import (
     DEFAULT_ANCHOR_MATCH_THRESHOLD,
@@ -546,3 +548,46 @@ def _real_fixture(filename: str) -> CapturedFrame:
     assert pixels is not None
     frame = cast("npt.NDArray[np.uint8]", np.ascontiguousarray(pixels))
     return CapturedFrame(frame, ClientSize(frame.shape[1], frame.shape[0]))
+
+
+def test_resolve_mob_anchor_path_finds_anchors_for_eden_mobs() -> None:
+    for mob_name in ("Flame", "LadyBlum", "MiniMush", "NightMist", "Oldrut", "Rapra"):
+        anchor_path = resolve_mob_anchor_path(mob_name)
+        assert anchor_path is not None
+        assert anchor_path.is_file()
+
+
+def test_load_mob_anchor_templates_loads_unique_templates() -> None:
+    templates = load_mob_anchor_templates(("Flame", "Rapra", "Oldrut"))
+    assert len(templates) >= 1
+    for template in templates:
+        assert template.ndim == 3
+        assert template.dtype == np.uint8
+
+
+def test_target_verifier_accepts_sequence_of_anchor_templates() -> None:
+    template1 = np.ones((5, 5, 3), dtype=np.uint8)
+    template2 = np.full((5, 5, 3), 2, dtype=np.uint8)
+    verifier = TargetVerifier(
+        ("Flame", "Rapra"),
+        (template1, template2),
+        _FakeRecognizer(),
+        TargetVerificationConfig(),
+    )
+    assert verifier.allowed_names == ("Flame", "Rapra")
+
+
+@pytest.mark.parametrize(
+    ("text", "allowed", "expected"),
+    [
+        ("Rapra <Lvl 176>", ("Flame", "Rapra"), "Rapra"),
+        ("Oldrut <Lvl 177>", ("Flame", "Oldrut", "Rapra"), "Oldrut"),
+        ("LadyBlum <Lvl 174>", ("LadyBlum", "Rapra"), "LadyBlum"),
+        ("MiniMush <Lvl 173>", ("Flame", "MiniMush"), "MiniMush"),
+        ("NightMist <Lvl 175>", ("NightMist",), "NightMist"),
+    ],
+)
+def test_match_whitelisted_name_matches_multiple_mobs(
+    text: str, allowed: tuple[str, ...], expected: str
+) -> None:
+    assert match_whitelisted_name(text, allowed) == expected

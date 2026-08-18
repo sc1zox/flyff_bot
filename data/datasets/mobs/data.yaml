@@ -3,4 +3,8 @@ train: images/train
 val: images/val
 names:
   0: Flame
-  1: Rapra
+  1: LadyBlum
+  2: MiniMush
+  3: NightMist
+  4: Oldrut
+  5: Rapra

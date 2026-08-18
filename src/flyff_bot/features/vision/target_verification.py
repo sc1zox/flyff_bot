@@ -228,7 +228,16 @@ def resolve_mob_anchor_path(
         if candidate.is_file():
             return candidate
         for child in sorted(region_folder.iterdir()):
-            if child.is_dir() and child.name.casefold() == mob_name.casefold():
+            if not child.is_dir():
+                continue
+            c_name = child.name.casefold()
+            m_name = mob_name.casefold()
+            if (
+                c_name == m_name
+                or c_name in m_name
+                or m_name in c_name
+                or (len(c_name) >= 5 and len(m_name) >= 5 and c_name[:5] == m_name[:5])
+            ):
                 anchor_file = child / "target_anchor.png"
                 if anchor_file.is_file():
                     return anchor_file
