@@ -72,7 +72,8 @@ This story depends on US-035 for the odometry and should reuse the same capture 
 - **Assumption to verify:** the relation depends on the camera pitch and zoom. To guarantee 100%
   reproducibility across game sessions without memory inspection, both calibration recordings and
   active bot farming must operate at the **zoom hard-stop** (mouse wheel scrolled all the way back
-  to Flyff's physical maximum zoom limit) and a fixed camera pitch. The recording must note the
+  to Flyff's physical maximum zoom limit) and a **controlled ~45° camera pitch** (navigated from a
+  vertical hard-stop/reset to ensure consistent forward FOV). The recording must note the
   pitch used, and the fit's validity outside this standardized camera state is undefined.
 - **Blocked on operator-supplied captures:** criteria 1 and 2 need approach sequences recorded on
   Windows with US-035's odometry in place. Section 3 (leash enforcement) depends on neither and can

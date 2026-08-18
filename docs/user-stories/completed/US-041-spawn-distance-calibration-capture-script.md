@@ -26,10 +26,13 @@ As a **developer or operator preparing the mob distance model for US-037**, I wa
   - **Zoom Hard Stop (Maximal Zoom-Out):** Scrolling the mouse wheel completely backwards (~10–15
     steps until reaching the hard limit). Flyff enforces a fixed, hard maximum camera distance,
     making this state deterministic and perfectly reproducible across all sessions.
-  - **Fixed Camera Pitch:** Either the standard camera pitch after a camera reset or fixed at
-    maximum pitch / tilt angle.
+  - **Controlled 45° Camera Pitch:** Pure top-down or maximum tilt is impractical because it severely
+    limits forward field of view (FOV) and hides distant mob spawns. Instead, calibrate and run with a
+    controlled ~45° pitch (achieved reproducibly by moving the camera to a vertical hard-stop/reset and
+    adjusting to a standard 45° farming elevation).
   - **Bot Runtime Consistency:** As long as standard farming sessions operate at this same zoom
-    hard-stop, the calibrated $(a, b)$ parameters correspond exactly to live in-game reality.
+    hard-stop and controlled 45° pitch, the calibrated $(a, b)$ parameters correspond exactly to live
+    in-game reality.
 - To separate $a$ and $b$ robustly, multiple approach sequences across different initial distances
   and mob classes are required.
 - [US-035](US-035-measured-minimap-odometry-and-tracking-quality.md) introduced

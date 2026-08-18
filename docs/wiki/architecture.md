@@ -667,7 +667,8 @@ held key and flushes what was captured so far to disk.
 inverse of distance ($d = a / h + b$). Because coefficient $a$ depends directly on focal length
 (zoom) and camera pitch, 100% reproducibility across sessions without memory inspection is guaranteed
 by standardizing on the **zoom hard-stop** (mouse wheel scrolled all the way back to the game's maximum
-zoom limit) and a fixed camera pitch, both during calibration captures and live bot farming.
+zoom limit) and a **controlled ~45° camera pitch** (navigated from vertical limit/reset to preserve
+forward FOV for spawn sightings), both during calibration captures and live bot farming.
 
 **A walk-in measures remaining travel, not distance.** The client stops the character at melee
 range, so the absolute distance to the mob is never observable. Per frame the harness records how far
