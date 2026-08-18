@@ -145,8 +145,8 @@ no evidence. It lands with the fit.
 
 - [ ] Given a recorded approach sequence per mob class, when the samples are ingested, then the
   bounding box heights, the measured remaining distances, and the capture conditions (client
-  resolution, camera pitch, mob class) are stored under `docs/sources/` and are immutable
-  thereafter.
+  resolution, zoom hard-stop, controlled ~45° camera pitch, mob class) are stored under
+  `docs/sources/` and are immutable thereafter.
 - [ ] Given the samples, when the relation is fitted, then the fitted coefficients, the residual,
   and the number of held-out samples are documented alongside them.
 - [ ] Given the fit, when it is accepted, then it covers samples from several mobs at clearly

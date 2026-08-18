@@ -99,12 +99,13 @@ instrument, not the measurement.
   then the script executes a configurable countdown (default 3.0s), focuses the client window, holds
   the forward movement key (`W`), and records frame-by-frame data until the key hold expires or the
   operator triggers an emergency stop.
-- [x] Given a walk-in run, on every captured frame, the script extracts and logs:
+- [x] Given a walk-in run executed at the standardized camera conditions (zoom hard-stop and controlled
+  ~45° pitch), on every captured frame, the script extracts and logs:
   - High-resolution timestamp (`time.perf_counter()`),
   - Minimap odometry displacement $(\Delta x, \Delta y)$ and tracking quality from `MinimapOdometer`,
   - YOLO mob detection bounding box coordinates ($x_{min}, y_{min}, x_{max}, y_{max}$), height, width,
     class label, and detection confidence,
-  - Current viewport dimensions.
+  - Current viewport dimensions and camera pitch metadata.
 - [x] Given completed walk-in frames, the script saves lossless frame snapshots (or bounding box crops)
   and a complete `manifest.json` under `data/calibration/spawn_distance/<timestamp>_<label>/`.
 
