@@ -101,6 +101,7 @@ class DebugScrollHarness:
             sys.exit(1)
         win = windows[0]
         print(f"[FOUND] Window '{win.title}' (HWND: {win.handle})")
+        self.handle = win.handle
         self.focus()
         return win.handle
 
