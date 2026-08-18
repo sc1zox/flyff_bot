@@ -439,3 +439,18 @@ and the confidence separation is now asserted against the shipped frames in
 `tests/unit/test_profile_anchoring.py`. The usable re-anchoring radius inside the one-surface-radius
 bound remains an open field measurement, as does the manual Windows walkthrough US-036 lists.
 
+
+## [2026-08-18] synthesis | Camera alignment direction and pitch keys (BUG-014)
+
+Corrected the camera alignment protocol recorded for US-042: Flyff zooms *out* on a forward wheel
+rotation, so the fifteen backwards notches the architecture page and glossary described zoomed the
+camera in towards the character, and the count is now thirty so a fully zoomed-in start still reaches
+the engine's clamped maximum. Recorded that camera pitch is bound to `VK_UP`/`VK_DOWN` and that the
+`VK_PRIOR`/`VK_NEXT` holds the routine dispatched are unmapped for pitch in the standard client, which
+left the elevation at whatever the operator had last set — the ~45° standardization the distance model
+depends on never happened. The pitch keys now come from the single `controllers.py` definition rather
+than a second set of constants in `camera_alignment.py`.
+
+No measurement was ingested. The notch count is an overshoot bound, not a measured zoom range, and the
+0.8 s / 0.35 s pitch timings still await confirmation against a live client; the fitted coefficients of
+the distance relation remain open. Moved BUG-014 to fixed bugs.

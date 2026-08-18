@@ -4,7 +4,7 @@ The inverse-perspective spawn distance relation of US-037/US-041,
 ``distance = a / bounding_box_height + b``, is only valid while the camera keeps the exact
 zoom and pitch it was calibrated at. Both are restored here without inspecting game memory:
 
-* the wheel is scrolled backwards past Flyff's physical zoom limit, which the engine
+* the wheel is scrolled forwards past Flyff's physical zoom limit, which the engine
   hard-clamps to the same focal length in every session, and
 * the pitch is driven into its vertical limit and then pulled back by one calibrated
   downward pulse, which lands on the standardized ~45 degree elevation that keeps distant
@@ -19,12 +19,12 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-VIRTUAL_KEY_PAGE_UP = 0x21
-VIRTUAL_KEY_PAGE_DOWN = 0x22
+from flyff_bot.features.automation.controllers import VIRTUAL_KEY_DOWN, VIRTUAL_KEY_UP
 
-# Fifteen backwards notches overshoot the zoom limit from any starting distance, so the
-# camera always settles on the engine's clamped maximum rather than a relative offset.
-ZOOM_OUT_WHEEL_NOTCHES = -15
+# Flyff pulls the camera away from the character on a forward wheel rotation, and thirty
+# notches outrun the zoom range from a fully zoomed-in start, so the camera always settles
+# on the engine's clamped maximum rather than a relative offset.
+ZOOM_OUT_WHEEL_NOTCHES = 30
 PITCH_UP_HOLD_SECONDS = 0.8
 PITCH_DOWN_PULSE_SECONDS = 0.35
 # The client interpolates the camera, so each step needs to finish before the next one is
@@ -48,15 +48,15 @@ class CameraAlignmentConfig:
     """Zoom, pitch, and settle timings of the standardized alignment sequence."""
 
     zoom_out_notches: int = ZOOM_OUT_WHEEL_NOTCHES
-    pitch_up_virtual_key: int = VIRTUAL_KEY_PAGE_UP
+    pitch_up_virtual_key: int = VIRTUAL_KEY_UP
     pitch_up_hold_seconds: float = PITCH_UP_HOLD_SECONDS
-    pitch_down_virtual_key: int = VIRTUAL_KEY_PAGE_DOWN
+    pitch_down_virtual_key: int = VIRTUAL_KEY_DOWN
     pitch_down_pulse_seconds: float = PITCH_DOWN_PULSE_SECONDS
     step_settle_seconds: float = STEP_SETTLE_SECONDS
 
     def __post_init__(self) -> None:
-        if self.zoom_out_notches >= 0:
-            raise ValueError("Camera zoom-out must scroll the wheel backwards.")
+        if self.zoom_out_notches <= 0:
+            raise ValueError("Camera zoom-out must scroll the wheel forwards.")
         if self.pitch_up_hold_seconds <= 0.0 or self.pitch_down_pulse_seconds <= 0.0:
             raise ValueError("Camera pitch durations must be positive.")
         if self.step_settle_seconds < 0.0:

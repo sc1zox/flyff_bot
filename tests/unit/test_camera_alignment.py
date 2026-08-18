@@ -7,13 +7,15 @@ import pytest
 from flyff_bot.features.automation.camera_alignment import (
     PITCH_DOWN_PULSE_SECONDS,
     PITCH_UP_HOLD_SECONDS,
-    VIRTUAL_KEY_PAGE_DOWN,
-    VIRTUAL_KEY_PAGE_UP,
     ZOOM_OUT_WHEEL_NOTCHES,
     CameraAligner,
     CameraAlignmentConfig,
     CameraAlignmentStatus,
 )
+from flyff_bot.features.automation.controllers import VIRTUAL_KEY_DOWN, VIRTUAL_KEY_UP
+
+VIRTUAL_KEY_PAGE_UP = 0x21
+VIRTUAL_KEY_PAGE_DOWN = 0x22
 
 WINDOW_HANDLE = 7
 
@@ -61,8 +63,8 @@ def test_align_runs_the_zoom_hard_stop_then_pitch_ceiling_then_calibrated_pulse(
     assert status is CameraAlignmentStatus.ALIGNED
     assert adapter.actions == [
         ("scroll", WINDOW_HANDLE, float(ZOOM_OUT_WHEEL_NOTCHES)),
-        (f"key:{VIRTUAL_KEY_PAGE_UP:#04x}", WINDOW_HANDLE, PITCH_UP_HOLD_SECONDS),
-        (f"key:{VIRTUAL_KEY_PAGE_DOWN:#04x}", WINDOW_HANDLE, PITCH_DOWN_PULSE_SECONDS),
+        (f"key:{VIRTUAL_KEY_UP:#04x}", WINDOW_HANDLE, PITCH_UP_HOLD_SECONDS),
+        (f"key:{VIRTUAL_KEY_DOWN:#04x}", WINDOW_HANDLE, PITCH_DOWN_PULSE_SECONDS),
     ]
     # Each step settles before the next one is measured against it.
     assert len(sleeps) == len(adapter.actions)
@@ -113,9 +115,24 @@ def test_align_reports_focus_loss_that_happens_during_the_final_pitch_pulse() ->
     assert len(adapter.actions) == 3
 
 
-def test_alignment_config_rejects_a_forward_zoom_and_non_positive_durations() -> None:
+def test_alignment_zooms_out_forwards_past_the_hard_stop_with_the_arrow_pitch_keys() -> None:
+    """BUG-014: Flyff zooms out on a forward wheel and pitches on Up/Down, not Page Up/Down."""
+
+    config = CameraAlignmentConfig()
+
+    assert config.zoom_out_notches > 0
+    # The zoom range is shorter than the dispatched run, so a fully zoomed-in camera still
+    # ends on the engine's clamped maximum.
+    assert config.zoom_out_notches > 15
+    assert config.pitch_up_virtual_key == VIRTUAL_KEY_UP
+    assert config.pitch_down_virtual_key == VIRTUAL_KEY_DOWN
+
+
+def test_alignment_config_rejects_a_backwards_zoom_and_non_positive_durations() -> None:
     with pytest.raises(ValueError):
-        CameraAlignmentConfig(zoom_out_notches=15)
+        CameraAlignmentConfig(zoom_out_notches=-15)
+    with pytest.raises(ValueError):
+        CameraAlignmentConfig(zoom_out_notches=0)
     with pytest.raises(ValueError):
         CameraAlignmentConfig(pitch_up_hold_seconds=0.0)
     with pytest.raises(ValueError):
@@ -128,10 +145,10 @@ def test_align_honors_a_custom_configuration() -> None:
     adapter = _CameraAdapter()
     sleeps: list[float] = []
     config = CameraAlignmentConfig(
-        zoom_out_notches=-4,
-        pitch_up_virtual_key=0x26,
+        zoom_out_notches=4,
+        pitch_up_virtual_key=VIRTUAL_KEY_PAGE_UP,
         pitch_up_hold_seconds=0.5,
-        pitch_down_virtual_key=0x28,
+        pitch_down_virtual_key=VIRTUAL_KEY_PAGE_DOWN,
         pitch_down_pulse_seconds=0.25,
         step_settle_seconds=0.0,
     )
@@ -140,8 +157,8 @@ def test_align_honors_a_custom_configuration() -> None:
 
     assert status is CameraAlignmentStatus.ALIGNED
     assert adapter.actions == [
-        ("scroll", WINDOW_HANDLE, -4.0),
-        ("key:0x26", WINDOW_HANDLE, 0.5),
-        ("key:0x28", WINDOW_HANDLE, 0.25),
+        ("scroll", WINDOW_HANDLE, 4.0),
+        (f"key:{VIRTUAL_KEY_PAGE_UP:#04x}", WINDOW_HANDLE, 0.5),
+        (f"key:{VIRTUAL_KEY_PAGE_DOWN:#04x}", WINDOW_HANDLE, 0.25),
     ]
     assert sleeps == [0.0, 0.0, 0.0]

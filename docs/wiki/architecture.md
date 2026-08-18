@@ -47,6 +47,7 @@ related:
   - ../bugs/fixed/BUG-011-target-name-verification-failure-wrong-target.md
   - ../bugs/fixed/BUG-012-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md
   - ../user-stories/completed/US-034-background-independent-monster-stats-kill-confirmation.md
+  - ../bugs/fixed/BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md
 ---
 
 # Architecture
@@ -714,8 +715,8 @@ that is still open.
 The inverse-perspective distance relation of US-037/US-041 only holds at the camera state it was
 fitted at, so `features/automation/camera_alignment.py` restores that state instead of trusting the
 operator to reproduce it by hand. `CameraAligner.align()` runs three steps against one client:
-fifteen backwards wheel notches to the engine's hard-clamped zoom limit, a 0.8 s hold on the pitch-up
-key (`VK_PRIOR`) into the vertical ceiling, and a 0.35 s pitch-down pulse (`VK_NEXT`) onto the
+thirty forward wheel notches to the engine's hard-clamped zoom limit, a 0.8 s hold on the pitch-up
+key (`VK_UP`) into the vertical ceiling, and a 0.35 s pitch-down pulse (`VK_DOWN`) onto the
 standardized ~45° elevation that keeps horizon spawns visible. Every step settles for 0.2 s before
 the next one, because the client interpolates the camera. Nothing about the game's memory or
 rendering is inspected: the sequence is deterministic only because the zoom limit is clamped by the
@@ -727,6 +728,14 @@ after the last one, returning `CameraAlignmentStatus.ABORTED` or `FOCUS_LOST` in
 the remainder. The wheel itself goes through the new
 `WindowsInputController.scroll_wheel_while_guarded`, which centres the cursor over the client area —
 Windows routes wheel input by cursor position — and stops between notches on either condition.
+
+BUG-014 corrected both halves of that sequence. The client zooms *out* on a forward wheel rotation,
+so the original fifteen backwards notches pulled the camera in towards the character, and thirty
+forward notches now outrun the zoom range from a fully zoomed-in start rather than only from a
+partial one. Camera pitch is bound to `VK_UP`/`VK_DOWN`; the `VK_PRIOR`/`VK_NEXT` holds the routine
+used to dispatch are unmapped for pitch in the standard client, so the camera stayed at whatever
+elevation it had been left at and the ~45° standardization never happened. The pitch keys are now
+taken from the single `controllers.py` definition the search sequence already tilts with.
 
 `FarmingOrchestrator` owns alignment as a session phase, `FarmingMode.ALIGNING`, entered from
 `start()` when `FarmingConfig.auto_align_camera` is set and left only once the camera is standing

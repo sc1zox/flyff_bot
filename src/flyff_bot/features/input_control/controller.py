@@ -293,7 +293,7 @@ class WindowsInputController:
     def scroll_wheel_while_guarded(self, window_handle: int, notches: int) -> None:
         """Send discrete wheel notches while END is clear and the client stays foregrounded.
 
-        A negative count rotates the wheel backwards, which is the direction Flyff zooms
+        A positive count rotates the wheel forwards, which is the direction Flyff zooms
         the camera out towards its hard stop.
         """
 

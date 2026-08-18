@@ -115,7 +115,7 @@ related:
   runs before a farming session or a calibration recording, so the fitted spawn distance relation is
   read off the same perspective it was measured at.
 - **Zoom hard-stop** — The maximum camera distance the game engine clamps the mouse wheel to. Because
-  the clamp is the engine's, scrolling backwards past it yields the same focal length in every
+  the clamp is the engine's, scrolling forwards past it yields the same focal length in every
   session without inspecting game memory.
 - **Vertical pitch tilt** — Camera elevation adjustments via Up/Down arrow keys during search mode
   to gain bird's-eye or upward perspectives of monsters situated on slopes or hills.

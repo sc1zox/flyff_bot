@@ -1,7 +1,7 @@
 ---
 id: BUG-014
 title: Camera alignment uses inverted wheel direction and non-functional pitch keys
-status: reported
+status: resolved
 severity: high
 created: 2026-08-18
 updated: 2026-08-18
@@ -40,8 +40,23 @@ Per [US-042](../user-stories/completed/US-042-automated-camera-alignment-and-sta
 - Impact: High. Inverted zoom and missing pitch adjustment invalidate the perspective assumptions of the spawn distance calibration model (US-037/US-041) and blind the bot to distant spawns.
 - Frequency: 100% reproducible on any invocation of `CameraAligner.align()` (via calibration script, UI button, or orchestrator pre-flight).
 
+## Resolution
+
+`CameraAlignmentConfig` now scrolls the wheel forwards (`ZOOM_OUT_WHEEL_NOTCHES = 30`), which is
+Flyff's zoom-out direction, and the notch count outruns the zoom range from a fully zoomed-in start
+instead of only from a partial one. `__post_init__` rejects a non-positive count so a backwards
+configuration cannot be supplied again. Camera pitch is dispatched with `VIRTUAL_KEY_UP` /
+`VIRTUAL_KEY_DOWN`, reused from `features/automation/controllers.py` rather than redefined, so the
+alignment routine tilts with the same arrow keys the search sequence already uses. The
+`scroll_wheel_while_guarded` docstring, which documented the inverted direction as fact, was
+corrected with it.
+
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated test or deterministic manual check exists.
+  `tests/unit/test_camera_alignment.py::test_alignment_zooms_out_forwards_past_the_hard_stop_with_the_arrow_pitch_keys`
+  pins the forward wheel direction, the overshooting notch count, and the arrow pitch keys; the
+  sequence and configuration-validation tests assert the same values through `CameraAligner.align()`.
+- [x] The check passes after the fix. `pwsh -File .\scripts\check.ps1` is green (504 passed, 2 skipped).
+- [x] Related documentation is current. `docs/wiki/architecture.md` and `docs/wiki/glossary.md` state
+  the corrected direction and keys.
