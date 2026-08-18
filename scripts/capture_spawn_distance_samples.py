@@ -862,7 +862,15 @@ def _run_walk_in(args: argparse.Namespace) -> int:
         raise SystemExit(
             f"No frames were captured ({reason or 'unknown reason'}); nothing written."
         )
-    closing = source.capture(window.handle)
+    try:
+        closing_pixels = source.capture(window.handle).pixels
+    except FrameCaptureError:
+        controller.focus_window(window.handle)
+        time.sleep(0.1)
+        try:
+            closing_pixels = source.capture(window.handle).pixels
+        except FrameCaptureError:
+            closing_pixels = probe.pixels
 
     output_directory = _prepare_output_directory(args.output, WALK_IN_PROTOCOL, args.label)
     manifest = RunManifest(
@@ -890,7 +898,7 @@ def _run_walk_in(args: argparse.Namespace) -> int:
         crops,
         (
             (FIRST_REFERENCE_FILE_NAME, probe.pixels),
-            (LAST_REFERENCE_FILE_NAME, closing.pixels),
+            (LAST_REFERENCE_FILE_NAME, closing_pixels),
         ),
     )
     _report_run(output_directory, manifest)
