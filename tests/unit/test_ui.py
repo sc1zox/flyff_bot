@@ -65,7 +65,11 @@ from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import TargetVerifier
 from flyff_bot.i18n import Language, Message, Translator
-from flyff_bot.ui.app import connect_farming_controls, start_farming
+from flyff_bot.ui.app import (
+    connect_farming_controls,
+    connect_target_mob_selection,
+    start_farming,
+)
 from flyff_bot.ui.dashboard import (
     BotStatus,
     CellSnapshot,
@@ -77,7 +81,7 @@ from flyff_bot.ui.dashboard import (
     WindowStatus,
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
-from flyff_bot.ui.main_window import MainWindow
+from flyff_bot.ui.main_window import ALL_TARGET_MOBS, MainWindow
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import (
@@ -1612,3 +1616,107 @@ def test_main_window_powerup_labels_are_localized() -> None:
 
     window_de = MainWindow(Translator(Language.GERMAN))
     assert window_de.powerup_panel.title() == "Power-ups & Zeitgesteuerte Tasten"
+
+
+class _RecordingDetector:
+    """Records the class filters pushed into the perception boundary."""
+
+    def __init__(self) -> None:
+        self.allowed_class_names: list[frozenset[str]] = []
+
+    def update_allowed_class_names(self, allowed_class_names: frozenset[str]) -> None:
+        self.allowed_class_names.append(allowed_class_names)
+
+
+class _RecordingCombat:
+    """Records the class filters pushed into the combat boundary."""
+
+    def __init__(self) -> None:
+        self.allowed_class_names: list[frozenset[str]] = []
+
+    def configure_target_classes(self, allowed_class_names: frozenset[str]) -> None:
+        self.allowed_class_names.append(allowed_class_names)
+
+
+def test_main_window_target_mob_dropdown_lists_all_before_the_model_classes() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    window.set_target_mob_options(("Flame", "Rapra"))
+
+    combo = window.target_mob_combo
+    assert [combo.itemText(index) for index in range(combo.count())] == ["All", "Flame", "Rapra"]
+    assert combo.itemData(0) == ALL_TARGET_MOBS
+    assert window.selected_target_mob == ALL_TARGET_MOBS
+
+
+def test_main_window_target_mob_dropdown_emits_the_selected_class() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.set_target_mob_options(("Flame", "Rapra"))
+
+    selections: list[str] = []
+    window.target_mob_changed.connect(selections.append)
+
+    window.target_mob_combo.setCurrentIndex(2)
+    application.processEvents()
+    assert window.selected_target_mob == "Rapra"
+
+    window.target_mob_combo.setCurrentIndex(0)
+    application.processEvents()
+
+    assert selections == ["Rapra", ALL_TARGET_MOBS]
+
+
+def test_main_window_target_mob_dropdown_keeps_the_selection_across_repopulation() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.set_target_mob_options(("Flame", "Rapra"))
+    window.target_mob_combo.setCurrentIndex(2)
+    application.processEvents()
+
+    selections: list[str] = []
+    window.target_mob_changed.connect(selections.append)
+    window.set_target_mob_options(("Rapra", "Flame"))
+
+    assert window.selected_target_mob == "Rapra"
+    assert selections == []
+
+
+def test_main_window_target_mob_labels_localized() -> None:
+    _application = QApplication.instance() or QApplication([])
+
+    window_en = MainWindow(Translator(Language.ENGLISH))
+    window_de = MainWindow(Translator(Language.GERMAN))
+
+    assert window_en.target_mob_combo.itemText(0) == "All"
+    assert window_de.target_mob_combo.itemText(0) == "Alle"
+    assert window_de.target_mob_combo.toolTip().startswith("Erkennung, Zielprüfung")
+
+
+def test_target_mob_selection_propagates_to_detection_verification_and_combat() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.set_target_mob_options(("Flame", "Rapra"))
+    detector = _RecordingDetector()
+    template = np.full((2, 2, 3), 7, dtype=np.uint8)
+    verifier = TargetVerifier(("Flame", "Rapra"), template, _StubTextRecognizer())
+    combat = _RecordingCombat()
+
+    connect_target_mob_selection(
+        window, detector, verifier, combat, ("Flame", "Rapra"), default_anchor_path=None
+    )
+
+    window.target_mob_combo.setCurrentIndex(2)
+    application.processEvents()
+
+    assert detector.allowed_class_names[-1] == frozenset({"Rapra"})
+    assert combat.allowed_class_names[-1] == frozenset({"Rapra"})
+    assert list(verifier.allowed_names) == ["Rapra"]
+
+    window.target_mob_combo.setCurrentIndex(0)
+    application.processEvents()
+
+    assert detector.allowed_class_names[-1] == frozenset()
+    assert combat.allowed_class_names[-1] == frozenset()
+    assert list(verifier.allowed_names) == ["Flame", "Rapra"]

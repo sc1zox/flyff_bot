@@ -256,6 +256,17 @@ class FarmingOrchestrator:
         self._config = replace(self._config, combat=combat)
         self._combat.update_config(combat)
 
+    def configure_target_classes(self, allowed_class_names: frozenset[str]) -> None:
+        """Restrict candidate selection to the operator-selected monster classes.
+
+        An empty set means every detected monster stays eligible, matching the
+        dashboard's "all monsters" selection.
+        """
+
+        combat = replace(self._config.combat, allowed_class_names=allowed_class_names)
+        self._config = replace(self._config, combat=combat)
+        self._combat.update_config(combat)
+
     def configure_kill_verification(self, enabled: bool) -> None:
         """Toggle HUD monster-stats kill-count confirmation mid-session."""
 

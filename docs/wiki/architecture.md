@@ -48,6 +48,7 @@ related:
   - ../bugs/fixed/BUG-011-target-name-verification-failure-wrong-target.md
   - ../bugs/fixed/BUG-012-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md
   - ../user-stories/completed/US-034-background-independent-monster-stats-kill-confirmation.md
+  - ../user-stories/completed/US-038-target-mob-dropdown-and-early-yolo-filtering.md
   - ../bugs/fixed/BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md
   - ../bugs/fixed/BUG-015-camera-alignment-zoom-out-has-no-effect.md
   - ../user-stories/completed/US-043-continuous-approach-target-tracking-and-minimap-zoom-initialization.md
@@ -593,6 +594,30 @@ thread against the project's own PySide6 rule. `SessionWorker` (`flyff_bot.ui.se
 the loop on a `threading.Thread`, waiting on a stop `Event` rather than sleeping so teardown is
 immediate; `MainWindow.register_teardown()` stops it from `closeEvent` before the widgets go away,
 and results still reach the UI only through `DashboardFeed`'s signal.
+
+US-038 makes the monster the operator is hunting a single dashboard choice that every stage of the
+pipeline follows. The combat panel's "Target Monster" (`Ziel-Monster`) `QComboBox` lists an
+unrestricted "All" (`Alle`) entry — `ALL_TARGET_MOBS`, the empty class name — ahead of the classes
+`models/labels.txt` actually reports, and `MainWindow.set_target_mob_options()` is what fills it from
+the same labels file the whitelist comes from, so the dropdown cannot offer a class the model cannot
+detect. `connect_target_mob_selection` (`flyff_bot.ui.app`) is the one place the selection fans out,
+into three surfaces that must agree: `OpenCVDnnYoloDetector.update_allowed_class_names()`,
+`TargetVerifier.update_allowed_names()`, and `FarmingOrchestrator.configure_target_classes()`. All
+three replace their frozen configuration in place, so switching monsters applies on the next tick of
+the running session — no restart, and no reset of an engagement already in progress.
+
+The filter is applied at the earliest point it can be. `_decode()` already dropped candidates outside
+`DetectionConfig.allowed_class_names` before non-maximum suppression; pushing the operator's choice
+into that set means a non-target monster never reaches `WorldState.visible_mobs`, so no candidate
+scoring, no click, and no anchor template match is ever spent on it — which is also why the dashboard
+mob counter and the debug overlay show only the selected class. `TargetVerifier` follows with the
+matching whitelist and, through `load_mob_anchor_templates()`, only that mob's anchor image, so
+`_match_anchor()` correlates one template per frame instead of one per known monster. A selection
+whose mob ships no anchor of its own keeps the templates already loaded rather than leaving the
+verifier with nothing to match, and the cached nameplate reading is dropped on every change because
+it was resolved against the previous whitelist. `CombatController` receives the same set so
+`_allowed_mobs()` cannot prioritize a monster perception has been told to ignore; an empty set
+everywhere is the unconstrained "All" case.
 
 
 ## Measured minimap odometry and tracking quality (US-035)

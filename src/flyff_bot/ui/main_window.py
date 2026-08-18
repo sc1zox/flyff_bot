@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal, Slot
@@ -74,6 +74,9 @@ from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOver
 from flyff_bot.ui.powerup_panel import PowerUpPanel
 from flyff_bot.ui.theme import apply_theme
 
+# Item data of the target-monster entry that imposes no class restriction at all.
+ALL_TARGET_MOBS = ""
+
 MATCH_THRESHOLD_STEP = 0.05
 MATCH_THRESHOLD_DECIMALS = 2
 
@@ -119,6 +122,7 @@ class MainWindow(QMainWindow):
     combat_grace_changed = Signal(float)
     kill_verification_changed = Signal(bool)
     anchor_threshold_changed = Signal(float)
+    target_mob_changed = Signal(str)
     save_profile_requested = Signal(Path)
     load_profile_requested = Signal(Path)
     reset_navigation_requested = Signal()
@@ -230,6 +234,9 @@ class MainWindow(QMainWindow):
         self._combat_panel = QGroupBox()
         self._combat_panel.setObjectName("CardPanel")
         self._combat_panel.setVisible(False)
+        self._target_mob_label = QLabel()
+        self._target_mob_combo = QComboBox()
+        self._target_mob_combo.addItem("", ALL_TARGET_MOBS)
         self._target_grace_label = QLabel()
         self._target_grace_spin = QDoubleSpinBox()
         self._target_grace_spin.setRange(0.1, 5.0)
@@ -565,6 +572,19 @@ class MainWindow(QMainWindow):
         return self._combat_panel
 
     @property
+    def target_mob_combo(self) -> QComboBox:
+        """Expose the target monster selector."""
+
+        return self._target_mob_combo
+
+    @property
+    def selected_target_mob(self) -> str:
+        """Return the selected monster class, or an empty name for every monster."""
+
+        data = self._target_mob_combo.currentData()
+        return ALL_TARGET_MOBS if data is None else str(data)
+
+    @property
     def target_grace_spin(self) -> QDoubleSpinBox:
         """Expose the target click grace period spin box."""
 
@@ -767,6 +787,10 @@ class MainWindow(QMainWindow):
         self._vitals_panel.setLayout(vitals_layout)
 
         combat_layout = QVBoxLayout()
+        target_mob_row = QHBoxLayout()
+        target_mob_row.addWidget(self._target_mob_label)
+        target_mob_row.addWidget(self._target_mob_combo)
+        combat_layout.addLayout(target_mob_row)
         grace_row = QHBoxLayout()
         grace_row.addWidget(self._target_grace_label)
         grace_row.addWidget(self._target_grace_spin)
@@ -1061,6 +1085,28 @@ class MainWindow(QMainWindow):
     def _on_anchor_threshold_changed(self, threshold: float) -> None:
         self.anchor_threshold_changed.emit(threshold)
 
+    @Slot()
+    def _on_target_mob_changed(self) -> None:
+        self.target_mob_changed.emit(self.selected_target_mob)
+
+    def set_target_mob_options(self, class_names: Sequence[str]) -> None:
+        """List the model's monster classes beneath the unrestricted entry.
+
+        Repopulating never emits a selection: the caller supplies the classes before the
+        session is wired up, and the entry the operator picked is restored when the new
+        model still reports it.
+        """
+
+        previous = self.selected_target_mob
+        self._target_mob_combo.blockSignals(True)
+        while self._target_mob_combo.count() > 1:
+            self._target_mob_combo.removeItem(1)
+        for class_name in class_names:
+            self._target_mob_combo.addItem(class_name, class_name)
+        index = self._target_mob_combo.findData(previous)
+        self._target_mob_combo.setCurrentIndex(max(index, 0))
+        self._target_mob_combo.blockSignals(False)
+
     def _adapt_window_geometry(self) -> None:
         central = self.centralWidget()
         if central is not None:
@@ -1201,6 +1247,7 @@ class MainWindow(QMainWindow):
         self._target_grace_spin.valueChanged.connect(self._on_combat_grace_changed)
         self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
         self._anchor_threshold_spin.valueChanged.connect(self._on_anchor_threshold_changed)
+        self._target_mob_combo.currentIndexChanged.connect(self._on_target_mob_changed)
         self._target_debug_toggle.toggled.connect(self._update_target_debug_visibility)
         self._monster_stats_toggle.toggled.connect(self._update_monster_stats_visibility)
 
@@ -1331,6 +1378,9 @@ class MainWindow(QMainWindow):
         self._placements_toggle.setText(self._translator.text(Message.UI_PLACEMENTS_TOGGLE))
         self._combat_toggle.setText(self._translator.text(Message.UI_COMBAT_SETTINGS))
         self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))
+        self._target_mob_label.setText(self._translator.text(Message.UI_TARGET_MOB))
+        self._target_mob_combo.setItemText(0, self._translator.text(Message.UI_TARGET_MOB_ALL))
+        self._target_mob_combo.setToolTip(self._translator.text(Message.UI_TARGET_MOB_TOOLTIP))
         self._target_grace_label.setText(self._translator.text(Message.UI_TARGET_GRACE_PERIOD))
         self._target_grace_spin.setToolTip(self._translator.text(Message.UI_TARGET_GRACE_TOOLTIP))
         self._kill_verification_label.setText(self._translator.text(Message.UI_KILL_VERIFICATION))

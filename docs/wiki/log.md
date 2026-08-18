@@ -506,4 +506,14 @@ clarifying that the project is built for the Entropia Flyff private server (PSer
 the classic native Windows client (`neuz.exe`). Updated `docs/wiki/project-overview.md`, `docs/wiki/architecture.md`,
 `docs/wiki/glossary.md`, and project documentation.
 
+## [2026-08-19] synthesis | Operator-selected target monster and early perception filtering
 
+Recorded US-038 on `docs/wiki/architecture.md`: the dashboard's target-monster dropdown and the single
+fan-out (`connect_target_mob_selection`) that applies one selection to `OpenCVDnnYoloDetector`,
+`TargetVerifier`, and `FarmingOrchestrator` live, plus the reason the filter sits in YOLO decoding
+rather than in candidate selection — a discarded monster never enters `WorldState.visible_mobs`, so
+neither prioritization nor anchor template matching runs for it.
+
+No measurement was ingested. Whether restricting the anchor templates to one mob measurably changes
+per-frame verification cost was not measured; the change is argued from the number of
+`cv2.matchTemplate` calls per frame, not from a timing. Moved US-038 to completed user stories.

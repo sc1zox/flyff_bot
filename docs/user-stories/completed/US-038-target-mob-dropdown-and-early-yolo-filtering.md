@@ -1,9 +1,9 @@
 ---
 id: US-038
 title: Target monster dropdown selection and early YOLO perception filtering
-status: draft
+status: completed
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
 ---
 
 # US-038: Target monster dropdown selection and early YOLO perception filtering
@@ -23,23 +23,23 @@ As a **bot operator farming in areas with multiple monster types**, I want **to 
 
 ## Acceptance criteria
 
-- [ ] **Target Monster Dropdown in Dashboard UI:**
+- [x] **Target Monster Dropdown in Dashboard UI:**
   - The combat/targeting configuration panel in `MainWindow` displays a "Target Monster" (`Ziel-Monster`) dropdown combo box (`QComboBox`).
   - The dropdown is dynamically populated with "All" (`Alle`) followed by each monster class found in the active model's `labels.txt` (e.g. `Flame`, `Rapra`).
-- [ ] **Early YOLO Perception Filtering:**
+- [x] **Early YOLO Perception Filtering:**
   - When a specific monster class is selected in the dropdown, `OpenCVDnnYoloDetector` updates its `allowed_class_names` configuration.
   - Mobs not matching the selected class are discarded immediately during YOLO bounding box decoding (`_decode()`) and do not appear in `WorldState.visible_mobs`.
   - When "All" is selected, `allowed_class_names` is cleared (`frozenset()`), allowing all detected mobs through.
-- [ ] **Synchronized Target Verification & Template Matching:**
+- [x] **Synchronized Target Verification & Template Matching:**
   - `TargetVerifier` updates its active allowed names and resolves the corresponding mob-specific anchor template(s) dynamically via `load_mob_anchor_templates()` when the selection changes.
   - Template matching (`cv2.matchTemplate`) in `TargetVerifier._match_anchor()` evaluates only the relevant anchor template for the active selection.
-- [ ] **Combat Controller Synchronization:**
+- [x] **Combat Controller Synchronization:**
   - `CombatController` updates its `allowed_class_names` to remain in sync with the selected mob type, ensuring candidate prioritization and click targeting only target eligible mobs.
-- [ ] **Dynamic Live Switching:**
+- [x] **Dynamic Live Switching:**
   - Changing the dropdown selection while the bot is running or in standby immediately applies the new filter across Detector, Verifier, and Combat Controller without requiring an application restart.
-- [ ] **Localization:**
+- [x] **Localization:**
   - All new UI labels, combobox entries ("All"), and tooltips are fully synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
-- [ ] **Verification:**
+- [x] **Verification:**
   - Unit tests verify dynamic filter propagation to `OpenCVDnnYoloDetector`, `TargetVerifier`, and `CombatController`.
   - `./scripts/check.ps1` passes cleanly with no ruff, mypy, or pytest failures.
 
@@ -51,7 +51,7 @@ As a **bot operator farming in areas with multiple monster types**, I want **to 
 ## Verification
 
 - Automated:
-  - `uv run pytest tests/unit/test_yolo_detector.py tests/unit/test_target_verification.py tests/unit/test_combat_controller.py tests/unit/test_ui.py`
+  - `uv run pytest tests/unit/test_vision_detection.py tests/unit/test_target_verification.py tests/unit/test_orchestrator.py tests/unit/test_ui.py`
   - `./scripts/check.ps1`
 - Manual (Windows):
   - Launch `uv run python -m flyff_bot ui` in an area with multiple mob types (e.g. Flame and Rapra).

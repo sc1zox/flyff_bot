@@ -284,20 +284,10 @@ class TargetVerifier:
         recognizer: TextRecognizer,
         config: TargetVerificationConfig | None = None,
     ) -> None:
-        self._allowed_names = tuple(allowed_names)
+        self._allowed_names = _validated_names(allowed_names)
         self._recognizer = recognizer
         self._config = config or TargetVerificationConfig()
-        if not self._allowed_names or any(not name.strip() for name in self._allowed_names):
-            raise ValueError("At least one non-empty target name is required.")
-        self._header_anchor_templates: tuple[npt.NDArray[np.uint8], ...] = (
-            (header_anchor_template,)
-            if isinstance(header_anchor_template, np.ndarray)
-            else tuple(header_anchor_template)
-        )
-        if not self._header_anchor_templates or any(
-            t.dtype != np.uint8 or t.ndim != 3 for t in self._header_anchor_templates
-        ):
-            raise ValueError("Target header anchor template must be a uint8 colour image.")
+        self._header_anchor_templates = _validated_templates(header_anchor_template)
         self._last_name_mask: npt.NDArray[np.uint8] | None = None
         self._last_name_reading: _NameReading = (None, "", TargetNameStatus.NOT_EVALUATED)
 
@@ -312,6 +302,25 @@ class TargetVerifier:
         """Return the monster names accepted as a valid target."""
 
         return self._allowed_names
+
+    def update_allowed_names(
+        self,
+        allowed_names: Iterable[str],
+        header_anchor_templates: Sequence[npt.NDArray[np.uint8]] | None = None,
+    ) -> None:
+        """Restrict verification to the operator-selected monsters and their anchors.
+
+        Passing no templates keeps the ones already loaded, so a mob without its own
+        anchor image keeps verifying against the shipped default instead of leaving the
+        verifier with nothing to match. The cached nameplate reading is dropped because
+        it was resolved against the previous whitelist.
+        """
+
+        self._allowed_names = _validated_names(allowed_names)
+        if header_anchor_templates is not None:
+            self._header_anchor_templates = _validated_templates(header_anchor_templates)
+        self._last_name_mask = None
+        self._last_name_reading = (None, "", TargetNameStatus.NOT_EVALUATED)
 
     def update_anchor_threshold(self, anchor_match_threshold: float) -> None:
         """Apply the operator-selected anchor match threshold without rebuilding state."""
@@ -449,6 +458,26 @@ class TargetVerifier:
         mask = np.all((pixels >= lower) & (pixels <= upper), axis=2)
         filled_columns = int(np.count_nonzero(np.any(mask, axis=0)))
         return float(100.0 * filled_columns / gauge_width)
+
+
+def _validated_names(allowed_names: Iterable[str]) -> tuple[str, ...]:
+    names = tuple(allowed_names)
+    if not names or any(not name.strip() for name in names):
+        raise ValueError("At least one non-empty target name is required.")
+    return names
+
+
+def _validated_templates(
+    header_anchor_template: npt.NDArray[np.uint8] | Sequence[npt.NDArray[np.uint8]],
+) -> tuple[npt.NDArray[np.uint8], ...]:
+    templates = (
+        (header_anchor_template,)
+        if isinstance(header_anchor_template, np.ndarray)
+        else tuple(header_anchor_template)
+    )
+    if not templates or any(t.dtype != np.uint8 or t.ndim != 3 for t in templates):
+        raise ValueError("Target header anchor template must be a uint8 colour image.")
+    return templates
 
 
 def _target_status(anchor_passed: bool, hp_passed: bool, name_passed: bool) -> TargetStatus:

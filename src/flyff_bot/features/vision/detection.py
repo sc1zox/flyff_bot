@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, cast
@@ -139,8 +139,32 @@ class OpenCVDnnYoloDetector:
         self._config = config or DetectionConfig()
         if not self._class_names or any(not name.strip() for name in self._class_names):
             raise DetectionError(DetectionErrorCode.LABELS_INVALID)
-        unknown_names = self._config.allowed_class_names.difference(self._class_names)
-        if unknown_names:
+        self._reject_unknown_names(self._config.allowed_class_names)
+
+    @property
+    def config(self) -> DetectionConfig:
+        """Return the inference and filtering configuration applied to every frame."""
+
+        return self._config
+
+    @property
+    def class_names(self) -> tuple[str, ...]:
+        """Return the ordered class names the loaded model can report."""
+
+        return self._class_names
+
+    def update_allowed_class_names(self, allowed_class_names: frozenset[str]) -> None:
+        """Apply an operator-selected class filter without reloading the network.
+
+        An empty set restores unconstrained detection, which is what the dashboard's
+        "all monsters" selection means.
+        """
+
+        self._reject_unknown_names(allowed_class_names)
+        self._config = replace(self._config, allowed_class_names=allowed_class_names)
+
+    def _reject_unknown_names(self, allowed_class_names: frozenset[str]) -> None:
+        if allowed_class_names.difference(self._class_names):
             raise DetectionError(DetectionErrorCode.UNKNOWN_CLASS_FILTER)
 
     @classmethod

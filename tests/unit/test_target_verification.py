@@ -591,3 +591,48 @@ def test_match_whitelisted_name_matches_multiple_mobs(
     text: str, allowed: tuple[str, ...], expected: str
 ) -> None:
     assert match_whitelisted_name(text, allowed) == expected
+
+
+def test_update_allowed_names_switches_the_whitelist_and_drops_the_cached_reading() -> None:
+    verifier, recognizer = _verifier()
+    frame = _frame(include_hp=True)
+
+    assert verifier.verify(frame).status is TargetStatus.VALID_TARGET
+    calls_before = recognizer.calls
+
+    verifier.update_allowed_names(("Rapra",))
+    result = verifier.verify(frame)
+
+    assert verifier.allowed_names == ("Rapra",)
+    assert result.status is TargetStatus.WRONG_TARGET
+    assert result.metrics.name_status is TargetNameStatus.NO_MATCH
+    # The cached reading resolved "Flame" against the previous whitelist, so it must be
+    # re-read rather than reused for the new selection.
+    assert recognizer.calls == calls_before + 1
+
+
+def test_update_allowed_names_keeps_the_loaded_anchors_when_none_are_supplied() -> None:
+    verifier, _ = _verifier()
+    frame = _frame(include_hp=True)
+
+    verifier.update_allowed_names(("Flame",))
+
+    assert verifier.verify(frame).status is TargetStatus.VALID_TARGET
+
+
+def test_update_allowed_names_applies_mob_specific_anchor_templates() -> None:
+    verifier, _ = _verifier()
+    # An anchor larger than the searched header region can never be located, which makes
+    # the swap observable without depending on correlation scores of synthetic pixels.
+    unmatchable_anchor = np.zeros((40, 80, 3), dtype=np.uint8)
+
+    verifier.update_allowed_names(("Flame",), (unmatchable_anchor,))
+
+    assert verifier.verify(_frame(include_hp=True)).status is TargetStatus.NO_TARGET
+
+
+def test_update_allowed_names_rejects_an_empty_selection() -> None:
+    verifier, _ = _verifier()
+
+    with pytest.raises(ValueError, match="At least one non-empty target name"):
+        verifier.update_allowed_names(())

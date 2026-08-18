@@ -112,3 +112,29 @@ def test_from_files_reports_missing_model_and_labels(tmp_path: Path) -> None:
 
     assert model_error.value.code is DetectionErrorCode.MODEL_NOT_FOUND
     assert labels_error.value.code is DetectionErrorCode.LABELS_NOT_FOUND
+
+
+def test_detector_applies_a_live_class_filter_change_without_reloading() -> None:
+    output = np.array([[[320.0, 320.0, 100.0, 100.0, 0.95, 0.05]]], dtype=np.float32)
+    detector = OpenCVDnnYoloDetector(_Network(output), ("npc", "mob"))
+
+    assert [detection.class_name for detection in detector.detect(_frame())] == ["npc"]
+
+    detector.update_allowed_class_names(frozenset({"mob"}))
+
+    assert detector.config.allowed_class_names == frozenset({"mob"})
+    assert detector.detect(_frame()) == []
+
+    detector.update_allowed_class_names(frozenset())
+
+    assert [detection.class_name for detection in detector.detect(_frame())] == ["npc"]
+
+
+def test_detector_rejects_a_live_filter_change_to_an_unknown_class() -> None:
+    detector = OpenCVDnnYoloDetector(_Network(np.zeros((1, 1, 5), dtype=np.float32)), ("mob",))
+
+    with pytest.raises(DetectionError) as error:
+        detector.update_allowed_class_names(frozenset({"player"}))
+
+    assert error.value.code is DetectionErrorCode.UNKNOWN_CLASS_FILTER
+    assert detector.config.allowed_class_names == frozenset()

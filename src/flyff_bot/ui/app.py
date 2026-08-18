@@ -95,6 +95,18 @@ class FarmingControls(Protocol):
     def configure_auto_align(self, enabled: bool) -> None: ...
 
 
+class TargetClassControls(Protocol):
+    """The combat-side surface that follows the operator's monster selection."""
+
+    def configure_target_classes(self, allowed_class_names: frozenset[str]) -> None: ...
+
+
+class ClassFilterableDetector(Protocol):
+    """The perception-side surface that follows the operator's monster selection."""
+
+    def update_allowed_class_names(self, allowed_class_names: frozenset[str]) -> None: ...
+
+
 class WindowFocusControls(Protocol):
     """The foreground handoff required before a farming session can run."""
 
@@ -163,6 +175,36 @@ def connect_farming_controls(
     window.align_camera_requested.connect(orchestrator.request_camera_alignment)
 
 
+def connect_target_mob_selection(
+    window: MainWindow,
+    detector: ClassFilterableDetector,
+    verifier: TargetVerifier,
+    combat: TargetClassControls,
+    class_names: Sequence[str],
+    *,
+    default_anchor_path: Path | None = None,
+) -> None:
+    """Apply the selected monster to detection, verification, and combat targeting.
+
+    Filtering at the detector is what keeps a non-target monster out of
+    :class:`WorldState` entirely, so no candidate selection or template match is ever
+    spent on it; the verifier and the combat controller only have to agree with that
+    same choice.
+    """
+
+    def _apply(selected_class_name: str) -> None:
+        selected = tuple(class_names) if not selected_class_name else (selected_class_name,)
+        allowed = frozenset() if not selected_class_name else frozenset(selected)
+        detector.update_allowed_class_names(allowed)
+        verifier.update_allowed_names(
+            selected,
+            load_mob_anchor_templates(selected, default_anchor_path=default_anchor_path) or None,
+        )
+        combat.configure_target_classes(allowed)
+
+    window.target_mob_changed.connect(_apply)
+
+
 def start_farming(
     controller: WindowFocusControls, window_handle: int, orchestrator: StartableControls
 ) -> None:
@@ -197,9 +239,11 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
 
         if model_path.is_file() and labels_path.is_file():
             allowed_names = load_class_names(labels_path)
+            window.set_target_mob_options(allowed_names)
+            default_anchor_path = anchor_path if anchor_path.is_file() else None
             anchors = load_mob_anchor_templates(
                 allowed_names,
-                default_anchor_path=anchor_path if anchor_path.is_file() else None,
+                default_anchor_path=default_anchor_path,
             )
             if anchors:
                 target_verifier = TargetVerifier(
@@ -211,13 +255,14 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     ),
                 )
                 frame_source = WindowsFrameSource(require_foreground=False)
+                detector = OpenCVDnnYoloDetector.from_files(
+                    model_path,
+                    labels_path,
+                    DetectionConfig(confidence_threshold=0.3),
+                )
                 pipeline = PerceptionPipeline(
                     frame_source,
-                    OpenCVDnnYoloDetector.from_files(
-                        model_path,
-                        labels_path,
-                        DetectionConfig(confidence_threshold=0.3),
-                    ),
+                    detector,
                     target_verifier,
                     monster_stats_reader=MonsterStatsReader(
                         # The stats HUD is English in every client locale, so requiring the
@@ -257,6 +302,14 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
                 window.kill_verification_changed.connect(orchestrator.configure_kill_verification)
                 window.anchor_threshold_changed.connect(target_verifier.update_anchor_threshold)
+                connect_target_mob_selection(
+                    window,
+                    detector,
+                    target_verifier,
+                    orchestrator,
+                    allowed_names,
+                    default_anchor_path=default_anchor_path,
+                )
                 connect_farming_controls(
                     window,
                     orchestrator,

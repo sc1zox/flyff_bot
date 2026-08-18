@@ -299,6 +299,23 @@ def test_configured_attack_key_is_dispatched_for_target_engagement() -> None:
     assert [key for key, _duration in adapter.keys] == [VIRTUAL_KEY_F1]
 
 
+def test_configured_target_classes_restrict_candidate_selection_mid_session() -> None:
+    adapter = _InputAdapter()
+    other_mob = VisibleMob(2, "Rapra", 0.9, 70, 70, 10, 10)
+    orchestrator = _orchestrator(
+        [_state(1.0, mobs=(MOB, other_mob)), _state(2.0, mobs=(MOB, other_mob))],
+        adapter,
+    )
+    orchestrator.start()
+    orchestrator.configure_target_classes(frozenset({"Rapra"}))
+
+    orchestrator.tick()
+
+    # Mushpang sits closer to the viewport centre, so a click on Rapra can only come
+    # from the live class filter.
+    assert adapter.clicks == [(WINDOW_HANDLE, 75, 75)]
+
+
 def test_configuring_attack_key_while_active_is_rejected() -> None:
     orchestrator = _orchestrator([_state(1.0)], _InputAdapter())
     orchestrator.start()
