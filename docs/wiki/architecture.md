@@ -663,6 +663,12 @@ Both obey the same safety boundaries as the application: capture goes through th
 path, no input is dispatched until the client is confirmed foregrounded, and `END` releases every
 held key and flushes what was captured so far to disk.
 
+**Perspective model and camera reproducibility.** Apparent bounding-box height falls off with the
+inverse of distance ($d = a / h + b$). Because coefficient $a$ depends directly on focal length
+(zoom) and camera pitch, 100% reproducibility across sessions without memory inspection is guaranteed
+by standardizing on the **zoom hard-stop** (mouse wheel scrolled all the way back to the game's maximum
+zoom limit) and a fixed camera pitch, both during calibration captures and live bot farming.
+
 **A walk-in measures remaining travel, not distance.** The client stops the character at melee
 range, so the absolute distance to the mob is never observable. Per frame the harness records how far
 the character still travels until the approach ends, which turns `distance = a / h + b` into

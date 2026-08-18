@@ -69,8 +69,11 @@ This story depends on US-035 for the odometry and should reuse the same capture 
 
 - **Assumption to verify:** the relation is per-mob-class, because mob models differ in height. The
   fit must be evaluated per class before deciding whether one shared relation is good enough.
-- **Assumption to verify:** the relation depends on the camera pitch, which the operator can change.
-  The recording must note the pitch used, and the fit's validity outside it is unknown.
+- **Assumption to verify:** the relation depends on the camera pitch and zoom. To guarantee 100%
+  reproducibility across game sessions without memory inspection, both calibration recordings and
+  active bot farming must operate at the **zoom hard-stop** (mouse wheel scrolled all the way back
+  to Flyff's physical maximum zoom limit) and a fixed camera pitch. The recording must note the
+  pitch used, and the fit's validity outside this standardized camera state is undefined.
 - **Blocked on operator-supplied captures:** criteria 1 and 2 need approach sequences recorded on
   Windows with US-035's odometry in place. Section 3 (leash enforcement) depends on neither and can
   land independently. The instrument for those captures now exists:

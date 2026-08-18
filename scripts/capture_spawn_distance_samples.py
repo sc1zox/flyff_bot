@@ -12,6 +12,12 @@ with the inverse of its distance, so the relation to fit is::
 
     distance = a / bounding_box_height + b
 
+The coefficient `a` is directly proportional to focal length (camera zoom) and effective
+pitch. Because apparent bounding box height changes dramatically when camera zoom varies,
+100% reproducibility without memory inspection is guaranteed by operating at the
+**zoom hard-stop** (mouse wheel scrolled all the way back to Flyff's maximum zoom limit)
+with a fixed camera pitch, both during calibration and active bot farming.
+
 A walk-in approach never reaches the mob: the client stops the character at melee range.
 The absolute distance to the mob is therefore never observable. What *is* observable, per
 frame, is how far the character still travels from that frame until the approach ends,

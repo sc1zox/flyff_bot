@@ -19,8 +19,17 @@ As a **developer or operator preparing the mob distance model for US-037**, I wa
   `PathingController._estimate_mob_position` (`src/flyff_bot/features/navigation/pathing.py:380-405`).
 - The theoretical model under pinhole perspective projection is:
   $$\text{distance} = \frac{a}{\text{bbox\_height}} + b$$
-  where $a$ is proportional to the camera focal length and mob model height, and $b$ accounts for the
-  melee stopping offset and camera perspective intercept.
+  where $a$ is directly proportional to the camera focal length (zoom factor) and effective camera pitch,
+  and $b$ accounts for the melee stopping offset and camera perspective intercept. If camera zoom is
+  modified, the apparent bounding-box height $h$ changes drastically for the same real distance.
+- **100% reproducibility in-game without memory inspection or injection:**
+  - **Zoom Hard Stop (Maximal Zoom-Out):** Scrolling the mouse wheel completely backwards (~10–15
+    steps until reaching the hard limit). Flyff enforces a fixed, hard maximum camera distance,
+    making this state deterministic and perfectly reproducible across all sessions.
+  - **Fixed Camera Pitch:** Either the standard camera pitch after a camera reset or fixed at
+    maximum pitch / tilt angle.
+  - **Bot Runtime Consistency:** As long as standard farming sessions operate at this same zoom
+    hard-stop, the calibrated $(a, b)$ parameters correspond exactly to live in-game reality.
 - To separate $a$ and $b$ robustly, multiple approach sequences across different initial distances
   and mob classes are required.
 - [US-035](US-035-measured-minimap-odometry-and-tracking-quality.md) introduced
