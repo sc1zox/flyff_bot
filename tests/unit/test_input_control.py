@@ -99,12 +99,20 @@ def _recording_wheel_controller(
 def test_scroll_wheel_injects_a_pointer_move_over_the_client_before_the_notches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """BUG-015: Flyff ignores notches sent at a pointer position it never saw move."""
+    """BUG-015/BUG-016: Flyff ignores notches sent at a pointer position it never saw move."""
 
     controller, events, sleeps = _recording_wheel_controller(monkeypatch)
+    cursor_positions: list[tuple[int, int]] = []
 
-    controller.scroll_wheel_while_guarded(12345, 15)
+    def record_cursor(x: int, y: int) -> bool:
+        cursor_positions.append((x, y))
+        return True
 
+    monkeypatch.setattr(controller._user32, "SetCursorPos", record_cursor)
+
+    controller.scroll_wheel_while_guarded(12345, -15)
+
+    assert cursor_positions == [CLIENT_CENTRE]
     move = events[0].mouse
     assert move.dwFlags == MOUSE_EVENT_MOVE | MOUSE_EVENT_ABSOLUTE | MOUSE_EVENT_VIRTUAL_DESK
     # The client centre normalized onto the absolute range of the 1000x1000 virtual screen.
@@ -116,7 +124,7 @@ def test_scroll_wheel_injects_a_pointer_move_over_the_client_before_the_notches(
     assert len(events) == 16
     assert len(sleeps) == 16
     assert all(event.mouse.dwFlags == MOUSE_EVENT_WHEEL for event in events[1:])
-    assert all(event.mouse.mouseData == WHEEL_DELTA for event in events[1:])
+    assert all(event.mouse.mouseData == ((-WHEEL_DELTA) & 0xFFFFFFFF) for event in events[1:])
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")

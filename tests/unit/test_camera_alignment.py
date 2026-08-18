@@ -91,7 +91,7 @@ def test_align_runs_the_zoom_hard_stop_then_pitch_ceiling_then_calibrated_pulse(
 
     assert status is CameraAlignmentStatus.ALIGNED
     assert adapter.actions == [
-        ("scroll", WINDOW_HANDLE, float(ZOOM_OUT_WHEEL_NOTCHES)),
+        ("scroll", WINDOW_HANDLE, -float(ZOOM_OUT_WHEEL_NOTCHES)),
         (f"key:{VIRTUAL_KEY_UP:#04x}", WINDOW_HANDLE, PITCH_UP_HOLD_SECONDS),
         (f"key:{VIRTUAL_KEY_DOWN:#04x}", WINDOW_HANDLE, PITCH_DOWN_PULSE_SECONDS),
     ]
@@ -144,8 +144,8 @@ def test_align_reports_focus_loss_that_happens_during_the_final_pitch_pulse() ->
     assert len(adapter.actions) == 3
 
 
-def test_alignment_zooms_out_forwards_past_the_hard_stop_with_the_arrow_pitch_keys() -> None:
-    """BUG-014: Flyff zooms out on a forward wheel and pitches on Up/Down, not Page Up/Down."""
+def test_alignment_zooms_out_backwards_past_the_hard_stop_with_the_arrow_pitch_keys() -> None:
+    """BUG-014/BUG-016: Flyff zooms out on a backward wheel and pitches on Up/Down."""
 
     config = CameraAlignmentConfig()
 
@@ -186,7 +186,7 @@ def test_align_honors_a_custom_configuration() -> None:
 
     assert status is CameraAlignmentStatus.ALIGNED
     assert adapter.actions == [
-        ("scroll", WINDOW_HANDLE, 4.0),
+        ("scroll", WINDOW_HANDLE, -4.0),
         (f"key:{VIRTUAL_KEY_PAGE_UP:#04x}", WINDOW_HANDLE, 0.5),
         (f"key:{VIRTUAL_KEY_PAGE_DOWN:#04x}", WINDOW_HANDLE, 0.25),
     ]

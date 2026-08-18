@@ -348,8 +348,8 @@ class WindowsInputController:
     def scroll_wheel_while_guarded(self, window_handle: int, notches: int) -> None:
         """Send discrete wheel notches while END is clear and the client stays foregrounded.
 
-        A positive count rotates the wheel forwards, which is the direction Flyff zooms
-        the camera out towards its hard stop.
+        A positive count rotates the wheel forwards (away from user, scroll up, zoom in).
+        A negative count rotates the wheel backwards (towards user, scroll down, zoom out).
         """
 
         if self.is_aborted() or not self.is_foreground(window_handle):
@@ -361,7 +361,10 @@ class WindowsInputController:
             return
         # Windows routes wheel input by cursor position, so the notches have to land over
         # the client area rather than whatever window is under the pointer.
-        self._move_pointer(bounds.left + bounds.width // 2, bounds.top + bounds.height // 2)
+        target_x = bounds.left + bounds.width // 2
+        target_y = bounds.top + bounds.height // 2
+        self._user32.SetCursorPos(target_x, target_y)
+        self._move_pointer(target_x, target_y)
         time.sleep(POINTER_MOVE_SETTLE_SECONDS)
         direction = 1 if notches >= 0 else -1
         for _ in range(abs(notches)):

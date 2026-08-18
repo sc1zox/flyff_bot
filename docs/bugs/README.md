@@ -14,7 +14,7 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-- [ ] [**BUG-015: Camera alignment mouse wheel zoom-out has no observable effect on game viewport**](BUG-015-camera-alignment-zoom-out-has-no-effect.md)
+(No active defects)
 
 
 ## Fixed Defects
@@ -33,5 +33,7 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-012: Monster stats OCR failure and misleading anchor diagnostics in fixed placeholder mode**](fixed/BUG-012-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md)
 - [x] [**BUG-013: Tesseract OCR subprocess UnicodeDecodeError on Windows CP1252**](fixed/BUG-013-tesseract-ocr-subprocess-unicodedecodeerror-on-windows-cp1252.md)
 - [x] [**BUG-014: Camera alignment uses inverted wheel direction and non-functional pitch keys**](fixed/BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md)
+- [x] [**BUG-015: Camera alignment mouse wheel zoom-out has no observable effect on game viewport**](fixed/BUG-015-camera-alignment-zoom-out-has-no-effect.md)
+- [x] [**BUG-016: Camera alignment dispatches forward mouse wheel notches zooming in instead of zooming out**](fixed/BUG-016-camera-alignment-inverted-mouse-wheel-zoom-direction.md)
 
 
