@@ -22,6 +22,7 @@ from flyff_bot.constants import (
     DEFAULT_NAVIGATION_MAP_PATH,
     DEFAULT_PROCESS_NAME,
     DEFAULT_START_DELAY_SECONDS,
+    DEFAULT_TARGET_ANCHOR_PATH,
     DEFAULT_TRAINING_EPOCHS,
     MINIMUM_KEY_DURATION_SECONDS,
     ExitCode,
@@ -433,7 +434,7 @@ def _farming_orchestrator(
     model_path = args.model or DEFAULT_MOB_MODEL_PATH
     labels_path = args.labels or DEFAULT_MOB_LABELS_PATH
     target_anchor = args.target_anchor or (
-        "models/target_anchor.png" if Path("models/target_anchor.png").is_file() else None
+        DEFAULT_TARGET_ANCHOR_PATH if Path(DEFAULT_TARGET_ANCHOR_PATH).is_file() else None
     )
     if not Path(model_path).is_file() or not Path(labels_path).is_file() or target_anchor is None:
         raise FarmingConfigurationError(Message.FARM_OPTIONS_REQUIRED)

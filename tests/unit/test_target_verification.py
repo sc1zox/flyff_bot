@@ -11,6 +11,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from flyff_bot.constants import DEFAULT_TARGET_ANCHOR_PATH
 from flyff_bot.features.vision import (
     AnchorOffsetRegion,
     CapturedFrame,
@@ -537,7 +538,7 @@ def _real_preprocessed_nameplate(fixture: str) -> npt.NDArray[np.uint8]:
 
 
 def _real_anchor_template() -> npt.NDArray[np.uint8]:
-    template = cv2.imread("models/target_anchor.png", cv2.IMREAD_COLOR)
+    template = cv2.imread(DEFAULT_TARGET_ANCHOR_PATH, cv2.IMREAD_COLOR)
     assert template is not None
     return cast("npt.NDArray[np.uint8]", template)
 

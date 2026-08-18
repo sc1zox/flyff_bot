@@ -46,7 +46,7 @@ DEFAULT_ANCHOR_MATCH_THRESHOLD = 0.85
 DEFAULT_ANCHOR_INSET_X = 3
 DEFAULT_ANCHOR_INSET_Y = 4
 
-# Bounds of the "Time:" header line inside `data/monster_stats.png`, used as the anchor template.
+# Bounds of the "Time:" header line inside `data/assets/stats/monster_stats.png`, used as the anchor template.
 HEADER_ANCHOR_TEMPLATE_LEFT = 3
 HEADER_ANCHOR_TEMPLATE_TOP = 4
 HEADER_ANCHOR_TEMPLATE_RIGHT = 50

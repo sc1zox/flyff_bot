@@ -18,6 +18,7 @@ from flyff_bot.constants import (
     DEFAULT_MONSTER_STATS_PANEL_PATH,
     DEFAULT_NAVIGATION_MAP_PATH,
     DEFAULT_PROCESS_NAME,
+    DEFAULT_TARGET_ANCHOR_PATH,
 )
 from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
@@ -142,7 +143,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
         window.attach_placement_target(controller, window_handle)
         model_path = Path(DEFAULT_MOB_MODEL_PATH)
         labels_path = Path(DEFAULT_MOB_LABELS_PATH)
-        anchor_path = Path("models/target_anchor.png")
+        anchor_path = Path(DEFAULT_TARGET_ANCHOR_PATH)
 
         if model_path.is_file() and labels_path.is_file() and anchor_path.is_file():
             anchor = _read_template(anchor_path)

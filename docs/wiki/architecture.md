@@ -360,7 +360,7 @@ header region: `TargetVerificationConfig` replaces `hp_region`/`name_region` wit
 `name_offset`, typed `AnchorOffsetRegion` pixel rectangles measured from the top-left corner of the
 matched header anchor (`extract_anchor_relative_region`, clipped to the region bounds). The shipped
 defaults — HP `(dx=5, dy=27, 150x12)` and name `(dx=40, dy=-4, 125x35)` relative to the 30x26
-`models/target_anchor.png` — track the header wherever it is drawn inside the searched region, which
+`data/assets/mobs/target_anchor.png` — track the header wherever it is drawn inside the searched region, which
 is what previously made the HP crop miss the gauge entirely and report `0 px (0.0%)`. Like US-026's
 fixed-pixel vitals anchoring, this assumes the Flyff HUD is drawn at a fixed pixel size on every
 client resolution; `cv2.matchTemplate` is not scale invariant, so the mechanism buys translation
@@ -541,12 +541,12 @@ US-034 makes the monster-stats reading independent of the game world drawn behin
 kill counter into dependable combat evidence. The stats window has no opaque backing, so contrast
 thresholding (CLAHE + `adaptiveThreshold`) kept whatever scenery happened to be behind the panel and
 merged it with the glyphs; verified against
-`data/full_screen_view_with_monster_stats_1600_900_Res.png`, that produced no readable text at all.
+`data/assets/fixtures/full_screen_view_with_monster_stats_1600_900_Res.png`, that produced no readable text at all.
 The client renders every stats glyph in one constant colour instead — BGR `(255, 209, 249)` = HSV
 `(146, 46, 255)`, with a pure black outline — so `extract_hud_text_mask()`
 (`flyff_bot.features.vision.monster_stats`) keys that colour with `cv2.inRange` and yields glyphs
 alone on both shipped screenshots, whose backgrounds are unrelated. The same mask drives anchor
-matching: `data/monster_stats.png` ships as the reference stats window,
+matching: `data/assets/stats/monster_stats.png` ships as the reference stats window,
 `load_header_anchor_template()` crops its "Time:" header line, and `run_desktop` passes it to
 `MonsterStatsReader`, reversing BUG-012's "the fixed region is the intended mode" note. Matching
 masks rather than raw pixels is what makes the shipped template usable — measured against the

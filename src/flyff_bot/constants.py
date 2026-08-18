@@ -13,7 +13,9 @@ DEFAULT_TRAINING_EPOCHS = 100
 DEFAULT_NAVIGATION_MAP_PATH = "data/navigation/spatial_map.json"
 # Reference screenshot of the in-game session stats window; its header line is the template
 # that locates the same window in a live frame.
-DEFAULT_MONSTER_STATS_PANEL_PATH = "data/monster_stats.png"
+DEFAULT_MONSTER_STATS_PANEL_PATH = "data/assets/stats/monster_stats.png"
+DEFAULT_TARGET_ANCHOR_PATH = "data/assets/mobs/target_anchor.png"
+DEFAULT_PLAYER_VITALS_PANEL_PATH = "data/assets/player/player_vitals_left_top_corner.png"
 
 
 class ExitCode(IntEnum):

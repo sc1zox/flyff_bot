@@ -12,6 +12,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from flyff_bot.constants import DEFAULT_MONSTER_STATS_PANEL_PATH
 from flyff_bot.features.vision.loot_ocr import (
     TESSERACT_LANGUAGE_ENGLISH,
     LootOcrError,
@@ -40,8 +41,10 @@ from flyff_bot.features.vision.monster_stats import (
 # The constant colour the client renders every stats-HUD glyph in, in BGR order.
 HUD_TEXT_COLOUR = (255, 209, 249)
 
-PANEL_FIXTURE_PATH = Path("data/monster_stats.png")
-FULL_FRAME_FIXTURE_PATH = Path("data/full_screen_view_with_monster_stats_1600_900_Res.png")
+PANEL_FIXTURE_PATH = Path(DEFAULT_MONSTER_STATS_PANEL_PATH)
+FULL_FRAME_FIXTURE_PATH = Path(
+    "data/assets/fixtures/full_screen_view_with_monster_stats_1600_900_Res.png"
+)
 # The reference screenshot includes the window title bar above the client area.
 FULL_FRAME_TITLE_BAR_HEIGHT = 31
 

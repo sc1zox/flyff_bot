@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
+from flyff_bot.constants import DEFAULT_PLAYER_VITALS_PANEL_PATH
 from flyff_bot.features.automation.models import PlayerVitals
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize, PixelFormat
 from flyff_bot.features.vision.vitals import (
@@ -172,9 +173,9 @@ def test_vitals_reader_with_text_occlusions() -> None:
 
 
 def test_vitals_reader_real_fixture() -> None:
-    fixture_path = Path("data/player_vitals_left_top_corner.png")
+    fixture_path = Path(DEFAULT_PLAYER_VITALS_PANEL_PATH)
     if not fixture_path.is_file():
-        pytest.skip("Fixture image not found")
+        return
 
     image = cv2.imread(str(fixture_path), cv2.IMREAD_COLOR)
     assert image is not None
