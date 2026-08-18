@@ -14,7 +14,7 @@ updated: YYYY-MM-DD
 - Windows version:
 - Python version:
 - Application revision:
-- Client/server version:
+- Client/server version: Entropia Flyff PServer (neuz.exe)
 
 ## Reproduction
 

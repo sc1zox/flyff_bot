@@ -19,8 +19,8 @@ As a player using the bot and desktop dashboard, I want the bot to extract my ch
   - Depends on [US-007](US-007-perception-worldstate-feed.md) (`PerceptionPipeline` / `WorldState`) to inject a typed `PlayerVitals` object into `WorldState.player_vitals`.
   - Depends on [US-014](US-014-configurable-ui-attack-key.md) for hotkey configuration, persistence, and key-press dispatching.
   - Extends the farming orchestration loop in [US-013](US-013-autonomous-farming-loop-and-orchestration-engine.md).
-- **HUD Layout & Perception (Flyff Top-Left Vitals Orb):**
-  - In Flyff (v7–v22 and Flyff Universe), the player's status orb is anchored in the top-left corner of the window.
+- **HUD Layout & Perception (Top-Left Vitals Orb):**
+  - In the Entropia Flyff PServer (`neuz.exe`) client, the player's status orb is anchored in the top-left corner of the window.
   - It contains three horizontal color gauge bars:
     - **HP (Health Points):** Red bar (dominant red channel).
     - **MP (Mana Points):** Blue bar (dominant blue channel).

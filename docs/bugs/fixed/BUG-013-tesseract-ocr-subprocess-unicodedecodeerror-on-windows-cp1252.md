@@ -14,7 +14,7 @@ updated: 2026-08-18
 - Windows version: Windows 10 / 11 (64-bit)
 - Python version: 3.14.7
 - Application revision: main
-- Client/server version: Flyff Universe / Flyff PC Client with PySide6 desktop dashboard
+- Client/server version: Entropia Flyff PServer (neuz.exe) with PySide6 desktop dashboard
 
 ## Reproduction
 

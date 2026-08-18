@@ -14,7 +14,7 @@ updated: 2026-08-17
 - Windows version: Windows 10/11
 - Python version: 3.14.7 (.venv)
 - Application revision: HEAD (main)
-- Client/server version: Flyff Universe / Flyff PC Desktop Client
+- Client/server version: Entropia Flyff PServer (neuz.exe)
 
 ## Reproduction
 

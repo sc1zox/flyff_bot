@@ -17,7 +17,7 @@ so that **the character does not remain stuck permanently off the map or in un-w
 ## Context and assumptions
 
 - [Architecture](../wiki/architecture.md) (US-013, US-015, US-018, US-019, US-021, US-035, US-036, US-039).
-- In Flyff Universe / PC client, characters can occasionally fall off world edges (e.g. floating island borders, cliff drops, bridge gaps) or get wedged in un-walkable terrain geometry where normal movement, camera rotation, and obstacle bypass maneuvers cannot free them.
+- In the Entropia Flyff PServer (`neuz.exe`) client, characters can occasionally fall off world edges (e.g. floating island borders, cliff drops, bridge gaps) or get wedged in un-walkable terrain geometry where normal movement, camera rotation, and obstacle bypass maneuvers cannot free them.
 - The bot already contains micro-unstuck and staged recovery mechanisms:
   - `SearchController` executes horizontal and vertical camera scans and roaming pulses ([US-015](../user-stories/completed/US-015-idle-timeout-and-search-navigation.md), [US-018](../user-stories/completed/US-018-multi-axis-camera-search-and-paced-scanning.md)).
   - `PathingController` executes waypoint retreats and Dijkstra bypasses around stalled cells ([US-019](../user-stories/completed/US-019-intelligent-pathing-and-spawn-heatmap.md)).

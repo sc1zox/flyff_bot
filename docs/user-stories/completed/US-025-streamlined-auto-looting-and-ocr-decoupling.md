@@ -14,7 +14,7 @@ As a **bot operator**, I want **the farming loop to seamlessly transition direct
 
 ## Context and assumptions
 
-- In Flyff (both Flyff Universe and v15+), players farming efficiently utilize active in-game Pick-up Pets (Loot Pets) which automatically pick up dropped penya and items immediately upon mob death without requiring player keypresses.
+- In the Entropia Flyff PServer (`neuz.exe`) client, players farming efficiently utilize active in-game Pick-up Pets (Loot Pets) which automatically pick up dropped penya and items immediately upon mob death without requiring player keypresses.
 - [US-005](US-005-loot-log-ocr.md) and [US-009](US-009-reactive-loot-controller.md) originally introduced a central `LootLogReader` utilizing local Tesseract OCR subprocesses and a `LootController` that pressed a hardcoded `F` key and blocked in `LootMode.WAITING` for up to 2.0 seconds.
 - In practice, in-game notification text disappears rapidly, is obscured by battle effects/transparency, and often fails OCR recognition, causing the bot to stall for the full 2.0s timeout after every mob kill before resuming search.
 - Running Tesseract OCR on every frame or perception tick consumes substantial CPU and disk I/O (writing temporary PNG files to disk) and fails silently when Tesseract is not installed on the host system.

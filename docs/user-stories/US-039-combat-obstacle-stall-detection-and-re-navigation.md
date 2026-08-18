@@ -16,7 +16,7 @@ so that **the bot does not get permanently stuck running against obstacles towar
 
 ## Context and assumptions
 
-- In Flyff Universe / PC client, clicking a mob causes the game client to automatically walk/run the player character towards the target.
+- In the Entropia Flyff PServer (`neuz.exe`) client, clicking a mob causes the game client to automatically walk/run the player character towards the target.
 - If an obstacle (tree, rock, fence, wall, terrain elevation) blocks the direct path, the character continues its running animation in place against the obstacle.
 - Currently, `StallDetector` in [`flyff_bot.features.navigation.tracking`](file:///i:/coding%20projects/flyff_bot/src/flyff_bot/features/navigation/tracking.py) only samples motion when `movement_commanded` is True, which is only set when the bot explicitly sends the `W` key during navigation or roaming. During `TARGETING` and `COMBAT`, the character is moved by the game client after a mouse click, so `movement_commanded` remains False and `StallDetector` never triggers a stall.
 - In [`CombatController`](file:///i:/coding%20projects/flyff_bot/src/flyff_bot/features/automation/controllers.py), `engagement_timeout_seconds` (default 10.0s) triggers when no HP reduction occurs, but the resulting `TargetLockout` is only 4.0s. If the mob is still visible and the bot did not move, `CombatController._best_candidate()` picks the same mob again after 4.0s, causing the character to repeatedly run against the obstacle (> 20s stuck loop).

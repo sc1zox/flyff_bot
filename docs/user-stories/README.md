@@ -3,6 +3,9 @@
 One Markdown file represents one independently testable slice of user value. Copy `TEMPLATE.md` to
 `US-NNN-short-title.md`. Keep stories small; split unrelated acceptance criteria.
 
+> **Target Scope:** All user stories target the **Entropia Flyff private server (PServer)** classic Windows
+> PC client (`neuz.exe`).
+
 Lifecycle: `draft` -> `ready` -> `in-progress` -> `done` (or `rejected`). A story is done only when
 all acceptance criteria and required checks pass and affected durable docs are current. Completed
 stories are moved to `docs/user-stories/completed/`.

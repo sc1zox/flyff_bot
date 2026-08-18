@@ -1,8 +1,7 @@
 # Flyff Bot
 
-Windows-first Python tooling for controlling a visible Flyff client through documented Win32 input
-APIs. The current feature is a small input-control proof of concept. Use it only where the server
-rules explicitly permit automation.
+Windows-first Python tooling for controlling a visible **Entropia Flyff PServer (private server)** client
+(`neuz.exe`, [entropia.fun](https://entropia.fun)) through documented Win32 input APIs. Use it only where server rules explicitly permit automation.
 
 ## Setup (PowerShell)
 

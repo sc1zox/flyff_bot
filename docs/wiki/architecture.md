@@ -1,11 +1,12 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-18
+updated: 2026-08-19
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
   - ../sources/2026-08-18-minimap-odometry-calibration.md
+  - ../sources/2026-08-19-target-server-entropia-pserver-clarification.md
 related:
   - project-overview.md
   - glossary.md
@@ -54,7 +55,10 @@ related:
 
 # Architecture
 
-The codebase follows a typed `src` layout with feature-scoped modules. The system is designed to evolve into a multi-tier closed-loop control system:
+The codebase follows a typed `src` layout with feature-scoped modules. The target game client is the
+**Entropia Flyff private server (PServer)** running as a native Windows desktop client (`neuz.exe`).
+
+The architecture is designed as a multi-tier closed-loop control system:
 
 ```text
 Recipe / Goal
@@ -71,7 +75,7 @@ Reactive Controllers (Combat / Navigation / Loot)
      ↓
 Executor (Win32 Input with Action Verification)
      ↓
-Game Client
+Game Client (Entropia Flyff neuz.exe)
 ```
 
 ## Layers and Components

@@ -14,9 +14,11 @@ As a **type of user**, I want **a capability**, so that **an observable benefit*
 
 ## Context and assumptions
 
+- Target client: Entropia Flyff PServer (`neuz.exe`).
 - State what is known.
 - Link relevant wiki pages, decisions, bugs, and raw sources.
 - Mark uncertain assumptions explicitly.
+
 
 ## Acceptance criteria
 

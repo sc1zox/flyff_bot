@@ -498,3 +498,12 @@ the pointer sat.
 No measurement was ingested. The 0.15 s settle is a conservative bound, not a measured client
 latency, and the notch count, the 0.8 s / 0.35 s pitch timings, and the fitted coefficients of the
 distance relation all remain open. Moved BUG-015 to fixed bugs.
+
+## [2026-08-19] ingest | Target server clarification: Entropia Flyff PServer
+
+Ingested the target server specification (`docs/sources/2026-08-19-target-server-entropia-pserver-clarification.md`),
+clarifying that the project is built for the Entropia Flyff private server (PServer, `https://entropia.fun`) running
+the classic native Windows client (`neuz.exe`). Updated `docs/wiki/project-overview.md`, `docs/wiki/architecture.md`,
+`docs/wiki/glossary.md`, and project documentation.
+
+

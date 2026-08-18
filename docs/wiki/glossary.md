@@ -1,11 +1,12 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-18
+updated: 2026-08-19
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
   - ../sources/2026-08-18-minimap-odometry-calibration.md
+  - ../sources/2026-08-19-target-server-entropia-pserver-clarification.md
 related:
   - project-overview.md
   - architecture.md
@@ -13,6 +14,8 @@ related:
 
 # Glossary
 
+- **Target Server / Client** — Entropia Flyff PServer (private server, [entropia.fun](https://entropia.fun))
+  running the classic Windows PC client executable (`neuz.exe`).
 - **Agent** — Codex or another coding agent operating under `AGENTS.md`.
 - **LLM wiki** — Agent-maintained, linked project knowledge under `docs/wiki/`.
 - **Raw source** — Immutable evidence under `docs/sources/` used to ground wiki claims.

@@ -2,8 +2,9 @@
 
 ## Mission
 
-Build a small, reliable Windows application for explicitly permitted Flyff automation. Prefer
-clear, verifiable behavior over cleverness or speculative architecture.
+Build a small, reliable Windows application for explicitly permitted automation of the **Entropia Flyff
+private server (PServer)** classic PC client (`neuz.exe`). Prefer clear, verifiable behavior over
+cleverness or speculative architecture.
 
 ## Working method
 

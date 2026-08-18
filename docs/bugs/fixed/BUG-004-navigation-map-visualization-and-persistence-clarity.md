@@ -14,7 +14,7 @@ updated: 2026-08-17
 - Windows version: Windows 11
 - Python version: 3.14.7
 - Application revision: commit `ac12003`
-- Client/server version: Flyff Universe / Desktop PySide6 UI
+- Client/server version: Entropia Flyff PServer (neuz.exe) / Desktop PySide6 UI
 
 ## Reproduction
 

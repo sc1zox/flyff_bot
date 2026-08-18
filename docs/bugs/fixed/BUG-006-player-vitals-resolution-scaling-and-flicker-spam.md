@@ -14,7 +14,7 @@ updated: 2026-08-16
 - Windows version: Windows 10 / 11 (64-bit)
 - Python version: 3.14.7
 - Application revision: main
-- Client/server version: Classic Flyff client (v15–v22) at arbitrary window/screen resolutions (e.g., 1024x768, 1280x720, 1920x1080, 2560x1440)
+- Client/server version: Entropia Flyff PServer (neuz.exe) at arbitrary window/screen resolutions (e.g., 1024x768, 1280x720, 1920x1080, 2560x1440)
 
 ## Reproduction
 
