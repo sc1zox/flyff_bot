@@ -73,7 +73,13 @@ This story depends on US-035 for the odometry and should reuse the same capture 
   The recording must note the pitch used, and the fit's validity outside it is unknown.
 - **Blocked on operator-supplied captures:** criteria 1 and 2 need approach sequences recorded on
   Windows with US-035's odometry in place. Section 3 (leash enforcement) depends on neither and can
-  land independently.
+  land independently. The instrument for those captures now exists:
+  [US-041](completed/US-041-spawn-distance-calibration-capture-script.md) delivered
+  `scripts/capture_spawn_distance_samples.py`, whose `walk-in`, `bearing`, and `fit` subcommands
+  record and fit exactly the evidence criteria 1 and 2 ask for. What a walk-in observes is the
+  *remaining travel* to the stopping point rather than the absolute distance, so the fit reports `a`
+  and a combined intercept with the melee stopping distance folded into it — the second of the two
+  options criterion 1 allows.
 
 ## Progress on 2026-08-18
 

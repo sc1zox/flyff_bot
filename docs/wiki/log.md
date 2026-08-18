@@ -373,3 +373,28 @@ ahead but dropped, which removed the last spawn-distance fallback literal. The r
 bounding-box distance constants are now named and documented as provisional; the fitted
 inverse-projection relation of US-037 criterion 1 stays blocked on approach sequences that must be
 recorded on Windows.
+
+## 2026-08-18 — synthesis: US-041 spawn distance calibration harness
+
+Recorded the second developer calibration harness, `scripts/capture_spawn_distance_samples.py`, and
+the architecture rule it shares with `capture_minimap_samples.py`: offline harnesses live in
+`scripts/`, are never imported by `flyff_bot`, depend inward on the same feature modules the
+application uses so that what they measure is what the application sees, and obey the same
+foreground and emergency-stop boundaries.
+
+Recorded what a walk-in approach actually measures. The client stops the character at melee range,
+so the absolute distance to a mob is never observable; the harness records the travel that still
+remains from each frame to the stopping point, which turns the pinhole relation `d = a / h + b` into
+`remaining_travel = a / h + (b - r_melee)`. The inverse-height coefficient is recovered unchanged and
+the fitted intercept carries the melee stopping distance folded into it, which is the second of the
+two options US-037 criterion 1 allows. Remaining travel is accumulated backwards from the stop, so an
+unmeasured odometry increment invalidates only the frames before it rather than silently
+under-counting the whole run.
+
+Recorded that `scripts/` is now type-checked and on the pytest import path, because the manifest
+schema, sample extraction, curve fit, and window-safety gate are unit tested.
+
+No measurement was ingested: US-041 delivers the instrument. US-037 criteria 1 and the fit-dependent
+bullets of criterion 2 stay open until an operator records approach sequences on Windows and the
+result is ingested into `docs/sources/`.
+

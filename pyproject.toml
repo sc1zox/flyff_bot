@@ -39,7 +39,10 @@ packages = ["src/flyff_bot"]
 python_version = "3.14"
 platform = "win32"
 strict = true
-files = ["src", "tests"]
+# `scripts/` holds the developer calibration harnesses. They are not shipped, but their
+# pure manifest and fitting logic is unit tested, so they are typed like everything else.
+files = ["src", "tests", "scripts"]
+mypy_path = "scripts"
 
 [[tool.mypy.overrides]]
 module = ["cv2", "ultralytics"]
@@ -48,6 +51,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers --cov=flyff_bot --cov-report=term-missing --cov-fail-under=60"
 testpaths = ["tests"]
+pythonpath = ["scripts"]
 
 [tool.ruff]
 target-version = "py314"

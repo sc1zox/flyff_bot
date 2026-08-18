@@ -29,6 +29,7 @@ related:
   - ../user-stories/completed/US-021-navigation-map-profiles-and-session-reset.md
   - ../user-stories/completed/US-035-measured-minimap-odometry-and-tracking-quality.md
   - ../user-stories/US-037-measured-spawn-distance-and-enforced-leash.md
+  - ../user-stories/completed/US-041-spawn-distance-calibration-capture-script.md
   - ../user-stories/completed/US-022-modern-dark-theme-and-streamlined-dashboard-ui.md
   - ../user-stories/completed/US-023-reliable-combat-targeting-and-kill-verification.md
   - ../user-stories/completed/US-025-streamlined-auto-looting-and-ocr-decoupling.md
@@ -642,3 +643,33 @@ The measured turn rate is 240 deg/s, not the 90 deg/s that was assumed, so the d
 pulse dropped from 0.15 s to 0.08 s to keep one pulse inside the 25 deg heading tolerance. The added
 measurement costs 1.06 ms per tick with the geometry cached, on the existing `SessionWorker` thread,
 never on the Qt GUI thread.
+
+## Developer calibration harnesses (US-035, US-041)
+
+`scripts/` holds the offline harnesses that produce the measurements the shipped constants cite.
+They are never imported by `flyff_bot` and ship with nothing: they depend inward on the same feature
+modules the application uses, so what they measure is what the application will see. Their console
+output is developer diagnostics and deliberately does not go through `locales/`.
+
+- `capture_minimap_samples.py` records minimap frame sequences (`burst`, `still`) and produced
+  [the odometry calibration](../sources/2026-08-18-minimap-odometry-calibration.md).
+- `capture_spawn_distance_samples.py` records synchronized approach sequences (`walk-in`), stationary
+  bearing frames (`bearing`), and fits the inverse-perspective distance relation offline (`fit`). It
+  drives `MinimapOdometer` plus `MovementTracker` for odometry and `OpenCVDnnYoloDetector` for the
+  mob boxes, on the same frame, so each recorded sample pairs an apparent bounding-box height with a
+  measured travel.
+
+Both obey the same safety boundaries as the application: capture goes through the documented GDI
+path, no input is dispatched until the client is confirmed foregrounded, and `END` releases every
+held key and flushes what was captured so far to disk.
+
+**A walk-in measures remaining travel, not distance.** The client stops the character at melee
+range, so the absolute distance to the mob is never observable. Per frame the harness records how far
+the character still travels until the approach ends, which turns `distance = a / h + b` into
+`remaining_travel = a / h + (b - r_melee)`: the inverse-height coefficient is recovered unchanged and
+the fitted intercept carries the melee stopping distance folded into it. Remaining travel is
+accumulated backwards from the stop, so an unmeasured odometry increment invalidates only the frames
+before it. Every distance is in minimap pixels, the canonical unit of US-035.
+
+`scripts/` is type-checked under the same strict `mypy` configuration as `src/` and `tests/`, and is
+on the pytest import path, because the manifest schema and the curve fit are unit tested.
