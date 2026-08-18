@@ -736,3 +736,45 @@ def test_a_sighting_with_a_known_viewport_is_still_recorded() -> None:
     controller.observe(_state(0.0, mobs=mobs))
 
     assert any(spatial_map.spawn_weight(cell, 0.0) > 0.0 for cell in spatial_map.known_cells())
+
+
+def test_an_externally_detected_obstacle_penalizes_the_blocked_cell_and_retreats() -> None:
+    """US-039: the combat approach is walked by the client, so its stall is reported in."""
+
+    spatial_map = _corridor_map()
+    odometer = MirrorOdometer(PATHING_CONFIG.movement)
+    controller = PathingController(spatial_map, config=PATHING_CONFIG, odometer=odometer)
+    controller.observe(_state(0.0))
+    _commanded(controller, odometer, VIRTUAL_KEY_W, 1.5)
+    controller.observe(_state(1.0))
+    blocked = spatial_map.cell_of(controller.position)
+
+    assert controller.register_obstacle(1.0)
+
+    assert spatial_map.stall_count(blocked) == 1
+    assert controller.mode is PathingMode.RETREATING
+    assert blocked not in controller.waypoints
+
+
+def test_an_unknown_position_learns_nothing_from_an_external_obstacle() -> None:
+    """A stall is only evidence about a place while the place itself is known."""
+
+    spatial_map = _corridor_map()
+    controller = PathingController(spatial_map, config=PATHING_CONFIG)
+
+    assert not controller.register_obstacle(1.0)
+    assert spatial_map.stall_count(GridCell(0, 0)) == 0
+
+
+def test_an_external_obstacle_during_an_ongoing_retreat_is_not_registered_twice() -> None:
+    spatial_map = _corridor_map()
+    odometer = MirrorOdometer(PATHING_CONFIG.movement)
+    controller = PathingController(spatial_map, config=PATHING_CONFIG, odometer=odometer)
+    controller.observe(_state(0.0))
+    _commanded(controller, odometer, VIRTUAL_KEY_W, 1.5)
+    controller.observe(_state(1.0))
+    blocked = spatial_map.cell_of(controller.position)
+    controller.register_obstacle(1.0)
+
+    assert not controller.register_obstacle(1.5)
+    assert spatial_map.stall_count(blocked) == 1

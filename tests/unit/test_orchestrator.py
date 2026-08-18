@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import cast
 
+import numpy as np
 import pytest
 
 from flyff_bot.features.automation.camera_alignment import CameraAligner, CameraAlignmentStatus
 from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_F1,
     VIRTUAL_KEY_RIGHT,
+    VIRTUAL_KEY_W,
     EngagementBreakReason,
 )
 from flyff_bot.features.automation.models import (
@@ -31,7 +33,12 @@ from flyff_bot.features.automation.orchestrator import (
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig, PowerUpEntry
 from flyff_bot.features.input_control import parse_virtual_key
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
-from flyff_bot.features.vision.models import FrameCaptureError, FrameCaptureErrorCode
+from flyff_bot.features.vision.models import (
+    CapturedFrame,
+    ClientSize,
+    FrameCaptureError,
+    FrameCaptureErrorCode,
+)
 from flyff_bot.ui.dashboard import (
     BotStatus,
     DashboardFeed,
@@ -43,21 +50,33 @@ from flyff_bot.ui.dashboard import (
 WINDOW_HANDLE = 42
 MOB = VisibleMob(1, "Mushpang", 0.9, 20, 20, 20, 20)
 POWER_UP_KEY = parse_virtual_key("F4")
+FROZEN_FRAME_SIZE = 64
+# The stall detector accumulates a stall while consecutive frames stay identical, which is
+# exactly what the client shows while the character runs against an obstacle (US-039).
+FROZEN_FRAME = CapturedFrame(
+    np.zeros((FROZEN_FRAME_SIZE, FROZEN_FRAME_SIZE, 3), dtype=np.uint8),
+    ClientSize(width=FROZEN_FRAME_SIZE, height=FROZEN_FRAME_SIZE),
+)
 
 
 class _Pipeline:
     def __init__(
-        self, states: list[WorldState], *, capture_error: FrameCaptureErrorCode | None = None
+        self,
+        states: list[WorldState],
+        *,
+        capture_error: FrameCaptureErrorCode | None = None,
+        frame: CapturedFrame | None = None,
     ) -> None:
         self._states = iter(states)
         self._capture_error = capture_error
+        self._frame = frame
         self.calls: list[int] = []
 
     def tick(self, window_handle: int, _previous: WorldState) -> PerceptionTick:
         self.calls.append(window_handle)
         if self._capture_error is not None:
             raise FrameCaptureError(self._capture_error)
-        return PerceptionTick(next(self._states), (), frozenset())
+        return PerceptionTick(next(self._states), (), frozenset(), frame=self._frame)
 
 
 class _InputAdapter:
@@ -523,8 +542,12 @@ def test_failed_acquisition_does_not_thrash_between_search_and_targeting() -> No
     assert orchestrator.mode is FarmingMode.SEARCHING
 
 
-def test_stuck_engagement_breaks_and_returns_to_searching() -> None:
-    """BUG-010: a fight without progress must abort after the engagement timeout."""
+def test_stuck_engagement_breaks_and_repositions_before_searching() -> None:
+    """BUG-010: a fight without progress must abort after the engagement timeout.
+
+    US-039 turns that abort into a bounded re-positioning sweep, so the session leaves
+    combat through `REPOSITIONING` rather than straight back into target selection.
+    """
 
     adapter = _InputAdapter()
     valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
@@ -537,7 +560,7 @@ def test_stuck_engagement_breaks_and_returns_to_searching() -> None:
     modes = [orchestrator.tick().mode for _ in states]
 
     assert FarmingMode.COMBAT in modes
-    assert orchestrator.mode is FarmingMode.SEARCHING
+    assert orchestrator.mode is FarmingMode.REPOSITIONING
     assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
 
 
@@ -813,3 +836,121 @@ def test_auto_alignment_can_be_toggled_from_the_dashboard() -> None:
     orchestrator.configure_auto_align(True)
     orchestrator.start()
     assert orchestrator.mode is FarmingMode.ALIGNING
+
+
+def _blocked_approach_states(count: int) -> list[WorldState]:
+    """Return one target acquisition followed by a verified fight that deals no damage."""
+
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    return [_state(0.0, mobs=(MOB,))] + [
+        _state(index * 0.5, target=valid, mobs=(MOB,)) for index in range(1, count)
+    ]
+
+
+def test_blocked_approach_breaks_the_engagement_and_enters_repositioning() -> None:
+    """US-039: a client-driven approach against an obstacle must abort and re-position."""
+
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    states = _blocked_approach_states(30)
+    orchestrator = _orchestrator(
+        states,
+        adapter,
+        dashboard_feed=feed,
+        pipeline=_Pipeline(states, frame=FROZEN_FRAME),
+    )
+    orchestrator.start()
+
+    modes = [orchestrator.tick().mode for _ in states]
+
+    assert FarmingMode.REPOSITIONING in modes
+    assert any(
+        update.engagement_break is EngagementBreakReason.OBSTACLE_STALL for update in updates
+    )
+    assert any(update.status is BotStatus.REPOSITIONING for update in updates)
+
+
+def test_repositioning_rotates_the_camera_and_roams_before_returning_to_searching() -> None:
+    """US-039: the recovery is a bounded rotate-and-roam sweep, not an endless detour."""
+
+    adapter = _InputAdapter()
+    states = _blocked_approach_states(30)
+    orchestrator = _orchestrator(states, adapter, pipeline=_Pipeline(states, frame=FROZEN_FRAME))
+    orchestrator.start()
+
+    modes = [orchestrator.tick().mode for _ in states]
+    repositioned = modes.index(FarmingMode.REPOSITIONING)
+    dispatched_keys = {virtual_key for virtual_key, _duration in adapter.keys}
+
+    assert VIRTUAL_KEY_RIGHT in dispatched_keys
+    assert VIRTUAL_KEY_W in dispatched_keys
+    assert FarmingMode.SEARCHING in modes[repositioned:]
+
+
+def test_lost_foreground_halts_repositioning_without_further_input() -> None:
+    """US-039: the re-positioning sweep obeys the same focus guard as every other phase."""
+
+    adapter = _InputAdapter()
+    states = _blocked_approach_states(40)
+    orchestrator = _orchestrator(states, adapter, pipeline=_Pipeline(states, frame=FROZEN_FRAME))
+    orchestrator.start()
+
+    while orchestrator.mode is not FarmingMode.REPOSITIONING:
+        orchestrator.tick()
+
+    adapter.foreground = False
+    keys_before = len(adapter.keys)
+    halted = orchestrator.tick()
+
+    assert halted.mode is FarmingMode.PAUSED
+    assert len(adapter.keys) == keys_before
+
+
+def test_emergency_stop_halts_repositioning_without_further_input() -> None:
+    adapter = _InputAdapter()
+    states = _blocked_approach_states(40)
+    orchestrator = _orchestrator(states, adapter, pipeline=_Pipeline(states, frame=FROZEN_FRAME))
+    orchestrator.start()
+
+    while orchestrator.mode is not FarmingMode.REPOSITIONING:
+        orchestrator.tick()
+
+    adapter.aborted = True
+    keys_before = len(adapter.keys)
+    halted = orchestrator.tick()
+
+    assert halted.mode is FarmingMode.EMERGENCY_STOPPED
+    assert len(adapter.keys) == keys_before
+
+
+def test_a_blocked_approach_registers_the_obstacle_in_the_learned_map() -> None:
+    """US-039: the blocked path is penalized wherever spatial mapping is active."""
+
+    from flyff_bot.features.navigation.pathing import PathingController
+
+    class _SpyPathing(PathingController):
+        def __init__(self) -> None:
+            super().__init__()
+            self.obstacles: list[float] = []
+
+        def register_obstacle(self, at_seconds: float) -> bool:
+            self.obstacles.append(at_seconds)
+            return super().register_obstacle(at_seconds)
+
+    adapter = _InputAdapter()
+    pathing = _SpyPathing()
+    states = _blocked_approach_states(30)
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline(states, frame=FROZEN_FRAME)),
+        adapter,
+        WINDOW_HANDLE,
+        pathing=pathing,
+    )
+    orchestrator.start()
+
+    for _tick in states:
+        orchestrator.tick()
+
+    assert pathing.obstacles

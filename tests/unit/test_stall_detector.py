@@ -232,3 +232,55 @@ def test_invalid_stall_configuration_is_rejected() -> None:
         StallConfig(center_mask_width_fraction=1.0)
     with pytest.raises(ValueError):
         StallConfig(center_mask_height_fraction=-0.1)
+
+
+def test_client_driven_combat_approach_is_sampled_and_stalls_before_the_engagement_timeout() -> (
+    None
+):
+    """US-039: the approach is walked by the game client, so the session samples it itself.
+
+    No movement key is ever dispatched during the approach and the minimap measurement is
+    unavailable here, so the peripheral frame difference is the only evidence there is. The
+    verdict has to arrive inside the 10.0 s engagement timeout to be worth anything.
+    """
+
+    engagement_timeout_seconds = 10.0
+    tick_interval_seconds = 0.1
+    detector = StallDetector(STALL_CONFIG)
+    seconds = 0.0
+    stalled_at_seconds: float | None = None
+
+    for step in range(int(engagement_timeout_seconds / tick_interval_seconds)):
+        # `movement_commanded` is the session's knowledge that the client is walking the
+        # character towards the clicked mob; the bot itself commands nothing.
+        stalled = detector.observe(
+            _animation_frame(step),
+            measured_speed_pixels_per_second=None,
+            movement_commanded=True,
+            at_seconds=seconds,
+        )
+        if stalled:
+            stalled_at_seconds = seconds
+            break
+        seconds += tick_interval_seconds
+
+    assert stalled_at_seconds is not None
+    assert stalled_at_seconds < engagement_timeout_seconds
+
+
+def test_a_measured_approach_that_keeps_covering_ground_never_stalls() -> None:
+    """US-039: a reachable mob is walked to, so the measured speed clears the streak."""
+
+    detector = StallDetector(STALL_CONFIG)
+
+    for step in range(int(STALL_TIMEOUT_SECONDS / SAMPLE_INTERVAL_SECONDS) * 3):
+        assert not detector.observe(
+            None,
+            measured_speed_pixels_per_second=(
+                STALL_CONFIG.measured_motion_threshold_pixels_per_second + 1.0
+            ),
+            movement_commanded=True,
+            at_seconds=step * SAMPLE_INTERVAL_SECONDS,
+        )
+
+    assert detector.stalled_seconds == pytest.approx(0.0)

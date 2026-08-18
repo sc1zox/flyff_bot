@@ -41,6 +41,7 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerController,
 )
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
+from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision.models import (
     CapturedFrame,
@@ -64,6 +65,23 @@ if TYPE_CHECKING:
 DEFAULT_TICK_INTERVAL_SECONDS = 0.1
 DEFAULT_SEARCH_RETRY_SECONDS = 0.5
 NAVIGATION_PERSIST_INTERVAL_SECONDS = 30.0
+# Re-positioning after a blocked approach is a short, bounded look-around rather than the
+# open-ended no-mob recovery: it starts immediately and ends after one rotate-then-roam
+# sweep, so a target that is merely awkward to reach is retried without a long detour.
+DEFAULT_REPOSITION_IDLE_TIMEOUT_SECONDS = 0.0
+DEFAULT_REPOSITION_ROTATION_STEPS = 4
+DEFAULT_REPOSITION_ROAM_STEPS = 2
+REPOSITION_SWEEP_CYCLES = 1
+
+
+def _default_reposition_config() -> SearchConfig:
+    """Return the bounded rotate-and-roam sweep used to clear a blocked approach."""
+
+    return SearchConfig(
+        idle_timeout_seconds=DEFAULT_REPOSITION_IDLE_TIMEOUT_SECONDS,
+        rotation_steps=DEFAULT_REPOSITION_ROTATION_STEPS,
+        roam_steps=DEFAULT_REPOSITION_ROAM_STEPS,
+    )
 
 
 class FarmingMode(StrEnum):
@@ -72,6 +90,7 @@ class FarmingMode(StrEnum):
     PAUSED = "paused"
     ALIGNING = "aligning"
     SEARCHING = "searching"
+    REPOSITIONING = "repositioning"
     TARGETING = "targeting"
     COMBAT = "combat"
     RECONCILING = "reconciling"
@@ -112,6 +131,8 @@ class FarmingConfig:
     tick_interval_seconds: float = DEFAULT_TICK_INTERVAL_SECONDS
     search_retry_seconds: float = DEFAULT_SEARCH_RETRY_SECONDS
     search: SearchConfig = field(default_factory=SearchConfig)
+    reposition: SearchConfig = field(default_factory=_default_reposition_config)
+    approach_stall: StallConfig = field(default_factory=StallConfig)
     vitals: VitalsTriggerConfig = field(default_factory=VitalsTriggerConfig)
     powerups: PowerUpConfig = field(default_factory=PowerUpConfig)
     auto_align_camera: bool = DEFAULT_AUTO_ALIGN_CAMERA
@@ -168,6 +189,8 @@ class FarmingOrchestrator:
         self._config = config or FarmingConfig()
         self._combat = CombatController(self._config.combat)
         self._search = SearchController(self._config.search)
+        self._reposition = SearchController(self._config.reposition)
+        self._approach_stalls = StallDetector(self._config.approach_stall)
         self._vitals = VitalsTriggerController(self._config.vitals)
         self._powerups = PowerUpScheduler(self._config.powerups)
         self._combat_dispatcher = CombatInputDispatcher(input_adapter, window_handle)
@@ -445,6 +468,7 @@ class FarmingOrchestrator:
             if combat.mode is not CombatMode.IDLE:
                 self._mode = FarmingMode.TARGETING
                 self._engagement_break = None
+                self._approach_stalls.reset()
                 return self._combat_dispatcher.dispatch(combat)
             if self._advance_pathing():
                 return True
@@ -461,14 +485,24 @@ class FarmingOrchestrator:
                 )
             return dispatched
 
+        if self._mode is FarmingMode.REPOSITIONING:
+            return self._advance_repositioning()
+
         if self._mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:
-            combat = self._combat.step(self._state)
+            combat = self._combat.step(self._state, approach_stalled=self._approach_stalled())
             if combat.break_reason is not None:
                 self._engagement_break = combat.break_reason
+                if combat.break_reason is EngagementBreakReason.OBSTACLE_STALL:
+                    self._register_navigation_obstacle()
             if combat.mode in {CombatMode.IDLE, CombatMode.TARGET_LOST}:
+                self._approach_stalls.reset()
+                if combat.reposition_requested:
+                    self._begin_repositioning()
+                    return False
                 self._mode = FarmingMode.SEARCHING
                 return False
             if combat.mode is CombatMode.TARGET_DEAD:
+                self._approach_stalls.reset()
                 self._state = replace(self._state, progress_marker=self._state.progress_marker + 1)
                 self._mode = FarmingMode.RECONCILING
                 return False
@@ -491,6 +525,62 @@ class FarmingOrchestrator:
             return False
 
         return False
+
+    def _approach_stalled(self) -> bool:
+        """Return whether the client-driven walk towards the engaged mob is blocked.
+
+        The game client moves the character after a target click, so this session tick is
+        the only place that knows movement is under way: the combat state machine dispatches
+        no movement key it could report, and `PathingController` samples nothing while it is
+        not steering itself (US-039).
+        """
+
+        if self._combat.damage_dealt:
+            # In attack range the character stands still by design, so frozen scenery stops
+            # being evidence of anything.
+            self._approach_stalls.reset()
+            return False
+        measured_speed = (
+            self._pathing.measured_speed_pixels_per_second if self._pathing is not None else None
+        )
+        return self._approach_stalls.observe(
+            self._last_frame,
+            measured_speed_pixels_per_second=measured_speed,
+            movement_commanded=True,
+            at_seconds=self._state.observed_at_seconds,
+        )
+
+    def _begin_repositioning(self) -> None:
+        """Start one bounded rotate-and-roam sweep to clear the blocked approach."""
+
+        self._reposition.reset()
+        self._mode = FarmingMode.REPOSITIONING
+
+    def _advance_repositioning(self) -> bool:
+        """Steer one re-positioning step, or hand back to searching once the sweep is done."""
+
+        decision = self._reposition.step(self._state.observed_at_seconds)
+        if self._reposition.completed_cycles >= REPOSITION_SWEEP_CYCLES:
+            self._mode = FarmingMode.SEARCHING
+            self._search.reset()
+            return False
+        dispatched = self._search_dispatcher.dispatch(decision)
+        if (
+            dispatched
+            and self._pathing is not None
+            and decision.virtual_key is not None
+            and decision.key_press_duration_seconds is not None
+        ):
+            self._pathing.integrate_movement(
+                decision.virtual_key, decision.key_press_duration_seconds
+            )
+        return dispatched
+
+    def _register_navigation_obstacle(self) -> None:
+        """Penalize the blocked path in the learned map, if the session is learning one."""
+
+        if self._pathing is not None:
+            self._pathing.register_obstacle(self._state.observed_at_seconds)
 
     def _advance_pathing(self) -> bool:
         """Steer one learned-route step, or defer to the staged search stages."""
@@ -563,6 +653,8 @@ def _dashboard_status(
         return BotStatus.RECONCILING
     if mode in {FarmingMode.PAUSED, FarmingMode.COMPLETED}:
         return BotStatus.STANDBY if live_preview else BotStatus.PAUSED
+    if mode is FarmingMode.REPOSITIONING:
+        return BotStatus.REPOSITIONING
     if mode is FarmingMode.SEARCHING:
         return {
             SearchMode.ROTATE: BotStatus.SEARCH_ROTATING,

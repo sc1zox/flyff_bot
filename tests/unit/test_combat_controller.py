@@ -402,3 +402,120 @@ def test_input_dispatcher_sends_approved_click_and_key() -> None:
     assert dispatcher.dispatch(controller.step(_state(time=1.0, target=VALID_TARGET)))
     assert adapter.clicks == [(WINDOW_HANDLE, 20, 25)]
     assert adapter.keys
+
+
+def test_blocked_approach_breaks_the_engagement_with_an_obstacle_stall() -> None:
+    """US-039: the client walks the character, so the session reports the blocked approach."""
+
+    controller = CombatController()
+    controller.step(_state(mobs=(_mob(x=80, y=40),)))
+
+    broken = controller.step(_state(time=5.0, target=VALID_TARGET), approach_stalled=True)
+
+    assert broken.mode is CombatMode.IDLE
+    assert broken.break_reason is EngagementBreakReason.OBSTACLE_STALL
+
+
+def test_first_blocked_approach_requests_repositioning_and_keeps_the_short_lockout() -> None:
+    """US-039: one obstacle is often cleared by walking around it, so nothing is written off."""
+
+    controller = CombatController()
+    mob = _mob(x=80, y=40)
+    controller.step(_state(mobs=(mob,)))
+
+    broken = controller.step(_state(time=5.0, target=VALID_TARGET), approach_stalled=True)
+
+    assert broken.reposition_requested
+    # The short lockout is still in force, so the very next tick cannot re-click the mob.
+    assert controller.step(_state(time=5.1, mobs=(mob,))).input_kind is None
+    # It expires with `target_lockout_seconds`, which the re-positioning sweep outlives.
+    assert controller.step(_state(time=9.2, mobs=(mob,))).input_kind is CombatInputKind.CLICK
+
+
+def test_second_consecutive_blocked_approach_locks_the_location_out_for_thirty_seconds() -> None:
+    """US-039: a location that blocked twice in a row is unreachable, not merely contested."""
+
+    controller = CombatController()
+    mob = _mob(x=80, y=40)
+    controller.step(_state(mobs=(mob,)))
+    controller.step(_state(time=5.0, target=VALID_TARGET), approach_stalled=True)
+    controller.step(_state(time=9.2, mobs=(mob,)))
+
+    broken = controller.step(_state(time=14.0, target=VALID_TARGET), approach_stalled=True)
+
+    assert broken.break_reason is EngagementBreakReason.OBSTACLE_STALL
+    assert not broken.reposition_requested
+    assert controller.step(_state(time=43.9, mobs=(mob,))).input_kind is None
+    assert controller.step(_state(time=44.1, mobs=(mob,))).input_kind is CombatInputKind.CLICK
+
+
+def test_a_blocked_approach_elsewhere_restarts_the_strike_count() -> None:
+    """US-039: only consecutive failures against the same location escalate."""
+
+    controller = CombatController()
+    near = _mob(x=80, y=40)
+    far = _mob(x=10, y=40)
+    controller.step(_state(mobs=(near,)))
+    controller.step(_state(time=5.0, target=VALID_TARGET), approach_stalled=True)
+
+    controller.step(_state(time=9.2, mobs=(far,)))
+    second = controller.step(_state(time=14.0, target=VALID_TARGET), approach_stalled=True)
+
+    assert second.reposition_requested
+    assert controller.step(_state(time=44.0, mobs=(near,))).input_kind is CombatInputKind.CLICK
+
+
+def test_a_stall_verdict_is_ignored_once_the_target_took_damage() -> None:
+    """US-039: in attack range the character stands still, which is not a blocked path."""
+
+    controller = CombatController()
+    controller.step(_state(mobs=(_mob(),)))
+    controller.step(_state(time=1.0, target=VALID_TARGET))
+    damaged = _state(time=2.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50))
+    assert controller.step(damaged).progress_observed
+
+    still_fighting = controller.step(
+        _state(time=3.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)),
+        approach_stalled=True,
+    )
+
+    assert still_fighting.mode is CombatMode.FIGHTING
+    assert still_fighting.break_reason is None
+
+
+def test_damage_dealt_is_reported_so_the_session_can_stop_sampling_the_approach() -> None:
+    controller = CombatController()
+    controller.step(_state(mobs=(_mob(),)))
+    controller.step(_state(time=1.0, target=VALID_TARGET))
+
+    assert not controller.damage_dealt
+
+    controller.step(_state(time=2.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)))
+
+    assert controller.damage_dealt
+
+
+def test_engagement_timeout_shares_the_unreachable_strike_count_with_the_obstacle_stall() -> None:
+    """US-039: both break reasons mean the same thing - the approach never arrived."""
+
+    controller = CombatController()
+    mob = _mob(x=80, y=40)
+    controller.step(_state(mobs=(mob,)))
+    controller.step(_state(time=1.0, target=VALID_TARGET))
+    first = controller.step(_state(time=11.1, target=VALID_TARGET))
+
+    assert first.break_reason is EngagementBreakReason.ENGAGEMENT_TIMEOUT
+    assert first.reposition_requested
+
+    controller.step(_state(time=15.2, mobs=(mob,)))
+    second = controller.step(_state(time=20.0, target=VALID_TARGET), approach_stalled=True)
+
+    assert not second.reposition_requested
+    assert controller.step(_state(time=49.9, mobs=(mob,))).input_kind is None
+
+
+def test_combat_config_rejects_invalid_unreachable_lockout_values() -> None:
+    with pytest.raises(ValueError):
+        CombatConfig(unreachable_lockout_seconds=1.0)
+    with pytest.raises(ValueError):
+        CombatConfig(approach_failure_memory_seconds=-1.0)

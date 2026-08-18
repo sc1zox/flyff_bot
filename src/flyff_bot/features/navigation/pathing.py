@@ -236,6 +236,17 @@ class PathingController:
         return self._stalled
 
     @property
+    def measured_speed_pixels_per_second(self) -> float | None:
+        """Return the speed of the most recent minimap measurement, if there was one.
+
+        A session that has to judge motion outside pathing - the combat approach the game
+        client drives after a target click (US-039) - prefers this measurement over the
+        peripheral frame difference, which is only the fallback.
+        """
+
+        return self._measured_speed_pixels_per_second
+
+    @property
     def safe_waypoint(self) -> WorldPoint | None:
         """Return the last verified stall-free waypoint behind the current cell."""
 
@@ -356,6 +367,24 @@ class PathingController:
         elif not stalled and self._map.stall_count(cell) == 0:
             self._remember_safe_waypoint(cell, position)
         self._stalled = stalled
+
+    def register_obstacle(self, at_seconds: float) -> bool:
+        """Record an externally detected obstacle at the current position (US-039).
+
+        The combat approach is walked by the game client, so a stall against terrain during
+        it never reaches :meth:`observe`. Registering it here penalizes the blocked cell and
+        the edge that reached it exactly like a stall found while pathing itself steered.
+        Returns whether the evidence could be written: an unknown or read-only position is
+        no place, so nothing is learned from it.
+        """
+
+        if self._map_read_only or self._tracker.quality is TrackingQuality.DEGRADED:
+            return False
+        if self._mode in {PathingMode.RETREATING, PathingMode.BLOCKED}:
+            return False
+        self._register_stall(self._tracker.position, at_seconds)
+        self._stalled = True
+        return True
 
     def integrate_movement(self, virtual_key: int, duration_seconds: float) -> None:
         """Integrate an external movement or camera-rotation pulse into the position estimate."""

@@ -517,3 +517,18 @@ neither prioritization nor anchor template matching runs for it.
 No measurement was ingested. Whether restricting the anchor templates to one mob measurably changes
 per-frame verification cost was not measured; the change is argued from the number of
 `cv2.matchTemplate` calls per frame, not from a timing. Moved US-038 to completed user stories.
+
+## [2026-08-19] synthesis | Combat obstacle stalls and adaptive re-navigation
+
+Recorded US-039 on `docs/wiki/architecture.md`: why the combat approach stall has to be sampled by
+`FarmingOrchestrator` rather than by `PathingController` (the game client walks the character after a
+target click, so no movement key is dispatched and `StallDetector` reads the tick as evidence-free),
+the shared strike counter behind `EngagementBreakReason.OBSTACLE_STALL` and `ENGAGEMENT_TIMEOUT`, the
+escalation from a 4.0 s lockout plus a re-positioning sweep to a 30.0 s unreachable lockout on the
+second consecutive failure, and `FarmingMode.REPOSITIONING` as a bounded reuse of `SearchController`.
+
+No measurement was ingested. The approach stall threshold and the re-positioning step counts are
+carried over defaults and estimates, not values fitted against recorded client frames; the peripheral
+centre-mask fractions they depend on were already marked as estimates in BUG-009. The named
+consequence — a damage-free fight now breaking at 5.0 s instead of 10.0 s — is reasoned from the
+configured timeouts, not observed in a live session. Moved US-039 to completed user stories.

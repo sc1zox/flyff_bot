@@ -52,6 +52,7 @@ related:
   - ../bugs/fixed/BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md
   - ../bugs/fixed/BUG-015-camera-alignment-zoom-out-has-no-effect.md
   - ../user-stories/completed/US-043-continuous-approach-target-tracking-and-minimap-zoom-initialization.md
+  - ../user-stories/completed/US-039-combat-obstacle-stall-detection-and-re-navigation.md
 ---
 
 # Architecture
@@ -865,3 +866,48 @@ before it. Every distance is in minimap pixels, the canonical unit of US-035.
 
 `scripts/` is type-checked under the same strict `mypy` configuration as `src/` and `tests/`, and is
 on the pytest import path, because the manifest schema and the curve fit are unit tested.
+
+## Combat obstacle stalls and adaptive re-navigation (US-039)
+
+US-039 closes the gap that let one blocked approach hold a session hostage. Clicking a mob makes the
+game client walk the character there, so during `TARGETING` and `COMBAT` no movement key is
+dispatched at all: `PathingController` sees `movement_commanded` false, `StallDetector` reads the
+tick as carrying no evidence, and the character can run against a tree indefinitely. The observation
+therefore moves to the only layer that knows a client-driven walk is under way.
+`FarmingOrchestrator` owns a second `StallDetector` (`FarmingConfig.approach_stall`) and samples it
+every combat tick with `movement_commanded=True`, using `PathingController.measured_speed_pixels_per_second`
+when the minimap supplies one and falling back to the peripheral frame difference otherwise. Sampling
+stops the moment `CombatController.damage_dealt` turns true, because a character standing in attack
+range produces exactly the motionless scenery the detector looks for, and that is not a blocked path.
+
+The verdict travels into the state machine as `CombatController.step(state, approach_stalled=...)`
+rather than as controller state, so the machine stays a pure function of what it is told, and it
+leaves as `EngagementBreakReason.OBSTACLE_STALL`. That reason and `ENGAGEMENT_TIMEOUT` form
+`UNREACHABLE_BREAK_REASONS`: both mean the approach never arrived, so they share one strike counter.
+`ApproachFailure` records the engaged client-space position, its strike count, and an expiry
+(`approach_failure_memory_seconds`, 30.0 s), and judges "the same mob candidate" by proximity within
+`target_lockout_radius_pixels` exactly as `TargetLockout` already does — an engagement carries no
+detection identity, so a place is the only identity available (BUG-010). The first strike keeps the
+short 4.0 s lockout and sets `CombatDecision.reposition_requested`; the second consecutive strike
+against the same location registers a `unreachable_lockout_seconds` (30.0 s) lockout and clears the
+record, which is what stops the > 20 s re-click loop the story reported.
+
+`FarmingMode.REPOSITIONING` is the recovery. It is a second `SearchController` configured as a
+bounded sweep (`idle_timeout_seconds` 0.0 so it starts immediately, four rotation steps, two roam
+steps) and it ends after one full rotate-then-roam cycle, which `SearchController.completed_cycles`
+now reports. Reusing the search controller is deliberate: rotating the camera and roaming is
+precisely what re-positioning means here, and a separate class would have duplicated it. The phase
+dispatches through the existing `SearchInputDispatcher` and feeds `PathingController.integrate_movement`,
+so it obeys the same foreground and `END` guards as every other phase and its steps stay inside the
+position estimate. When the sweep ends the session returns to `SEARCHING` with a reset idle timeout.
+
+Where a map is being learned, `PathingController.register_obstacle` writes the blocked cell and the
+edge that reached it exactly as a self-steered stall would, then retreats to the last verified safe
+waypoint. It refuses when the position is unknown or the map is read-only — a stall is only evidence
+about a place while the place is known — and while a retreat is already running, so one obstacle is
+never counted twice.
+
+One consequence is worth naming: a fight that lands no damage for `stall_timeout_seconds` (5.0 s)
+now breaks as an obstacle stall instead of waiting for the 10.0 s engagement timeout. Both reasons
+lead to the same recovery and the same strike, so the only observable difference is that the session
+recovers sooner.

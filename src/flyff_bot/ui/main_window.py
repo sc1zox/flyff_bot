@@ -1579,6 +1579,7 @@ class MainWindow(QMainWindow):
             BotStatus.RECONCILING,
             BotStatus.SEARCH_ROTATING,
             BotStatus.SEARCH_ROAMING,
+            BotStatus.REPOSITIONING,
         }
         profile_controls_enabled = not is_active
         # Alignment drives the camera by hand, so it is offered only while the session is
@@ -1726,6 +1727,7 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.RECONCILING: Message.UI_STATUS_RECONCILING,
         BotStatus.SEARCH_ROTATING: Message.UI_STATUS_SEARCH_ROTATING,
         BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
+        BotStatus.REPOSITIONING: Message.UI_STATUS_REPOSITIONING,
         BotStatus.ALIGNING: Message.UI_STATUS_ALIGNING,
         BotStatus.ALIGNMENT_FAILED: Message.UI_STATUS_ALIGNMENT_FAILED,
     }[status]
@@ -1815,6 +1817,7 @@ def _engagement_break_message(reason: EngagementBreakReason | None) -> Message:
         EngagementBreakReason.ACQUISITION_TIMEOUT: Message.UI_TARGET_DEBUG_BREAK_ACQUISITION,
         EngagementBreakReason.TARGET_UNVERIFIED: Message.UI_TARGET_DEBUG_BREAK_UNVERIFIED,
         EngagementBreakReason.ENGAGEMENT_TIMEOUT: Message.UI_TARGET_DEBUG_BREAK_TIMEOUT,
+        EngagementBreakReason.OBSTACLE_STALL: Message.UI_TARGET_DEBUG_BREAK_OBSTACLE,
     }[reason]
 
 
