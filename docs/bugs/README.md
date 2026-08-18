@@ -14,7 +14,7 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-(No active defects)
+- [ ] [**BUG-017: Spawn distance walk-in tracker target loss and edge mob misacquisition**](BUG-017-spawn-distance-walk-in-tracker-target-loss-and-edge-misacquisition.md)
 
 
 ## Fixed Defects
