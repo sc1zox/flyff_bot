@@ -18,6 +18,11 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
+from flyff_bot.features.perception.mob_world_position import (
+    MobWorldGeometryFeed,
+    MobWorldPositionEstimator,
+    with_estimated_world_positions,
+)
 from flyff_bot.features.vision.capture import FrameSource
 from flyff_bot.features.vision.detection import Detection, DetectionError, Detector
 from flyff_bot.features.vision.models import CapturedFrame
@@ -105,11 +110,24 @@ class PerceptionPipeline:
         self._monster_stats_reader = monster_stats_reader
         self._monster_stats_interval_seconds = monster_stats_interval_seconds
         self._next_monster_stats_read_at_seconds = 0.0
+        self._mob_world_estimator: MobWorldPositionEstimator | None = None
+
+    def attach_world_geometry(self, geometry: MobWorldGeometryFeed | None) -> None:
+        """Bind, or release, the live camera and NavMesh detections are unprojected against.
+
+        Without a feed the pipeline keeps reporting purely client-space detections, which is
+        exactly what a session without a baked mesh or a readable camera has to work from.
+        """
+
+        self._mob_world_estimator = (
+            None if geometry is None else MobWorldPositionEstimator(geometry)
+        )
 
     def tick(self, window_handle: int, previous_state: WorldState) -> PerceptionTick:
         """Build a new snapshot, retaining a feed's prior data if that feed fails."""
 
         frame = self._frame_source.capture(window_handle)
+        viewport = Viewport(frame.client_size.width, frame.client_size.height)
         failures: set[PerceptionFailure] = set()
         visible_mobs = previous_state.visible_mobs
         selected_target = previous_state.selected_target
@@ -123,6 +141,11 @@ class PerceptionPipeline:
             )
         except DETECTION_ERRORS:
             failures.add(PerceptionFailure.DETECTION)
+        else:
+            if self._mob_world_estimator is not None:
+                visible_mobs = with_estimated_world_positions(
+                    visible_mobs, self._mob_world_estimator.estimate(visible_mobs, viewport)
+                )
         try:
             selected_target = _selected_target(self._target_verifier.verify(frame))
         except FRAME_READ_ERRORS:
@@ -159,7 +182,7 @@ class PerceptionPipeline:
             is_stuck=previous_state.is_stuck,
             selected_target=selected_target,
             visible_mobs=visible_mobs,
-            viewport=Viewport(frame.client_size.width, frame.client_size.height),
+            viewport=viewport,
             player_vitals=player_vitals,
             monster_kill_count=monster_kill_count,
             monster_stats=monster_stats,

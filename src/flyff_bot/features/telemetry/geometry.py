@@ -7,10 +7,8 @@ from math import atan2, dist, sqrt
 
 from flyff_bot.features.navigation.live_camera import CameraState, unproject_screen_ray
 from flyff_bot.features.navigation.live_position import WorldPosition
-from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshPolygon
+from flyff_bot.features.navigation.navmesh import BakedNavMesh
 from flyff_bot.features.navigation.world_geometry import WorldVertex
-
-RAY_INTERSECTION_EPSILON = 1e-8
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,13 +54,13 @@ def project_candidate(
         )
     except ValueError:
         return None
-    hit = _nearest_hit(navmesh, ray.origin, ray.direction.x, ray.direction.y, ray.direction.z)
+    hit = navmesh.raycast(ray.origin, ray.direction)
     if hit is None:
         return None
-    polygon, position = hit
+    position = hit.position
     return ProjectedCandidate(
         position=position,
-        polygon_id=polygon.polygon_id,
+        polygon_id=hit.polygon_id,
         relative_distance=dist(
             (player_position.x, player_position.y, player_position.z),
             (position.x, position.y, position.z),
@@ -89,75 +87,6 @@ def navmesh_slope(navmesh: BakedNavMesh | None, position: WorldPosition | None) 
     if normal_y == 0.0:
         return None
     return atan2(horizontal, abs(normal_y))
-
-
-def _nearest_hit(
-    navmesh: BakedNavMesh,
-    origin: WorldPosition,
-    direction_x: float,
-    direction_y: float,
-    direction_z: float,
-) -> tuple[NavMeshPolygon, WorldPosition] | None:
-    nearest: tuple[float, NavMeshPolygon, WorldPosition] | None = None
-    for polygon in navmesh.polygons:
-        hit_distance = _ray_triangle_distance(
-            origin,
-            direction_x,
-            direction_y,
-            direction_z,
-            polygon.triangle.first,
-            polygon.triangle.second,
-            polygon.triangle.third,
-        )
-        if hit_distance is None or (nearest is not None and hit_distance >= nearest[0]):
-            continue
-        nearest = (
-            hit_distance,
-            polygon,
-            WorldPosition(
-                origin.x + direction_x * hit_distance,
-                origin.y + direction_y * hit_distance,
-                origin.z + direction_z * hit_distance,
-            ),
-        )
-    return None if nearest is None else (nearest[1], nearest[2])
-
-
-def _ray_triangle_distance(
-    origin: WorldPosition,
-    direction_x: float,
-    direction_y: float,
-    direction_z: float,
-    first: WorldVertex,
-    second: WorldVertex,
-    third: WorldVertex,
-) -> float | None:
-    """Return a positive Moller-Trumbore intersection distance, if one exists."""
-
-    edge_one = (second.x - first.x, second.y - first.y, second.z - first.z)
-    edge_two = (third.x - first.x, third.y - first.y, third.z - first.z)
-    cross_x = direction_y * edge_two[2] - direction_z * edge_two[1]
-    cross_y = direction_z * edge_two[0] - direction_x * edge_two[2]
-    cross_z = direction_x * edge_two[1] - direction_y * edge_two[0]
-    determinant = edge_one[0] * cross_x + edge_one[1] * cross_y + edge_one[2] * cross_z
-    if abs(determinant) <= RAY_INTERSECTION_EPSILON:
-        return None
-    inverse = 1.0 / determinant
-    origin_offset = (origin.x - first.x, origin.y - first.y, origin.z - first.z)
-    origin_cross = (
-        origin_offset[0] * cross_x + origin_offset[1] * cross_y + origin_offset[2] * cross_z
-    )
-    u = origin_cross * inverse
-    if not 0.0 <= u <= 1.0:
-        return None
-    cross_x = origin_offset[1] * edge_one[2] - origin_offset[2] * edge_one[1]
-    cross_y = origin_offset[2] * edge_one[0] - origin_offset[0] * edge_one[2]
-    cross_z = origin_offset[0] * edge_one[1] - origin_offset[1] * edge_one[0]
-    v = (direction_x * cross_x + direction_y * cross_y + direction_z * cross_z) * inverse
-    if v < 0.0 or u + v > 1.0:
-        return None
-    distance = (edge_two[0] * cross_x + edge_two[1] * cross_y + edge_two[2] * cross_z) * inverse
-    return distance if distance > RAY_INTERSECTION_EPSILON else None
 
 
 def _normal(

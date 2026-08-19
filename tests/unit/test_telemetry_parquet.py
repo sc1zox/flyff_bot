@@ -87,8 +87,8 @@ def test_exporter_writes_dataframe_compatible_parquet_tables(tmp_path: Path) -> 
     ]
     target_row = pq.read_table(target).to_pylist()[0]
     assert target_row["selected"] is True
-    assert target_row["world_x"] == 11.0
-    assert target_row["target_navmesh_polygon_id"] == "9"
+    assert target_row["estimated_mob_x"] == 11.0
+    assert target_row["estimated_mob_polygon_id"] == "9"
     navigation_row = pq.read_table(navigation).to_pylist()[0]
     assert navigation_row["path_efficiency"] == 0.5
     assert navigation_row["target_z"] == 5.0

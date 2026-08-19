@@ -62,10 +62,12 @@ class TelemetryDatasetExporter:
                         "class_id": candidate["class_id"],
                         "class_name": candidate["class_name"],
                         "confidence": candidate["confidence"],
-                        "world_x": _coordinate(candidate.get("world_position"), "x"),
-                        "world_y": _coordinate(candidate.get("world_position"), "y"),
-                        "world_z": _coordinate(candidate.get("world_position"), "z"),
-                        "target_navmesh_polygon_id": candidate.get("target_navmesh_polygon_id"),
+                        # Candidate geometry is named after the estimator that measures it:
+                        # a bottom-centre camera ray resolved on the NavMesh (US-057).
+                        "estimated_mob_x": _coordinate(candidate.get("world_position"), "x"),
+                        "estimated_mob_y": _coordinate(candidate.get("world_position"), "y"),
+                        "estimated_mob_z": _coordinate(candidate.get("world_position"), "z"),
+                        "estimated_mob_polygon_id": candidate.get("target_navmesh_polygon_id"),
                         "relative_distance": candidate.get("relative_distance"),
                         "relative_elevation": candidate.get("relative_elevation"),
                         "path_distance": candidate.get("path_distance"),

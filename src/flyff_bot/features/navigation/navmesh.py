@@ -13,7 +13,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from itertools import count, pairwise
 
+from flyff_bot.features.navigation.live_camera import Vector3D
 from flyff_bot.features.navigation.live_position import WorldPosition
+from flyff_bot.features.navigation.raycast import NavMeshRayIndex, RayHit
 from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
 
 DEFAULT_MAXIMUM_WALKABLE_SLOPE_DEGREES = 45.0
@@ -100,6 +102,9 @@ class BakedNavMesh:
         self._adjacency = adjacency
         self._spans = spans
         self.config = config
+        # Built on the first cast and reused for the mesh's lifetime: indexing every
+        # walkable triangle once is what keeps a batch of detections off a full scan.
+        self._ray_index: NavMeshRayIndex | None = None
 
     @property
     def polygons(self) -> tuple[NavMeshPolygon, ...]:
@@ -118,6 +123,16 @@ class BakedNavMesh:
         """Return the stable polygon graph without exposing its mutable backing mapping."""
 
         return dict(self._adjacency)
+
+    def raycast(self, origin: WorldPosition, direction: Vector3D) -> RayHit | None:
+        """Return the first walkable surface a world ray meets, nearest hit first."""
+
+        if self._ray_index is None:
+            self._ray_index = NavMeshRayIndex(
+                tuple((polygon.polygon_id, polygon.triangle) for polygon in self._polygons),
+                self.config.cell_size_units,
+            )
+        return self._ray_index.nearest_hit(origin, direction)
 
     def nearest_walkable_position(self, position: WorldPosition) -> WorldPosition | None:
         """Project to the nearest valid surface; ties use the stable polygon ID."""

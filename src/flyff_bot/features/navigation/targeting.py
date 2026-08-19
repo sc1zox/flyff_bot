@@ -39,29 +39,35 @@ def enrich_visible_mobs(
         return mobs
     enriched: list[VisibleMob] = []
     for mob in mobs:
-        hit = project_candidate(
-            camera=camera_state,
-            navmesh=navmesh,
-            player_position=player_position,
-            viewport_width=viewport.width,
-            viewport_height=viewport.height,
-            screen_x=mob.x + mob.width / 2.0,
-            screen_bottom_y=mob.y + mob.height,
-        )
-        if hit is None:
-            enriched.append(mob)
-            continue
-        reachable = navmesh.is_reachable(player_position, hit.position)
-        anchor_distance = navmesh.path_distance(anchor_position, hit.position)
+        # The perception tick already unprojected this box against the same mesh whenever a
+        # geometry feed was attached, so routing reuses that hit instead of casting twice.
+        position = mob_world_position(mob)
+        polygon_id = mob.navmesh_polygon_id
+        if position is None:
+            hit = project_candidate(
+                camera=camera_state,
+                navmesh=navmesh,
+                player_position=player_position,
+                viewport_width=viewport.width,
+                viewport_height=viewport.height,
+                screen_x=mob.x + mob.width / 2.0,
+                screen_bottom_y=mob.y + mob.height,
+            )
+            if hit is None:
+                enriched.append(mob)
+                continue
+            position, polygon_id = hit.position, hit.polygon_id
+        reachable = navmesh.is_reachable(player_position, position)
+        anchor_distance = navmesh.path_distance(anchor_position, position)
         within_leash = anchor_distance is not None and anchor_distance <= leash_radius_units
         enriched.append(
             replace(
                 mob,
-                world_x=hit.position.x,
-                world_y=hit.position.y,
-                world_z=hit.position.z,
-                navmesh_polygon_id=hit.polygon_id,
-                navmesh_path_distance=hit.path_distance,
+                world_x=position.x,
+                world_y=position.y,
+                world_z=position.z,
+                navmesh_polygon_id=polygon_id,
+                navmesh_path_distance=navmesh.path_distance(player_position, position),
                 navmesh_reachable=reachable,
                 navmesh_within_leash=within_leash,
             )
