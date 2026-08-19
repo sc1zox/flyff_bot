@@ -656,3 +656,21 @@ No raw source or live measurement was ingested; these claims are derived from th
 and regression tests. The automated repository gate passed, but a foregrounded Windows
 `neuz.exe` walkthrough against real invisible collision geometry remains outstanding. Moved BUG-017
 to fixed bugs.
+
+## [2026-08-19] synthesis | Packed client archive extraction and complete terrain (US-052)
+
+Recorded US-052 in `docs/wiki/architecture.md` and `docs/wiki/glossary.md`: the client's
+`<world>.hdr` index layout, the file-name keystream that obfuscates `<world>.one` entries, and the
+known-prefix lookup that finds a terrain block without ever learning the index's opaque identities.
+Corrected the US-045 paragraph that stated the packed archive was permanently out of reach.
+Documented world-map schema version 3, which moves height grids out of the JSON document into
+`.lnd` height fields beside it, and the three typed extraction diagnostics that skip an unsupported
+archive index, an undecodable packed block, or an unknown placed-object layout without costing a
+region its terrain.
+
+Evidence is the shipped `2026-08-19` extraction audit plus a run of the new
+`--extract-world` command against the operator's own unmodified Entropia installation: 1,116
+decoded height fields against the 153 loose blocks the audit counted, and Eden resolving all 25 of
+its declared blocks. The full `./scripts/check.ps1` gate passed at 768 tests passed, 3 skipped, and
+92.44% coverage. No live `neuz.exe` session was run, so terrain accuracy against the client's own
+physics over newly mapped blocks remains outstanding. Moved US-052 to completed user stories.

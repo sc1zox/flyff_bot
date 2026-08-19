@@ -66,6 +66,11 @@ def test_each_language_contains_every_message() -> None:
                 summary="x",
                 progress="x",
                 kills=0,
+                declared=0,
+                detail="x",
+                root="x",
+                directory="x",
+                regions=0,
             )
 
 

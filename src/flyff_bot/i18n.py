@@ -350,6 +350,18 @@ class Message(StrEnum):
     UI_EVENT_MODE_RECONCILING = "ui.event_mode_reconciling"
     UI_EVENT_MODE_COMPLETED = "ui.event_mode_completed"
     UI_EVENT_MODE_EMERGENCY_STOPPED = "ui.event_mode_emergency_stopped"
+    HELP_EXTRACT_WORLD = "help.extract_world"
+    HELP_CLIENT_WORLD_ROOT = "help.client_world_root"
+    HELP_WORLD_MAP_DIRECTORY = "help.world_map_directory"
+    HELP_WORLD_REGION = "help.world_region"
+    WORLD_EXTRACTED = "status.world_extracted"
+    WORLD_EXTRACTION_COMPLETE = "status.world_extraction_complete"
+    WORLD_ARCHIVE_INDEX_SKIPPED = "status.world_archive_index_skipped"
+    WORLD_ARCHIVE_BLOCK_SKIPPED = "status.world_archive_block_skipped"
+    WORLD_OBJECT_FILE_SKIPPED = "status.world_object_file_skipped"
+    WORLD_EXTRACTION_NO_REGIONS = "error.world_extraction_no_regions"
+    WORLD_EXTRACTION_FAILED = "error.world_extraction_failed"
+    UI_WORLD_DATA_WARNINGS = "ui.world_data_warnings"
 
 
 class Translator:

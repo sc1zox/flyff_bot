@@ -6,10 +6,12 @@ repository, so every extraction test builds the byte layout it needs from these 
 
 from __future__ import annotations
 
+import hashlib
 import struct
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
+from flyff_bot.features.navigation.client_archive import encode_archive_payload
 from flyff_bot.features.navigation.world_extractor import (
     DYNAMIC_OBJECT_MODEL_NAME_BYTES,
     DYNAMIC_OBJECT_MODEL_NAME_OFFSET,
@@ -17,7 +19,12 @@ from flyff_bot.features.navigation.world_extractor import (
     DYNAMIC_OBJECT_RECORD_BYTES,
     LAND_BLOCK_VERTICES_PER_SIDE,
     SUPPORTED_LAND_BLOCK_VERSION,
+    land_block_file_name,
 )
+
+# The client's index stores an opaque digest of the file name rather than the name itself,
+# so the synthetic archives do the same: nothing here may depend on reading it back.
+ARCHIVE_IDENTITY_LENGTH = 64
 
 WORLD_SCRIPT = """// World script
 
@@ -102,12 +109,65 @@ def dynamic_object_payload(
     return struct.pack("<i", len(positions)) + bytes(body)
 
 
+def archive_identity(file_name: str) -> str:
+    """Return one opaque index identity, standing in for the client's own name digest."""
+
+    return hashlib.sha256(file_name.encode("cp1252")).hexdigest()[:ARCHIVE_IDENTITY_LENGTH]
+
+
+def archive_payloads(files: Mapping[str, bytes]) -> tuple[bytes, bytes]:
+    """Return the `.hdr` index and the `.one` payload of one synthetic archive pair."""
+
+    index = bytearray(struct.pack("<i", len(files)))
+    payload = bytearray()
+    for file_name, content in files.items():
+        identity = archive_identity(file_name).encode("ascii")
+        index.extend(struct.pack("<i", len(identity)))
+        index.extend(identity)
+        index.extend(struct.pack("<2i", len(payload), len(content)))
+        payload.extend(encode_archive_payload(content, file_name))
+    return bytes(index), bytes(payload)
+
+
+def archive_index_bytes(files: Mapping[str, bytes]) -> bytes:
+    """Return only the `.hdr` index of one synthetic archive pair."""
+
+    return archive_payloads(files)[0]
+
+
+def write_archive(directory: Path, stem: str, files: Mapping[str, bytes]) -> None:
+    """Create one synthetic `.hdr` / `.one` archive pair holding the given packed files."""
+
+    index, payload = archive_payloads(files)
+    (directory / f"{stem}.hdr").write_bytes(index)
+    (directory / f"{stem}.one").write_bytes(payload)
+
+
+def unsupported_archive_index(entry_count: int = 1) -> bytes:
+    """Return an index in the other layout the client ships, which this reader refuses.
+
+    Its records carry one extra leading field, so every later field lands on the wrong
+    offset and the index cannot describe itself.
+    """
+
+    index = bytearray(struct.pack("<i", entry_count))
+    for number in range(entry_count):
+        identity = archive_identity(str(number)).encode("ascii")
+        index.extend(struct.pack("<i", -1))
+        index.extend(struct.pack("<i", len(identity)))
+        index.extend(identity)
+        index.extend(struct.pack("<2i", 0, 0))
+    return bytes(index)
+
+
 def write_world_directory(
     root: Path,
     name: str,
     *,
     region_records: Iterable[str] = (),
     blocks: Iterable[tuple[int, int, Sequence[float]]] = (),
+    archived_blocks: Iterable[tuple[int, int, Sequence[float]]] = (),
+    archived_files: Mapping[str, bytes] | None = None,
     objects: Sequence[tuple[float, float, float]] = (),
 ) -> Path:
     """Create one synthetic client region directory and return its path."""
@@ -119,8 +179,15 @@ def write_world_directory(
     if records:
         (directory / f"{name}.rgn").write_bytes(utf16_payload(region_script(records)))
     for block_x, block_z, heights in blocks:
-        block_name = f"{name}{block_x:02d}-{block_z:02d}.lnd"
+        block_name = land_block_file_name(name, block_x, block_z)
         (directory / block_name).write_bytes(land_block_payload(block_x, block_z, heights))
+    packed = dict(archived_files or {})
+    for block_x, block_z, heights in archived_blocks:
+        packed[land_block_file_name(name, block_x, block_z)] = land_block_payload(
+            block_x, block_z, heights
+        )
+    if packed:
+        write_archive(directory, name, packed)
     if objects:
         (directory / f"{name}.dyo").write_bytes(dynamic_object_payload(objects))
     return directory

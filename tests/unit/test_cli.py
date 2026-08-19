@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from _pytest.capture import CaptureFixture
 from _pytest.monkeypatch import MonkeyPatch
+from world_fixtures import (
+    flat_heights,
+    respawn_record,
+    unsupported_archive_index,
+    write_world_directory,
+)
 
 import flyff_bot.cli as cli
 from flyff_bot.constants import ExitCode
@@ -200,3 +208,82 @@ def test_search_settle_cli_options() -> None:
     )
 
     assert arguments.search_settle_pause == 0.35
+
+
+def test_extract_world_writes_a_map_and_its_height_fields_without_a_game_window(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    root = tmp_path / "client"
+    write_world_directory(
+        root,
+        "wdtest",
+        region_records=[respawn_record(1453, (10.0, 0.0, 10.0), (0, 0, 20, 20), 4, 30)],
+        archived_blocks=[
+            (block_x, block_z, flat_heights(50.0)) for block_x in range(2) for block_z in range(2)
+        ],
+    )
+    output = tmp_path / "worlds"
+
+    exit_code = cli.main(
+        [
+            "--extract-world",
+            "--client-world-root",
+            str(root),
+            "--world-map-directory",
+            str(output),
+            "--language",
+            "en",
+        ]
+    )
+
+    assert exit_code == ExitCode.SUCCESS
+    assert (output / "wdtest.json").is_file()
+    assert len(list((output / "wdtest").glob("*.lnd"))) == 4
+    printed = capsys.readouterr().out
+    assert "4 of 4 terrain blocks" in printed
+    assert "1 regions extracted" in printed
+
+
+def test_extract_world_reports_an_unreadable_archive_and_keeps_going(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    root = tmp_path / "client"
+    directory = write_world_directory(root, "wdtest", blocks=[(0, 0, flat_heights(50.0))])
+    (directory / "wdtest.hdr").write_bytes(unsupported_archive_index())
+    (directory / "wdtest.one").write_bytes(b"")
+
+    exit_code = cli.main(
+        [
+            "--extract-world",
+            "--client-world-root",
+            str(root),
+            "--world-map-directory",
+            str(tmp_path / "worlds"),
+            "--language",
+            "en",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == ExitCode.SUCCESS
+    assert "unsupported layout" in captured.err
+    assert "1 of 4 terrain blocks" in captured.out
+
+
+def test_extract_world_without_a_client_region_fails_with_a_localized_reason(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    exit_code = cli.main(
+        [
+            "--extract-world",
+            "--client-world-root",
+            str(tmp_path / "missing"),
+            "--world-map-directory",
+            str(tmp_path / "worlds"),
+            "--language",
+            "de",
+        ]
+    )
+
+    assert exit_code == ExitCode.WORLD_EXTRACTION_FAILURE
+    assert "keine Client-Region" in capsys.readouterr().err

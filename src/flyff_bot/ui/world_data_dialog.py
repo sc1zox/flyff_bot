@@ -31,6 +31,7 @@ from flyff_bot.features.navigation.vector_navigation import (
     ZoneGoal,
 )
 from flyff_bot.features.navigation.world_extractor import (
+    ExtractionDiagnostic,
     VectorSpawnZone,
     WorldExtractionSummary,
     WorldVectorMap,
@@ -109,12 +110,13 @@ class WorldExtractionWorker(QObject):
                 if self._monster_names_path is not None and self._monster_names_path.is_file()
                 else {}
             )
-            world_map = extract_world(world_directory, monster_names=names)
+            diagnostics: list[ExtractionDiagnostic] = []
+            world_map = extract_world(world_directory, monster_names=names, diagnostics=diagnostics)
             output_path = save_world_map(world_map, self._output_directory)
         except (OSError, ValueError) as error:
             self.failed.emit(str(error))
             return
-        self.completed.emit(summarize(world_map, output_path))
+        self.completed.emit(summarize(world_map, output_path, diagnostics))
 
 
 class WorldDataDialog(QDialog):
@@ -332,17 +334,21 @@ class WorldDataDialog(QDialog):
         self._extract_button.setEnabled(True)
         if not isinstance(summary, WorldExtractionSummary):
             return
-        self._status_label.setText(
-            self._translator.text(
-                Message.UI_WORLD_DATA_RESULT,
-                world=summary.world_name,
-                zones=summary.zone_count,
-                obstacles=summary.obstacle_count,
-                blocks=summary.terrain_block_count,
-                monsters=", ".join(summary.monster_names),
-                path=str(summary.output_path),
-            )
+        result = self._translator.text(
+            Message.UI_WORLD_DATA_RESULT,
+            world=summary.world_name,
+            zones=summary.zone_count,
+            obstacles=summary.obstacle_count,
+            blocks=summary.terrain_block_count,
+            monsters=", ".join(summary.monster_names),
+            path=str(summary.output_path),
         )
+        if summary.diagnostics:
+            warning = self._translator.text(
+                Message.UI_WORLD_DATA_WARNINGS, count=len(summary.diagnostics)
+            )
+            result = "\n".join((result, warning))
+        self._status_label.setText(result)
         self._refresh_maps()
         index = self._map_selector.findData(summary.output_path)
         if index >= 0:

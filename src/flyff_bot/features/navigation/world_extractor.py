@@ -1,14 +1,16 @@
 """Offline extraction of vector spawn zones and terrain passability from client world files.
 
-The Flyff client ships each region as a directory of small, unencrypted description files
-next to one packed ``.one`` archive. Everything this module reads is a loose file: the world
-script (``.wld``) states the map dimensions, the region script (``.rgn``) lists the monster
-respawn zones, each terrain block (``.lnd``) carries a raw float32 height grid, and the
-dynamic-object file (``.dyo``) places props. The packed archive is obfuscated and is
-deliberately not touched (US-045), so a region whose terrain blocks live only inside it
-extracts its spawn zones and no passability geometry.
+The Flyff client ships each region as a directory of small description files next to one
+packed ``.one`` archive. The loose files are the world script (``.wld``) stating the map
+dimensions, the region script (``.rgn``) listing the monster respawn zones, the
+dynamic-object file (``.dyo``) placing props, and whichever terrain blocks (``.lnd``) a
+patch has replaced on disk. The rest of the region's terrain lives inside the archive, and
+US-052 reads it through :mod:`flyff_bot.features.navigation.client_archive`, so a region's
+height field now covers every block the client ships rather than only its patched ones.
 
-Reading is strictly offline file I/O: no game process is opened, read, or written.
+Reading is strictly offline file I/O: no game process is opened, and no client file is
+written. Extracted height fields are written to the local navigation data directory as
+plain ``.lnd`` heightfields.
 """
 
 from __future__ import annotations
@@ -16,10 +18,16 @@ from __future__ import annotations
 import json
 import math
 import struct
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, MutableSequence, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+
+from flyff_bot.features.navigation.client_archive import (
+    ClientArchiveError,
+    ClientWorldArchive,
+    encode_archive_payload,
+)
 
 WORLD_SCRIPT_SUFFIX = ".wld"
 REGION_SCRIPT_SUFFIX = ".rgn"
@@ -61,6 +69,10 @@ LAND_BLOCK_CELLS_PER_SIDE = 128
 LAND_BLOCK_VERTICES_PER_SIDE = LAND_BLOCK_CELLS_PER_SIDE + 1
 LAND_BLOCK_HEADER_BYTES = 12
 FLOAT32_BYTES = 4
+LAND_BLOCK_SAMPLE_COUNT = LAND_BLOCK_VERTICES_PER_SIDE * LAND_BLOCK_VERTICES_PER_SIDE
+LAND_BLOCK_HEIGHTFIELD_BYTES = LAND_BLOCK_HEADER_BYTES + LAND_BLOCK_SAMPLE_COUNT * FLOAT32_BYTES
+# The client names a packed terrain block after its region and its two-digit block indices.
+LAND_BLOCK_NAME_TEMPLATE = "{world}{block_x:02d}-{block_z:02d}{suffix}"
 
 # A gradient above one metre of rise per metre of run is a cliff face the client's physics
 # refuses to walk up (US-045), so the quad it belongs to is impassable.
@@ -79,7 +91,7 @@ DYNAMIC_OBJECT_MODEL_NAME_BYTES = 32
 # the passability grid itself resolves: one terrain quad.
 DEFAULT_DYNAMIC_OBJECT_RADIUS_UNITS = DEFAULT_METERS_PER_UNIT
 
-WORLD_VECTOR_MAP_SCHEMA_VERSION = 2
+WORLD_VECTOR_MAP_SCHEMA_VERSION = 3
 
 
 class WorldExtractionError(ValueError):
@@ -93,6 +105,25 @@ class ObstacleKind(StrEnum):
     SLOPE = "slope"
     # The footprint of a placed static object.
     OBJECT = "object"
+
+
+class ExtractionWarning(StrEnum):
+    """Why one part of a region was skipped instead of extracted."""
+
+    # The region's `.hdr` index does not use the layout this reader supports.
+    UNSUPPORTED_ARCHIVE_INDEX = "unsupported_archive_index"
+    # One packed terrain block decoded into something that is not a version 3 height field.
+    UNREADABLE_ARCHIVE_BLOCK = "unreadable_archive_block"
+    # The region's `.dyo` file uses one of the placement layouts this reader does not know.
+    UNREADABLE_OBJECT_FILE = "unreadable_object_file"
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractionDiagnostic:
+    """One skipped part of a region, named so the operator can see what was lost."""
+
+    warning: ExtractionWarning
+    detail: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,22 +343,11 @@ class LandBlock:
 
         return self.heights[row * LAND_BLOCK_VERTICES_PER_SIDE + column]
 
-    def to_dict(self) -> dict[str, object]:
-        """Return the complete authoritative height grid for persistence."""
+    def to_bytes(self) -> bytes:
+        """Return this block as a ``.lnd`` height field in the client's own byte layout."""
 
-        return {
-            "block": [self.block_x, self.block_z],
-            "heights": list(self.heights),
-        }
-
-    @classmethod
-    def from_dict(cls, payload: object) -> LandBlock:
-        """Rebuild one persisted terrain block."""
-
-        document = _mapping(payload, "terrain block")
-        block = _integers(document.get("block"), "terrain block coordinates", 2)
-        heights = _number_sequence(document.get("heights"), "terrain heights")
-        return cls(block[0], block[1], heights)
+        header = struct.pack("<3i", SUPPORTED_LAND_BLOCK_VERSION, self.block_x, self.block_z)
+        return header + struct.pack(f"<{len(self.heights)}f", *self.heights)
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,14 +397,17 @@ class WorldVectorMap:
                 "blocks_z": self.dimensions.blocks_z,
                 "meters_per_unit": self.dimensions.meters_per_unit,
             },
-            "terrain_blocks": [block.to_dict() for block in self.terrain_blocks],
             "zones": [zone.to_dict() for zone in self.zones],
             "obstacles": [obstacle.to_dict() for obstacle in self.obstacles],
         }
 
     @classmethod
-    def from_dict(cls, payload: object) -> WorldVectorMap:
-        """Rebuild an extracted map, raising ``WorldExtractionError`` for anything unusable."""
+    def from_dict(cls, payload: object, terrain_blocks: Iterable[LandBlock] = ()) -> WorldVectorMap:
+        """Rebuild an extracted map, raising ``WorldExtractionError`` for anything unusable.
+
+        Height fields are not part of the document: they are persisted as ``.lnd`` files and
+        are passed back in, so one JSON map stays small however many blocks a region has.
+        """
 
         document = _mapping(payload, "world vector map")
         version = _integer(document.get("version"), "version")
@@ -410,10 +433,7 @@ class WorldVectorMap:
                 ObstacleRectangle.from_dict(entry)
                 for entry in _sequence(document.get("obstacles"), "obstacles")
             ),
-            terrain_blocks=tuple(
-                LandBlock.from_dict(entry)
-                for entry in _sequence(document.get("terrain_blocks"), "terrain blocks")
-            ),
+            terrain_blocks=tuple(terrain_blocks),
         )
 
 
@@ -515,6 +535,8 @@ class WorldExtractionSummary:
     terrain_block_count: int
     monster_names: tuple[str, ...]
     output_path: Path
+    declared_block_count: int = 0
+    diagnostics: tuple[ExtractionDiagnostic, ...] = ()
 
 
 def read_world_text(payload: bytes) -> str:
@@ -605,12 +627,18 @@ def decode_land_block(payload: bytes) -> LandBlock:
         raise WorldExtractionError(f"Unsupported terrain block version: {version}.")
     if block_x < 0 or block_z < 0:
         raise WorldExtractionError("A terrain block must sit at non-negative block coordinates.")
-    sample_count = LAND_BLOCK_VERTICES_PER_SIDE * LAND_BLOCK_VERTICES_PER_SIDE
-    required = LAND_BLOCK_HEADER_BYTES + sample_count * FLOAT32_BYTES
-    if len(payload) < required:
+    if len(payload) < LAND_BLOCK_HEIGHTFIELD_BYTES:
         raise WorldExtractionError("A terrain block is too short to carry its height grid.")
-    heights = struct.unpack_from(f"<{sample_count}f", payload, LAND_BLOCK_HEADER_BYTES)
+    heights = struct.unpack_from(f"<{LAND_BLOCK_SAMPLE_COUNT}f", payload, LAND_BLOCK_HEADER_BYTES)
     return LandBlock(block_x, block_z, heights)
+
+
+def land_block_file_name(world_name: str, block_x: int, block_z: int) -> str:
+    """Return the client's own file name for one terrain block of one region."""
+
+    return LAND_BLOCK_NAME_TEMPLATE.format(
+        world=world_name, block_x=block_x, block_z=block_z, suffix=LAND_BLOCK_SUFFIX
+    )
 
 
 def land_block_obstacles(
@@ -749,9 +777,23 @@ def discover_world_directories(root: Path) -> tuple[Path, ...]:
 
 
 def extract_world(
-    world_directory: Path, *, monster_names: Mapping[int, str] | None = None
+    world_directory: Path,
+    *,
+    monster_names: Mapping[int, str] | None = None,
+    diagnostics: MutableSequence[ExtractionDiagnostic] | None = None,
 ) -> WorldVectorMap:
-    """Extract the vector spawn zones and passability geometry of one client region."""
+    """Extract the vector spawn zones and passability geometry of one client region.
+
+    Terrain comes from two places. A block a patch has left loose on disk is authoritative
+    and is read first; every remaining block declared by the ``.wld`` grid is read out of
+    the region's packed archive. Anything the archive cannot deliver is appended to
+    ``diagnostics`` and skipped, so one unreadable block never costs the whole region.
+
+    The map is named after the region *directory* rather than its world script, because
+    several regions ship a script of the same name - the seasonal Madrigal variants all
+    declare ``wdmadrigal`` - and a shared name would have them overwrite each other's
+    extracted map.
+    """
 
     script_path = _world_script_path(world_directory)
     if script_path is None:
@@ -761,22 +803,88 @@ def extract_world(
     region_path = _first_file(world_directory, REGION_SCRIPT_SUFFIX)
     if region_path is not None:
         zones = parse_region_script(read_world_text(region_path.read_bytes()), monster_names)
-    obstacles: list[ObstacleRectangle] = []
-    terrain_blocks: list[LandBlock] = []
+    blocks: dict[tuple[int, int], LandBlock] = {}
     for block_path in _files(world_directory, LAND_BLOCK_SUFFIX):
         block = decode_land_block(block_path.read_bytes())
+        blocks[(block.block_x, block.block_z)] = block
+    reported: MutableSequence[ExtractionDiagnostic] = diagnostics if diagnostics is not None else []
+    blocks.update(
+        _archive_land_blocks(
+            world_directory,
+            dimensions,
+            already_loaded=frozenset(blocks),
+            diagnostics=reported,
+        )
+    )
+    terrain_blocks = tuple(blocks[key] for key in sorted(blocks))
+    obstacles: list[ObstacleRectangle] = []
+    for block in terrain_blocks:
         obstacles.extend(land_block_obstacles(block, dimensions))
-        terrain_blocks.append(block)
     object_path = _first_file(world_directory, DYNAMIC_OBJECT_SUFFIX)
     if object_path is not None:
-        obstacles.extend(parse_dynamic_objects(object_path.read_bytes(), dimensions))
+        try:
+            obstacles.extend(parse_dynamic_objects(object_path.read_bytes(), dimensions))
+        except WorldExtractionError:
+            # A handful of shipped `.dyo` files use a record layout this reader does not
+            # know. Losing their prop footprints costs clearance margin the stall detector
+            # still covers; losing the region's whole height field would cost far more.
+            reported.append(
+                ExtractionDiagnostic(ExtractionWarning.UNREADABLE_OBJECT_FILE, object_path.name)
+            )
     return WorldVectorMap(
-        world_name=script_path.stem,
+        world_name=world_directory.name,
         dimensions=dimensions,
         zones=zones,
         obstacles=tuple(obstacles),
-        terrain_blocks=tuple(terrain_blocks),
+        terrain_blocks=terrain_blocks,
     )
+
+
+def _archive_land_blocks(
+    world_directory: Path,
+    dimensions: WorldDimensions,
+    *,
+    already_loaded: frozenset[tuple[int, int]],
+    diagnostics: MutableSequence[ExtractionDiagnostic],
+) -> dict[tuple[int, int], LandBlock]:
+    """Return every declared terrain block the region's packed archive still holds."""
+
+    try:
+        archive = ClientWorldArchive.find(world_directory)
+    except ClientArchiveError:
+        diagnostics.append(
+            ExtractionDiagnostic(ExtractionWarning.UNSUPPORTED_ARCHIVE_INDEX, world_directory.name)
+        )
+        return {}
+    if archive is None:
+        return {}
+    blocks: dict[tuple[int, int], LandBlock] = {}
+    with archive:
+        for block_x in range(dimensions.blocks_x):
+            for block_z in range(dimensions.blocks_z):
+                if (block_x, block_z) in already_loaded:
+                    continue
+                name = land_block_file_name(archive.world_stem, block_x, block_z)
+                prefix = encode_archive_payload(
+                    struct.pack("<3i", SUPPORTED_LAND_BLOCK_VERSION, block_x, block_z),
+                    name,
+                )
+                try:
+                    payload = archive.read(name, prefix)
+                except ClientArchiveError:
+                    diagnostics.append(
+                        ExtractionDiagnostic(ExtractionWarning.UNREADABLE_ARCHIVE_BLOCK, name)
+                    )
+                    continue
+                if payload is None:
+                    continue
+                try:
+                    blocks[(block_x, block_z)] = decode_land_block(payload)
+                except WorldExtractionError:
+                    diagnostics.append(
+                        ExtractionDiagnostic(ExtractionWarning.UNREADABLE_ARCHIVE_BLOCK, name)
+                    )
+    return blocks
 
 
 def world_map_path(directory: Path, world_name: str) -> Path:
@@ -785,10 +893,30 @@ def world_map_path(directory: Path, world_name: str) -> Path:
     return directory / f"{world_name.lower()}.json"
 
 
+def world_terrain_directory(directory: Path, world_name: str) -> Path:
+    """Return the directory one region's extracted ``.lnd`` height fields are stored in."""
+
+    return directory / world_name.lower()
+
+
 def save_world_map(world_map: WorldVectorMap, directory: Path) -> Path:
-    """Write one extracted map as JSON and return the path it was written to."""
+    """Write one extracted map and return the path of its JSON document.
+
+    Zones and obstacles go into the JSON. Height fields do not: a region can declare
+    hundreds of blocks, so each one is written beside the document as a plain ``.lnd``
+    height field in the client's own byte layout. The terrain directory is this function's
+    own output namespace, so its ``.lnd`` files are replaced wholesale rather than merged
+    with the blocks of an earlier, larger extraction.
+    """
 
     directory.mkdir(parents=True, exist_ok=True)
+    terrain_directory = world_terrain_directory(directory, world_map.world_name)
+    terrain_directory.mkdir(parents=True, exist_ok=True)
+    for stale in _files(terrain_directory, LAND_BLOCK_SUFFIX):
+        stale.unlink()
+    for block in world_map.terrain_blocks:
+        name = land_block_file_name(world_map.world_name.lower(), block.block_x, block.block_z)
+        (terrain_directory / name).write_bytes(block.to_bytes())
     target = world_map_path(directory, world_map.world_name)
     target.write_text(
         json.dumps(world_map.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
@@ -797,9 +925,22 @@ def save_world_map(world_map: WorldVectorMap, directory: Path) -> Path:
 
 
 def load_world_map(path: Path) -> WorldVectorMap:
-    """Read one extracted map from disk."""
+    """Read one extracted map and its ``.lnd`` height fields from disk."""
 
-    return WorldVectorMap.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    document: object = json.loads(path.read_text(encoding="utf-8"))
+    world_map = WorldVectorMap.from_dict(document)
+    terrain_directory = world_terrain_directory(path.parent, world_map.world_name)
+    if not terrain_directory.is_dir():
+        return world_map
+    blocks = [
+        decode_land_block(block_path.read_bytes())
+        for block_path in _files(terrain_directory, LAND_BLOCK_SUFFIX)
+    ]
+    return WorldVectorMap.from_dict(document, sorted(blocks, key=_block_order))
+
+
+def _block_order(block: LandBlock) -> tuple[int, int]:
+    return block.block_x, block.block_z
 
 
 def _quad_gradient(block: LandBlock, column: int, row: int, span: float) -> float:
@@ -880,19 +1021,11 @@ def _numbers(value: object, label: str, count: int) -> tuple[float, ...]:
     return tuple(_number(entry, label) for entry in value)
 
 
-def _integers(value: object, label: str, count: int) -> tuple[int, ...]:
-    if not isinstance(value, list) or len(value) != count:
-        raise WorldExtractionError(f"Persisted {label} must be {count} integers.")
-    return tuple(_integer(entry, label) for entry in value)
-
-
-def _number_sequence(value: object, label: str) -> tuple[float, ...]:
-    if not isinstance(value, list):
-        raise WorldExtractionError(f"Persisted {label} must be a list of numbers.")
-    return tuple(_number(entry, label) for entry in value)
-
-
-def summarize(world_map: WorldVectorMap, output_path: Path) -> WorldExtractionSummary:
+def summarize(
+    world_map: WorldVectorMap,
+    output_path: Path,
+    diagnostics: Iterable[ExtractionDiagnostic] = (),
+) -> WorldExtractionSummary:
     """Return the operator-facing summary of one completed extraction."""
 
     return WorldExtractionSummary(
@@ -902,6 +1035,8 @@ def summarize(world_map: WorldVectorMap, output_path: Path) -> WorldExtractionSu
         terrain_block_count=world_map.terrain_block_count,
         monster_names=world_map.monster_names,
         output_path=output_path,
+        declared_block_count=world_map.dimensions.blocks_x * world_map.dimensions.blocks_z,
+        diagnostics=tuple(diagnostics),
     )
 
 

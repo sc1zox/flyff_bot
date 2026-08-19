@@ -3,25 +3,38 @@
 from __future__ import annotations
 
 import json
+import struct
 from pathlib import Path
 
 import pytest
 from world_fixtures import (
     WORLD_SCRIPT,
+    archive_index_bytes,
     dynamic_object_payload,
     flat_heights,
     land_block_payload,
     raise_vertex,
     region_script,
     respawn_record,
+    unsupported_archive_index,
     utf16_payload,
     write_world_directory,
 )
 
+from flyff_bot.features.navigation.client_archive import (
+    ClientArchiveError,
+    decode_archive_payload,
+    encode_archive_payload,
+    read_archive_index,
+)
 from flyff_bot.features.navigation.world_extractor import (
     IMPASSABLE_SLOPE_GRADIENT,
     LAND_BLOCK_CELLS_PER_SIDE,
+    LAND_BLOCK_HEIGHTFIELD_BYTES,
     LAND_BLOCK_VERTICES_PER_SIDE,
+    SUPPORTED_LAND_BLOCK_VERSION,
+    ExtractionDiagnostic,
+    ExtractionWarning,
     LandBlock,
     ObstacleKind,
     WorldCoordinate,
@@ -42,6 +55,7 @@ from flyff_bot.features.navigation.world_extractor import (
     read_world_text,
     save_world_map,
     summarize,
+    world_terrain_directory,
 )
 
 EDEN_MONSTER_NAMES = {1453: "Flame", 1454: "LadyBlum", 1455: "MiniMush"}
@@ -373,3 +387,200 @@ def test_an_extraction_summary_reports_what_the_dialog_shows(tmp_path: Path) -> 
     assert summary.zone_count == 1
     assert summary.monster_names == ("Flame",)
     assert summary.output_path.name == "wdtest.json"
+
+
+def test_the_archive_index_lists_every_packed_entry() -> None:
+    payload = archive_index_bytes(
+        {"wdtest.wld": b"// World script\n", "wdtest00-00.lnd": b"terrain"}
+    )
+
+    entries = read_archive_index(payload)
+
+    assert [(entry.offset, entry.size) for entry in entries] == [(0, 16), (16, 7)]
+    assert len({entry.identity for entry in entries}) == 2
+
+
+def test_an_archive_index_of_an_unsupported_layout_is_refused() -> None:
+    """The client also ships a second index layout, which is reported instead of guessed."""
+
+    with pytest.raises(ClientArchiveError):
+        read_archive_index(unsupported_archive_index())
+
+
+def test_an_archive_index_that_runs_past_its_own_end_is_refused() -> None:
+    with pytest.raises(ClientArchiveError):
+        read_archive_index(struct.pack("<2i", 1, 64))
+
+
+def test_packed_bytes_round_trip_through_their_file_name_key() -> None:
+    payload = land_block_payload(1, 2, flat_heights(64.0))
+
+    stored = encode_archive_payload(payload, "wdtest01-02.lnd")
+
+    assert stored != payload
+    assert decode_archive_payload(stored, "wdtest01-02.lnd") == payload
+    assert decode_archive_payload(stored, "wdtest01-03.lnd") != payload
+
+
+def test_the_client_stores_a_terrain_block_header_under_its_own_file_name() -> None:
+    """A twelve-byte vector read off the shipped Eden archive pins the packing transform.
+
+    `wdeden03-02.lnd` begins with version 3 and block coordinates 3 and 2, and these are the
+    bytes the client's own `wdeden.one` holds in their place. The key is the file name
+    lower-cased, so the mixed-case name the patch directory uses decodes them too.
+    """
+
+    header = struct.pack("<3i", SUPPORTED_LAND_BLOCK_VERSION, 3, 2)
+    stored = bytes.fromhex("46636463546d2f320c2f312d")
+
+    assert encode_archive_payload(header, "wdeden03-02.lnd") == stored
+    assert decode_archive_payload(stored, "WdEden03-02.lnd") == header
+
+
+def test_packed_terrain_blocks_complete_the_declared_block_grid(tmp_path: Path) -> None:
+    directory = write_world_directory(
+        tmp_path,
+        "wdtest",
+        blocks=[(0, 0, flat_heights(10.0))],
+        archived_blocks=[
+            (block_x, block_z, flat_heights(20.0))
+            for block_x in range(2)
+            for block_z in range(2)
+            if (block_x, block_z) != (0, 0)
+        ],
+    )
+
+    world_map = extract_world(directory)
+
+    assert world_map.terrain_block_count == 4
+    assert [(block.block_x, block.block_z) for block in world_map.terrain_blocks] == [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+    ]
+    assert world_map.terrain.height_at(WorldCoordinate(600.0, 600.0)) == pytest.approx(20.0)
+
+
+def test_a_patched_loose_block_wins_over_the_packed_one(tmp_path: Path) -> None:
+    """A loose `.lnd` is a patch the client itself prefers, so extraction prefers it too."""
+
+    directory = write_world_directory(
+        tmp_path,
+        "wdtest",
+        blocks=[(0, 0, flat_heights(10.0))],
+        archived_blocks=[(0, 0, flat_heights(99.0))],
+    )
+
+    world_map = extract_world(directory)
+
+    assert world_map.terrain_block_count == 1
+    assert world_map.terrain.height_at(WorldCoordinate(4.0, 4.0)) == pytest.approx(10.0)
+
+
+def test_an_unsupported_archive_index_is_reported_and_loose_blocks_still_extract(
+    tmp_path: Path,
+) -> None:
+    directory = write_world_directory(tmp_path, "wdtest", blocks=[(0, 0, flat_heights(10.0))])
+    (directory / "wdtest.hdr").write_bytes(unsupported_archive_index())
+    (directory / "wdtest.one").write_bytes(b"")
+    diagnostics: list[ExtractionDiagnostic] = []
+
+    world_map = extract_world(directory, diagnostics=diagnostics)
+
+    assert world_map.terrain_block_count == 1
+    assert diagnostics == [
+        ExtractionDiagnostic(ExtractionWarning.UNSUPPORTED_ARCHIVE_INDEX, "wdtest")
+    ]
+
+
+def test_an_unreadable_packed_block_is_reported_and_the_others_continue(
+    tmp_path: Path,
+) -> None:
+    truncated = land_block_payload(0, 0, flat_heights(30.0))[:1000]
+    directory = write_world_directory(
+        tmp_path,
+        "wdtest",
+        archived_blocks=[(1, 1, flat_heights(30.0))],
+        archived_files={"wdtest00-00.lnd": truncated},
+    )
+    diagnostics: list[ExtractionDiagnostic] = []
+
+    world_map = extract_world(directory, diagnostics=diagnostics)
+
+    assert [(block.block_x, block.block_z) for block in world_map.terrain_blocks] == [(1, 1)]
+    assert diagnostics == [
+        ExtractionDiagnostic(ExtractionWarning.UNREADABLE_ARCHIVE_BLOCK, "wdtest00-00.lnd")
+    ]
+
+
+def test_extracted_height_fields_are_persisted_as_complete_lnd_files(tmp_path: Path) -> None:
+    directory = write_world_directory(
+        tmp_path / "client",
+        "wdtest",
+        archived_blocks=[
+            (block_x, block_z, flat_heights(40.0)) for block_x in range(2) for block_z in range(2)
+        ],
+    )
+    world_map = extract_world(directory)
+
+    saved = save_world_map(world_map, tmp_path / "worlds")
+
+    terrain_directory = world_terrain_directory(saved.parent, world_map.world_name)
+    assert sorted(path.name for path in terrain_directory.glob("*.lnd")) == [
+        "wdtest00-00.lnd",
+        "wdtest00-01.lnd",
+        "wdtest01-00.lnd",
+        "wdtest01-01.lnd",
+    ]
+    for path in terrain_directory.glob("*.lnd"):
+        assert path.stat().st_size == LAND_BLOCK_HEIGHTFIELD_BYTES
+        block = decode_land_block(path.read_bytes())
+        assert len(block.heights) == LAND_BLOCK_VERTICES_PER_SIDE**2
+    assert "terrain_blocks" not in json.loads(saved.read_text(encoding="utf-8"))
+    assert load_world_map(saved) == world_map
+
+
+def test_a_smaller_re_extraction_replaces_the_previously_written_height_fields(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "worlds"
+    dimensions = WorldDimensions(2, 2, 4.0)
+    save_world_map(
+        WorldVectorMap(
+            "wdtest",
+            dimensions,
+            terrain_blocks=(
+                LandBlock(0, 0, tuple(flat_heights(10.0))),
+                LandBlock(1, 1, tuple(flat_heights(10.0))),
+            ),
+        ),
+        directory,
+    )
+
+    saved = save_world_map(
+        WorldVectorMap(
+            "wdtest",
+            dimensions,
+            terrain_blocks=(LandBlock(0, 0, tuple(flat_heights(10.0))),),
+        ),
+        directory,
+    )
+
+    assert load_world_map(saved).terrain_block_count == 1
+
+
+def test_an_extraction_summary_reports_the_grid_it_could_not_fully_cover(
+    tmp_path: Path,
+) -> None:
+    directory = write_world_directory(
+        tmp_path, "wdtest", archived_blocks=[(0, 0, flat_heights(10.0))]
+    )
+    diagnostics: list[ExtractionDiagnostic] = []
+    world_map = extract_world(directory, diagnostics=diagnostics)
+
+    summary = summarize(world_map, tmp_path / "wdtest.json", diagnostics)
+
+    assert summary.terrain_block_count == 1
+    assert summary.declared_block_count == 4
+    assert summary.diagnostics == ()
