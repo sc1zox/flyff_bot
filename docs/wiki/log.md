@@ -642,3 +642,17 @@ The full `./scripts/check.ps1` repository gate passed: 750 tests passed, 2 skipp
 92.54%. The Windows live-client visual and interaction walkthrough remains outstanding, including
 tab responsiveness and confirmation of both emergency-stop keys against `neuz.exe`; no automated
 result is treated as live-client validation. Moved US-050 to completed user stories.
+
+## [2026-08-19] synthesis | Fast live collision recovery for combat approaches (BUG-017)
+
+Recorded BUG-017 in `docs/wiki/architecture.md`: the combat-approach stall detector receives the
+latest supported live XYZ sample and timestamp, and a confirmed stall calls the same bounded
+strafe/backstep, tangent-replan, and repeated-coordinate temporary block path used by autonomous
+live navigation. The orchestrator drains that local evasion before its generic rotate-and-roam
+repositioning sweep, while a trustworthy learned minimap map retains its obstacle penalty and
+minimap/frame evidence remains the fallback when live coordinates are unavailable.
+
+No raw source or live measurement was ingested; these claims are derived from the implementation
+and regression tests. The automated repository gate passed, but a foregrounded Windows
+`neuz.exe` walkthrough against real invisible collision geometry remains outstanding. Moved BUG-017
+to fixed bugs.

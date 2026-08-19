@@ -59,6 +59,7 @@ related:
   - ../user-stories/completed/US-040-unrecoverable-stuck-emergency-teleport-and-spawn-reset.md
   - ../user-stories/completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md
   - ../user-stories/completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md
+  - ../bugs/fixed/BUG-017-invisible-wall-collision-stall-detection-and-recovery-pathfinding.md
   - ../user-stories/completed/US-049-session-event-log-and-transition-diagnostics.md
   - ../user-stories/completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md
 ---
@@ -1156,6 +1157,16 @@ backstep, and tangent-replan sequence. Repeated failure at the same coordinate a
 impassable node and requests a wider replan. Input still crosses the foreground-checked Win32
 dispatcher, and either END or Escape aborts dispatch; emergency stop also clears navigation state
 and releases the process handle idempotently.
+
+BUG-017 makes that live-collision path equally authoritative during a client-driven combat approach.
+`FarmingOrchestrator` forwards the newest live XYZ sample and its timestamp to its separate approach
+stall detector; when it confirms an obstacle, `PathingController.register_obstacle()` queues the
+same bounded strafe/backstep and tangent replan rather than merely recording a learned minimap
+obstacle. The orchestrator drains that local evasion before its one-cycle generic repositioning
+sweep, so it does not immediately roam back towards the blocked heading. This path remains useful
+with a read-only minimap map because its temporary world-coordinate block is transient, while a
+trustworthy writable minimap map retains its learned obstacle penalty too; without a supported live
+sample, the existing minimap/frame-based approach recovery remains the fallback.
 
 Long-range travel is configuration, not a fact inferred from `teleport.bin`. At more than 150 world
 units, `navigation.teleport.TeleportController` may select the configured anchor nearest the goal and

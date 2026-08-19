@@ -405,6 +405,25 @@ def test_live_stall_runs_strafe_backstep_tangent_replan_and_repeated_block() -> 
     assert blocks[0] == stalled_at
 
 
+def test_an_external_live_combat_obstacle_uses_the_same_evasion_and_blocking() -> None:
+    """BUG-017: combat-reported stalls must not bypass live terrain recovery."""
+
+    stalled_at = WorldPosition(100.0, 100.0, 100.0)
+    controller = PathingController(
+        SpatialMap(MAP_CONFIG),
+        config=PATHING_CONFIG,
+        position_reader=cast("LivePositionReader", _LiveReader([stalled_at])),
+    )
+    controller.observe(_state(0.0))
+
+    assert controller.register_obstacle(0.5)
+    assert controller.step(0.5).virtual_key == VIRTUAL_KEY_Q
+    assert controller.step(0.6).virtual_key == VIRTUAL_KEY_S
+
+    assert controller.register_obstacle(1.0)
+    assert controller.temporary_world_blocks == (stalled_at,)
+
+
 def test_the_registered_frame_maps_the_zone_anchor_onto_the_live_position() -> None:
     navigator = VectorZoneNavigator(
         WORLD_MAP,

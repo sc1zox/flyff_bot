@@ -1,7 +1,7 @@
 ---
 id: BUG-017
 title: Invisible wall collision stall detection latency and recovery pathfinding loop
-status: reported
+status: resolved
 severity: high
 created: 2026-08-19
 updated: 2026-08-19
@@ -47,8 +47,19 @@ updated: 2026-08-19
 - **Impact:** High. The bot spends significant active farming time blocked against invisible collision geometry, failing to defeat targets and repeatedly entering stalled combat cycles.
 - **Frequency:** Consistently occurs whenever farming in areas with non-trivial map boundaries, elevation ledges, or invisible collision meshes.
 
+## Resolution
+
+When a supported client provides live XYZ, the combat-approach `StallDetector` now receives that
+coordinate and its sample time. A confirmed approach stall therefore registers through
+`PathingController`'s existing live-collision recovery: one bounded strafe and backstep precede the
+tangent replan, and a repeated collision at the same coordinate adds a temporary terrain-routing
+block. When its minimap estimate is trustworthy, the existing learned-map penalty is retained as
+well. `FarmingOrchestrator` drains that pending recovery before its generic rotate-and-roam
+repositioning sweep. The change does not dispatch or configure emergency teleport; that remains the
+separate last-resort recovery path.
+
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated regression exists. `tests/unit/test_orchestrator.py::test_live_combat_stall_uses_fast_evasion_before_the_blind_reposition_sweep` holds a live XYZ position fixed during a client-driven combat approach and asserts `OBSTACLE_STALL` by 3 seconds, with the strafe and backstep dispatched before the blind repositioning rotation. `tests/unit/test_vector_pathing.py::test_an_external_live_combat_obstacle_uses_the_same_evasion_and_blocking` covers the shared recovery and repeated-coordinate block.
+- [x] The automated checks pass after the fix: `./scripts/check.ps1` completed successfully. This is automated evidence only; it does not validate behavior in a running Flyff client.
+- [x] Related documentation is current. `docs/wiki/architecture.md` records the combat-approach live-collision recovery invariant. A Windows, foregrounded-`neuz.exe` walkthrough against real invisible collision geometry remains outstanding.

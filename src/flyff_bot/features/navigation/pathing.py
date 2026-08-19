@@ -277,6 +277,18 @@ class PathingController:
         return self._live_position
 
     @property
+    def live_sampled_at_seconds(self) -> float | None:
+        """Return when the newest live coordinate was actually sampled."""
+
+        return self._live_sampled_at_seconds
+
+    @property
+    def has_pending_evasion(self) -> bool:
+        """Return whether a live collision queued local strafe/backstep recovery."""
+
+        return bool(self._evasion_steps)
+
+    @property
     def temporary_world_blocks(self) -> tuple[WorldPosition, ...]:
         """Return repeated-stall nodes currently excluded from global terrain replans."""
 
@@ -526,9 +538,21 @@ class PathingController:
         no place, so nothing is learned from it.
         """
 
-        if self._map_read_only or self._tracker.quality is TrackingQuality.DEGRADED:
-            return False
         if self._mode in {PathingMode.RETREATING, PathingMode.BLOCKED}:
+            return False
+        if self._live_position is not None:
+            # A supported client supplies an exact current coordinate, so use the same
+            # bounded strafe/backstep and tangent replan as a live stall detected while
+            # pathing itself was steering. Keep the prior learned-map penalty too when
+            # its minimap estimate is trustworthy; live recovery still works while that
+            # map is read-only.
+            if not self._map_read_only and self._tracker.quality is not TrackingQuality.DEGRADED:
+                cell = self._map.record_stall(self._tracker.position, at_seconds)
+                self._avoided = self._avoided | {cell}
+            self._register_live_stall(self._live_position, at_seconds)
+            self._stalled = True
+            return True
+        if self._map_read_only or self._tracker.quality is TrackingQuality.DEGRADED:
             return False
         self._register_stall(self._tracker.position, at_seconds)
         self._stalled = True

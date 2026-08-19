@@ -741,11 +741,17 @@ class FarmingOrchestrator:
         measured_speed = (
             self._pathing.measured_speed_pixels_per_second if self._pathing is not None else None
         )
+        live_position = self._pathing.live_position if self._pathing is not None else None
+        live_sampled_at_seconds = (
+            self._pathing.live_sampled_at_seconds if self._pathing is not None else None
+        )
         return self._approach_stalls.observe(
             self._last_frame,
             measured_speed_pixels_per_second=measured_speed,
             movement_commanded=True,
             at_seconds=self._state.observed_at_seconds,
+            live_position=live_position,
+            live_sampled_at_seconds=live_sampled_at_seconds,
         )
 
     def _begin_repositioning(self) -> None:
@@ -761,6 +767,12 @@ class FarmingOrchestrator:
     def _advance_repositioning(self) -> bool:
         """Steer one re-positioning step, or hand back to searching once the sweep is done."""
 
+        if self._pathing is not None and self._pathing.has_pending_evasion:
+            # The collision belongs to live navigation, which already owns a bounded
+            # sideways/backward escape before its tangent replan. Drain only those two
+            # guarded actions here; ordinary route following remains outside this
+            # one-cycle combat repositioning sweep.
+            return self._advance_pathing()
         decision = self._reposition.step(self._state.observed_at_seconds)
         if self._reposition.completed_cycles >= REPOSITION_SWEEP_CYCLES:
             self._set_mode(FarmingMode.SEARCHING, reason="reposition_complete")

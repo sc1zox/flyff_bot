@@ -37,6 +37,17 @@ from flyff_bot.features.automation.orchestrator import (
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig, PowerUpEntry
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control import ForegroundWindowInfo, parse_virtual_key
+from flyff_bot.features.navigation.live_position import (
+    LivePositionReader,
+    PositionReading,
+    PositionSource,
+    WorldPosition,
+)
+from flyff_bot.features.navigation.pathing import (
+    VIRTUAL_KEY_Q,
+    VIRTUAL_KEY_S,
+    PathingController,
+)
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
 from flyff_bot.features.vision.models import (
     CapturedFrame,
@@ -968,6 +979,55 @@ def test_a_blocked_approach_registers_the_obstacle_in_the_learned_map() -> None:
         orchestrator.tick()
 
     assert pathing.obstacles
+
+
+def test_live_combat_stall_uses_fast_evasion_before_the_blind_reposition_sweep() -> None:
+    """BUG-017: live XYZ must drive the two-second stall recovery during auto-approach."""
+
+    class _LiveReader:
+        def __init__(self, position: WorldPosition) -> None:
+            self._position = position
+
+        def poll(self, at_seconds: float) -> PositionReading:
+            return PositionReading(
+                PositionSource.LIVE,
+                self._position,
+                sampled_at_seconds=at_seconds,
+            )
+
+        def close(self) -> None:
+            pass
+
+    adapter = _InputAdapter()
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    states = _blocked_approach_states(20)
+    pathing = PathingController(
+        position_reader=cast("LivePositionReader", _LiveReader(WorldPosition(100.0, 20.0, 300.0)))
+    )
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline(states)),
+        adapter,
+        WINDOW_HANDLE,
+        pathing=pathing,
+        dashboard_feed=feed,
+    )
+    orchestrator.start()
+
+    for _ in states:
+        orchestrator.tick()
+
+    stalled = next(
+        update
+        for update in updates
+        if update.engagement_break is EngagementBreakReason.OBSTACLE_STALL
+    )
+    assert stalled.state.observed_at_seconds <= 3.0
+    evasion_strafe = adapter.keys.index((VIRTUAL_KEY_Q, 0.25))
+    evasion_backstep = adapter.keys.index((VIRTUAL_KEY_S, 0.25))
+    reposition_rotation = adapter.keys.index((VIRTUAL_KEY_RIGHT, 0.2))
+    assert evasion_strafe < evasion_backstep < reposition_rotation
 
 
 def test_mode_transitions_are_recorded_with_previous_and_new_mode(tmp_path: Path) -> None:
