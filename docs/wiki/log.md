@@ -600,7 +600,7 @@ Ingested `docs/sources/2026-08-19-entropia-client-navigation-data-extraction.md`
 architecture, glossary, roadmap, and index. Recorded the two complete client fingerprints, the
 single module-relative player global per build, the exact pointer-width plus 12-byte XYZ read
 boundary, retained loose `.lnd` height fields, elevation-aware A*, configured long-range dispatch,
-live position stall recovery, GPS source state, and 3D-enriched inspector. Indexed ADR-004 as the
+live position stall recovery, GPS source state, and 3D-enriched inspector. Recorded the
 durable decision that forbids broader state reads, scanning, writes, injection, and hooks.
 
 The same synthesis records the evidence limit: only 153 of 3,861 declared terrain blocks have loose

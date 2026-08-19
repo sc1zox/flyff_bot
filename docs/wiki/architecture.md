@@ -14,7 +14,6 @@ related:
   - ../decisions/ADR-001-cli-before-http-server.md
   - ../decisions/ADR-002-target-architecture-and-pyside6.md
   - ../decisions/ADR-003-clean-schema-over-backward-compatibility.md
-  - ../decisions/ADR-004-coordinate-only-read-process-memory.md
   - ../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md
   - ../user-stories/completed/US-002-vision-frame-capture.md
   - ../user-stories/completed/US-003-mob-detection-yolo.md
@@ -1141,8 +1140,6 @@ client fingerprints documented by
 width, and then reads exactly the 12-byte float32 XYZ struct at player offset `0x188`. It does not
 scan memory or read game state around the coordinate. An unknown build, lost handle, short read, or
 non-finite coordinate closes the handle and publishes minimap fallback; a later poll may recover.
-This boundary and its rejected alternatives are durable in
-[ADR-004](../decisions/ADR-004-coordinate-only-read-process-memory.md).
 
 The world-map schema now retains decoded `.lnd` height blocks rather than only their derived steep
 rectangles. `navigation.terrain_routing.TerrainRoutePlanner` samples that field into 3D route nodes,

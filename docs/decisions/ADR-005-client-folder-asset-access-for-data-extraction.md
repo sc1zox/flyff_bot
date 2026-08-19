@@ -9,7 +9,7 @@
 
 Automating navigation, combat target awareness, obstacle avoidance, and world orientation requires authoritative static ground-truth data (terrain heightfields, NavMeshes, monster spawn zones, object obstacle footprints, UI sprite coordinates, and memory structures).
 
-While runtime interaction with the running `neuz.exe` process is strictly constrained to documented Win32 input/capture APIs and fingerprinted coordinate-only `ReadProcessMemory` (ADR-004), the local Entropia client directory contains complete static assets on disk:
+While runtime interaction with the running `neuz.exe` process is strictly constrained to documented Win32 input/capture APIs and fingerprinted coordinate-only `ReadProcessMemory`, the local Entropia client directory contains complete static assets on disk:
 - Container archives and headers (`.one`, `.hdr`)
 - World definitions and region polygons (`.wld`, `.wld.cnt`, `.rgn`, `.dyo`)
 - Terrain heightfields and 3D models (`.lnd`, `.o3d`)
@@ -39,7 +39,7 @@ Clarification is required to establish that all local client assets are fully ac
 - **Restrict extraction to loose client files only:**
   Rejected because 96% of declared terrain blocks (3,708 out of 3,861) and crucial asset indices reside inside `.one`/`.hdr` archives; restricting extraction to loose files leaves most game worlds unnavigable.
 - **Extract 3D terrain and NavMesh live from client process memory:**
-  Rejected because scanning and traversing complex dynamic heap structures at runtime violates the coordinate-only RPM safety boundary (ADR-004) and introduces process instability.
+  Rejected because scanning and traversing complex dynamic heap structures at runtime violates the coordinate-only RPM safety boundary and introduces process instability.
 - **Manual world surveying or hand-crafted waypoint maps:**
   Rejected because manual mapping across thousands of terrain blocks is unscalable, prone to human error, and cannot provide precise 3D slope and collision boundaries.
 

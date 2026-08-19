@@ -20,7 +20,7 @@ As a **bot operator navigating complex 3D terrain across Entropia Flyff**, I wan
 - The `.hdr` files index entries with structured header records. The `.one` archives contain compressed/obfuscated data.
 - Each extracted `.lnd` heightfield contains a 66,576-byte prefix ($129 \times 129$ float32 heights) which converts directly into $128 \times 128 \times 2 = 32,768$ 3D triangles per block.
 - Extraction is non-destructive and read-only against the game installation: compiled vector maps are stored in `data/navigation/worlds/<region>.json` with `.lnd` heightfields beside them.
-- Builds upon [US-020](US-020-visual-navigation-path-and-heatmap-inspector.md), [US-045](US-045-vector-world-terrain-extraction-and-goal-navigation.md), [US-048](US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md), [ADR-004](../../decisions/ADR-004-coordinate-only-read-process-memory.md), and [ADR-005](../../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md).
+- Builds upon [US-020](US-020-visual-navigation-path-and-heatmap-inspector.md), [US-045](US-045-vector-world-terrain-extraction-and-goal-navigation.md), [US-048](US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md), and [ADR-005](../../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md).
 
 ## Acceptance criteria
 

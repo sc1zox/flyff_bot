@@ -17,7 +17,7 @@ As a **bot operator on Entropia Flyff**, I want **the navigation system to remov
 - Target client: Entropia Flyff PServer (`neuz.exe`).
 - Entropia Flyff does not provide generic blinkwings or town return scrolls for arbitrary fast-travel routing across mob zones.
 - Generic multi-target teleport dispatch (>150 distance threshold) from [US-048](completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md) does not reflect actual server mechanics and is obsolete for regular traversal.
-- Builds on [US-040](completed/US-040-unrecoverable-stuck-emergency-teleport-and-spawn-reset.md) (emergency stuck teleport and spawn reset) and [ADR-004](../decisions/ADR-004-coordinate-only-read-process-memory.md).
+- Builds on [US-040](completed/US-040-unrecoverable-stuck-emergency-teleport-and-spawn-reset.md) (emergency stuck teleport and spawn reset).
 - The emergency reset hotkey (default: `F8`, configurable in settings) triggers an instant server-side teleport back to the Eden entrance/spawn anchor.
 - Live GPS (`ReadProcessMemory`) confirms arrival at the Eden spawn area within an instant timeout window (default: 2.0s).
 - Standard routine travel strictly uses 3D ground pathing.

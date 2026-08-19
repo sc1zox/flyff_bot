@@ -20,7 +20,6 @@ so that **movement is always drift-free and aligned with true terrain geometry, 
 - Builds upon:
   - [US-045](completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md): Vector world terrain extraction, spawn zones, and visibility-graph A* pathing.
   - [US-048](completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md): 3D world navigation with live coordinate memory reading (`ReadProcessMemory`).
-  - [ADR-004](../decisions/ADR-004-coordinate-only-read-process-memory.md): Fingerprinted, coordinate-only read access to the Flyff client.
 - **Retirement of Minimap Odometry Fallback for Vector Navigation:**
   - Minimap dead-reckoning (`MovementTracker` / `MinimapOdometer`) suffers from pixel drift, scale ambiguities, and lack of vertical ($Y$) awareness.
   - Relying on dead-reckoning as a silent fallback causes misleading pathing loops and misaligned routes against true terrain.

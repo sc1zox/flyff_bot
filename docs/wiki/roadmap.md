@@ -12,7 +12,6 @@ related:
   - architecture.md
   - ../decisions/ADR-001-cli-before-http-server.md
   - ../decisions/ADR-002-target-architecture-and-pyside6.md
-  - ../decisions/ADR-004-coordinate-only-read-process-memory.md
 ---
 
 # Product and technical roadmap

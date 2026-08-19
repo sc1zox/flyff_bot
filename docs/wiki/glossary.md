@@ -261,7 +261,7 @@ related:
 - **Live world position** - The player's finite XYZ float32 coordinate read from the one verified
   player-position struct of a hash-supported `neuz.exe`. It is primary while fresh and valid; it is
   not evidence that terrain, collision, world identity, or server state is complete.
-- **Coordinate-only memory boundary** - The ADR-004 rule that permits one fingerprinted player
+- **Coordinate-only memory boundary** - The safety rule that permits one fingerprinted player
   pointer read followed by one exact 12-byte XYZ read, with query/read process rights only. Memory
   scanning, neighbouring state reads, writes, injection, and hooks remain forbidden.
 - **GPS state** - The dashboard's source indicator: green means the latest position came from a
