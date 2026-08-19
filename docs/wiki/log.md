@@ -559,6 +559,20 @@ distinguished only by file name; the architecture section and the story index sa
 rather than renumbering an already-completed story. Moved the multi-target US-035 to completed user
 stories.
 
+## [2026-08-19] synthesis | Unrecoverable stuck recovery and spawn re-anchoring (US-040)
+
+Recorded US-040 on `docs/wiki/architecture.md` and `docs/wiki/glossary.md`: why the last-resort
+recovery is a teleport item rather than another movement manoeuvre, why one no-progress accumulator
+replaces a timer per unstuck stage, and why a target click is deliberately not counted as progress
+while landed damage and a reconciled kill are. Documented the two-moment reset — the escaped cell is
+blamed at dispatch while its position is still known, the position estimate is re-anchored only after
+the settle window closes — and the spawn anchor's ownership by the navigation profile rather than the
+session. Noted the unassigned-hotkey path that pauses and alerts instead of silently pressing nothing.
+
+No measurement was ingested; every claim is read from the implementation and its tests. The manual
+in-client walkthrough named in the story's verification section has not been performed. Moved US-040
+to completed user stories.
+
 ## [2026-08-19] synthesis | Authoritative world geometry and goal-driven zone navigation (US-045)
 
 Recorded US-045 on `docs/wiki/architecture.md` and `docs/wiki/glossary.md`: the offline client world

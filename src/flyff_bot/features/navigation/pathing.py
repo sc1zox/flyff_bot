@@ -185,6 +185,7 @@ class PathingController:
         vector_navigator: VectorZoneNavigator | None = None,
         position_reader: LivePositionReader | None = None,
         teleport_config: TeleportConfig | None = None,
+        spawn_point: WorldPoint | None = None,
     ) -> None:
         self._config = config or PathingConfig()
         self._map = spatial_map or SpatialMap()
@@ -225,6 +226,9 @@ class PathingController:
         # read it, so the drawing cannot describe a radius the planner does not apply.
         self._leash_radius_pixels = self._config.leash_radius_pixels
         self._hotspots_outside_leash = 0
+        # The town or respawn anchor an emergency teleport arrives at. It belongs to the
+        # map rather than to the session, so it travels with the profile (US-040).
+        self._spawn_point = spawn_point
 
     @property
     def leash_radius_pixels(self) -> float:
@@ -326,6 +330,29 @@ class PathingController:
         return self._waypoints[self._waypoint_index :]
 
     @property
+    def spawn_point(self) -> WorldPoint | None:
+        """Return the mapped town or respawn anchor of the active map, if one is set."""
+
+        return self._spawn_point
+
+    def set_spawn_point(self, point: WorldPoint | None) -> None:
+        """Mark, move, or clear the spawn anchor an emergency teleport arrives at."""
+
+        self._spawn_point = point
+
+    def mark_spawn_point_here(self) -> WorldPoint | None:
+        """Mark the current position as the spawn anchor and return what was stored.
+
+        A position that is not currently measured is no place, so nothing is marked and
+        the previously mapped anchor - if any - stays untouched.
+        """
+
+        if self._tracker.quality is TrackingQuality.DEGRADED:
+            return None
+        self._spawn_point = self._tracker.position
+        return self._spawn_point
+
+    @property
     def vector_navigator(self) -> VectorZoneNavigator | None:
         """Return the goal-driven vector navigator, when an extracted map is loaded."""
 
@@ -390,6 +417,7 @@ class PathingController:
             if zone is None or self._vector_navigator is None
             else _zone_snapshot(zone, self._vector_navigator.registration)
         )
+        spawn = None if self._spawn_point is None else (self._spawn_point.x, self._spawn_point.y)
         return NavigationSnapshot(
             player_x=self.position.x,
             player_y=self.position.y,
@@ -412,6 +440,7 @@ class PathingController:
             terrain_samples=(
                 () if self._vector_navigator is None else self._vector_navigator.terrain_samples
             ),
+            spawn_point=spawn,
         )
 
     def track(self, state: WorldState, frame: CapturedFrame | None = None) -> TrackingQuality:
@@ -504,6 +533,53 @@ class PathingController:
         self._register_stall(self._tracker.position, at_seconds)
         self._stalled = True
         return True
+
+    def begin_teleport_recovery(self, at_seconds: float) -> bool:
+        """Blame the place an emergency teleport is escaping from and drop the route (US-040).
+
+        The character is about to leave this position by teleport rather than by walking,
+        so the cell is penalized exactly like a stall found while pathing steered itself -
+        otherwise the next route planned from the spawn anchor would lead straight back off
+        the same ledge. The retreat is deliberately not started: there is nothing to retreat
+        to once the teleport has moved the character to another part of the map.
+
+        Returns whether the evidence could be written: an unknown or read-only position is
+        no place, so nothing is learned from it.
+        """
+
+        self._waypoints = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds = None
+        self._mode = PathingMode.IDLE
+        if self._map_read_only or self._tracker.quality is TrackingQuality.DEGRADED:
+            return False
+        cell = self._map.record_stall(self._tracker.position, at_seconds)
+        self._avoided = self._avoided | {cell}
+        return True
+
+    def complete_teleport_recovery(self) -> WorldPoint:
+        """Re-anchor the position estimate at the mapped spawn point and return it (US-040).
+
+        A teleport moves the character instantly, so every estimate measured before it is
+        about somewhere else. The map's own spawn anchor is where the character now stands;
+        without a mapped one the session origin is the only defensible answer.
+        """
+
+        destination = self._spawn_point or WorldPoint(0.0, 0.0)
+        self._tracker.relocate(destination)
+        self._odometer.reset()
+        self._stalls.reset()
+        # The trail is broken so the traversal graph never invents an edge across a jump
+        # the character did not walk.
+        self._map.break_trail()
+        self._safe_waypoint = None
+        self._safe_cell = None
+        self._movement_commanded = False
+        self._stalled = False
+        self._measured_speed_pixels_per_second = None
+        self._anchor_candidate = None
+        self._mode = PathingMode.IDLE
+        return destination
 
     def record_kill(self, monster_name: str) -> bool:
         """Attribute one confirmed kill to the vector goals and report a completed quota.
@@ -667,7 +743,7 @@ class PathingController:
             else None
         )
         self._map_path = target_path
-        save_profile(NavigationProfile(self._map, anchor), target_path)
+        save_profile(NavigationProfile(self._map, anchor, self._spawn_point), target_path)
         self._anchor_state = (
             ProfileAnchorState.ANCHORED if anchor is not None else ProfileAnchorState.UNANCHORED
         )
@@ -689,15 +765,17 @@ class PathingController:
         self._anchor_state = anchor_state
         self._map_read_only = read_only
         self._reset_state()
+        self._spawn_point = profile.spawn_point
 
     def reset(self) -> None:
-        """Clear all learned cells, routes, and measured positions."""
+        """Clear all learned cells, routes, measured positions, and the spawn anchor."""
 
         self._map = SpatialMap(self._map.config)
         self._planner = RoutePlanner(self._map, self._config.route)
         self._anchor_state = ProfileAnchorState.SESSION
         self._map_read_only = False
         self._reset_state()
+        self._spawn_point = None
 
     def _reset_state(self) -> None:
         self._tracker.reset()

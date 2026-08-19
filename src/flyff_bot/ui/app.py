@@ -25,6 +25,7 @@ from flyff_bot.features.automation.camera_alignment import (
     frame_minimap_locator,
 )
 from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding
+from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import KillGoalConfig, KillGoalTracker
 from flyff_bot.features.automation.kill_persistence import (
     DEFAULT_KILL_LOG_PATH,
@@ -101,6 +102,10 @@ class FarmingControls(Protocol):
     def configure_vitals(self, config: VitalsTriggerConfig) -> None: ...
 
     def configure_powerups(self, config: PowerUpConfig) -> None: ...
+
+    def configure_emergency_recovery(self, config: EmergencyRecoveryConfig) -> None: ...
+
+    def mark_spawn_point(self) -> tuple[float, float] | None: ...
 
     def request_camera_alignment(self) -> None: ...
 
@@ -194,8 +199,15 @@ def connect_farming_controls(
     window.save_profile_requested.connect(orchestrator.save_navigation_profile)
     window.load_profile_requested.connect(_safe_load_profile)
     window.reset_navigation_requested.connect(orchestrator.reset_navigation_map)
+
+    def _mark_spawn_point() -> None:
+        if orchestrator.mark_spawn_point() is None:
+            window.show_spawn_point_refused()
+
     window.vitals_config_changed.connect(orchestrator.configure_vitals)
     window.powerup_config_changed.connect(orchestrator.configure_powerups)
+    window.emergency_config_changed.connect(orchestrator.configure_emergency_recovery)
+    window.set_spawn_point_requested.connect(_mark_spawn_point)
     window.auto_align_changed.connect(orchestrator.configure_auto_align)
     window.align_camera_requested.connect(orchestrator.request_camera_alignment)
 
@@ -329,6 +341,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     ),
                 )
                 navigation_map_path = Path(DEFAULT_NAVIGATION_MAP_PATH)
+                navigation_profile = load_profile(navigation_map_path)
                 apply_target_classes = target_class_applier(
                     detector,
                     target_verifier,
@@ -336,8 +349,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     default_anchor_path=default_anchor_path,
                 )
                 pathing = PathingController(
-                    load_profile(navigation_map_path).spatial_map,
+                    navigation_profile.spatial_map,
                     map_path=navigation_map_path,
+                    spawn_point=navigation_profile.spawn_point,
                     position_reader=LivePositionReader(window_handle),
                 )
                 orchestrator = FarmingOrchestrator(
@@ -352,6 +366,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         ),
                         vitals=window.get_vitals_config(),
                         powerups=window.get_powerup_config(),
+                        emergency=window.get_emergency_config(),
                         auto_align_camera=window.auto_align_toggle.isChecked(),
                     ),
                     dashboard_feed=feed,

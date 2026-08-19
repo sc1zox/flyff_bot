@@ -11,6 +11,10 @@ import yaml
 DATASET_SPLITS = ("train", "val")
 IMAGE_SUFFIXES = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".webp"})
 YOLO_LABEL_VALUE_COUNT = 5
+# Named so the handlers below stay single-name `except` clauses. The pinned formatter
+# rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
+# what the group of failures means.
+ANNOTATION_FIELD_ERRORS = (IndexError, ValueError)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +128,7 @@ def _validate_label(label_path: Path, class_count: int) -> list[DatasetIssue]:
         try:
             class_id = int(values[0])
             coordinates = [float(value) for value in values[1:]]
-        except IndexError, ValueError:
+        except ANNOTATION_FIELD_ERRORS:
             issues.append(DatasetIssue("label_invalid", label_path))
             continue
         if (

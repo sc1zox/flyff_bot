@@ -61,6 +61,13 @@ ROUTE_COLOR = QColor(179, 127, 235, 240)
 SAFE_NODE_COLOR = QColor(82, 196, 26)
 SAFE_NODE_FILL_ALPHA = 160
 SAFE_NODE_FILL_COLOR = _with_alpha(SAFE_NODE_COLOR, SAFE_NODE_FILL_ALPHA)
+# Magenta, so the one place an emergency teleport lands cannot be confused with the green
+# retreat waypoint or any of the learned graph colours (US-040).
+SPAWN_POINT_COLOR = QColor(255, 85, 210)
+SPAWN_POINT_FILL_ALPHA = 120
+SPAWN_POINT_FILL_COLOR = _with_alpha(SPAWN_POINT_COLOR, SPAWN_POINT_FILL_ALPHA)
+SPAWN_POINT_RADIUS_PIXELS = 7.0
+SPAWN_POINT_PEN_WIDTH = 1.5
 PLAYER_COLOR = QColor(0, 240, 255)
 PLAYER_CONE_FILL_ALPHA = 30
 PLAYER_CONE_EDGE_ALPHA = 60
@@ -107,6 +114,7 @@ LEGEND_ITEMS: tuple[tuple[str, QColor, Message], ...] = (
     ("⛝", STALL_MARKER_COLOR, Message.UI_NAV_LEGEND_OBSTACLE),
     ("━", ROUTE_COLOR, Message.UI_NAV_LEGEND_ROUTE),
     ("◆", SAFE_NODE_COLOR, Message.UI_NAV_LEGEND_SAFE),
+    ("✚", SPAWN_POINT_COLOR, Message.UI_NAV_LEGEND_SPAWN_POINT),
 )
 
 PADDING_FRACTION = 0.2
@@ -191,6 +199,7 @@ class PathInspectorWidget(QWidget):
         self._draw_graph_edges(painter, to_screen)
         self._draw_active_route(painter, to_screen)
         self._draw_safe_waypoint(painter, to_screen)
+        self._draw_spawn_point(painter, to_screen)
         self._draw_player_marker(painter, to_screen, scale)
         self._draw_elevation_profile(painter, width, height)
         self._draw_overlay_hud(painter, width)
@@ -230,6 +239,10 @@ class PathInspectorWidget(QWidget):
         if snapshot.safe_waypoint is not None:
             xs.append(snapshot.safe_waypoint[0])
             ys.append(snapshot.safe_waypoint[1])
+
+        if snapshot.spawn_point is not None:
+            xs.append(snapshot.spawn_point[0])
+            ys.append(snapshot.spawn_point[1])
 
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
@@ -519,6 +532,29 @@ class PathInspectorWidget(QWidget):
             ]
         )
         painter.drawPolygon(diamond)
+
+    def _draw_spawn_point(
+        self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
+    ) -> None:
+        """Mark the anchor an emergency teleport returns the character to (US-040)."""
+
+        snapshot = self._snapshot
+        assert snapshot is not None
+        if snapshot.spawn_point is None:
+            return
+
+        pt = to_screen(snapshot.spawn_point[0], snapshot.spawn_point[1])
+        painter.setPen(QPen(SPAWN_POINT_COLOR, SPAWN_POINT_PEN_WIDTH))
+        painter.setBrush(QBrush(SPAWN_POINT_FILL_COLOR))
+        painter.drawEllipse(pt, SPAWN_POINT_RADIUS_PIXELS, SPAWN_POINT_RADIUS_PIXELS)
+        painter.drawLine(
+            QPointF(pt.x() - SPAWN_POINT_RADIUS_PIXELS, pt.y()),
+            QPointF(pt.x() + SPAWN_POINT_RADIUS_PIXELS, pt.y()),
+        )
+        painter.drawLine(
+            QPointF(pt.x(), pt.y() - SPAWN_POINT_RADIUS_PIXELS),
+            QPointF(pt.x(), pt.y() + SPAWN_POINT_RADIUS_PIXELS),
+        )
 
     def _draw_player_marker(
         self,

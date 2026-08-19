@@ -19,7 +19,7 @@ As a **bot operator automating multi-mob farming across challenging terrain**, I
   - [US-045](US-045-vector-world-terrain-extraction-and-goal-navigation.md): Authoritative extraction of `.lnd` height fields, `.rgn` spawn zones, and `.dyo` obstacles.
   - [US-035](US-035-measured-minimap-odometry-and-tracking-quality.md): Minimap odometry and tracking quality (retained as fallback).
   - [US-039](US-039-combat-obstacle-stall-detection-and-re-navigation.md) & [BUG-009](../../bugs/fixed/BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md): Stall detection and combat obstacle recovery.
-  - [US-040](../US-040-unrecoverable-stuck-emergency-teleport-and-spawn-reset.md): Unrecoverable stuck emergency teleport.
+  - [US-040](US-040-unrecoverable-stuck-emergency-teleport-and-spawn-reset.md): Unrecoverable stuck emergency teleport.
   - [US-020](US-020-visual-navigation-path-and-heatmap-inspector.md): Visual navigation inspector.
 - **Live position reading via `ReadProcessMemory`:**
   - The game client (`neuz.exe`) maintains the player's current 3D world coordinates in process

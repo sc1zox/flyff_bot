@@ -15,6 +15,12 @@ from flyff_bot.features.automation.powerup_controller import (
 
 DEFAULT_POWERUP_CONFIG_PATH = Path("data/powerups_config.json")
 JSON_INDENT_SPACES = 2
+# Named so the handlers below stay single-name `except` clauses. The pinned formatter
+# rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
+# what the group of failures means.
+STAGGER_VALUE_ERRORS = (ValueError, TypeError)
+ENTRY_FIELD_ERRORS = (KeyError, ValueError, TypeError)
+CONFIG_READ_ERRORS = (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError, TypeError)
 
 
 def powerup_config_to_dict(config: PowerUpConfig) -> dict[str, Any]:
@@ -47,7 +53,7 @@ def powerup_config_from_dict(data: dict[str, Any]) -> PowerUpConfig:
 
     try:
         stagger_seconds = float(data.get("stagger_seconds", DEFAULT_POWERUP_STAGGER_SECONDS))
-    except ValueError, TypeError:
+    except STAGGER_VALUE_ERRORS:
         stagger_seconds = DEFAULT_POWERUP_STAGGER_SECONDS
 
     entries: list[PowerUpEntry] = []
@@ -66,7 +72,7 @@ def powerup_config_from_dict(data: dict[str, Any]) -> PowerUpConfig:
                     ),
                 )
             )
-        except KeyError, ValueError, TypeError:
+        except ENTRY_FIELD_ERRORS:
             continue
 
     try:
@@ -91,5 +97,5 @@ def load_powerup_config(path: Path = DEFAULT_POWERUP_CONFIG_PATH) -> PowerUpConf
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return powerup_config_from_dict(data)
-    except json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError, TypeError:
+    except CONFIG_READ_ERRORS:
         return PowerUpConfig()

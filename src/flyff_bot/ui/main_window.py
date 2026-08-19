@@ -31,6 +31,16 @@ from flyff_bot.constants import (
 )
 from flyff_bot.features.automation.camera_alignment import DEFAULT_AUTO_ALIGN_CAMERA
 from flyff_bot.features.automation.controllers import CombatConfig, EngagementBreakReason
+from flyff_bot.features.automation.emergency_persistence import (
+    DEFAULT_EMERGENCY_CONFIG_PATH,
+    load_emergency_config,
+    save_emergency_config,
+)
+from flyff_bot.features.automation.emergency_recovery import (
+    MAXIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
+    MINIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
+    EmergencyRecoveryConfig,
+)
 from flyff_bot.features.automation.kill_goals import KillGoalConfig
 from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
@@ -114,6 +124,17 @@ HOTKEY_CHOICES = [
     "Space",
 ]
 
+# The teleport item or skill can sit on any quickslot, so the emergency hotkey offers the
+# full supported physical range rather than the combat subset (US-040).
+EMERGENCY_HOTKEY_CHOICES = [
+    *(f"F{number}" for number in range(1, 13)),
+    *(str(digit) for digit in range(10)),
+    *(chr(code) for code in range(ord("A"), ord("Z") + 1)),
+]
+STUCK_TIMEOUT_STEP_SECONDS = 5.0
+STUCK_TIMEOUT_DECIMALS = 1
+SPAWN_POINT_DECIMALS = 1
+
 
 class MainWindow(QMainWindow):
     """Render immutable dashboard updates and emit operator intent signals."""
@@ -126,6 +147,8 @@ class MainWindow(QMainWindow):
     auto_align_changed = Signal(bool)
     vitals_config_changed = Signal(object)
     powerup_config_changed = Signal(object)
+    emergency_config_changed = Signal(object)
+    set_spawn_point_requested = Signal()
     combat_grace_changed = Signal(float)
     kill_verification_changed = Signal(bool)
     anchor_threshold_changed = Signal(float)
@@ -143,6 +166,7 @@ class MainWindow(QMainWindow):
         navigation_dir: Path | None = None,
         vitals_config_path: Path | None = None,
         powerup_config_path: Path | None = None,
+        emergency_config_path: Path | None = None,
         client_world_root: Path | None = None,
         world_map_dir: Path | None = None,
         monster_names_path: Path | None = None,
@@ -156,6 +180,7 @@ class MainWindow(QMainWindow):
         self._world_data_dialog: WorldDataDialog | None = None
         self._vitals_config_path = vitals_config_path or DEFAULT_VITALS_CONFIG_PATH
         self._powerup_config_path = powerup_config_path or DEFAULT_POWERUP_CONFIG_PATH
+        self._emergency_config_path = emergency_config_path or DEFAULT_EMERGENCY_CONFIG_PATH
         self._latest_update: DashboardUpdate | None = None
 
         # Card Panels
@@ -219,6 +244,9 @@ class MainWindow(QMainWindow):
         self._reset_map_button = QPushButton()
         self._reset_map_button.setObjectName("ActionDanger")
         self._world_data_button = QPushButton()
+        self._spawn_point_button = QPushButton()
+        self._spawn_point_label = QLabel()
+        self._spawn_point_label.setObjectName("StatChip")
         self._profile_anchor_label = QLabel()
         self._profile_anchor_label.setObjectName("StatChip")
         self._profile_anchor_state = ProfileAnchorState.SESSION
@@ -250,6 +278,16 @@ class MainWindow(QMainWindow):
         self._target_debug_toggle = QCheckBox()
         self._monster_stats_toggle = QCheckBox()
         self._event_log_toggle = QCheckBox()
+        self._recovery_toggle = QCheckBox()
+
+        # Unrecoverable stuck recovery panel (US-040)
+        self._recovery_panel = QGroupBox()
+        self._recovery_panel.setObjectName("CardPanel")
+        self._recovery_panel.setVisible(False)
+        self._recovery_timeout_label = QLabel()
+        self._recovery_timeout_spin = QDoubleSpinBox()
+        self._recovery_hotkey_label = QLabel()
+        self._recovery_hotkey_combo = QComboBox()
 
         # Combat settings panel
         self._combat_panel = QGroupBox()
@@ -349,12 +387,14 @@ class MainWindow(QMainWindow):
 
         apply_theme(self)
         self._init_vitals_widgets()
+        self._init_recovery_widgets()
         self._init_target_debug_widgets()
         self._init_monster_stats_widgets()
         self._build_layout()
         self._connect_controls()
         self._load_vitals_config_to_ui()
         self._powerup_panel.set_config(load_powerup_config(self._powerup_config_path))
+        self._load_emergency_config_to_ui()
         self._retranslate()
         self.set_status(mob_count=0)
         self._adapt_window_geometry()
@@ -489,6 +529,42 @@ class MainWindow(QMainWindow):
         """Expose the reset map button for testing."""
 
         return self._reset_map_button
+
+    @property
+    def spawn_point_button(self) -> QPushButton:
+        """Expose the Set Spawn Point control for application-service wiring."""
+
+        return self._spawn_point_button
+
+    @property
+    def spawn_point_label(self) -> QLabel:
+        """Expose the chip naming this map's mapped spawn anchor."""
+
+        return self._spawn_point_label
+
+    @property
+    def recovery_toggle(self) -> QCheckBox:
+        """Expose the stuck-recovery panel toggle."""
+
+        return self._recovery_toggle
+
+    @property
+    def recovery_panel(self) -> QGroupBox:
+        """Expose the unrecoverable stuck recovery settings panel."""
+
+        return self._recovery_panel
+
+    @property
+    def recovery_timeout_spin(self) -> QDoubleSpinBox:
+        """Expose the configurable unrecoverable stuck timeout control."""
+
+        return self._recovery_timeout_spin
+
+    @property
+    def recovery_hotkey_combo(self) -> QComboBox:
+        """Expose the configurable emergency teleport hotkey control."""
+
+        return self._recovery_hotkey_combo
 
     @property
     def attack_key_button(self) -> QPushButton:
@@ -851,6 +927,64 @@ class MainWindow(QMainWindow):
         combat_layout.addLayout(threshold_row)
         self._combat_panel.setLayout(combat_layout)
 
+    def _init_recovery_widgets(self) -> None:
+        """Build the unrecoverable stuck timeout and emergency teleport controls (US-040)."""
+
+        self._recovery_timeout_spin.setRange(
+            MINIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
+            MAXIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
+        )
+        self._recovery_timeout_spin.setSingleStep(STUCK_TIMEOUT_STEP_SECONDS)
+        self._recovery_timeout_spin.setDecimals(STUCK_TIMEOUT_DECIMALS)
+        self._recovery_timeout_spin.setSuffix(" s")
+        # The unassigned entry carries ``None`` so the refusal case is a stored value rather
+        # than a magic label the reader has to recognize.
+        self._recovery_hotkey_combo.addItem("", None)
+        for choice in EMERGENCY_HOTKEY_CHOICES:
+            self._recovery_hotkey_combo.addItem(choice, choice)
+
+        recovery_layout = QVBoxLayout()
+        timeout_row = QHBoxLayout()
+        timeout_row.addWidget(self._recovery_timeout_label)
+        timeout_row.addWidget(self._recovery_timeout_spin)
+        recovery_layout.addLayout(timeout_row)
+        hotkey_row = QHBoxLayout()
+        hotkey_row.addWidget(self._recovery_hotkey_label)
+        hotkey_row.addWidget(self._recovery_hotkey_combo)
+        recovery_layout.addLayout(hotkey_row)
+        self._recovery_panel.setLayout(recovery_layout)
+
+    def _load_emergency_config_to_ui(self) -> None:
+        config = load_emergency_config(self._emergency_config_path)
+        self._recovery_timeout_spin.blockSignals(True)
+        self._recovery_hotkey_combo.blockSignals(True)
+        self._recovery_timeout_spin.setValue(config.stuck_timeout_seconds)
+        stored_key = (
+            None
+            if config.teleport_virtual_key is None
+            else _virtual_key_name(config.teleport_virtual_key)
+        )
+        index = self._recovery_hotkey_combo.findData(stored_key)
+        self._recovery_hotkey_combo.setCurrentIndex(max(0, index))
+        self._recovery_timeout_spin.blockSignals(False)
+        self._recovery_hotkey_combo.blockSignals(False)
+
+    def get_emergency_config(self) -> EmergencyRecoveryConfig:
+        """Return the unrecoverable stuck recovery settings defined by UI inputs."""
+
+        selected = self._recovery_hotkey_combo.currentData()
+        return EmergencyRecoveryConfig(
+            teleport_virtual_key=(
+                parse_virtual_key(selected) if isinstance(selected, str) else None
+            ),
+            stuck_timeout_seconds=self._recovery_timeout_spin.value(),
+        )
+
+    def _on_emergency_inputs_changed(self) -> None:
+        config = self.get_emergency_config()
+        save_emergency_config(config, self._emergency_config_path)
+        self.emergency_config_changed.emit(config)
+
     def _init_target_debug_widgets(self) -> None:
         target_debug_layout = QVBoxLayout()
         for label, value in (
@@ -1111,6 +1245,11 @@ class MainWindow(QMainWindow):
         self._adapt_window_geometry()
 
     @Slot(bool)
+    def _update_recovery_visibility(self, visible: bool) -> None:
+        self._recovery_panel.setVisible(visible)
+        self._adapt_window_geometry()
+
+    @Slot(bool)
     def _update_target_debug_visibility(self, visible: bool) -> None:
         self._target_debug_panel.setVisible(visible)
         self._adapt_window_geometry()
@@ -1221,6 +1360,8 @@ class MainWindow(QMainWindow):
         profile_layout.addWidget(self._load_profile_button)
         profile_layout.addWidget(self._reset_map_button)
         profile_layout.addWidget(self._world_data_button)
+        profile_layout.addWidget(self._spawn_point_button)
+        profile_layout.addWidget(self._spawn_point_label)
         profile_layout.addWidget(self._profile_anchor_label)
         self._profile_card.setLayout(profile_layout)
 
@@ -1234,6 +1375,7 @@ class MainWindow(QMainWindow):
         telemetry_layout.addWidget(self._powerups_toggle)
         telemetry_layout.addWidget(self._targets_toggle)
         telemetry_layout.addWidget(self._combat_toggle)
+        telemetry_layout.addWidget(self._recovery_toggle)
         telemetry_layout.addWidget(self._target_debug_toggle)
         telemetry_layout.addWidget(self._monster_stats_toggle)
         telemetry_layout.addWidget(self._event_log_toggle)
@@ -1248,6 +1390,7 @@ class MainWindow(QMainWindow):
         content.addWidget(self._powerup_panel)
         content.addWidget(self._target_panel)
         content.addWidget(self._combat_panel)
+        content.addWidget(self._recovery_panel)
         content.addWidget(self._target_debug_panel)
         content.addWidget(self._monster_stats_panel)
         content.addWidget(self._event_log_panel)
@@ -1281,6 +1424,10 @@ class MainWindow(QMainWindow):
         self._load_profile_button.clicked.connect(self._on_load_profile_clicked)
         self._reset_map_button.clicked.connect(self._on_reset_map_clicked)
         self._world_data_button.clicked.connect(self._on_world_data_clicked)
+        self._spawn_point_button.clicked.connect(self.set_spawn_point_requested)
+        self._recovery_toggle.toggled.connect(self._update_recovery_visibility)
+        self._recovery_timeout_spin.valueChanged.connect(self._on_emergency_inputs_changed)
+        self._recovery_hotkey_combo.currentIndexChanged.connect(self._on_emergency_inputs_changed)
 
         for check in (self._hp_enabled, self._mp_enabled, self._fp_enabled):
             check.toggled.connect(self._on_vitals_inputs_changed)
@@ -1464,6 +1611,7 @@ class MainWindow(QMainWindow):
         self._placements_toggle.setText(self._translator.text(Message.UI_PLACEMENTS_TOGGLE))
         self._combat_toggle.setText(self._translator.text(Message.UI_COMBAT_SETTINGS))
         self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))
+        self._retranslate_recovery()
         self._targets_toggle.setText(self._translator.text(Message.UI_TARGETS_TOGGLE))
         self._target_panel.set_translator(self._translator)
         self._target_grace_label.setText(self._translator.text(Message.UI_TARGET_GRACE_PERIOD))
@@ -1527,6 +1675,11 @@ class MainWindow(QMainWindow):
         self._reset_map_button.setText(self._translator.text(Message.UI_PROFILE_RESET))
         self._world_data_button.setText(self._translator.text(Message.UI_WORLD_DATA))
         self._world_data_button.setToolTip(self._translator.text(Message.UI_WORLD_DATA_TOOLTIP))
+        self._spawn_point_button.setText(self._translator.text(Message.UI_RECOVERY_SPAWN_POINT))
+        self._spawn_point_button.setToolTip(
+            self._translator.text(Message.UI_RECOVERY_SPAWN_POINT_TOOLTIP)
+        )
+        self._render_spawn_point()
         if self._world_data_dialog is not None:
             self._world_data_dialog.set_translator(self._translator)
         self._profile_name_input.setPlaceholderText(
@@ -1544,6 +1697,51 @@ class MainWindow(QMainWindow):
         )
         self._language_selector.setCurrentIndex(self._language_selector.findData(previous_language))
         self._language_selector.blockSignals(False)
+
+    def _retranslate_recovery(self) -> None:
+        """Re-label the stuck recovery controls, keeping the selected hotkey selected."""
+
+        self._recovery_toggle.setText(self._translator.text(Message.UI_RECOVERY_TOGGLE))
+        self._recovery_panel.setTitle(self._translator.text(Message.UI_RECOVERY_TITLE))
+        self._recovery_timeout_label.setText(self._translator.text(Message.UI_RECOVERY_TIMEOUT))
+        self._recovery_timeout_spin.setToolTip(
+            self._translator.text(Message.UI_RECOVERY_TIMEOUT_TOOLTIP)
+        )
+        self._recovery_hotkey_label.setText(self._translator.text(Message.UI_RECOVERY_HOTKEY))
+        self._recovery_hotkey_combo.setToolTip(
+            self._translator.text(Message.UI_RECOVERY_HOTKEY_TOOLTIP)
+        )
+        self._recovery_hotkey_combo.blockSignals(True)
+        self._recovery_hotkey_combo.setItemText(
+            0, self._translator.text(Message.UI_RECOVERY_HOTKEY_UNASSIGNED)
+        )
+        self._recovery_hotkey_combo.blockSignals(False)
+
+    def _render_spawn_point(self) -> None:
+        """Show the spawn anchor the active map would teleport back to, if one is mapped."""
+
+        navigation = self._latest_update.navigation if self._latest_update is not None else None
+        spawn = navigation.spawn_point if navigation is not None else None
+        if spawn is None:
+            self._spawn_point_label.setText(
+                self._translator.text(Message.UI_RECOVERY_SPAWN_POINT_NONE)
+            )
+            return
+        self._spawn_point_label.setText(
+            self._translator.text(
+                Message.UI_RECOVERY_SPAWN_POINT_VALUE,
+                x=f"{spawn[0]:.{SPAWN_POINT_DECIMALS}f}",
+                y=f"{spawn[1]:.{SPAWN_POINT_DECIMALS}f}",
+            )
+        )
+
+    def show_spawn_point_refused(self) -> None:
+        """Tell the operator why the current position could not become the spawn anchor."""
+
+        self.show_error_dialog(
+            self._translator.text(Message.UI_RECOVERY_SPAWN_POINT_REFUSED_TITLE),
+            self._translator.text(Message.UI_RECOVERY_SPAWN_POINT_REFUSED_PROMPT),
+        )
 
     @Slot()
     def _request_camera_alignment(self) -> None:
@@ -1666,6 +1864,7 @@ class MainWindow(QMainWindow):
             else ProfileAnchorState.SESSION
         )
         self._render_profile_anchor_state()
+        self._render_spawn_point()
         self._mob_label.setText(
             self._translator.text(Message.UI_WORLD_STATUS, mob_count=update.state.nearby_mob_count)
         )
@@ -1869,6 +2068,10 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.REPOSITIONING: Message.UI_STATUS_REPOSITIONING,
         BotStatus.ALIGNING: Message.UI_STATUS_ALIGNING,
         BotStatus.ALIGNMENT_FAILED: Message.UI_STATUS_ALIGNMENT_FAILED,
+        BotStatus.EMERGENCY_TELEPORT: Message.UI_STATUS_EMERGENCY_TELEPORT,
+        BotStatus.EMERGENCY_TELEPORT_UNAVAILABLE: (
+            Message.UI_STATUS_EMERGENCY_TELEPORT_UNAVAILABLE
+        ),
     }[status]
 
 
@@ -1923,8 +2126,10 @@ def _status_category(status: BotStatus) -> str:
         return "emergency_stopped"
     if status in {BotStatus.RECONCILING, BotStatus.ALIGNING}:
         return "reconciling"
-    if status == BotStatus.ALIGNMENT_FAILED:
+    if status in {BotStatus.ALIGNMENT_FAILED, BotStatus.EMERGENCY_TELEPORT_UNAVAILABLE}:
         return "emergency_stopped"
+    if status == BotStatus.EMERGENCY_TELEPORT:
+        return "reconciling"
     return "search"
 
 
