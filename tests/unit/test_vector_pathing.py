@@ -311,6 +311,9 @@ class _Adapter:
     ) -> None:
         self.keys.append((virtual_key, duration_seconds))
 
+    def close_window(self, _window_handle: int) -> bool:
+        return True
+
 
 class _Pipeline:
     """A perception pipeline that replays a scripted sequence of world states."""

@@ -1378,9 +1378,14 @@ class MainWindow(QMainWindow):
             )
             dialog.vector_navigation_requested.connect(self.vector_navigation_requested)
             dialog.vector_navigation_cleared.connect(self.vector_navigation_cleared)
-            self.target_mob_changed.connect(dialog.set_target_mob)
+            self.target_selection_changed.connect(
+                lambda config: dialog.set_target_mob(
+                    config.quotas[0].class_name if len(config.quotas) == 1 else ""
+                )
+            )
             self._world_data_dialog = dialog
-        dialog.set_target_mob(self.selected_target_mob)
+        quotas = self.target_selection.quotas
+        dialog.set_target_mob(quotas[0].class_name if len(quotas) == 1 else "")
         dialog.refresh()
         dialog.show()
         dialog.raise_()
