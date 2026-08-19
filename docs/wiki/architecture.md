@@ -1297,3 +1297,36 @@ interaction paths. It passed at 750 tests passed, 2 skipped, and 92.54% coverage
 live-client visual walkthrough remains outstanding, including visual responsiveness and confirmation
 that both `Escape` and `END` halt a live `neuz.exe` session; automated evidence is not presented as
 field validation.
+
+## Asynchronous farming telemetry and offline dataset export (US-054, in progress)
+
+US-054 introduces `flyff_bot.features.telemetry` as a write-only observation sidecar to the farming
+loop. `TelemetryRecorder` is owned by `FarmingOrchestrator`: it queues a schema-v1 session header
+at start, one compact numerical snapshot per newly observed frame, complete visible-candidate
+matrices at target selection, and measured combat/key-dispatch/verified-kill records. The tick
+thread never waits for serialization or storage. `JsonlTelemetryWorker` owns a bounded
+`queue.Queue` and one daemon persistence thread, writes append-only envelopes under
+`data/telemetry/<area_id>/<UTC-date>/session_<session_id>.jsonl`, and drops records under pressure
+instead of delaying farming. Narrow filesystem, JSON, and SQLite failures are counted and contained
+inside that worker; they do not escape into the orchestrator or Qt event loop.
+
+The same worker optionally mirrors each envelope into `SqliteTelemetryStore`
+(`data/telemetry.sqlite3`) using a short-lived transactional connection. It keeps a common
+timestamped event stream and query-oriented tables/indexes for session headers, target decisions,
+navigation episodes, combat episodes, stall events, and kill cycles. The separate
+`TelemetryDatasetExporter` reads that normalized SQLite stream and the `--export-telemetry` CLI
+action writes zstd-compressed, dataframe-compatible `target_decisions.parquet`,
+`navigation_trajectories.parquet`, and `kill_cycles.parquet` under `data/datasets/rl/`. JSONL,
+SQLite, and generated datasets remain local git-ignored operational data, not source evidence.
+
+The current landing is intentionally partial. `TelemetryRecorder` can represent navigation episodes
+and stall events, but the active navigation controller does not yet emit them, so no real trajectory,
+replan, or stall episode reaches storage. Likewise, the current US-052 geometry/raycast provider is
+not available: NavMesh polygon/slope and candidate world-coordinate/path fields are emitted as
+explicit JSON `null` values rather than inferred from screen geometry. A verified kill cycle carries
+actual combat duration, but its decision and navigation components are not yet instrumented, so the
+required four-part kill-to-kill decomposition remains open. Session header fields for client hash,
+bot version, loaded NavMesh version, and spawn-zone metadata also await their producers; candidate
+lockout status likewise awaits a lockout-list integration. The full
+automated repository gate passed at 758 passed, 2 skipped, and 92.15% coverage; the two Windows
+live-client/manual export walkthroughs remain outstanding and are not implied by those checks.

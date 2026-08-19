@@ -293,3 +293,19 @@ related:
 - **Diagnostic Event Log panel** — The dashboard's `EventLogPanel`, hosted on the Diagnostics & Logs
   tab, which renders `DashboardUpdate.events` as a reverse-chronological, localized, colour-badged
   list of recent session events and stays current when another tab is selected.
+- **Farming telemetry envelope** — One schema-versioned, append-only JSON object carrying a session
+  id, monotonic timestamp, typed event kind, and primitive-only payload. It is produced by
+  `TelemetryRecorder` and queued rather than written on the farming tick thread.
+- **Telemetry worker** — The bounded `JsonlTelemetryWorker` queue and single daemon persistence
+  thread that appends numeric session records to `data/telemetry/` and, when configured, mirrors
+  them to SQLite. A full queue drops telemetry rather than delaying farming; worker I/O and
+  serialization failures are contained and counted.
+- **Operational telemetry store** — `SqliteTelemetryStore`, the local transactional
+  `data/telemetry.sqlite3` database with timestamp indexes and event-family tables for fast local
+  telemetry queries. It is operational state, not a replacement for append-only JSONL provenance.
+- **Telemetry dataset export** — `TelemetryDatasetExporter` and `--export-telemetry`, which compile
+  SQLite event records into zstd-compressed Parquet tables for target decisions, navigation
+  trajectories, and kill cycles under `data/datasets/rl/`.
+- **Explicitly unavailable geometry** — A telemetry field whose US-052 NavMesh or calibrated
+  raycast producer is absent. Player/candidate geometry, NavMesh polygon, slope, and path fields
+  use `null` when unavailable; the telemetry subsystem must not invent a screen-space estimate.

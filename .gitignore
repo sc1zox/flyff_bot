@@ -39,6 +39,9 @@ runs/
 
 # Locally learned navigation maps and spawn heatmaps
 data/navigation/
+data/telemetry/
+data/telemetry.sqlite3
+data/datasets/rl/
 data/powerups_config.json
 data/emergency_recovery_config.json
 

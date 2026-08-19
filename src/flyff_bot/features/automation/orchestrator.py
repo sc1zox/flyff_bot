@@ -51,8 +51,10 @@ from flyff_bot.features.automation.vitals_controller import (
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control import ForegroundWindowInfo
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
+from flyff_bot.features.navigation.live_position import PositionSource
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector, TrackingQuality
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
+from flyff_bot.features.telemetry import CombatVerificationSource, TelemetryRecorder
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     FrameCaptureError,
@@ -215,6 +217,7 @@ class FarmingOrchestrator:
         on_target_classes_changed: Callable[[frozenset[str]], None] | None = None,
         event_logger: SessionEventLogger | None = None,
         foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
+        telemetry: TelemetryRecorder | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._input_adapter = input_adapter
@@ -258,6 +261,8 @@ class FarmingOrchestrator:
         self._last_capture_error: FrameCaptureErrorCode | None = None
         self._teleport_settled_at_seconds = 0.0
         self._emergency_teleport_unavailable = False
+        self._telemetry = telemetry
+        self._telemetry_observed_at_seconds: float | None = None
 
     @property
     def mode(self) -> FarmingMode:
@@ -303,6 +308,8 @@ class FarmingOrchestrator:
         self._alignment_failure = None
         self._emergency_teleport_unavailable = False
         self._emergency.reset()
+        if self._telemetry is not None:
+            self._telemetry.start()
         # Perception and pathing read distances from a perspective that is only calibrated
         # at the standardized camera state, so alignment runs before the first farming tick.
         if self._config.auto_align_camera and self._camera_aligner is not None:
@@ -356,6 +363,8 @@ class FarmingOrchestrator:
         self._persist_navigation()
         if self._pathing is not None:
             self._pathing.close()
+        if self._telemetry is not None:
+            self._telemetry.close()
 
     def configure_attack_key(self, virtual_key: int) -> None:
         """Apply one dashboard-selected attack key before a paused session starts."""
@@ -653,6 +662,13 @@ class FarmingOrchestrator:
         if self._mode is FarmingMode.SEARCHING:
             combat = self._combat.step(self._state)
             if combat.mode is not CombatMode.IDLE:
+                if self._telemetry is not None and combat.position is not None:
+                    self._telemetry.record_target_selection(
+                        self._state,
+                        combat.position.x,
+                        combat.position.y,
+                        reason="nearest_to_viewport_center",
+                    )
                 self._set_mode(FarmingMode.TARGETING, reason="mob_detected")
                 self._engagement_break = None
                 self._approach_stalls.reset()
@@ -682,6 +698,15 @@ class FarmingOrchestrator:
                 if combat.break_reason is EngagementBreakReason.OBSTACLE_STALL:
                     self._register_navigation_obstacle()
             if combat.mode in {CombatMode.IDLE, CombatMode.TARGET_LOST}:
+                if self._telemetry is not None:
+                    self._telemetry.finish_combat(
+                        self._state,
+                        outcome=(
+                            combat.break_reason.value
+                            if combat.break_reason is not None
+                            else "target_lost"
+                        ),
+                    )
                 self._approach_stalls.reset()
                 self._engaged_monster_name = None
                 if combat.reposition_requested:
@@ -694,6 +719,12 @@ class FarmingOrchestrator:
                 )
                 return False
             if combat.mode is CombatMode.TARGET_DEAD:
+                if self._telemetry is not None:
+                    self._telemetry.finish_combat(
+                        self._state,
+                        outcome="kill_verified",
+                        verification_source=CombatVerificationSource.HP_ZERO,
+                    )
                 self._approach_stalls.reset()
                 self._state = replace(self._state, progress_marker=self._state.progress_marker + 1)
                 self._record_kill(combat.engaged_class_name)
@@ -701,13 +732,23 @@ class FarmingOrchestrator:
                 self._set_mode(FarmingMode.RECONCILING, reason="target_dead")
                 return False
             if combat.mode in {CombatMode.ENGAGING, CombatMode.FIGHTING}:
+                if self._telemetry is not None:
+                    self._telemetry.begin_combat(self._state)
                 self._remember_engaged_monster()
                 # Only a verified engagement restarts the idle timeout. A click that never
                 # confirmed is not progress, so repeated lockout retries cannot keep
                 # postponing camera search recovery (BUG-010).
                 self._search.reset()
             self._set_mode(FarmingMode.COMBAT, reason="engaging")
-            return self._combat_dispatcher.dispatch(combat)
+            dispatched = self._combat_dispatcher.dispatch(combat)
+            if (
+                dispatched
+                and self._telemetry is not None
+                and combat.virtual_key is not None
+                and combat.key_press_duration_seconds is not None
+            ):
+                self._telemetry.record_attack(combat.virtual_key, combat.key_press_duration_seconds)
+            return dispatched
 
         if self._mode is FarmingMode.RECONCILING:
             reconciliation = self._supervisor.reconcile(
@@ -938,6 +979,7 @@ class FarmingOrchestrator:
             else None
         )
         tick = FarmingTick(self._state, self._mode, dispatched, reconciliation)
+        self._record_telemetry_snapshot()
         if self._dashboard_feed is not None:
             self._dashboard_feed.publish(
                 DashboardUpdate(
@@ -965,6 +1007,26 @@ class FarmingOrchestrator:
                 )
             )
         return tick
+
+    def _record_telemetry_snapshot(self) -> None:
+        """Queue at most one numeric telemetry snapshot for each observed client frame."""
+
+        if self._telemetry is None or not self._has_live_frame:
+            return
+        observed_at_seconds = self._state.observed_at_seconds
+        if observed_at_seconds == self._telemetry_observed_at_seconds:
+            return
+        self._telemetry_observed_at_seconds = observed_at_seconds
+        self._telemetry.record_snapshot(
+            self._state,
+            self._mode.value,
+            live_position=self._pathing.live_position if self._pathing is not None else None,
+            position_source=(
+                self._pathing.position_source
+                if self._pathing is not None
+                else PositionSource.MINIMAP_FALLBACK
+            ),
+        )
 
 
 def _dashboard_status(

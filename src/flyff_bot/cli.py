@@ -23,6 +23,10 @@ from flyff_bot.constants import (
     DEFAULT_PROCESS_NAME,
     DEFAULT_START_DELAY_SECONDS,
     DEFAULT_TARGET_ANCHOR_PATH,
+    DEFAULT_TELEMETRY_AREA_ID,
+    DEFAULT_TELEMETRY_DATABASE_PATH,
+    DEFAULT_TELEMETRY_DATASET_PATH,
+    DEFAULT_TELEMETRY_ROOT,
     DEFAULT_TRAINING_EPOCHS,
     MINIMUM_KEY_DURATION_SECONDS,
     ExitCode,
@@ -44,6 +48,13 @@ from flyff_bot.features.navigation.live_position import LivePositionReader
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.persistence import load_profile
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
+from flyff_bot.features.telemetry import (
+    JsonlTelemetryWorker,
+    SqliteTelemetryStore,
+    TelemetryDatasetExporter,
+    TelemetryRecorder,
+    TelemetrySessionMetadata,
+)
 from flyff_bot.features.training import TrainingError, train_and_export, validate_dataset
 from flyff_bot.features.vision import (
     DetectionConfig,
@@ -121,6 +132,35 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         "--train-mob-detector",
         action="store_true",
         help=translator.text(Message.HELP_TRAIN_MOB_DETECTOR),
+    )
+    actions.add_argument(
+        "--export-telemetry",
+        action="store_true",
+        help=translator.text(Message.HELP_EXPORT_TELEMETRY),
+    )
+    parser.add_argument(
+        "--telemetry-database",
+        default=DEFAULT_TELEMETRY_DATABASE_PATH,
+        help=translator.text(
+            Message.HELP_TELEMETRY_DATABASE, default=DEFAULT_TELEMETRY_DATABASE_PATH
+        ),
+    )
+    parser.add_argument(
+        "--telemetry-dataset",
+        default=DEFAULT_TELEMETRY_DATASET_PATH,
+        help=translator.text(
+            Message.HELP_TELEMETRY_DATASET, default=DEFAULT_TELEMETRY_DATASET_PATH
+        ),
+    )
+    parser.add_argument(
+        "--telemetry-root",
+        default=DEFAULT_TELEMETRY_ROOT,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--telemetry-area",
+        default=DEFAULT_TELEMETRY_AREA_ID,
+        help=translator.text(Message.HELP_TELEMETRY_AREA, default=DEFAULT_TELEMETRY_AREA_ID),
     )
     parser.add_argument(
         "--dataset",
@@ -285,6 +325,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 )
             )
             return ExitCode.SUCCESS
+        if args.export_telemetry:
+            paths = TelemetryDatasetExporter(
+                SqliteTelemetryStore(Path(args.telemetry_database))
+            ).export(Path(args.telemetry_dataset))
+            print(translator.text(Message.TELEMETRY_EXPORTED))
+            for path in paths:
+                print(path)
+            return ExitCode.SUCCESS
         controller = WindowsInputController()
         windows = controller.find_windows(args.process)
         if not windows:
@@ -388,12 +436,18 @@ def main(arguments: Sequence[str] | None = None) -> int:
         print(translator.text(error.message), file=sys.stderr)
         return ExitCode.DETECTION_FAILURE
     except (InputControlError, DetectionError, ValueError) as error:
+        if args.export_telemetry:
+            print(translator.text(Message.TELEMETRY_EXPORT_FAILED, reason=error), file=sys.stderr)
+            return ExitCode.DATASET_FAILURE
         if isinstance(error, DetectionError | ValueError):
             print(translator.text(Message.DETECTION_FAILED, reason=error), file=sys.stderr)
             return ExitCode.DETECTION_FAILURE
         print(translator.text(_known_error_message(error)), file=sys.stderr)
         return ExitCode.INPUT_FAILURE
     except OSError as error:
+        if args.export_telemetry:
+            print(translator.text(Message.TELEMETRY_EXPORT_FAILED, reason=error), file=sys.stderr)
+            return ExitCode.DATASET_FAILURE
         print(translator.text(Message.INPUT_FAILED, reason=error), file=sys.stderr)
         return ExitCode.INPUT_FAILURE
 
@@ -463,6 +517,27 @@ def _farming_orchestrator(
                 rotation_settle_pause_seconds=args.search_settle_pause,
                 movement_step_duration_seconds=args.search_movement_duration,
             ),
+        ),
+        telemetry=_telemetry_recorder(args, model_path, labels_path),
+    )
+
+
+def _telemetry_recorder(
+    args: argparse.Namespace, model_path: str, labels_path: str
+) -> TelemetryRecorder:
+    """Build the optional-storage recorder without adding any client-process access."""
+
+    store = SqliteTelemetryStore(Path(args.telemetry_database))
+    root = Path(args.telemetry_root)
+    return TelemetryRecorder(
+        TelemetrySessionMetadata(
+            area_id=args.telemetry_area,
+            active_models=(model_path, labels_path),
+            navmesh_version=None,
+            active_spawn_zone=None,
+        ),
+        lambda session_id, area_id: JsonlTelemetryWorker(
+            session_id, area_id, root=root, store=store
         ),
     )
 

@@ -664,3 +664,17 @@ Recorded ADR-005 establishing full read-only access to local Entropia client fil
 extraction and NavMesh baking tooling. Decoupled offline asset parsing from runtime safety boundaries,
 confirmed the non-destructive read-only requirement on local installations, and reinforced the
 repository safety boundary forbidding commits of raw proprietary client files.
+
+## [2026-08-19] synthesis | Async farming telemetry and offline datasets (US-054, in progress)
+
+Recorded the landed `flyff_bot.features.telemetry` path in the architecture and glossary: a
+non-blocking, bounded JSONL worker, local transactional SQLite mirror, numeric schema-v1 event
+contracts, and zstd Parquet export for target decisions, navigation trajectories, and kill cycles.
+The full repository gate passed at 758 passed / 2 skipped / 92.15% coverage.
+
+Documented the incomplete integration rather than treating the generated contracts as live
+evidence: US-052 NavMesh/raycast fields are explicit `null` values when their producer is absent;
+navigation/stall episode instrumentation and the complete four-part kill-cycle timing decomposition
+remain open; session metadata producers and candidate-lockout integration are also incomplete. The
+two Windows manual checks for an actual farming session and direct Parquet loading remain
+outstanding, so US-054 stays in progress and was not moved to completed stories.

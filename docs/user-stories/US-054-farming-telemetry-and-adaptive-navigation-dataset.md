@@ -1,7 +1,7 @@
 ---
 id: US-054
 title: Farming Telemetrie, SQLite Betriebsdaten, Parquet-Export und Offline-RL-Dataset-Generierung
-status: draft
+status: in-progress
 created: 2026-08-19
 updated: 2026-08-19
 ---
@@ -159,22 +159,46 @@ so that **we have instant operational insight during farming sessions and an aut
   - Wenn keine Weltkoordinaten verfügbar sind, wird `world_position` explizit als `null` gespeichert; es werden keine erfundenen Heuristiken abgelegt.
 - [ ] **Navigation Episode & Trajectory Extraction:**
   - Für jede Navigationsepisode werden Start-/Zielkoordinaten, geplante 3D-Funnel-Wegpunkte (US-052), reale 10-Hz-GPS-Trajektorie, zurückgelegte Wegstrecke, Pfadeffizienz $\eta$, Stall-Events, Ausweichschritte und das Navigationsergebnis aufgezeichnet.
-- [ ] **Combat Episode & Kill Verification:**
+- [x] **Combat Episode & Kill Verification:**
   - Für jeden Kampf werden Start-/Endzeitpunkte, Time-to-Kill ($T_{\text{ttk}}$), Spielerschaden ($\Delta HP$), gesendete Angriffs-Hotkeys, Verifikationsquelle (`HUD_COUNTER` vs. `HP_ZERO`) und Kampfergebnis protokolliert.
 - [ ] **Kill-to-Kill Cycle & Transition Dataset:**
   - Jeder Kill-Zyklus wird vollständig in $T_{\text{decision}} + T_{\text{navigation}} + T_{\text{combat}} + T_{\text{idle}}$ zerlegt und als vollständiges State-Action-Reward-Transition-Tuple für Offline-RL exportiert.
-- [ ] **Operative SQLite-Telemetrie:**
+- [x] **Operative SQLite-Telemetrie:**
   - `SqliteTelemetryStore` persistiert strukturierte Session-, Target-, Navigations- und Combat-Ereignisse in `data/telemetry.sqlite3` mit optimierten Indizes für schnelle Abfragen.
-- [ ] **Parquet-Export für ML-Training:**
+- [x] **Parquet-Export für ML-Training:**
   - Ein CLI-Befehl/Exporter generiert aus aufgezeichneten Sessions validierte, schema-konforme `.parquet`-Dateien (`target_decisions.parquet`, `navigation_trajectories.parquet`, `kill_cycles.parquet`) unter `data/datasets/rl/`.
-- [ ] **Performance & Threading-Entkopplung:**
+- [x] **Performance & Threading-Entkopplung:**
   - Telemetrie-I/O blockiert zu keinem Zeitpunkt den 10-Hz-Orchestrator-Thread oder die Qt-GUI.
   - Serialisierung und Dateizugriffe laufen auf einem separaten Hintergrund-Worker.
-- [ ] **Storage Control:**
+- [x] **Storage Control:**
   - Rohe Videoframes/Screenshots sind standardmäßig deaktiviert (rein numerische strukturierte JSONL-Events).
-- [ ] **Typisierung & Tests:**
+- [x] **Typisierung & Tests:**
   - Alle neuen Datenmodelle und Telemetrie-Klassen bestehen `mypy --strict`.
   - Vollständige Unit-Test-Abdeckung für Telemetrie-Queue, SQLite-Store, Parquet-Exporter, Kinematik-Ableitung und Event-Serialisierung.
+
+## Implementation status
+
+The delivered numeric telemetry path is deliberately truthful about its current integration
+boundary. `TelemetryRecorder` writes schema-v1 session envelopes, 10-Hz world snapshots, target
+decisions, combat episodes, and verified-kill cycles through a bounded asynchronous JSONL worker;
+the worker mirrors records into SQLite and the CLI exports the three stable Parquet tables.
+
+The following acceptance criteria remain open and keep this story **in progress**:
+
+- Session metadata is not yet populated with a client digest, bot version, loaded NavMesh version,
+  or active spawn-zone metadata.
+- The US-052 NavMesh/raycast provider is not available to this integration. Snapshot polygon and
+  terrain-slope fields, plus candidate world position, 3D distance, relative elevation, target
+  polygon, and path distance, are therefore persisted explicitly as `null`; no estimated geometry
+  is fabricated.
+- Target-selection envelopes preserve the visible candidate ordering and screen-space features, but
+  their lockout status is not yet connected to the active lockout list.
+- `NavigationEpisode` and `STALL_EVENT` contracts and storage/export support exist, but the
+  orchestrator does not yet instrument active navigation into completed episodes, trajectories,
+  replans, or stall events.
+- Verified kill cycles currently record measured combat duration and the remaining interval as
+  idle time; they do not yet derive the required decision, navigation, combat, and idle
+  decomposition from integrated episode boundaries.
 
 ## Out of scope
 
@@ -190,6 +214,6 @@ so that **we have instant operational insight during farming sessions and an aut
   - Unit-Tests in `tests/unit/test_telemetry_sqlite.py` zur Validierung von Schema-Initialisierung, Event-Inserts und operativen Abfragen.
   - Unit-Tests in `tests/unit/test_telemetry_parquet.py` zur Validierung der Parquet-Export-Pipeline, Columnar-Schemas und Datentyp-Integrität.
   - `./scripts/check.ps1` läuft fehlerfrei durch (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
-- Manual (Windows):
-  - Starte eine Farming-Session in Entropia Flyff mit geladenem US-052 3D-NavMesh, führe mehrere Kills und Laufwege aus, und überprüfe, dass sowohl `data/telemetry/<area_id>/<date>/session_<session_id>.jsonl` als auch `data/telemetry.sqlite3` aktualisiert werden.
-  - Führe den Parquet-Export aus und verifiziere, dass die erzeugten `.parquet`-Dateien in Python (z. B. via `duckdb` oder `polars`) direkt geladen und für RL-Training analysiert werden können.
+- Manual (Windows, outstanding):
+  - [ ] Starte eine Farming-Session in Entropia Flyff mit geladenem US-052 3D-NavMesh, führe mehrere Kills und Laufwege aus, und überprüfe, dass sowohl `data/telemetry/<area_id>/<date>/session_<session_id>.jsonl` als auch `data/telemetry.sqlite3` aktualisiert werden.
+  - [ ] Führe den Parquet-Export aus und verifiziere, dass die erzeugten `.parquet`-Dateien in Python (z. B. via `duckdb` oder `polars`) direkt geladen und für RL-Training analysiert werden können.

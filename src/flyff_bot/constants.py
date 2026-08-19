@@ -11,6 +11,10 @@ DEFAULT_MOB_MODEL_PATH = "models/mob_detector.onnx"
 DEFAULT_MOB_LABELS_PATH = "models/labels.txt"
 DEFAULT_TRAINING_EPOCHS = 100
 DEFAULT_NAVIGATION_MAP_PATH = "data/navigation/spatial_map.json"
+DEFAULT_TELEMETRY_ROOT = "data/telemetry"
+DEFAULT_TELEMETRY_DATABASE_PATH = "data/telemetry.sqlite3"
+DEFAULT_TELEMETRY_DATASET_PATH = "data/datasets/rl"
+DEFAULT_TELEMETRY_AREA_ID = "unknown"
 # Extracted client world geometry (US-045). The client tree is the operator's own game
 # installation and is never part of this repository, so the default only states where an
 # unmodified Entropia install keeps its regions relative to the working directory.
