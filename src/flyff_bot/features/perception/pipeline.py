@@ -31,6 +31,11 @@ from flyff_bot.features.vision.vitals import PlayerVitalsFeed, PlayerVitalsReade
 # The HUD kill counter changes at most once per kill, so sampling it twice a second is ample
 # while keeping the far more expensive OCR subprocess off the majority of perception ticks.
 DEFAULT_MONSTER_STATS_INTERVAL_SECONDS = 0.5
+# Named so the handlers below stay single-name `except` clauses. The pinned formatter
+# rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
+# what the group of failures means.
+DETECTION_ERRORS = (DetectionError, cv2.error)
+FRAME_READ_ERRORS = (ValueError, cv2.error)
 
 
 class PerceptionFailure(StrEnum):
@@ -116,15 +121,15 @@ class PerceptionPipeline:
             visible_mobs = tuple(
                 _visible_mob(detection) for detection in self._detector.detect(frame)
             )
-        except DetectionError, cv2.error:
+        except DETECTION_ERRORS:
             failures.add(PerceptionFailure.DETECTION)
         try:
             selected_target = _selected_target(self._target_verifier.verify(frame))
-        except ValueError, cv2.error:
+        except FRAME_READ_ERRORS:
             failures.add(PerceptionFailure.TARGET_VERIFICATION)
         try:
             player_vitals = self._vitals_reader.read(frame)
-        except ValueError, cv2.error:
+        except FRAME_READ_ERRORS:
             failures.add(PerceptionFailure.VITALS_READING)
         observed_at_seconds = self._clock()
         # Each reading spawns an OCR subprocess, which is far slower than one perception tick,

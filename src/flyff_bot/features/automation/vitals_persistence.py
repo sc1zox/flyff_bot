@@ -14,6 +14,11 @@ from flyff_bot.features.automation.vitals_controller import (
 
 DEFAULT_VITALS_CONFIG_PATH = Path("data/vitals_config.json")
 JSON_INDENT_SPACES = 2
+# Named so the handlers below stay single-name `except` clauses. The pinned formatter
+# rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
+# what the group of failures means.
+RULE_FIELD_ERRORS = (KeyError, ValueError, TypeError)
+CONFIG_READ_ERRORS = (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError, TypeError)
 
 
 def vitals_config_to_dict(config: VitalsTriggerConfig) -> dict[str, Any]:
@@ -61,7 +66,7 @@ def vitals_config_from_dict(data: dict[str, Any]) -> VitalsTriggerConfig:
                     key_press_duration_seconds=duration,
                 )
             )
-        except KeyError, ValueError, TypeError:
+        except RULE_FIELD_ERRORS:
             continue
 
     if not rules:
@@ -87,5 +92,5 @@ def load_vitals_config(path: Path = DEFAULT_VITALS_CONFIG_PATH) -> VitalsTrigger
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return vitals_config_from_dict(data)
-    except json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError, TypeError:
+    except CONFIG_READ_ERRORS:
         return VitalsTriggerConfig()
