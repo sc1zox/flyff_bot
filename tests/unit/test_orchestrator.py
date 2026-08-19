@@ -85,9 +85,14 @@ class _InputAdapter:
         self.foreground = foreground
         self.clicks: list[tuple[int, int, int]] = []
         self.keys: list[tuple[int, float]] = []
+        self.closed_windows: list[int] = []
 
     def is_aborted(self) -> bool:
         return self.aborted
+
+    def close_window(self, window_handle: int) -> bool:
+        self.closed_windows.append(window_handle)
+        return True
 
     def is_foreground(self, _window_handle: int) -> bool:
         return self.foreground

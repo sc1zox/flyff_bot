@@ -8,6 +8,7 @@ from enum import StrEnum
 from PySide6.QtCore import QObject, Signal
 
 from flyff_bot.features.automation.controllers import EngagementBreakReason
+from flyff_bot.features.automation.kill_goals import MobKillProgress
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.navigation.anchoring import ProfileAnchorState
 from flyff_bot.features.navigation.tracking import TrackingQuality
@@ -19,6 +20,7 @@ class BotStatus(StrEnum):
 
     ACTIVE = "active"
     STANDBY = "standby"
+    COMPLETED = "completed"
     PAUSED = "paused"
     EMERGENCY_STOPPED = "emergency_stopped"
     COMBAT = "combat"
@@ -115,6 +117,9 @@ class DashboardUpdate:
     navigation: NavigationSnapshot | None = None
     window: WindowStatus = WindowStatus.OK
     engagement_break: EngagementBreakReason | None = None
+    # Live per-monster quota progress, empty while no monster selection is configured
+    # (US-035).
+    kill_progress: tuple[MobKillProgress, ...] = ()
 
 
 class DashboardFeed(QObject):

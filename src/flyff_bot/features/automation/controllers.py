@@ -236,6 +236,9 @@ class CombatDecision:
     break_reason: EngagementBreakReason | None = None
     # Whether the session should clear the blocked path before selecting the next target.
     reposition_requested: bool = False
+    # The class of the mob this engagement selected, so a confirmed kill can be counted
+    # against that monster's quota (US-035).
+    engaged_class_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,9 +276,16 @@ class CombatController:
         self._engagement_grace_expires_at: float | None = None
         self._damage_dealt = False
         self._engaged_position: Position | None = None
+        self._engaged_class_name: str | None = None
         self._last_progress_at_seconds: float | None = None
         self._lockouts: list[TargetLockout] = []
         self._approach_failure: ApproachFailure | None = None
+
+    @property
+    def engaged_class_name(self) -> str | None:
+        """Return the monster class of the candidate this engagement selected."""
+
+        return self._engaged_class_name
 
     @property
     def damage_dealt(self) -> bool:
@@ -314,10 +324,12 @@ class CombatController:
                 else None
             )
             self._engaged_position = _mob_center(candidate)
+            self._engaged_class_name = candidate.class_name
             return CombatDecision(
                 CombatMode.TARGETING,
                 CombatInputKind.CLICK,
                 self._engaged_position,
+                engaged_class_name=self._engaged_class_name,
             )
 
         if self._mode is CombatMode.TARGETING:
@@ -502,7 +514,11 @@ class CombatController:
     def _confirm_kill(self, state: WorldState) -> CombatDecision:
         self._register_lockout(state.observed_at_seconds)
         self._mode = CombatMode.TARGET_DEAD
-        return CombatDecision(CombatMode.TARGET_DEAD, damage_dealt=True)
+        return CombatDecision(
+            CombatMode.TARGET_DEAD,
+            damage_dealt=True,
+            engaged_class_name=self._engaged_class_name,
+        )
 
     def _break_engagement(self, state: WorldState, reason: EngagementBreakReason) -> CombatDecision:
         """Abandon the engagement, and escalate the lockout for an unreachable target.
@@ -580,6 +596,7 @@ class CombatController:
         self._damage_dealt = False
         self._next_attack_at_seconds = 0.0
         self._engaged_position = None
+        self._engaged_class_name = None
         self._last_progress_at_seconds = None
 
 

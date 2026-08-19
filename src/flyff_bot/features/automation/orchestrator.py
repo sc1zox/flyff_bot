@@ -25,6 +25,7 @@ from flyff_bot.features.automation.controllers import (
     SearchController,
     SearchMode,
 )
+from flyff_bot.features.automation.kill_goals import KillGoalConfig, KillGoalTracker
 from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
 from flyff_bot.features.automation.powerup_controller import (
     PowerUpConfig,
@@ -110,12 +111,20 @@ WINDOW_STATUS_BY_CAPTURE_CODE = {
 }
 
 
+class SessionShutdownAdapter(Protocol):
+    """The cooperative window shutdown a finished session may request."""
+
+    def close_window(self, window_handle: int) -> bool:
+        """Ask the client window to close itself and report whether that was posted."""
+
+
 class FarmingInputAdapter(
     CombatInputAdapter,
     SearchInputAdapter,
     PathingInputAdapter,
     VitalsInputAdapter,
     PowerUpInputAdapter,
+    SessionShutdownAdapter,
     Protocol,
 ):
     """The guarded platform operations needed by a farming session."""
@@ -181,6 +190,8 @@ class FarmingOrchestrator:
         dashboard_feed: DashboardFeed | None = None,
         pathing: PathingController | None = None,
         camera_aligner: CameraAligner | None = None,
+        kill_goals: KillGoalTracker | None = None,
+        on_target_classes_changed: Callable[[frozenset[str]], None] | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._input_adapter = input_adapter
@@ -210,6 +221,9 @@ class FarmingOrchestrator:
         self._camera_aligner = camera_aligner
         self._alignment_failure: CameraAlignmentStatus | None = None
         self._mode_after_alignment = FarmingMode.SEARCHING
+        self._kill_goals = kill_goals or KillGoalTracker()
+        self._on_target_classes_changed = on_target_classes_changed
+        self._client_close_requested = False
 
     @property
     def mode(self) -> FarmingMode:
@@ -289,6 +303,36 @@ class FarmingOrchestrator:
         combat = replace(self._config.combat, allowed_class_names=allowed_class_names)
         self._config = replace(self._config, combat=combat)
         self._combat.update_config(combat)
+
+    def configure_kill_goals(self, config: KillGoalConfig) -> None:
+        """Apply the operator's monster selection and per-monster kill quotas (US-035).
+
+        The kills already counted survive an edited quota, so raising a satisfied target
+        resumes farming instead of restarting the count.
+        """
+
+        self._kill_goals.update_config(config)
+        self._client_close_requested = False
+        self._apply_active_target_classes()
+
+    @property
+    def kill_goals(self) -> KillGoalTracker:
+        """Expose the per-monster quota progress of this session."""
+
+        return self._kill_goals
+
+    def _apply_active_target_classes(self) -> None:
+        """Push the monsters still worth targeting into combat and perception.
+
+        Both boundaries read an empty set as "no restriction", which is exactly what an
+        unconfigured selection means, so completed quotas and the operator's own choice
+        travel the same path.
+        """
+
+        allowed = self._kill_goals.active_class_names
+        self.configure_target_classes(allowed)
+        if self._on_target_classes_changed is not None:
+            self._on_target_classes_changed(allowed)
 
     def configure_kill_verification(self, enabled: bool) -> None:
         """Toggle HUD monster-stats kill-count confirmation mid-session."""
@@ -388,8 +432,7 @@ class FarmingOrchestrator:
                 self._persist_navigation()
                 self._last_persist_at_seconds = self._state.observed_at_seconds
         if self._goal_completed():
-            self._mode = FarmingMode.COMPLETED
-            self._persist_navigation()
+            self._complete_session()
             return self._publish(False)
 
         vitals_decision = self._vitals.step(self._state)
@@ -504,6 +547,7 @@ class FarmingOrchestrator:
             if combat.mode is CombatMode.TARGET_DEAD:
                 self._approach_stalls.reset()
                 self._state = replace(self._state, progress_marker=self._state.progress_marker + 1)
+                self._record_kill(combat.engaged_class_name)
                 self._mode = FarmingMode.RECONCILING
                 return False
             if combat.mode in {CombatMode.ENGAGING, CombatMode.FIGHTING}:
@@ -598,12 +642,35 @@ class FarmingOrchestrator:
         if self._pathing is not None:
             self._pathing.persist()
 
+    def _record_kill(self, class_name: str | None) -> None:
+        """Count a verified kill against its monster class and retire finished quotas.
+
+        The class comes from the candidate this engagement clicked, which is the only
+        place the mob's identity is known: the HUD counts kills without naming them.
+        """
+
+        if not self._kill_goals.record_kill(class_name):
+            return
+        if self._kill_goals.has_quotas:
+            self._apply_active_target_classes()
+
     def _goal_completed(self) -> bool:
+        if self._kill_goals.is_completed:
+            return True
         goal = self._config.goal
         if goal is None:
             return False
         quantities = {entry.item: entry.quantity for entry in self._state.inventory}
         return quantities.get(goal.item_name, 0) >= goal.required_quantity
+
+    def _complete_session(self) -> None:
+        """End the session, and optionally ask the game client to close itself."""
+
+        self._mode = FarmingMode.COMPLETED
+        self._persist_navigation()
+        if self._kill_goals.close_client_on_completion and not self._client_close_requested:
+            self._client_close_requested = True
+            self._input_adapter.close_window(self._window_handle)
 
     def _publish(self, dispatched: bool) -> FarmingTick:
         reconciliation = (
@@ -631,6 +698,7 @@ class FarmingOrchestrator:
                     ),
                     window=self._window_status,
                     engagement_break=self._engagement_break,
+                    kill_progress=self._kill_goals.progress,
                 )
             )
         return tick
@@ -651,7 +719,9 @@ def _dashboard_status(
         return BotStatus.ALIGNMENT_FAILED
     if mode is FarmingMode.RECONCILING:
         return BotStatus.RECONCILING
-    if mode in {FarmingMode.PAUSED, FarmingMode.COMPLETED}:
+    if mode is FarmingMode.COMPLETED:
+        return BotStatus.COMPLETED
+    if mode is FarmingMode.PAUSED:
         return BotStatus.STANDBY if live_preview else BotStatus.PAUSED
     if mode is FarmingMode.REPOSITIONING:
         return BotStatus.REPOSITIONING

@@ -532,3 +532,20 @@ carried over defaults and estimates, not values fitted against recorded client f
 centre-mask fractions they depend on were already marked as estimates in BUG-009. The named
 consequence — a damage-free fight now breaking at 5.0 s instead of 10.0 s — is reasoned from the
 configured timeouts, not observed in a live session. Moved US-039 to completed user stories.
+
+## [2026-08-19] synthesis | Multi-target monster selection and per-mob kill quotas
+
+Recorded the multi-target US-035 on `docs/wiki/architecture.md` and `docs/wiki/glossary.md`: why kill
+attribution has to come from the engaged candidate's class rather than the Monster-Stats HUD (the HUD
+reports one global count with no breakdown), how `KillGoalTracker` turns completed quotas into the
+active targeting whitelist that detection, verification, and combat all follow, the SQLite kill log
+(`data/kill_log.sqlite3`) that carries progress across pauses, and the cooperative `WM_CLOSE` a
+completed session may post. Noted that this story's panel replaces the single-select dropdown from
+US-038 rather than joining it, because two controls writing the same whitelist would contradict each
+other, and amended the US-038 section accordingly.
+
+No measurement was ingested; every claim is read from the implementation and its tests. Two user
+stories now carry the identifier US-035 — the measured minimap odometry work and this one — and are
+distinguished only by file name; the architecture section and the story index say so explicitly
+rather than renumbering an already-completed story. Moved the multi-target US-035 to completed user
+stories.

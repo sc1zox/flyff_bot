@@ -19,6 +19,11 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from flyff_bot.features.automation.kill_goals import (
+    KillGoalConfig,
+    MobKillProgress,
+    MobKillQuota,
+)
 from flyff_bot.features.automation.models import (
     InventoryEntry,
     MonsterStatsMetrics,
@@ -67,8 +72,9 @@ from flyff_bot.features.vision.target_verification import TargetVerifier
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.app import (
     connect_farming_controls,
-    connect_target_mob_selection,
+    connect_target_selection,
     start_farming,
+    target_class_applier,
 )
 from flyff_bot.ui.dashboard import (
     BotStatus,
@@ -81,7 +87,7 @@ from flyff_bot.ui.dashboard import (
     WindowStatus,
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
-from flyff_bot.ui.main_window import ALL_TARGET_MOBS, MainWindow
+from flyff_bot.ui.main_window import MainWindow
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import (
@@ -1628,95 +1634,124 @@ class _RecordingDetector:
         self.allowed_class_names.append(allowed_class_names)
 
 
-class _RecordingCombat:
-    """Records the class filters pushed into the combat boundary."""
+class _RecordingSession:
+    """Records the monster selections pushed into the session boundary."""
 
     def __init__(self) -> None:
-        self.allowed_class_names: list[frozenset[str]] = []
+        self.configs: list[KillGoalConfig] = []
 
-    def configure_target_classes(self, allowed_class_names: frozenset[str]) -> None:
-        self.allowed_class_names.append(allowed_class_names)
+    def configure_kill_goals(self, config: KillGoalConfig) -> None:
+        self.configs.append(config)
 
 
-def test_main_window_target_mob_dropdown_lists_all_before_the_model_classes() -> None:
+def test_main_window_target_panel_lists_every_model_class_unselected() -> None:
     _application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
 
     window.set_target_mob_options(("Flame", "Rapra"))
 
-    combo = window.target_mob_combo
-    assert [combo.itemText(index) for index in range(combo.count())] == ["All", "Flame", "Rapra"]
-    assert combo.itemData(0) == ALL_TARGET_MOBS
-    assert window.selected_target_mob == ALL_TARGET_MOBS
+    rows = window.target_panel.rows
+    assert [row.class_name for row in rows] == ["Flame", "Rapra"]
+    assert [row.enabled_check.isChecked() for row in rows] == [False, False]
+    assert window.target_selection == KillGoalConfig()
 
 
-def test_main_window_target_mob_dropdown_emits_the_selected_class() -> None:
+def test_main_window_target_panel_emits_activated_monsters_and_quotas() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
     window.set_target_mob_options(("Flame", "Rapra"))
 
-    selections: list[str] = []
-    window.target_mob_changed.connect(selections.append)
+    selections: list[KillGoalConfig] = []
+    window.target_selection_changed.connect(selections.append)
 
-    window.target_mob_combo.setCurrentIndex(2)
-    application.processEvents()
-    assert window.selected_target_mob == "Rapra"
-
-    window.target_mob_combo.setCurrentIndex(0)
+    window.target_panel.rows[1].enabled_check.setChecked(True)
+    window.target_panel.rows[1].quota_spin.setValue(3)
     application.processEvents()
 
-    assert selections == ["Rapra", ALL_TARGET_MOBS]
+    assert selections[-1].quotas == (MobKillQuota("Rapra", 3),)
+    assert window.target_selection.quotas == (MobKillQuota("Rapra", 3),)
 
 
-def test_main_window_target_mob_dropdown_keeps_the_selection_across_repopulation() -> None:
+def test_main_window_target_panel_keeps_the_selection_across_repopulation() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
     window.set_target_mob_options(("Flame", "Rapra"))
-    window.target_mob_combo.setCurrentIndex(2)
+    window.target_panel.rows[0].enabled_check.setChecked(True)
+    window.target_panel.rows[0].quota_spin.setValue(7)
     application.processEvents()
 
-    selections: list[str] = []
-    window.target_mob_changed.connect(selections.append)
+    selections: list[KillGoalConfig] = []
+    window.target_selection_changed.connect(selections.append)
     window.set_target_mob_options(("Rapra", "Flame"))
 
-    assert window.selected_target_mob == "Rapra"
+    assert window.target_selection.quotas == (MobKillQuota("Flame", 7),)
     assert selections == []
 
 
-def test_main_window_target_mob_labels_localized() -> None:
+def test_main_window_target_panel_renders_live_quota_progress() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.set_target_mob_options(("Flame", "Rapra"))
+
+    window.update_dashboard(
+        DashboardUpdate(
+            _world_state(),
+            BotStatus.COMBAT,
+            kill_progress=(
+                MobKillProgress("Flame", 14, 20),
+                MobKillProgress("Rapra", 5, 0),
+            ),
+        )
+    )
+
+    assert window.target_panel.rows[0].progress_label.text() == "14 / 20"
+    assert window.target_panel.rows[1].progress_label.text() == "5"
+
+
+def test_main_window_target_panel_toggle_reveals_the_selection() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert not window.target_panel.isVisible()
+    window.targets_toggle.setChecked(True)
+
+    assert window.target_panel.isVisibleTo(window)
+
+
+def test_main_window_target_panel_labels_are_localized() -> None:
     _application = QApplication.instance() or QApplication([])
 
     window_en = MainWindow(Translator(Language.ENGLISH))
     window_de = MainWindow(Translator(Language.GERMAN))
 
-    assert window_en.target_mob_combo.itemText(0) == "All"
-    assert window_de.target_mob_combo.itemText(0) == "Alle"
-    assert window_de.target_mob_combo.toolTip().startswith("Erkennung, Zielprüfung")
+    assert window_en.target_panel.title() == "Target Monsters & Kill Quotas"
+    assert window_de.target_panel.title() == "Zielmonster & Abschussvorgaben"
+    assert window_de.target_panel.close_client_check.text().startswith("Spiel-Client")
 
 
-def test_target_mob_selection_propagates_to_detection_verification_and_combat() -> None:
+def test_target_selection_reaches_the_session_and_narrows_perception() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
     window.set_target_mob_options(("Flame", "Rapra"))
     detector = _RecordingDetector()
     template = np.full((2, 2, 3), 7, dtype=np.uint8)
     verifier = TargetVerifier(("Flame", "Rapra"), template, _StubTextRecognizer())
-    combat = _RecordingCombat()
+    session = _RecordingSession()
 
-    connect_target_mob_selection(
-        window, detector, verifier, combat, ("Flame", "Rapra"), default_anchor_path=None
+    apply_classes = target_class_applier(
+        detector, verifier, ("Flame", "Rapra"), default_anchor_path=None
     )
+    connect_target_selection(window, session)
 
-    window.target_mob_combo.setCurrentIndex(2)
+    window.target_panel.rows[1].enabled_check.setChecked(True)
     application.processEvents()
 
+    assert session.configs[-1].quotas == (MobKillQuota("Rapra", 0),)
+
+    apply_classes(frozenset({"Rapra"}))
     assert detector.allowed_class_names[-1] == frozenset({"Rapra"})
-    assert combat.allowed_class_names[-1] == frozenset({"Rapra"})
     assert list(verifier.allowed_names) == ["Rapra"]
 
-    window.target_mob_combo.setCurrentIndex(0)
-    application.processEvents()
-
+    apply_classes(frozenset())
     assert detector.allowed_class_names[-1] == frozenset()
-    assert combat.allowed_class_names[-1] == frozenset()
     assert list(verifier.allowed_names) == ["Flame", "Rapra"]

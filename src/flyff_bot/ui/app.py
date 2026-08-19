@@ -25,6 +25,11 @@ from flyff_bot.features.automation.camera_alignment import (
     frame_minimap_locator,
 )
 from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding
+from flyff_bot.features.automation.kill_goals import KillGoalConfig, KillGoalTracker
+from flyff_bot.features.automation.kill_persistence import (
+    DEFAULT_KILL_LOG_PATH,
+    SqliteKillLog,
+)
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import VitalsTriggerConfig
@@ -95,10 +100,10 @@ class FarmingControls(Protocol):
     def configure_auto_align(self, enabled: bool) -> None: ...
 
 
-class TargetClassControls(Protocol):
-    """The combat-side surface that follows the operator's monster selection."""
+class TargetGoalControls(Protocol):
+    """The session-side surface that owns the operator's monster selection."""
 
-    def configure_target_classes(self, allowed_class_names: frozenset[str]) -> None: ...
+    def configure_kill_goals(self, config: KillGoalConfig) -> None: ...
 
 
 class ClassFilterableDetector(Protocol):
@@ -175,34 +180,40 @@ def connect_farming_controls(
     window.align_camera_requested.connect(orchestrator.request_camera_alignment)
 
 
-def connect_target_mob_selection(
-    window: MainWindow,
+def target_class_applier(
     detector: ClassFilterableDetector,
     verifier: TargetVerifier,
-    combat: TargetClassControls,
     class_names: Sequence[str],
     *,
     default_anchor_path: Path | None = None,
-) -> None:
-    """Apply the selected monster to detection, verification, and combat targeting.
+) -> Callable[[frozenset[str]], None]:
+    """Return the callback that narrows detection and verification to a class set.
 
     Filtering at the detector is what keeps a non-target monster out of
     :class:`WorldState` entirely, so no candidate selection or template match is ever
-    spent on it; the verifier and the combat controller only have to agree with that
-    same choice.
+    spent on it; the verifier only has to agree with that same choice. An empty set
+    restores every known class, which is what an unrestricted selection means.
     """
 
-    def _apply(selected_class_name: str) -> None:
-        selected = tuple(class_names) if not selected_class_name else (selected_class_name,)
-        allowed = frozenset() if not selected_class_name else frozenset(selected)
+    def _apply_classes(allowed: frozenset[str]) -> None:
+        selected = tuple(class_names) if not allowed else tuple(sorted(allowed))
         detector.update_allowed_class_names(allowed)
         verifier.update_allowed_names(
             selected,
             load_mob_anchor_templates(selected, default_anchor_path=default_anchor_path) or None,
         )
-        combat.configure_target_classes(allowed)
 
-    window.target_mob_changed.connect(_apply)
+    return _apply_classes
+
+
+def connect_target_selection(window: MainWindow, controls: TargetGoalControls) -> None:
+    """Route the operator's monster selection and kill quotas into the session.
+
+    The session owns the resulting class filter: a quota that completes mid-run has to
+    narrow targeting exactly the way an operator's edit does (US-035).
+    """
+
+    window.target_selection_changed.connect(controls.configure_kill_goals)
 
 
 def start_farming(
@@ -274,6 +285,12 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     ),
                 )
                 navigation_map_path = Path(DEFAULT_NAVIGATION_MAP_PATH)
+                apply_target_classes = target_class_applier(
+                    detector,
+                    target_verifier,
+                    allowed_names,
+                    default_anchor_path=default_anchor_path,
+                )
                 orchestrator = FarmingOrchestrator(
                     pipeline,
                     controller,
@@ -297,19 +314,17 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         window_handle,
                         locate_minimap_geometry=frame_minimap_locator(frame_source, window_handle),
                     ),
+                    kill_goals=KillGoalTracker(
+                        window.target_selection,
+                        recorder=SqliteKillLog(Path(DEFAULT_KILL_LOG_PATH)),
+                    ),
+                    on_target_classes_changed=apply_target_classes,
                 )
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
                 window.kill_verification_changed.connect(orchestrator.configure_kill_verification)
                 window.anchor_threshold_changed.connect(target_verifier.update_anchor_threshold)
-                connect_target_mob_selection(
-                    window,
-                    detector,
-                    target_verifier,
-                    orchestrator,
-                    allowed_names,
-                    default_anchor_path=default_anchor_path,
-                )
+                connect_target_selection(window, orchestrator)
                 connect_farming_controls(
                     window,
                     orchestrator,

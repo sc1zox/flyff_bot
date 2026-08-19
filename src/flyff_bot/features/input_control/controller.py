@@ -40,6 +40,9 @@ SCROLL_STEP_INTERVAL_SECONDS = 0.03
 # hovers, and it only learns that from a processed mouse move, so the pointer move to the
 # viewport has to be dispatched and consumed before the first notch is sent.
 POINTER_MOVE_SETTLE_SECONDS = 0.15
+# Standard "please close yourself" notification; the client keeps full control over
+# whether and how it shuts down.
+WINDOW_MESSAGE_CLOSE = 0x0010
 VIRTUAL_KEY_END = 0x23
 KEY_IS_DOWN_MASK = 0x8000
 MAXIMUM_PROCESS_PATH_LENGTH = 32_768
@@ -160,6 +163,13 @@ class WindowsInputController:
         self._user32.GetSystemMetrics.restype = ctypes.c_int
         self._user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(Input), ctypes.c_int]
         self._user32.SendInput.restype = wintypes.UINT
+        self._user32.PostMessageW.argtypes = [
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        ]
+        self._user32.PostMessageW.restype = wintypes.BOOL
 
     def _process_name(self, window_handle: int) -> str:
         process_id = wintypes.DWORD()
@@ -245,6 +255,17 @@ class WindowsInputController:
         if width <= 0 or height <= 0:
             return None
         return ScreenRect(left=origin.x, top=origin.y, width=width, height=height)
+
+    def close_window(self, window_handle: int) -> bool:
+        """Ask a window to close itself and report whether the request was posted.
+
+        This is the documented, cooperative shutdown path: the client receives the same
+        notification the title bar's close button produces and may still refuse it. A
+        refused or undeliverable request is reported rather than raised, because it never
+        endangers the session that asked for it.
+        """
+
+        return bool(self._user32.PostMessageW(window_handle, WINDOW_MESSAGE_CLOSE, 0, 0))
 
     def is_aborted(self) -> bool:
         """Return whether the emergency-stop key is currently held."""

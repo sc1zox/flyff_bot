@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from flyff_bot.features.automation.camera_alignment import DEFAULT_AUTO_ALIGN_CAMERA
 from flyff_bot.features.automation.controllers import CombatConfig, EngagementBreakReason
+from flyff_bot.features.automation.kill_goals import KillGoalConfig
 from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
     MonsterStatsSource,
@@ -72,10 +73,8 @@ from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
 from flyff_bot.ui.powerup_panel import PowerUpPanel
+from flyff_bot.ui.target_panel import TargetSelectionPanel
 from flyff_bot.ui.theme import apply_theme
-
-# Item data of the target-monster entry that imposes no class restriction at all.
-ALL_TARGET_MOBS = ""
 
 MATCH_THRESHOLD_STEP = 0.05
 MATCH_THRESHOLD_DECIMALS = 2
@@ -122,7 +121,7 @@ class MainWindow(QMainWindow):
     combat_grace_changed = Signal(float)
     kill_verification_changed = Signal(bool)
     anchor_threshold_changed = Signal(float)
-    target_mob_changed = Signal(str)
+    target_selection_changed = Signal(object)
     save_profile_requested = Signal(Path)
     load_profile_requested = Signal(Path)
     reset_navigation_requested = Signal()
@@ -234,9 +233,6 @@ class MainWindow(QMainWindow):
         self._combat_panel = QGroupBox()
         self._combat_panel.setObjectName("CardPanel")
         self._combat_panel.setVisible(False)
-        self._target_mob_label = QLabel()
-        self._target_mob_combo = QComboBox()
-        self._target_mob_combo.addItem("", ALL_TARGET_MOBS)
         self._target_grace_label = QLabel()
         self._target_grace_spin = QDoubleSpinBox()
         self._target_grace_spin.setRange(0.1, 5.0)
@@ -291,6 +287,11 @@ class MainWindow(QMainWindow):
         # Power-up / timed hotkey configuration panel
         self._powerup_panel = PowerUpPanel(self._translator)
         self._powerup_panel.setVisible(False)
+
+        # Target monster selection and per-monster kill quotas
+        self._targets_toggle = QCheckBox()
+        self._target_panel = TargetSelectionPanel(self._translator)
+        self._target_panel.setVisible(False)
 
         # Vitals configuration panel
         self._vitals_panel = QGroupBox()
@@ -572,17 +573,22 @@ class MainWindow(QMainWindow):
         return self._combat_panel
 
     @property
-    def target_mob_combo(self) -> QComboBox:
-        """Expose the target monster selector."""
+    def target_panel(self) -> TargetSelectionPanel:
+        """Expose the monster selection and kill-quota panel."""
 
-        return self._target_mob_combo
+        return self._target_panel
 
     @property
-    def selected_target_mob(self) -> str:
-        """Return the selected monster class, or an empty name for every monster."""
+    def targets_toggle(self) -> QCheckBox:
+        """Expose the toggle that reveals the monster selection panel."""
 
-        data = self._target_mob_combo.currentData()
-        return ALL_TARGET_MOBS if data is None else str(data)
+        return self._targets_toggle
+
+    @property
+    def target_selection(self) -> KillGoalConfig:
+        """Return the monster selection and quotas the operator configured."""
+
+        return self._target_panel.get_config()
 
     @property
     def target_grace_spin(self) -> QDoubleSpinBox:
@@ -787,10 +793,6 @@ class MainWindow(QMainWindow):
         self._vitals_panel.setLayout(vitals_layout)
 
         combat_layout = QVBoxLayout()
-        target_mob_row = QHBoxLayout()
-        target_mob_row.addWidget(self._target_mob_label)
-        target_mob_row.addWidget(self._target_mob_combo)
-        combat_layout.addLayout(target_mob_row)
         grace_row = QHBoxLayout()
         grace_row.addWidget(self._target_grace_label)
         grace_row.addWidget(self._target_grace_spin)
@@ -1085,27 +1087,20 @@ class MainWindow(QMainWindow):
     def _on_anchor_threshold_changed(self, threshold: float) -> None:
         self.anchor_threshold_changed.emit(threshold)
 
-    @Slot()
-    def _on_target_mob_changed(self) -> None:
-        self.target_mob_changed.emit(self.selected_target_mob)
+    @Slot(bool)
+    def _update_targets_visibility(self, visible: bool) -> None:
+        self._target_panel.setVisible(visible)
+        self._adapt_window_geometry()
+
+    @Slot(object)
+    def _on_target_selection_changed(self, config: object) -> None:
+        self.target_selection_changed.emit(config)
 
     def set_target_mob_options(self, class_names: Sequence[str]) -> None:
-        """List the model's monster classes beneath the unrestricted entry.
+        """List the monster classes the active detection model reports."""
 
-        Repopulating never emits a selection: the caller supplies the classes before the
-        session is wired up, and the entry the operator picked is restored when the new
-        model still reports it.
-        """
-
-        previous = self.selected_target_mob
-        self._target_mob_combo.blockSignals(True)
-        while self._target_mob_combo.count() > 1:
-            self._target_mob_combo.removeItem(1)
-        for class_name in class_names:
-            self._target_mob_combo.addItem(class_name, class_name)
-        index = self._target_mob_combo.findData(previous)
-        self._target_mob_combo.setCurrentIndex(max(index, 0))
-        self._target_mob_combo.blockSignals(False)
+        self._target_panel.set_class_names(class_names)
+        self._adapt_window_geometry()
 
     def _adapt_window_geometry(self) -> None:
         central = self.centralWidget()
@@ -1185,6 +1180,7 @@ class MainWindow(QMainWindow):
         telemetry_layout.addWidget(self._popout_map_button)
         telemetry_layout.addWidget(self._vitals_toggle)
         telemetry_layout.addWidget(self._powerups_toggle)
+        telemetry_layout.addWidget(self._targets_toggle)
         telemetry_layout.addWidget(self._combat_toggle)
         telemetry_layout.addWidget(self._target_debug_toggle)
         telemetry_layout.addWidget(self._monster_stats_toggle)
@@ -1197,6 +1193,7 @@ class MainWindow(QMainWindow):
         content.addWidget(self._overlay_label)
         content.addWidget(self._vitals_panel)
         content.addWidget(self._powerup_panel)
+        content.addWidget(self._target_panel)
         content.addWidget(self._combat_panel)
         content.addWidget(self._target_debug_panel)
         content.addWidget(self._monster_stats_panel)
@@ -1247,7 +1244,8 @@ class MainWindow(QMainWindow):
         self._target_grace_spin.valueChanged.connect(self._on_combat_grace_changed)
         self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
         self._anchor_threshold_spin.valueChanged.connect(self._on_anchor_threshold_changed)
-        self._target_mob_combo.currentIndexChanged.connect(self._on_target_mob_changed)
+        self._targets_toggle.toggled.connect(self._update_targets_visibility)
+        self._target_panel.selection_changed.connect(self._on_target_selection_changed)
         self._target_debug_toggle.toggled.connect(self._update_target_debug_visibility)
         self._monster_stats_toggle.toggled.connect(self._update_monster_stats_visibility)
 
@@ -1378,9 +1376,8 @@ class MainWindow(QMainWindow):
         self._placements_toggle.setText(self._translator.text(Message.UI_PLACEMENTS_TOGGLE))
         self._combat_toggle.setText(self._translator.text(Message.UI_COMBAT_SETTINGS))
         self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))
-        self._target_mob_label.setText(self._translator.text(Message.UI_TARGET_MOB))
-        self._target_mob_combo.setItemText(0, self._translator.text(Message.UI_TARGET_MOB_ALL))
-        self._target_mob_combo.setToolTip(self._translator.text(Message.UI_TARGET_MOB_TOOLTIP))
+        self._targets_toggle.setText(self._translator.text(Message.UI_TARGETS_TOGGLE))
+        self._target_panel.set_translator(self._translator)
         self._target_grace_label.setText(self._translator.text(Message.UI_TARGET_GRACE_PERIOD))
         self._target_grace_spin.setToolTip(self._translator.text(Message.UI_TARGET_GRACE_TOOLTIP))
         self._kill_verification_label.setText(self._translator.text(Message.UI_KILL_VERIFICATION))
@@ -1573,6 +1570,7 @@ class MainWindow(QMainWindow):
             self._translator.text(_engagement_break_message(update.engagement_break))
         )
         self._render_monster_stats_debug(update.state.monster_stats)
+        self._target_panel.set_progress(update.kill_progress)
         self._update_overlay_visibility(self._debug_toggle.isChecked())
         is_active = update.status in {
             BotStatus.ACTIVE,
@@ -1585,7 +1583,13 @@ class MainWindow(QMainWindow):
         # Alignment drives the camera by hand, so it is offered only while the session is
         # idle and never while it is already moving the camera or latched in an emergency stop.
         self._align_camera_button.setEnabled(
-            update.status in {BotStatus.PAUSED, BotStatus.STANDBY, BotStatus.ALIGNMENT_FAILED}
+            update.status
+            in {
+                BotStatus.PAUSED,
+                BotStatus.STANDBY,
+                BotStatus.COMPLETED,
+                BotStatus.ALIGNMENT_FAILED,
+            }
         )
         self._profile_selector.setEnabled(profile_controls_enabled)
         self._profile_name_input.setEnabled(profile_controls_enabled)
@@ -1721,6 +1725,7 @@ def _status_message(status: BotStatus) -> Message:
     return {
         BotStatus.ACTIVE: Message.UI_STATUS_ACTIVE,
         BotStatus.STANDBY: Message.UI_STATUS_STANDBY,
+        BotStatus.COMPLETED: Message.UI_STATUS_COMPLETED,
         BotStatus.COMBAT: Message.UI_STATUS_COMBAT,
         BotStatus.PAUSED: Message.UI_STATUS_PAUSED,
         BotStatus.EMERGENCY_STOPPED: Message.UI_STATUS_EMERGENCY_STOPPED,
@@ -1763,7 +1768,7 @@ def _window_status_message(status: WindowStatus) -> Message:
 def _status_category(status: BotStatus) -> str:
     if status == BotStatus.ACTIVE:
         return "active"
-    if status == BotStatus.STANDBY:
+    if status in {BotStatus.STANDBY, BotStatus.COMPLETED}:
         return "standby"
     if status == BotStatus.COMBAT:
         return "combat"

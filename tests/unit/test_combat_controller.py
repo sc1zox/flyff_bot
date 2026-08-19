@@ -519,3 +519,30 @@ def test_combat_config_rejects_invalid_unreachable_lockout_values() -> None:
         CombatConfig(unreachable_lockout_seconds=1.0)
     with pytest.raises(ValueError):
         CombatConfig(approach_failure_memory_seconds=-1.0)
+
+
+def test_a_confirmed_kill_names_the_engaged_monster_class() -> None:
+    """US-035: quotas are per monster, so a kill has to carry the class it belongs to."""
+
+    controller = CombatController(CombatConfig(kill_verification_enabled=True))
+
+    selection = controller.step(_state(mobs=(_mob(class_name="Rapra"),), monster_kill_count=5))
+    assert selection.engaged_class_name == "Rapra"
+    controller.step(_state(time=1.0, target=VALID_TARGET, monster_kill_count=5))
+
+    confirmed = controller.step(_state(time=1.5, target=VALID_TARGET, monster_kill_count=6))
+
+    assert confirmed.mode is CombatMode.TARGET_DEAD
+    assert confirmed.engaged_class_name == "Rapra"
+
+
+def test_an_abandoned_engagement_reports_no_monster_class_to_count() -> None:
+    controller = CombatController(
+        CombatConfig(target_acquisition_grace_seconds=0.5, kill_verification_enabled=False)
+    )
+
+    controller.step(_state(mobs=(_mob(class_name="Rapra"),)))
+    broken = controller.step(_state(time=1.0, target=NO_TARGET))
+
+    assert broken.break_reason is EngagementBreakReason.ACQUISITION_TIMEOUT
+    assert broken.engaged_class_name is None
