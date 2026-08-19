@@ -442,6 +442,10 @@ class PathingController:
         the previously mapped anchor - if any - stays untouched.
         """
 
+        if self._live_position is not None:
+            self._navmesh_anchor = self._live_position
+            self._spawn_point = WorldPoint(self._live_position.x, self._live_position.z)
+            return self._spawn_point
         if self._tracker.quality is TrackingQuality.DEGRADED:
             return None
         self._spawn_point = self._tracker.position

@@ -331,6 +331,20 @@ def test_marking_the_spawn_point_stores_the_measured_position() -> None:
     assert controller.spawn_point == marked
 
 
+def test_marking_the_spawn_point_uses_live_position_when_available() -> None:
+    from flyff_bot.features.navigation.live_position import WorldPosition
+
+    controller = _pathing()
+    live_pos = WorldPosition(1312.23, 139.01, 1109.04)
+    controller._live_position = live_pos
+
+    marked = controller.mark_spawn_point_here()
+
+    assert marked == WorldPoint(1312.23, 1109.04)
+    assert controller.spawn_point == marked
+    assert controller.navmesh_anchor == live_pos
+
+
 def test_the_teleport_blames_the_escaped_place_and_resets_onto_the_spawn_anchor() -> None:
     controller = _pathing(spawn_point=SPAWN_POINT)
     controller.observe(_state(1.0))
