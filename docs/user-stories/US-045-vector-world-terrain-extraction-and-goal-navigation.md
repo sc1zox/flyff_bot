@@ -10,7 +10,7 @@ updated: 2026-08-19
 
 ## Story
 
-As a **bot operator setting up multi-mob quest farming goals**, I want **the application to extract vector spawn zones, terrain elevation, and impassable slope meshes from client world files (`.rgn`, `.wld`, `.lnd`, `.dyo`) starting with Eden (`WdEden`), provide a UI extraction trigger, and automatically load the relevant vector zones and passability boundaries before farming begins**, so that **the bot navigates directly to target mob clusters without getting stuck on cliffs or obstacles and eliminates the need for slow, blind heuristic heatmap learning**.
+As a **bot operator setting up multi-mob quest farming goals**, I want **the application to extract vector spawn zones, terrain elevation, and impassable slope meshes from client world files (`.rgn`, `.wld`, `.lnd`, `.dyo`) starting with Eden (`WdEden`), provide a UI extraction trigger, and automatically load the relevant vector zones and passability boundaries before farming begins**, so that **the bot navigates directly to target mob clusters without getting stuck on cliffs or obstacles, while preserving all proven core components and simplifying only obsolete trial-and-error exploration**.
 
 ## Context and assumptions
 
@@ -24,8 +24,11 @@ As a **bot operator setting up multi-mob quest farming goals**, I want **the app
 - The 6 monster IDs in `WdEden.rgn` (1453, 1454, 1455, 1456, 1457, 1458) map directly to the 6 Eden labels in `models/labels.txt` (`Flame`, `LadyBlum`, `MiniMush`, `NightMist`, `Oldrut`, `Rapra`).
 - Slopes with a gradient $\nabla Z / \Delta d > 1.0$ ($> 45^\circ$) represent impassable cliffs in the Flyff physics engine.
 - [US-035](US-035-multi-target-selection-and-per-mob-kill-quotas.md) establishes multi-mob selection and kill quotas for quest goals.
-- Replacing heuristic trial-and-error cell exploration (`SpatialMap.decay_spawn_weight`) with static vector spawn zones and pre-computed passability graphs removes hours of blind exploration and wandering.
-- `StallDetector` ([BUG-009](../bugs/fixed/BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md), [US-039](completed/US-039-combat-obstacle-stall-detection-and-re-navigation.md)) remains active as a lightweight dynamic safety net for unmapped transient obstacles (other players, dynamic entities).
+- **Selective simplification principle:** Legacy logic is only superseded or bypassed where it provides no added value. Proven core components are strictly preserved:
+  - `MovementTracker` and `MinimapOdometer` ([US-035](completed/US-035-measured-minimap-odometry-and-tracking-quality.md)) remain the continuous, live position & heading sensor.
+  - `StallDetector` ([BUG-009](../bugs/fixed/BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md), [US-039](completed/US-039-combat-obstacle-stall-detection-and-re-navigation.md)) remains active as the dynamic safety net for unmapped obstacles (other players, dynamic entities).
+  - `CameraAligner` ([US-042](completed/US-042-automated-camera-alignment-and-standardized-viewport-initialization.md), [US-043](completed/US-043-continuous-approach-target-tracking-and-minimap-zoom-initialization.md)) remains active for standardizing pitch, zoom, and minimap scale.
+  - Heuristic `SpatialMap` grid exploration and exponential spawn weight decay are only bypassed when an authoritative `WorldVectorMap` is present, but kept as a graceful fallback for unmapped custom areas.
 - All operations adhere strictly to project safety boundaries: reading client assets is done offline or during pre-flight; no game process memory reading or injection is used.
 
 ## Acceptance criteria
@@ -50,9 +53,10 @@ As a **bot operator setting up multi-mob quest farming goals**, I want **the app
     - Pathing calculates routes exclusively across the static passability mesh, avoiding cliffs and obstacles.
 - [ ] **Dynamic Zone Switching on Goal Completion:**
   - When the quota for Mob A is reached, the bot automatically transitions to the nearest vector spawn zone of Mob B (the next unfinished goal) and updates the pathing bounds without requiring a session restart.
-- [ ] **Simplification of Navigation Logic:**
+- [ ] **Selective Simplification & Fallback Coexistence:**
   - When a `WorldVectorMap` is active, heuristic grid learning and blind exploration are bypassed in favor of direct vector waypoint and passability navigation.
-  - `StallDetector` continues to run in the background as a fallback safety mechanism; if a stall occurs, the bot executes localized obstacle avoidance and resumes the vector path.
+  - Live odometry (`MovementTracker`) and dynamic obstacle safety (`StallDetector`) continue to operate uninterrupted.
+  - Unmapped regions without an extracted vector map continue to function gracefully via existing fallback pathing.
 - [ ] **Localization:**
   - All new UI elements, dialogs, extraction progress notices, and status chips are localized in German (`de.json`) and English (`en.json`).
 
