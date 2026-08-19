@@ -74,6 +74,7 @@ from flyff_bot.features.automation.vitals_persistence import (
 )
 from flyff_bot.features.input_control import parse_virtual_key
 from flyff_bot.features.navigation.anchoring import ProfileAnchorState
+from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
 from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
 from flyff_bot.features.navigation.persistence import (
     DEFAULT_NAVIGATION_DIR,
@@ -226,6 +227,8 @@ class MainWindow(QMainWindow):
         self._tracking_quality = TrackingQuality.DEGRADED
         self._gps_label = QLabel()
         self._gps_label.setObjectName("StatChip")
+        self._camera_label = QLabel()
+        self._camera_label.setObjectName("StatChip")
         self._position_source = PositionSource.MINIMAP_FALLBACK
         self._mob_label = QLabel()
         self._mob_label.setObjectName("StatChip")
@@ -460,6 +463,12 @@ class MainWindow(QMainWindow):
         """Return the live-coordinate source chip for UI tests and integrations."""
 
         return self._gps_label
+
+    @property
+    def camera_label(self) -> QLabel:
+        """Return the live camera-geometry status chip for UI tests and integrations."""
+
+        return self._camera_label
 
     @property
     def mob_label(self) -> QLabel:
@@ -1232,6 +1241,7 @@ class MainWindow(QMainWindow):
         status_top.addWidget(self._window_label)
         status_top.addWidget(self._tracking_label)
         status_top.addWidget(self._gps_label)
+        status_top.addWidget(self._camera_label)
         status_top.addStretch()
         status_layout.addLayout(status_top)
         self._status_card.setLayout(status_layout)
@@ -1791,6 +1801,24 @@ class MainWindow(QMainWindow):
             style.unpolish(self._gps_label)
             style.polish(self._gps_label)
 
+    def _render_camera(self) -> None:
+        navigation = self._latest_update.navigation if self._latest_update is not None else None
+        state = navigation.camera_state if navigation is not None else None
+        error_code = navigation.camera_error_code if navigation is not None else None
+        reason = self._translator.text(
+            Message.UI_GPS_UNAVAILABLE if error_code is None else _camera_error_message(error_code)
+        )
+        self._camera_label.setText(
+            self._translator.text(Message.UI_CAMERA_LIVE)
+            if state is not None
+            else self._translator.text(Message.UI_CAMERA_OFFLINE, reason=reason)
+        )
+        self._camera_label.setProperty("camera", "live" if state is not None else "offline")
+        style = self._camera_label.style()
+        if style is not None:
+            style.unpolish(self._camera_label)
+            style.polish(self._camera_label)
+
     def _render_profile_anchor_state(self) -> None:
         self._profile_anchor_label.setText(
             self._translator.text(_profile_anchor_message(self._profile_anchor_state))
@@ -1815,6 +1843,7 @@ class MainWindow(QMainWindow):
             else PositionSource.MINIMAP_FALLBACK
         )
         self._render_gps()
+        self._render_camera()
         self._profile_anchor_state = (
             update.navigation.profile_anchor_state
             if update.navigation is not None
@@ -2054,6 +2083,21 @@ def _gps_error_message(code: PositionReadErrorCode) -> Message:
         PositionReadErrorCode.MALFORMED_READ: Message.UI_GPS_ERROR_MALFORMED_READ,
         PositionReadErrorCode.INVALID_PROFILE_CONFIGURATION: (
             Message.UI_GPS_ERROR_INVALID_PROFILE_CONFIGURATION
+        ),
+    }[code]
+
+
+def _camera_error_message(code: CameraReadErrorCode) -> Message:
+    return {
+        CameraReadErrorCode.UNSUPPORTED_PLATFORM: Message.UI_CAMERA_ERROR_UNSUPPORTED_PLATFORM,
+        CameraReadErrorCode.WINDOW_NOT_FOREGROUND: Message.UI_CAMERA_ERROR_WINDOW_NOT_FOREGROUND,
+        CameraReadErrorCode.PROCESS_UNAVAILABLE: Message.UI_CAMERA_ERROR_PROCESS_UNAVAILABLE,
+        CameraReadErrorCode.WRONG_PROCESS: Message.UI_CAMERA_ERROR_WRONG_PROCESS,
+        CameraReadErrorCode.UNSUPPORTED_BUILD: Message.UI_CAMERA_ERROR_UNSUPPORTED_BUILD,
+        CameraReadErrorCode.HANDLE_LOST: Message.UI_CAMERA_ERROR_HANDLE_LOST,
+        CameraReadErrorCode.MALFORMED_READ: Message.UI_CAMERA_ERROR_MALFORMED_READ,
+        CameraReadErrorCode.INVALID_PROFILE_CONFIGURATION: (
+            Message.UI_CAMERA_ERROR_INVALID_PROFILE_CONFIGURATION
         ),
     }[code]
 

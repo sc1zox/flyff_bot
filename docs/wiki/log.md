@@ -731,3 +731,14 @@ Recorded the evidence boundary as well: the full repository gate passed at 780 t
 skipped, and 89.15% coverage, but the implementation does not yet have Funnel-smoothed,
 segment-validated paths, a CLI bake/persistence integration, telemetry-adapter wiring, a real
 outdoor/complex-area reconstruction, or a foregrounded Windows/client traversal walkthrough.
+
+## [2026-08-20] ingest | Fingerprinted camera state and projection reader (US-056)
+
+Ingested the immutable camera static-analysis source into the architecture and glossary. Recorded
+that supported x86/x64 profiles separate pointer-relative camera fields from the independent
+module-relative projection RVA, and that pitch, yaw, FOV, and distance are derived from verified
+matrices/vectors rather than unproven scalar fields. Updated ADR-006 to scope read-only runtime
+access to exact fingerprinted fixed ranges and to clarify that `check.ps1` is a quality gate, not a
+complete prohibited-API detector. The automated gate passed at 792 tests passed, 2 skipped, and
+91.48% coverage; Windows live rotation, zoom, resize, sign, latency, restart, and minimize checks
+remain outstanding.

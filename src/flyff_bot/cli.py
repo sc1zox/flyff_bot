@@ -48,6 +48,7 @@ from flyff_bot.features.input_control import (
     WindowsInputController,
     parse_virtual_key,
 )
+from flyff_bot.features.navigation.live_camera import LiveCameraReader
 from flyff_bot.features.navigation.live_position import LivePositionReader
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.persistence import load_profile
@@ -608,6 +609,7 @@ def _farming_orchestrator(
             map_path=navigation_map_path,
             spawn_point=navigation_profile.spawn_point,
             position_reader=LivePositionReader(window_handle),
+            camera_reader=LiveCameraReader(window_handle),
         ),
         config=FarmingConfig(
             combat=CombatConfig(

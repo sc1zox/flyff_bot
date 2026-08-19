@@ -261,9 +261,21 @@ related:
 - **Live world position** - The player's finite XYZ float32 coordinate read from the one verified
   player-position struct of a hash-supported `neuz.exe`. It is primary while fresh and valid; it is
   not evidence that terrain, collision, world identity, or server state is complete.
-- **Coordinate-only memory boundary** - The safety rule that permits one fingerprinted player
-  pointer read followed by one exact 12-byte XYZ read, with query/read process rights only. Memory
-  scanning, neighbouring state reads, writes, injection, and hooks remain forbidden.
+- **Fingerprint-bound read-only memory boundary** - The safety rule that permits documented
+  `ReadProcessMemory` reads only from explicitly configured, exact-SHA-256 client profiles. Reads
+  use fixed pointer-relative ranges or module-relative RVAs; runtime scanning and dumping, writes,
+  injection, and hooks remain forbidden.
+- **Client camera profile** - A SHA-256-bound record separating the camera pointer RVA and
+  pointer-relative eye, View, and look-at offsets from the independent module-relative projection
+  matrix RVA. Unsupported builds return an explicit unavailable state rather than guessed offsets.
+- **Effective camera eye** - The XYZ fourth row of the computed inverse View Matrix. It is the
+  authoritative eye used for unprojection and includes transient camera shake; the stored base eye
+  is not substituted for it.
+- **Derived camera orientation** - Pitch and yaw computed from the verified inverse-View forward
+  vector, vertical FOV computed from the verified projection matrix, and zoom distance computed
+  from look-at target to effective eye. Unverified scalar fields are not treated as camera truth.
+- **Screen ray unprojection** - The Direct3D row-vector transformation of viewport pixels through
+  inverse View-Projection using near depth 0 and far depth 1, returning a unit world-space ray.
 - **GPS state** - The dashboard's source indicator: green means the latest position came from a
   supported live-coordinate read; otherwise it shows the typed reason GPS is unavailable. A
   `MINIMAP_FALLBACK` source marker never authorizes vector-world route planning or movement.

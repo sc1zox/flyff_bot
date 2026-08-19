@@ -234,6 +234,8 @@ class WindowsProcessMemoryApi:
             ctypes.POINTER(wintypes.DWORD),
         ]
         self._user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        self._user32.GetForegroundWindow.argtypes = []
+        self._user32.GetForegroundWindow.restype = wintypes.HWND
         self._kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         self._kernel32.OpenProcess.restype = wintypes.HANDLE
         self._kernel32.ReadProcessMemory.argtypes = [
@@ -266,6 +268,11 @@ class WindowsProcessMemoryApi:
         if not self._user32.GetWindowThreadProcessId(window_handle, ctypes.byref(process_id)):
             raise OSError(ctypes.get_last_error(), "The game window has no process.")
         return int(process_id.value)
+
+    def is_window_foreground(self, window_handle: int) -> bool:
+        """Return whether the requested game window currently owns foreground focus."""
+
+        return int(self._user32.GetForegroundWindow() or 0) == window_handle
 
     def open_read_process(self, process_id: int) -> int:
         handle = self._kernel32.OpenProcess(

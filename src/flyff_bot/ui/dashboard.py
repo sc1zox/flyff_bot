@@ -12,6 +12,7 @@ from flyff_bot.features.automation.kill_goals import MobKillProgress
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.diagnostics import SessionEvent
 from flyff_bot.features.navigation.anchoring import ProfileAnchorState
+from flyff_bot.features.navigation.live_camera import CameraReadErrorCode, CameraState
 from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
     PositionSource,
@@ -135,6 +136,8 @@ class NavigationSnapshot:
     position_source: PositionSource = PositionSource.MINIMAP_FALLBACK
     position_error_code: PositionReadErrorCode | None = None
     world_position: WorldPosition | None = None
+    camera_state: CameraState | None = None
+    camera_error_code: CameraReadErrorCode | None = None
     world_waypoints: tuple[WorldPosition, ...] = ()
     terrain_samples: tuple[tuple[float, float, float], ...] = ()
     # The mapped town or respawn anchor an emergency teleport arrives at, when the

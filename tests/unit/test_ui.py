@@ -61,6 +61,7 @@ from flyff_bot.features.input_control import (
     parse_virtual_key,
 )
 from flyff_bot.features.navigation.anchoring import ProfileAnchorState
+from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
 from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
     PositionSource,
@@ -777,6 +778,25 @@ def test_main_window_shows_live_gps_and_world_coordinates() -> None:
     )
     assert window.gps_label.property("gps") == "offline"
     assert "not fingerprinted" in window.gps_label.toolTip()
+    assert window.camera_label.text() == translator.text(
+        Message.UI_CAMERA_OFFLINE,
+        reason=translator.text(Message.UI_GPS_UNAVAILABLE),
+    )
+
+    camera_fallback = replace(
+        fallback,
+        camera_error_code=CameraReadErrorCode.UNSUPPORTED_BUILD,
+    )
+    window.update_dashboard(
+        DashboardUpdate(_world_state(), BotStatus.ACTIVE, navigation=camera_fallback)
+    )
+    application.processEvents()
+
+    assert window.camera_label.text() == translator.text(
+        Message.UI_CAMERA_OFFLINE,
+        reason=translator.text(Message.UI_CAMERA_ERROR_UNSUPPORTED_BUILD),
+    )
+    assert window.camera_label.property("camera") == "offline"
 
 
 def test_unanchored_profile_prompt_offers_read_only_or_cancel(

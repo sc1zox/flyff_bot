@@ -8,6 +8,7 @@ sources:
   - ../sources/2026-08-18-minimap-odometry-calibration.md
   - ../sources/2026-08-19-target-server-entropia-pserver-clarification.md
   - ../sources/2026-08-19-entropia-client-navigation-data-extraction.md
+  - ../sources/2026-08-20-entropia-camera-static-analysis.md
 related:
   - project-overview.md
   - glossary.md
@@ -65,6 +66,7 @@ related:
   - ../user-stories/completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md
   - ../user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md
   - ../user-stories/completed/US-053-pure-gps-navigation-and-client-profile-configuration.md
+  - ../user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md
   - ../user-stories/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
 ---
 
@@ -1456,3 +1458,25 @@ bot version, loaded NavMesh version, and spawn-zone metadata also await their pr
 lockout status likewise awaits a lockout-list integration. The full
 automated repository gate passed at 758 passed, 2 skipped, and 92.15% coverage; the two Windows
 live-client/manual export walkthroughs remain outstanding and are not implied by those checks.
+
+## Fingerprinted camera state and projection reads (US-056, completed)
+
+`LiveCameraReader` performs foreground-gated, read-only process reads only after resolving an exact
+SHA-256 `neuz.exe` profile. The profile separates the camera pointer RVA and pointer-relative eye,
+view, and look-at offsets from the independent module-relative projection-matrix RVA. The supported
+x86 and x64 addresses are grounded in the [2026-08-20 static analysis](../sources/2026-08-20-entropia-camera-static-analysis.md);
+the reader does not scan or dump process memory and returns typed errors with no fabricated state for
+unknown builds, unavailable handles, background windows, malformed reads, or invalid profiles.
+
+The camera snapshot uses the verified row-major D3DX matrices. View-projection multiplication and
+inverse-matrix unprojection produce unit world rays using Direct3D's `[0, 1]` depth range. Effective
+eye position comes from the inverse View Matrix (therefore retaining transient camera shake), while
+pitch, yaw, vertical FOV, and distance are derived from the forward vector, projection matrix, and
+look-at target rather than unverified scalar fields. The implementation is covered by synthetic
+memory, matrix, profile, lifecycle, and UI tests; the full automated gate passed at 792 tests passed,
+2 skipped, and 91.48% coverage.
+
+Static analysis does not establish live `ReadProcessMemory` latency or client behavior. A foregrounded
+Windows walkthrough remains open for camera rotation, zoom, viewport resize, pitch/yaw sign and
+matrix tracking, latency, and recovery after restart or minimize. Those checks must not be inferred
+from the automated gate.

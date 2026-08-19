@@ -20,6 +20,11 @@ from flyff_bot.features.navigation.anchoring import (
     capture_anchor,
     match_anchor,
 )
+from flyff_bot.features.navigation.live_camera import (
+    CameraReadErrorCode,
+    CameraState,
+    LiveCameraReader,
+)
 from flyff_bot.features.navigation.live_position import (
     LivePositionReader,
     PositionReadErrorCode,
@@ -183,6 +188,7 @@ class PathingController:
         odometer: MinimapOdometryFeed | None = None,
         vector_navigator: VectorZoneNavigator | None = None,
         position_reader: LivePositionReader | None = None,
+        camera_reader: LiveCameraReader | None = None,
         teleport_config: TeleportConfig | None = None,
         spawn_point: WorldPoint | None = None,
     ) -> None:
@@ -195,10 +201,13 @@ class PathingController:
         self._map_path = map_path
         self._vector_navigator = vector_navigator
         self._position_reader = position_reader
+        self._camera_reader = camera_reader
         self._position_source = PositionSource.MINIMAP_FALLBACK
         self._position_error_code: PositionReadErrorCode | None = None
         self._live_position: WorldPosition | None = None
         self._live_sampled_at_seconds: float | None = None
+        self._camera_state: CameraState | None = None
+        self._camera_error_code: CameraReadErrorCode | None = None
         self._world_waypoints: tuple[WorldPosition, ...] = ()
         self._route_uses_live_position = False
         self._teleport = TeleportController(teleport_config)
@@ -473,6 +482,8 @@ class PathingController:
             position_source=self._position_source,
             position_error_code=self._position_error_code,
             world_position=self._live_position,
+            camera_state=self._camera_state,
+            camera_error_code=self._camera_error_code,
             world_waypoints=self._world_waypoints,
             terrain_samples=(
                 () if self._vector_navigator is None else self._vector_navigator.terrain_samples
@@ -491,6 +502,7 @@ class PathingController:
         update = self._tracker.observe(reading, state.observed_at_seconds)
         self._measured_speed_pixels_per_second = update.measured_speed_pixels_per_second
         self._poll_live_position(state.observed_at_seconds)
+        self._poll_live_camera(state.observed_at_seconds)
         if reading is not None and update.quality is TrackingQuality.MEASURED:
             # The freshest confidently measured disk is both what a save stores as the
             # profile's landmark and what a load matches a stored landmark against, so
@@ -662,6 +674,7 @@ class PathingController:
         """Return the next interruptible movement request without dispatching input."""
 
         self._poll_live_position(at_seconds)
+        self._poll_live_camera(at_seconds)
         if self._vector_navigation_requires_gps():
             self._block_vector_navigation()
             return PathingDecision(PathingMode.BLOCKED)
@@ -721,8 +734,12 @@ class PathingController:
         self._teleport.reset()
         if self._position_reader is not None:
             self._position_reader.close()
+        if self._camera_reader is not None:
+            self._camera_reader.close()
         self._live_position = None
         self._live_sampled_at_seconds = None
+        self._camera_state = None
+        self._camera_error_code = None
         self._position_source = PositionSource.MINIMAP_FALLBACK
         self._position_error_code = None
 
@@ -955,6 +972,14 @@ class PathingController:
             self._route_uses_live_position = False
         if self._vector_navigation_requires_gps():
             self._block_vector_navigation()
+
+    def _poll_live_camera(self, at_seconds: float) -> None:
+        reader = self._camera_reader
+        if reader is None:
+            return
+        reading = reader.poll(at_seconds)
+        self._camera_state = reading.state
+        self._camera_error_code = None if reading.error is None else reading.error.code
 
     def mark_gps_offline(self, error_code: PositionReadErrorCode) -> None:
         """Expose a foreground-loss GPS failure without retaining a stale live position."""

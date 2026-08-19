@@ -36,6 +36,7 @@ from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import VitalsTriggerConfig
 from flyff_bot.features.diagnostics import DEFAULT_SESSION_LOG_DIRECTORY, SessionEventLogger
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
+from flyff_bot.features.navigation.live_camera import LiveCameraReader
 from flyff_bot.features.navigation.live_position import LivePositionReader
 from flyff_bot.features.navigation.pathing import (
     PathingController,
@@ -345,6 +346,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     map_path=navigation_map_path,
                     spawn_point=navigation_profile.spawn_point,
                     position_reader=LivePositionReader(window_handle),
+                    camera_reader=LiveCameraReader(window_handle),
                 )
                 orchestrator = FarmingOrchestrator(
                     pipeline,
