@@ -1,18 +1,18 @@
 ---
 id: US-054
-title: Farming Telemetrie, strukturierte Datenerhebung und Offline-RL-Dataset-Generierung
+title: Farming Telemetrie, SQLite Betriebsdaten, Parquet-Export und Offline-RL-Dataset-Generierung
 status: draft
 created: 2026-08-19
 updated: 2026-08-19
 ---
 
-# US-054: Farming Telemetrie, strukturierte Datenerhebung und Offline-RL-Dataset-Generierung
+# US-054: Farming Telemetrie, SQLite Betriebsdaten, Parquet-Export und Offline-RL-Dataset-Generierung
 
 ## Story
 
 As a **Flyff bot developer and ML engineer**,
-I want **to record structured, noise-free, and high-frequency telemetry data on player kinematics, visible mob candidates, target selection decisions, 3D NavMesh navigation trajectories, combat dynamics, and kill cycles during autonomous farming sessions into an append-only JSONL stream via a decoupled background worker**,
-so that **we obtain an authoritative offline dataset for training Reinforcement Learning (RL) and trajectory optimization policies (minimizing travel distance, target acquisition latency, and kill-to-kill time) without impacting the 10 Hz orchestrator loop or violating safety boundaries**.
+I want **to record structured, noise-free telemetry into an append-only JSONL stream via a decoupled background worker, maintain an operative SQLite telemetry database for fast local queries and UI diagnostics, and provide a batch converter for compiling compressed Parquet datasets**,
+so that **we have instant operational insight during farming sessions and an authoritative, high-performance dataset for training Reinforcement Learning (RL) and trajectory optimization policies without impacting the 10 Hz orchestrator loop or violating safety boundaries**.
 
 ## Context and assumptions
 
@@ -20,15 +20,20 @@ so that **we obtain an authoritative offline dataset for training Reinforcement 
 - Relates to:
   - [`docs/wiki/architecture.md`](../wiki/architecture.md) & [`docs/wiki/glossary.md`](../wiki/glossary.md).
   - [`docs/decisions/ADR-004-coordinate-only-read-process-memory.md`](../decisions/ADR-004-coordinate-only-read-process-memory.md): Read-only `ReadProcessMemory` exclusively for player XYZ at `CMover + 0x188`. No additional memory offsets or code hooking.
+  - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md): Read-only access to local client directory files for offline asset extraction, spawn zones (.rgn), world definitions (.wld), and 3D NavMeshes (.lnd), keeping client files immutable.
   - [`docs/user-stories/completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md`](completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md) & [`docs/user-stories/completed/US-049-session-event-log-and-transition-diagnostics.md`](completed/US-049-session-event-log-and-transition-diagnostics.md).
   - [`docs/user-stories/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md`](US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md): Extraction of all 3,861 terrain blocks across all worlds (.lnd, .wld, .rgn, .dyo) and compilation of baked 3D NavMeshes with sub-millisecond corridor routing and funnel string-pulling.
   - [`docs/user-stories/US-053-pure-gps-navigation-and-client-profile-configuration.md`](US-053-pure-gps-navigation-and-client-profile-configuration.md): Pure 3D GPS navigation requiring `PositionSource.LIVE`.
+- **Dual-Tier Storage Architecture (Append-Only JSONL + SQLite + Parquet Export):**
+  1. *Live Capture Layer (JSONL):* Bounded in-memory queue $\to$ asynchronous background worker $\to$ append-only JSONL files (`data/telemetry/<area_id>/<date>/session_<session_id>.jsonl`). Fail-safe and zero-latency impact on 10 Hz orchestrator ticks.
+  2. *Operative Storage Layer (SQLite):* `SqliteTelemetryStore` (`data/telemetry.sqlite3`) for fast indexed queries across session histories, kill totals, stall frequencies, combat durations, and dashboard analytics.
+  3. *ML/RL Training Layer (Parquet):* Batch exporter / CLI command (`flyff-bot export-telemetry --format parquet`) that compiles raw JSONL/SQLite sessions into columnar, compressed `.parquet` tables (e.g. `target_decisions.parquet`, `navigation_episodes.parquet`, `kill_cycles.parquet`) optimized for PyTorch, DuckDB, Polars, and Pandas.
 - **Entwickler-Handlungsspielraum & Architektur-Vorschlag:**
-  - Die in dieser User Story beschriebenen Datenstrukturen, Event-Formate, JSONL-Schemata, Transition-Formulierungen und Worker-Konzepte dienen als **fundierter Referenzvorschlag und Leitfaden, nicht als starre, unumstößliche Solution Outline**.
-  - Der implementierende Entwickler besitzt **vollen Handlungsspielraum** bei der konkreten softwaretechnischen Modellierung (z. B. exakter Modulzuschnitt unter `features/telemetry/` oder `features/diagnostics/`, Queue-Drop-Policies, Dataclass-Hierarchien, Worker-Thread-Lebenszyklus und Optimierungen), solange die Akzeptanzkriterien, die Rauschfreiheit, die Performance-Ziele (I/O-Entkopplung) und die Sicherheitsgrenzen (ADR-004) gewahrt bleiben.
-- **100% Ground Truth & Integration mit 3D NavMesh (US-052):**
+  - Die in dieser User Story beschriebenen Datenstrukturen, Event-Formate, Tabellenschemata, Parquet-Layouts und Worker-Konzepte dienen als **fundierter Referenzvorschlag und Leitfaden, nicht als starre, unumstößliche Solution Outline**.
+  - Der implementierende Entwickler besitzt **vollen Handlungsspielraum** bei der konkreten softwaretechnischen Modellierung (z. B. SQLite-Schema-Design, Batch-Größen, Parquet-Kompression snappy/zstd, Queue-Drop-Policies und Dataclass-Hierarchien), solange die Akzeptanzkriterien, die Rauschfreiheit, die Performance-Ziele (I/O-Entkopplung) und die Sicherheitsgrenzen (ADR-004 / ADR-005) gewahrt bleiben.
+- **100% Ground Truth & Integration mit 3D NavMesh (US-052 & ADR-005):**
   - *Player Kinematics:* Live 3D world coordinates $(x, y, z)$ read from memory via `LivePositionReader` at 10 Hz. Velocity $(\dot{x}, \dot{y}, \dot{z})$ and scalar speed $v = \|\dot{\mathbf{p}}\|$ are mathematically derived ($\Delta \mathbf{p} / \Delta t$).
-  - *Terrain & NavMesh Geometry:* When US-052 is active, the complete 3D world NavMesh provides authoritative ground height $y = \text{height\_at}(x, z)$, terrain slope gradient $\nabla y$, active NavMesh polygon ID, and obstacle bounding clearances.
+  - *Terrain & NavMesh Geometry:* Gemäß ADR-005 und US-052 stellt das extrahierte 3D-NavMesh authoritative Bodenhöhen $y = \text{height\_at}(x, z)$, Geländesteigungen $\nabla y$, NavMesh-Polygon-IDs und Hindernis-Clearances bereit.
   - *Player Vitals:* $HP\%, MP\%, FP\%$ measured pixel-accurately from the top-left HUD orb via `PlayerVitalsReader`.
   - *Perception (YOLO + 3D NavMesh Raycast):* 2D bounding boxes $(x, y, w, h)$, confidences, class IDs, screen centers $(c_x, c_y)$, and screen distances to center $d_{\text{screen}}$. 3D world coordinates of mobs $(x_m, y_m, z_m)$ are determined via calibrated ground-raycast on the US-052 3D NavMesh/Heightfield. If the map/camera is uncalibrated, world coordinates are explicitly `null` (no fabricated heuristics).
   - *Kill Verification:* Authoritative HUD kill counter OCR (`MonsterStatsReader`) and target HP bar collapse (`TargetVerifier`).
@@ -40,11 +45,6 @@ so that **we obtain an authoritative offline dataset for training Reinforcement 
       $$R_t = - (\alpha \cdot T_{\text{k2k}} + \beta \cdot \Delta HP + \gamma \cdot T_{\text{stall}}) + \delta \cdot \mathbb{I}(\text{KillVerified})$$
   - *Kill-to-Kill Cycle ($T_{\text{k2k}}$) Decomposition:*
     $$T_{\text{k2k}} = T_{\text{decision}} + T_{\text{navigation}} + T_{\text{combat}} + T_{\text{idle}}$$
-- **Non-Blocking I/O & Performance Architecture:**
-  - Telemetry generation must never block the 10 Hz orchestrator tick or the PySide6 UI event loop.
-  - A thread-safe bounded queue and dedicated background worker (`TelemetryWorker`) serialize and append JSONL records to disk (`data/telemetry/<area_id>/<date>/session_<session_id>.jsonl`).
-  - Full-frame screenshots/videos are disabled by default to avoid multi-gigabyte disk saturation and I/O bottlenecks.
-  - Telemetry operations are fail-safe: disk I/O errors or formatting exceptions are handled gracefully without aborting farming sessions.
 
 ## Functional Requirements
 
@@ -57,7 +57,7 @@ so that **we obtain an authoritative offline dataset for training Reinforcement 
   * `area_id`: Aktiver Zonen-/Welt-Identifier (z. B. `"WdEden"`).
   * `session_start_utc`: ISO-8601 UTC-Startzeitpunkt.
   * `active_models`: YOLO-Modelldatei und Label-Konfiguration.
-  * `navmesh_version`: Version / Hash der geladenen 3D-NavMesh-Karte (aus US-052).
+  * `navmesh_version`: Version / Hash der geladenen 3D-NavMesh-Karte (aus US-052 & ADR-005).
   * `active_spawn_zone`: Aus `.rgn` extrahierte Respawn-Metadaten (Monster-ID, Bounding Box, Kapazität, Respawn-Intervall).
 
 ### FR-2 – World-State-Snapshots (10 Hz)
@@ -73,7 +73,7 @@ so that **we obtain an authoritative offline dataset for training Reinforcement 
   * `farming_mode`: Diskreter Modus (`SEARCHING`, `TARGETING`, `COMBAT`, `REPOSITIONING`, `RECONCILING`, `PAUSED`, etc.).
   * `visible_mob_count`: Anzahl der im aktuellen Frame erkannten Mobs.
 
-### FR-3 – Mob Detection & Candidate Matrix (mit US-052 3D NavMesh)
+### FR-3 – Mob Detection & Candidate Matrix (mit US-052 3D NavMesh & ADR-005)
 * Für jeden im Frame erkannten Mob werden zum Entscheidungszeitpunkt folgende rauschfreie Features aufgezeichnet:
   * `candidate_index`: Index $j \in \{0..K-1\}$.
   * `class_id` & `class_name`: Erkannte Mobklasse.
@@ -129,7 +129,20 @@ so that **we obtain an authoritative offline dataset for training Reinforcement 
   $\text{Mob}_1 \to \text{Mob}_2 \to \dots \to \text{Mob}_N$.
 * Jeder Übergang enthält: Start-/Zielposition, Distanz, NavMesh-Pfadlänge, Reisedauer, Kampfzeit und $T_{\text{k2k}}$.
 
-### FR-9 – Performance, Speicherung & Fail-Safe
+### FR-9 – Operative Telemetrie-Datenbank (SQLite)
+* `SqliteTelemetryStore` persistiert operative Farming-Ereignisse in `data/telemetry.sqlite3`:
+  * Tabellen für `telemetry_sessions`, `target_decisions`, `navigation_episodes`, `combat_episodes` und `stall_events`.
+  * Ermöglicht indizierte Abfragen für UI-Diagnostik, Kill-Raten-Berechnungen, $T_{\text{k2k}}$-Histogramme und historische Session-Vergleiche ohne sequentielles JSONL-Parsing.
+  * Transaktionale Sicherheit und Verbindungspooling/Short-Lived Connections für Thread-Sicherheit.
+
+### FR-10 – Training Dataset Pipeline (Parquet-Export)
+* Ein dedizierter Exporter (`TelemetryDatasetExporter`) kompiliert aufgezeichnete JSONL/SQLite-Sessions in komprimierte, spaltenbasierte `.parquet`-Dateien unter `data/datasets/rl/`:
+  * `target_decisions.parquet`: Feature-Matrizen aller Kandidaten mit gewählter Aktion und resultierendem Reward für Target-Sequencing Policies.
+  * `navigation_trajectories.parquet`: 10-Hz-Trajektorienpunkte, Funnel-Wegpunkte und Effizienzmetriken für Tactical Navigation Policies.
+  * `kill_cycles.parquet`: Aggregierte Kill-to-Kill-Metriken ($T_{\text{k2k}}, T_{\text{decision}}, T_{\text{nav}}, T_{\text{combat}}$).
+* Volle Kompatibilität mit Dataframes (Polars, Pandas, DuckDB) und Deep-Learning-Loadern (PyTorch Datasets / DataLoaders).
+
+### FR-11 – Performance, Speicherung & Fail-Safe
 * Rohtelemetrie wird als JSONL gespeichert unter: `data/telemetry/<area_id>/<YYYY-MM-DD>/session_<session_id>.jsonl`.
 * Telemetrie-Writes erfolgen vollständig asynchron über einen Hintergrund-Worker mit bounded Queue (`queue.Queue`).
 * Bei voller Queue oder hoher I/O-Last wird Farming gegenüber Telemetrie priorisiert (kein Einfrieren des Bots).
@@ -138,10 +151,10 @@ so that **we obtain an authoritative offline dataset for training Reinforcement 
 ## Acceptance criteria
 
 - [ ] **Session & Metadata Lifecycle:**
-  - Jede Farming-Session erzeugt beim Start einen versionierten Header-Datensatz (`schema_version: 1`) mit eindeutiger `session_id`, `client_sha256`, UTC-Startzeit, Modellpfaden, 3D-NavMesh-Metadaten (US-052) und Gebiets-Metadaten.
+  - Jede Farming-Session erzeugt beim Start einen versionierten Header-Datensatz (`schema_version: 1`) mit eindeutiger `session_id`, `client_sha256`, UTC-Startzeit, Modellpfaden, 3D-NavMesh-Metadaten (US-052 / ADR-005) und Gebiets-Metadaten.
 - [ ] **10 Hz World-State Telemetrie:**
   - In jedem 10-Hz-Orchestrator-Tick wird ein Snapshot mit autoritativen GPS-Koordinaten $(x, y, z)$, numerisch abgeleitetem Geschwindigkeitsvektor $(\dot{x}, \dot{y}, \dot{z}, v)$, aktuellem NavMesh-Polygon-ID, Geländesteigung, Vitals ($HP\%, MP\%, FP\%$) und Farming-Modus in die Telemetrie-Queue geschrieben.
-- [ ] **Target Decision & Alternative Candidates Logging (US-052 NavMesh):**
+- [ ] **Target Decision & Alternative Candidates Logging (US-052 NavMesh & ADR-005):**
   - Bei jedem `TARGET_SELECTED`-Event werden der gewählte Mob sowie die vollständige Feature-Matrix aller alternativen sichtbaren Kandidaten (BBox, Screen-Distanz, Fläche, Confidence, Klasse, Lockout-Status, projizierte 3D-Koordinate, 3D-Distanz und US-052 NavMesh-Pfaddistanz $d_{\text{path}}$) persistiert.
   - Wenn keine Weltkoordinaten verfügbar sind, wird `world_position` explizit als `null` gespeichert; es werden keine erfundenen Heuristiken abgelegt.
 - [ ] **Navigation Episode & Trajectory Extraction:**
@@ -150,17 +163,22 @@ so that **we obtain an authoritative offline dataset for training Reinforcement 
   - Für jeden Kampf werden Start-/Endzeitpunkte, Time-to-Kill ($T_{\text{ttk}}$), Spielerschaden ($\Delta HP$), gesendete Angriffs-Hotkeys, Verifikationsquelle (`HUD_COUNTER` vs. `HP_ZERO`) und Kampfergebnis protokolliert.
 - [ ] **Kill-to-Kill Cycle & Transition Dataset:**
   - Jeder Kill-Zyklus wird vollständig in $T_{\text{decision}} + T_{\text{navigation}} + T_{\text{combat}} + T_{\text{idle}}$ zerlegt und als vollständiges State-Action-Reward-Transition-Tuple für Offline-RL exportiert.
+- [ ] **Operative SQLite-Telemetrie:**
+  - `SqliteTelemetryStore` persistiert strukturierte Session-, Target-, Navigations- und Combat-Ereignisse in `data/telemetry.sqlite3` mit optimierten Indizes für schnelle Abfragen.
+- [ ] **Parquet-Export für ML-Training:**
+  - Ein CLI-Befehl/Exporter generiert aus aufgezeichneten Sessions validierte, schema-konforme `.parquet`-Dateien (`target_decisions.parquet`, `navigation_trajectories.parquet`, `kill_cycles.parquet`) unter `data/datasets/rl/`.
 - [ ] **Performance & Threading-Entkopplung:**
   - Telemetrie-I/O blockiert zu keinem Zeitpunkt den 10-Hz-Orchestrator-Thread oder die Qt-GUI.
   - Serialisierung und Dateizugriffe laufen auf einem separaten Hintergrund-Worker.
-- [ ] **Safety & ADR-004 Konformität:**
-  - Keine zusätzlichen Memory-Offsets oder Speicher-Leseoperationen über `CMover + 0x188` hinaus.
+- [ ] **Safety & ADR-004 / ADR-005 Konformität:**
+  - Keine zusätzlichen Memory-Offsets oder Speicher-Leseoperationen über `CMover + 0x188` hinaus (ADR-004).
+  - Statische Client-Dateien werden ausschließlich schreibgeschützt zur Datenextraktion und Metadaten-Generierung verwendet (ADR-005).
   - Keine Memory-Writes, Code-Injections oder Umgehung bestehender Foreground-/Emergency-Stop-Gates.
 - [ ] **Storage Control:**
   - Rohe Videoframes/Screenshots sind standardmäßig deaktiviert (rein numerische strukturierte JSONL-Events).
 - [ ] **Typisierung & Tests:**
   - Alle neuen Datenmodelle und Telemetrie-Klassen bestehen `mypy --strict`.
-  - Vollständige Unit-Test-Abdeckung für Telemetrie-Queue, JSONL-Writer, Kinematik-Ableitung und Event-Serialisierung.
+  - Vollständige Unit-Test-Abdeckung für Telemetrie-Queue, SQLite-Store, Parquet-Exporter, Kinematik-Ableitung und Event-Serialisierung.
 
 ## Out of scope
 
@@ -173,9 +191,9 @@ so that **we obtain an authoritative offline dataset for training Reinforcement 
 
 - Automated:
   - Unit-Tests in `tests/unit/test_telemetry.py` zur Validierung von Session-Metadaten, 10-Hz-Snapshot-Generierung und JSONL-Serialisierung.
-  - Unit-Tests zur Validierung der numerischen Geschwindigkeitsableitung $(\dot{x}, \dot{y}, \dot{z}, v)$, US-052 NavMesh-Pfaddistanz-Integration und Kill-Cycle-Zerlegung ($T_{\text{k2k}}$).
-  - Unit-Tests für `TelemetryWorker` zur Verifikation der asynchronen, blockierungsfreien Queue-Verarbeitung und Fehlerbehandlung bei vollem Speicher.
+  - Unit-Tests in `tests/unit/test_telemetry_sqlite.py` zur Validierung von Schema-Initialisierung, Event-Inserts und operativen Abfragen.
+  - Unit-Tests in `tests/unit/test_telemetry_parquet.py` zur Validierung der Parquet-Export-Pipeline, Columnar-Schemas und Datentyp-Integrität.
   - `./scripts/check.ps1` läuft fehlerfrei durch (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 - Manual (Windows):
-  - Starte eine Farming-Session in Entropia Flyff mit geladenem US-052 3D-NavMesh, führe mehrere Kills und Laufwege aus, und überprüfe, dass `data/telemetry/<area_id>/<date>/session_<session_id>.jsonl` erzeugt wird.
-  - Validiere offline, dass die JSONL-Datei fehlerfrei geparst werden kann und für jeden Kill-Zyklus die vollständige Kette $\text{WorldState} \to \text{Candidates} \to \text{Target Selection} \to \text{Navigation} \to \text{Combat} \to \text{Kill}$ rekonstruiert werden kann.
+  - Starte eine Farming-Session in Entropia Flyff mit geladenem US-052 3D-NavMesh, führe mehrere Kills und Laufwege aus, und überprüfe, dass sowohl `data/telemetry/<area_id>/<date>/session_<session_id>.jsonl` als auch `data/telemetry.sqlite3` aktualisiert werden.
+  - Führe den Parquet-Export aus und verifiziere, dass die erzeugten `.parquet`-Dateien in Python (z. B. via `duckdb` oder `polars`) direkt geladen und für RL-Training analysiert werden können.
