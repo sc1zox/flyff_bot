@@ -34,6 +34,7 @@ from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrc
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import VitalsTriggerConfig
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
+from flyff_bot.features.navigation.live_position import LivePositionReader
 from flyff_bot.features.navigation.pathing import (
     PathingController,
     ProfileLoadOutcome,
@@ -334,7 +335,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     default_anchor_path=default_anchor_path,
                 )
                 pathing = PathingController(
-                    load_profile(navigation_map_path).spatial_map, map_path=navigation_map_path
+                    load_profile(navigation_map_path).spatial_map,
+                    map_path=navigation_map_path,
+                    position_reader=LivePositionReader(window_handle),
                 )
                 orchestrator = FarmingOrchestrator(
                     pipeline,
@@ -378,6 +381,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 # loop; results reach the widgets only through the dashboard feed's signal.
                 worker = SessionWorker(orchestrator.tick, STANDBY_TICK_INTERVAL_SECONDS)
                 window.register_teardown(worker.stop)
+                window.register_teardown(orchestrator.close)
                 worker.start()
     else:
         window.set_window_status(WindowStatus.NOT_FOUND)

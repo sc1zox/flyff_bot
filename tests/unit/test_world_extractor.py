@@ -22,6 +22,7 @@ from flyff_bot.features.navigation.world_extractor import (
     IMPASSABLE_SLOPE_GRADIENT,
     LAND_BLOCK_CELLS_PER_SIDE,
     LAND_BLOCK_VERTICES_PER_SIDE,
+    LandBlock,
     ObstacleKind,
     WorldCoordinate,
     WorldDimensions,
@@ -230,6 +231,8 @@ def test_extracting_a_region_gathers_zones_terrain_and_objects(tmp_path: Path) -
     assert world_map.terrain_block_count == 1
     assert len(world_map.zones) == 2
     assert world_map.monster_names == ("Flame", "MiniMush")
+    assert world_map.terrain.height_at(WorldCoordinate(20.0, 20.0)) == pytest.approx(500.0)
+    assert world_map.terrain.height_at(WorldCoordinate(18.0, 20.0)) == pytest.approx(300.0)
     kinds = {obstacle.kind for obstacle in world_map.obstacles}
     assert kinds == {ObstacleKind.SLOPE, ObstacleKind.OBJECT}
 
@@ -248,6 +251,13 @@ def test_a_region_without_terrain_blocks_still_extracts_its_spawn_zones(tmp_path
     assert world_map.terrain_block_count == 0
     assert world_map.obstacles == ()
     assert len(world_map.zones) == 1
+
+
+def test_terrain_field_includes_the_outer_edge_of_its_last_block() -> None:
+    block = LandBlock(0, 0, tuple(flat_heights(75.0)))
+    world_map = WorldVectorMap("edge", WorldDimensions(1, 1, 4.0), terrain_blocks=(block,))
+
+    assert world_map.terrain.height_at(WorldCoordinate(512.0, 512.0)) == pytest.approx(75.0)
 
 
 def test_a_directory_without_a_world_script_is_refused(tmp_path: Path) -> None:
@@ -288,6 +298,26 @@ def test_a_persisted_map_of_an_unknown_schema_version_is_refused(tmp_path: Path)
     path.write_text(json.dumps(document), encoding="utf-8")
 
     with pytest.raises(WorldExtractionError):
+        load_world_map(path)
+
+
+def test_schema_v1_world_map_requires_re_extraction(tmp_path: Path) -> None:
+    path = tmp_path / "old.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "world_name": "wdtest",
+                "dimensions": {"blocks_x": 1, "blocks_z": 1, "meters_per_unit": 4.0},
+                "terrain_block_count": 1,
+                "zones": [],
+                "obstacles": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(WorldExtractionError, match="Unsupported world vector map version: 1"):
         load_world_map(path)
 
 

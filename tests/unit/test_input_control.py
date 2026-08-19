@@ -10,12 +10,15 @@ import pytest
 
 from flyff_bot.features.input_control.controller import (
     ABSOLUTE_COORDINATE_RANGE,
+    KEY_IS_DOWN_MASK,
     MOUSE_EVENT_ABSOLUTE,
     MOUSE_EVENT_MOVE,
     MOUSE_EVENT_RIGHT_DOWN,
     MOUSE_EVENT_RIGHT_UP,
     MOUSE_EVENT_VIRTUAL_DESK,
     MOUSE_EVENT_WHEEL,
+    VIRTUAL_KEY_END,
+    VIRTUAL_KEY_ESCAPE,
     WHEEL_DELTA,
     WINDOW_MESSAGE_CLOSE,
     Input,
@@ -43,6 +46,21 @@ def test_is_foreground_matches_target_window(monkeypatch: pytest.MonkeyPatch) ->
 
     assert controller.is_foreground(12345) is True
     assert controller.is_foreground(99999) is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")
+@pytest.mark.parametrize("abort_key", [VIRTUAL_KEY_END, VIRTUAL_KEY_ESCAPE])
+def test_end_and_escape_are_both_global_abort_keys(
+    monkeypatch: pytest.MonkeyPatch, abort_key: int
+) -> None:
+    controller = WindowsInputController()
+    monkeypatch.setattr(
+        controller._user32,
+        "GetAsyncKeyState",
+        lambda key: KEY_IS_DOWN_MASK if key == abort_key else 0,
+    )
+
+    assert controller.is_aborted()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")

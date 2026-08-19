@@ -277,7 +277,16 @@ class FarmingOrchestrator:
         """Latch a session-local emergency stop until a new session is created."""
 
         self._mode = FarmingMode.EMERGENCY_STOPPED
+        if self._pathing is not None:
+            self._pathing.emergency_stop()
         self._persist_navigation()
+
+    def close(self) -> None:
+        """Persist navigation and release external resources during application teardown."""
+
+        self._persist_navigation()
+        if self._pathing is not None:
+            self._pathing.close()
 
     def configure_attack_key(self, virtual_key: int) -> None:
         """Apply one dashboard-selected attack key before a paused session starts."""
@@ -669,6 +678,7 @@ class FarmingOrchestrator:
             return False
         decision = self._pathing.step(self._state.observed_at_seconds)
         if not self._pathing_dispatcher.dispatch(decision):
+            self._pathing.reject(decision)
             return False
         self._pathing.confirm(decision)
         self._search.reset()

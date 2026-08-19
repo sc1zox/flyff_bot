@@ -27,6 +27,7 @@ from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_RIGHT,
     VIRTUAL_KEY_W,
 )
+from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.spatial import WorldPoint
 from flyff_bot.features.vision.minimap import (
     FULL_TURN_DEGREES,
@@ -64,6 +65,8 @@ DEFAULT_ZOOM_CHANGE_CONFIRMATIONS = 5
 # Standing still measured 0.02 px/s sustained and never more than 1.8 px/s instantaneous,
 # against 9.4 px/s while running, so this threshold separates the two with a wide margin.
 DEFAULT_MEASURED_MOTION_THRESHOLD_PIXELS_PER_SECOND = 3.0
+DEFAULT_LIVE_MOTION_THRESHOLD_UNITS_PER_SECOND = 0.5
+DEFAULT_LIVE_STALL_TIMEOUT_SECONDS = 2.0
 DEFAULT_MOTION_THRESHOLD = 1.5
 DEFAULT_STALL_TIMEOUT_SECONDS = 5.0
 DEFAULT_MOVEMENT_GRACE_SECONDS = 2.0
@@ -136,6 +139,8 @@ class StallConfig:
     measured_motion_threshold_pixels_per_second: float = (
         DEFAULT_MEASURED_MOTION_THRESHOLD_PIXELS_PER_SECOND
     )
+    live_motion_threshold_units_per_second: float = DEFAULT_LIVE_MOTION_THRESHOLD_UNITS_PER_SECOND
+    live_stall_timeout_seconds: float = DEFAULT_LIVE_STALL_TIMEOUT_SECONDS
     motion_threshold: float = DEFAULT_MOTION_THRESHOLD
     stall_timeout_seconds: float = DEFAULT_STALL_TIMEOUT_SECONDS
     movement_grace_seconds: float = DEFAULT_MOVEMENT_GRACE_SECONDS
@@ -146,6 +151,10 @@ class StallConfig:
     def __post_init__(self) -> None:
         if self.measured_motion_threshold_pixels_per_second <= 0.0:
             raise ValueError("Measured stall motion threshold must be positive.")
+        if self.live_motion_threshold_units_per_second <= 0.0:
+            raise ValueError("Live stall motion threshold must be positive.")
+        if self.live_stall_timeout_seconds <= 0.0:
+            raise ValueError("Live stall timeout must be positive.")
         if self.motion_threshold <= 0.0:
             raise ValueError("Stall motion threshold must be positive.")
         if self.stall_timeout_seconds <= 0.0:
@@ -358,12 +367,20 @@ class StallDetector:
         self._stalled_seconds = 0.0
         self._sampled_at_seconds: float | None = None
         self._commanded_at_seconds: float | None = None
+        self._live_position: WorldPosition | None = None
+        self._live_at_seconds: float | None = None
+        self._using_live_position = False
 
     @property
     def is_stalled(self) -> bool:
         """Return whether motionless scenery persisted for the configured stall timeout."""
 
-        return self._stalled_seconds >= self._config.stall_timeout_seconds
+        timeout = (
+            self._config.live_stall_timeout_seconds
+            if self._using_live_position
+            else self._config.stall_timeout_seconds
+        )
+        return self._stalled_seconds >= timeout
 
     @property
     def stalled_seconds(self) -> float:
@@ -378,6 +395,9 @@ class StallDetector:
         self._stalled_seconds = 0.0
         self._sampled_at_seconds = None
         self._commanded_at_seconds = None
+        self._live_position = None
+        self._live_at_seconds = None
+        self._using_live_position = False
 
     def observe(
         self,
@@ -386,9 +406,22 @@ class StallDetector:
         measured_speed_pixels_per_second: float | None,
         movement_commanded: bool,
         at_seconds: float,
+        live_position: WorldPosition | None = None,
+        live_sampled_at_seconds: float | None = None,
     ) -> bool:
         """Return the current stall verdict for one tick."""
 
+        if live_position is not None:
+            return self._observe_live(
+                live_position,
+                movement_commanded=movement_commanded,
+                at_seconds=(
+                    at_seconds if live_sampled_at_seconds is None else live_sampled_at_seconds
+                ),
+            )
+        self._live_position = None
+        self._live_at_seconds = None
+        self._using_live_position = False
         if measured_speed_pixels_per_second is not None:
             return self._observe_measured(
                 measured_speed_pixels_per_second,
@@ -398,6 +431,36 @@ class StallDetector:
         return self._observe_frame(
             frame, movement_commanded=movement_commanded, at_seconds=at_seconds
         )
+
+    def _observe_live(
+        self,
+        position: WorldPosition,
+        *,
+        movement_commanded: bool,
+        at_seconds: float,
+    ) -> bool:
+        previous = self._live_position
+        previous_at_seconds = self._live_at_seconds
+        self._live_position = position
+        self._live_at_seconds = at_seconds
+        self._using_live_position = True
+        self._signature = None
+        self._sampled_at_seconds = at_seconds
+        verdict = self._gate(movement_commanded, at_seconds)
+        if verdict is not None:
+            return verdict
+        if previous is None or previous_at_seconds is None:
+            self._stalled_seconds = 0.0
+            return self.is_stalled
+        elapsed = min(max(0.0, at_seconds - previous_at_seconds), MAXIMUM_STALL_SAMPLE_SECONDS)
+        if elapsed <= 0.0:
+            return self.is_stalled
+        speed = position.distance_to(previous) / elapsed
+        if speed < self._config.live_motion_threshold_units_per_second:
+            self._stalled_seconds += elapsed
+        else:
+            self._stalled_seconds = 0.0
+        return self.is_stalled
 
     def _observe_measured(
         self, speed: float, *, movement_commanded: bool, at_seconds: float

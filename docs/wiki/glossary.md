@@ -7,6 +7,7 @@ sources:
   - ../sources/2026-08-15-target-architecture-proposal.md
   - ../sources/2026-08-18-minimap-odometry-calibration.md
   - ../sources/2026-08-19-target-server-entropia-pserver-clarification.md
+  - ../sources/2026-08-19-entropia-client-navigation-data-extraction.md
 related:
   - project-overview.md
   - architecture.md
@@ -239,3 +240,21 @@ related:
 - **Zone goal** - One monster class to farm and, optionally, the kill count that completes it. The
   navigator works its goals through in order and rebinds to the next unfinished monster's nearest
   zone the moment a quota is reached.
+- **Live world position** - The player's finite XYZ float32 coordinate read from the one verified
+  player-position struct of a hash-supported `neuz.exe`. It is primary while fresh and valid; it is
+  not evidence that terrain, collision, world identity, or server state is complete.
+- **Coordinate-only memory boundary** - The ADR-004 rule that permits one fingerprinted player
+  pointer read followed by one exact 12-byte XYZ read, with query/read process rights only. Memory
+  scanning, neighbouring state reads, writes, injection, and hooks remain forbidden.
+- **GPS state** - The dashboard's source indicator: green means the latest position came from a
+  supported live-coordinate read; amber means navigation is using minimap odometry fallback.
+- **Terrain field** - The decoded 129 by 129 float32 height vertices from a loose `.lnd` block,
+  retained in the world-map schema for elevation queries. It is partial whenever declared blocks
+  exist only in packed archives.
+- **Terrain route** - A 3D A* route whose edge cost includes elevation and whose walkability rejects
+  excessive gradients. Smoothed corner metadata can request lateral strafe to follow a contour.
+- **Teleport anchor** - An operator-configured destination position and hotkey used for long-range
+  dispatch. It is confirmed from a fresh live position; it is not inferred from `teleport.bin`,
+  which contains option identifiers but no verified destination semantics.
+- **Temporary world block** - A live coordinate excluded from subsequent route search after repeated
+  recovery failure at that location. It is session recovery state, not a permanent collision claim.

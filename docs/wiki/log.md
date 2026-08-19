@@ -579,3 +579,18 @@ mapping is ascending-order pairing, because the client's own table ships only in
 US-035 records for every other world-unit conversion. And the `.dyo` record offsets are read off a
 single shipped file, guarded by a region-bounds check rather than a schema. Moved US-045 to
 completed user stories.
+
+## [2026-08-19] ingest + synthesis | Coordinate-only live XYZ and 3D navigation (US-048)
+
+Ingested `docs/sources/2026-08-19-entropia-client-navigation-data-extraction.md` into the
+architecture, glossary, roadmap, and index. Recorded the two complete client fingerprints, the
+single module-relative player global per build, the exact pointer-width plus 12-byte XYZ read
+boundary, retained loose `.lnd` height fields, elevation-aware A*, configured long-range dispatch,
+live position stall recovery, GPS source state, and 3D-enriched inspector. Indexed ADR-004 as the
+durable decision that forbids broader state reads, scanning, writes, injection, and hooks.
+
+The same synthesis records the evidence limit: only 153 of 3,861 declared terrain blocks have loose
+height data, object/collision mappings and teleport semantics are incomplete, and dynamic server
+state is unavailable offline. Focused affected suites pass, but the full repository gate has not
+yet run and the Windows live-client walkthrough remains unchecked; no 100% fault-free navigation
+claim is made. Moved US-048 to completed user stories.

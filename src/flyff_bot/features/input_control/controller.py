@@ -46,6 +46,7 @@ POINTER_MOVE_SETTLE_SECONDS = 0.15
 # whether and how it shuts down.
 WINDOW_MESSAGE_CLOSE = 0x0010
 VIRTUAL_KEY_END = 0x23
+VIRTUAL_KEY_ESCAPE = 0x1B
 KEY_IS_DOWN_MASK = 0x8000
 MAXIMUM_PROCESS_PATH_LENGTH = 32_768
 FOCUS_SETTLE_SECONDS = 0.25
@@ -272,7 +273,10 @@ class WindowsInputController:
     def is_aborted(self) -> bool:
         """Return whether the emergency-stop key is currently held."""
 
-        return bool(self._user32.GetAsyncKeyState(VIRTUAL_KEY_END) & KEY_IS_DOWN_MASK)
+        return bool(
+            self._user32.GetAsyncKeyState(VIRTUAL_KEY_END) & KEY_IS_DOWN_MASK
+            or self._user32.GetAsyncKeyState(VIRTUAL_KEY_ESCAPE) & KEY_IS_DOWN_MASK
+        )
 
     def is_foreground(self, window_handle: int) -> bool:
         """Return whether a target window remains foregrounded for combat input."""

@@ -4,3 +4,9 @@ Create `ADR-NNN-short-title.md` for a durable decision with meaningful alternati
 Use the sections Context, Decision, Alternatives, Consequences, and Verification. Small local choices
 that are obvious from the code do not need an ADR.
 
+## Accepted decisions
+
+- [ADR-001: CLI before HTTP server](ADR-001-cli-before-http-server.md)
+- [ADR-002: Target architecture and PySide6](ADR-002-target-architecture-and-pyside6.md)
+- [ADR-003: Clean schema over backward compatibility](ADR-003-clean-schema-over-backward-compatibility.md)
+- [ADR-004: Fingerprinted, coordinate-only client memory reads](ADR-004-coordinate-only-read-process-memory.md)

@@ -5,6 +5,14 @@ from flyff_bot.features.navigation.anchoring import (
     ProfileAnchorState,
 )
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
+from flyff_bot.features.navigation.live_position import (
+    LivePositionReader,
+    PositionReadError,
+    PositionReadErrorCode,
+    PositionReading,
+    PositionSource,
+    WorldPosition,
+)
 from flyff_bot.features.navigation.pathing import (
     PathingConfig,
     PathingController,
@@ -32,6 +40,19 @@ from flyff_bot.features.navigation.spatial import (
     SpatialMap,
     SpatialMapConfig,
     WorldPoint,
+)
+from flyff_bot.features.navigation.teleport import (
+    TeleportAnchor,
+    TeleportConfig,
+    TeleportController,
+    TeleportDispatch,
+    TeleportStatus,
+)
+from flyff_bot.features.navigation.terrain_routing import (
+    TerrainRoute,
+    TerrainRouteConfig,
+    TerrainRoutePlanner,
+    TerrainWaypoint,
 )
 from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationPlan,
@@ -68,6 +89,7 @@ from flyff_bot.features.navigation.world_extractor import (
 __all__ = [
     "GridCell",
     "LeashBound",
+    "LivePositionReader",
     "MapAnchor",
     "NavigationProfile",
     "NavigationProfileSummary",
@@ -79,6 +101,10 @@ __all__ = [
     "PathingInputAdapter",
     "PathingInputDispatcher",
     "PathingMode",
+    "PositionReadError",
+    "PositionReadErrorCode",
+    "PositionReading",
+    "PositionSource",
     "ProfileAnchorState",
     "ProfileLoadOutcome",
     "ProfileLoadResult",
@@ -87,6 +113,15 @@ __all__ = [
     "RoutePlanner",
     "SpatialMap",
     "SpatialMapConfig",
+    "TeleportAnchor",
+    "TeleportConfig",
+    "TeleportController",
+    "TeleportDispatch",
+    "TeleportStatus",
+    "TerrainRoute",
+    "TerrainRouteConfig",
+    "TerrainRoutePlanner",
+    "TerrainWaypoint",
     "VectorNavigationPlan",
     "VectorNavigationRequest",
     "VectorRoute",
@@ -99,6 +134,7 @@ __all__ = [
     "WorldExtractionError",
     "WorldExtractionSummary",
     "WorldPoint",
+    "WorldPosition",
     "WorldRegistration",
     "WorldVectorMap",
     "ZoneGoal",

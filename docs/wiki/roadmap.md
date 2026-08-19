@@ -1,24 +1,27 @@
 ---
 title: Product and technical roadmap
 status: active
-updated: 2026-08-16
+updated: 2026-08-19
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-computer-vision-and-yolo-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
+  - ../sources/2026-08-19-entropia-client-navigation-data-extraction.md
 related:
   - project-overview.md
   - architecture.md
   - ../decisions/ADR-001-cli-before-http-server.md
   - ../decisions/ADR-002-target-architecture-and-pyside6.md
+  - ../decisions/ADR-004-coordinate-only-read-process-memory.md
 ---
 
 # Product and technical roadmap
 
-The development roadmap is structured into 4 sequential phases, evolving from base infrastructure to a closed-loop perception and automation system:
+The development roadmap has five phases, evolving from base infrastructure to closed-loop,
+world-aware navigation:
 
 ```text
-Phase 1 (Bootstrap & Architecture) ──► Phase 2 (Perception Pipeline) ──► Phase 3 (Closed-Loop & Controllers) ──► Phase 4 (UI Dashboard)
+Phase 1 (Bootstrap) -> Phase 2 (Perception) -> Phase 3 (Controllers) -> Phase 4 (UI) -> Phase 5 (Navigation accuracy)
 ```
 
 ## Phases and Milestones
@@ -50,3 +53,17 @@ Phase 1 (Bootstrap & Architecture) ──► Phase 2 (Perception Pipeline) ─�
 - **US-021 (Completed):** Navigation map profiles and session reset safeguards (Multi-profile persistence, dirty session safeguards, auto-save).
 - **US-024 (Completed):** Target verification decision and threshold debug dashboard visualization (Live header-anchor, HP-bar, and name-match scores/thresholds in a dedicated `MainWindow` debug panel).
 - **US-026 (Completed):** Placement calibration visual guide overlay ("Placements" toggle button, color-coded HUD ROI overlay boxes).
+
+### Phase 5: Navigation Accuracy (Active)
+
+- **US-035 (Completed):** Measured minimap odometry and tracking-quality gating.
+- **US-036 (Completed):** Persisted navigation-frame anchoring with explicit refusal states.
+- **US-039 (Completed):** Combat obstacle stall detection and adaptive re-navigation.
+- **US-041 (Completed):** Spawn-distance and bearing calibration capture harness.
+- **US-042 (Completed):** Standardized camera alignment and viewport initialization.
+- **US-043 (Completed):** Continuous approach tracking and minimap zoom initialization.
+- **US-045 (Completed):** Offline vector spawn, terrain, and obstacle extraction with goal routing.
+- **US-048 (Full automated gate passing; Windows field validation open):** Fingerprinted coordinate-only
+  live XYZ, terrain-aware 3D A*, configured long-range teleport dispatch, position-anchored
+  recovery, and an elevation-enriched inspector. Incomplete loose terrain/collision data and
+  runtime server state prevent any 100% fault-free guarantee.

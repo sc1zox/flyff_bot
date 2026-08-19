@@ -59,6 +59,7 @@ from flyff_bot.features.automation.vitals_persistence import (
 )
 from flyff_bot.features.input_control import parse_virtual_key
 from flyff_bot.features.navigation.anchoring import ProfileAnchorState
+from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
 from flyff_bot.features.navigation.persistence import (
     DEFAULT_NAVIGATION_DIR,
     list_navigation_profiles,
@@ -177,6 +178,9 @@ class MainWindow(QMainWindow):
         self._tracking_label = QLabel()
         self._tracking_label.setObjectName("StatChip")
         self._tracking_quality = TrackingQuality.DEGRADED
+        self._gps_label = QLabel()
+        self._gps_label.setObjectName("StatChip")
+        self._position_source = PositionSource.MINIMAP_FALLBACK
         self._mob_label = QLabel()
         self._mob_label.setObjectName("StatChip")
         self._target_label = QLabel()
@@ -390,6 +394,12 @@ class MainWindow(QMainWindow):
         """Expose the navigation tracking-quality chip for lightweight integrations."""
 
         return self._tracking_label
+
+    @property
+    def gps_label(self) -> QLabel:
+        """Return the live-coordinate source chip for UI tests and integrations."""
+
+        return self._gps_label
 
     @property
     def mob_label(self) -> QLabel:
@@ -957,6 +967,7 @@ class MainWindow(QMainWindow):
         )
         self._render_window_status()
         self._render_tracking_quality()
+        self._render_gps()
 
     def set_window_status(self, status: WindowStatus) -> None:
         """Display a game-window condition observed outside the perception pipeline."""
@@ -1155,6 +1166,7 @@ class MainWindow(QMainWindow):
         status_top.addWidget(self._status_label)
         status_top.addWidget(self._window_label)
         status_top.addWidget(self._tracking_label)
+        status_top.addWidget(self._gps_label)
         status_top.addStretch()
         status_layout.addLayout(status_top)
 
@@ -1565,6 +1577,37 @@ class MainWindow(QMainWindow):
             self._translator.text(_tracking_quality_message(self._tracking_quality))
         )
 
+    def _render_gps(self) -> None:
+        live = self._position_source is PositionSource.LIVE
+        self._gps_label.setText(
+            self._translator.text(Message.UI_GPS_LIVE if live else Message.UI_GPS_FALLBACK)
+        )
+        self._gps_label.setProperty("gps", "live" if live else "fallback")
+        navigation = self._latest_update.navigation if self._latest_update is not None else None
+        position = navigation.world_position if navigation is not None else None
+        error_code = navigation.position_error_code if navigation is not None else None
+        self._gps_label.setToolTip(
+            self._translator.text(
+                Message.UI_GPS_COORDINATES,
+                x=f"{position.x:.2f}",
+                y=f"{position.y:.2f}",
+                z=f"{position.z:.2f}",
+            )
+            if position is not None
+            else (
+                ""
+                if error_code is None
+                else self._translator.text(
+                    Message.UI_GPS_ERROR,
+                    reason=self._translator.text(_gps_error_message(error_code)),
+                )
+            )
+        )
+        style = self._gps_label.style()
+        if style is not None:
+            style.unpolish(self._gps_label)
+            style.polish(self._gps_label)
+
     def _render_profile_anchor_state(self) -> None:
         self._profile_anchor_label.setText(
             self._translator.text(_profile_anchor_message(self._profile_anchor_state))
@@ -1583,6 +1626,12 @@ class MainWindow(QMainWindow):
             else TrackingQuality.DEGRADED
         )
         self._render_tracking_quality()
+        self._position_source = (
+            update.navigation.position_source
+            if update.navigation is not None
+            else PositionSource.MINIMAP_FALLBACK
+        )
+        self._render_gps()
         self._profile_anchor_state = (
             update.navigation.profile_anchor_state
             if update.navigation is not None
@@ -1800,6 +1849,17 @@ def _tracking_quality_message(quality: TrackingQuality) -> Message:
         TrackingQuality.PREDICTED: Message.UI_TRACKING_PREDICTED,
         TrackingQuality.DEGRADED: Message.UI_TRACKING_DEGRADED,
     }[quality]
+
+
+def _gps_error_message(code: PositionReadErrorCode) -> Message:
+    return {
+        PositionReadErrorCode.UNSUPPORTED_PLATFORM: Message.UI_GPS_ERROR_UNSUPPORTED_PLATFORM,
+        PositionReadErrorCode.PROCESS_UNAVAILABLE: Message.UI_GPS_ERROR_PROCESS_UNAVAILABLE,
+        PositionReadErrorCode.WRONG_PROCESS: Message.UI_GPS_ERROR_WRONG_PROCESS,
+        PositionReadErrorCode.UNSUPPORTED_BUILD: Message.UI_GPS_ERROR_UNSUPPORTED_BUILD,
+        PositionReadErrorCode.HANDLE_LOST: Message.UI_GPS_ERROR_HANDLE_LOST,
+        PositionReadErrorCode.MALFORMED_READ: Message.UI_GPS_ERROR_MALFORMED_READ,
+    }[code]
 
 
 def _profile_anchor_message(state: ProfileAnchorState) -> Message:

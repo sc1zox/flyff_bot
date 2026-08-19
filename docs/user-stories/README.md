@@ -75,5 +75,4 @@ route rests on a dead-reckoned position built from unmeasured key-press constant
 - [x] [**US-045: Vector world and terrain passability extraction with goal-driven zone navigation**](completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md) — Vector spawn zones, terrain elevation, impassable slope extraction, and Visibility-Graph A* path planning.
 - [ ] [**US-046: Premium monster HP OCR and exact combat tracking**](US-046-premium-monster-hp-ocr-and-exact-combat-tracking.md) — Direct numeric HP text reading from target nameplates for exact combat progress.
 - [ ] [**US-047: In-game area farm start marker and vector zone boundary overlay**](US-047-in-game-area-farm-start-marker-and-zone-overlay.md) — Transparent desktop overlay rendering the start anchor, vector zone origin, and live player offset directly over the game client.
-
-
+- [x] [**US-048: Live 3D coordinates, terrain-aware routing, and teleport dispatch**](completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md) — Fingerprinted coordinate-only memory reads, live-confirmed long-range dispatch, elevation-aware A*, recovery maneuvers, and a 3D-enriched inspector. The full repository gate passes; the Windows live-client walkthrough remains open.

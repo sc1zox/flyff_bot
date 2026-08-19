@@ -19,7 +19,13 @@ import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
+from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.spatial import WorldPoint
+from flyff_bot.features.navigation.terrain_routing import (
+    TerrainRouteConfig,
+    TerrainRoutePlanner,
+    TerrainWaypoint,
+)
 from flyff_bot.features.navigation.vector_routing import (
     VectorRouteConfig,
     VectorRoutePlanner,
@@ -125,6 +131,7 @@ class VectorNavigationPlan:
     # True when every remaining leg was obstructed, so the caller falls back to learned
     # pathing rather than steering into terrain the visibility graph could not route around.
     blocked: bool = False
+    world_waypoints: tuple[TerrainWaypoint, ...] = ()
 
     @property
     def is_empty(self) -> bool:
@@ -176,10 +183,13 @@ class VectorZoneNavigator:
         *,
         goals: Iterable[ZoneGoal] = (),
         route_config: VectorRouteConfig | None = None,
+        terrain_config: TerrainRouteConfig | None = None,
     ) -> None:
         self._map = world_map
         self._registration = registration
         self._planner = VectorRoutePlanner(world_map.obstacles, route_config)
+        self._terrain_planner = TerrainRoutePlanner(world_map, terrain_config)
+        self._terrain_samples = world_map.terrain.samples()
         self._goals: tuple[ZoneGoal, ...] = tuple(goals)
         self._progress = _GoalProgress()
         self._selection: ZoneSelection | None = None
@@ -201,6 +211,12 @@ class VectorZoneNavigator:
         """Return the visibility-graph planner backing every route."""
 
         return self._planner
+
+    @property
+    def terrain_samples(self) -> tuple[tuple[float, float, float], ...]:
+        """Return cached topographic samples for the 10 Hz inspector feed."""
+
+        return self._terrain_samples
 
     @property
     def goals(self) -> tuple[ZoneGoal, ...]:
@@ -285,6 +301,31 @@ class VectorZoneNavigator:
         self._selection = ZoneSelection(goal, chosen)
         return self._selection
 
+    def select_world_zone(self, position: WorldPosition) -> ZoneSelection | None:
+        """Bind to the active goal's nearest zone using authoritative world coordinates."""
+
+        goal = self.active_goal
+        if goal is None:
+            return None
+        selection = self._selection
+        if selection is not None and selection.goal == goal:
+            return selection
+        zones = self._map.zones_for(goal.monster_name)
+        chosen = nearest_zone(zones, WorldCoordinate(position.x, position.z))
+        if chosen is None:
+            return None
+        self._selection = ZoneSelection(goal, chosen)
+        return self._selection
+
+    def update_registration(self, session: WorldPoint, world: WorldPosition) -> None:
+        """Re-anchor minimap fallback at the latest drift-free live correspondence."""
+
+        self._registration = WorldRegistration.anchored(
+            session,
+            WorldCoordinate(world.x, world.z),
+            self._registration.pixels_per_world_unit,
+        )
+
     def plan_route(self, position: WorldPoint) -> VectorNavigationPlan:
         """Return the obstacle-free route the active goal wants walked from here."""
 
@@ -306,6 +347,55 @@ class VectorZoneNavigator:
         return VectorNavigationPlan(
             tuple(points), selection.goal, selection.zone, blocked and not points
         )
+
+    def plan_live_route(
+        self,
+        position: WorldPosition,
+        *,
+        temporary_blocks: tuple[WorldPosition, ...] = (),
+    ) -> VectorNavigationPlan:
+        """Return an elevation-aware world-space route from the current live position."""
+
+        selection = self.select_world_zone(position)
+        if selection is None:
+            return VectorNavigationPlan()
+        origin = WorldCoordinate(position.x, position.z)
+        stations = self._stations(selection.zone, origin)
+        waypoints: list[TerrainWaypoint] = []
+        current = position
+        blocked = False
+        for station in stations:
+            height = self._map.terrain.height_at(station)
+            destination = WorldPosition(
+                station.x,
+                selection.zone.center_y if height is None else height,
+                station.z,
+            )
+            leg = self._terrain_planner.plan(
+                current, destination, temporary_blocks=temporary_blocks
+            )
+            if leg.blocked or leg.is_empty:
+                blocked = blocked or leg.blocked
+                continue
+            if waypoints and leg.waypoints and waypoints[-1].position == leg.waypoints[0].position:
+                waypoints.extend(leg.waypoints[1:])
+            else:
+                waypoints.extend(leg.waypoints)
+            current = destination
+        points = tuple(WorldPoint(item.position.x, item.position.z) for item in waypoints)
+        return VectorNavigationPlan(
+            points=points,
+            goal=selection.goal,
+            zone=selection.zone,
+            blocked=blocked and not points,
+            world_waypoints=tuple(waypoints),
+        )
+
+    def zone_contains_world(self, position: WorldPosition) -> bool:
+        """Return whether a live world position lies in the selected spawn rectangle."""
+
+        zone = self.active_zone
+        return zone is not None and zone.contains(WorldCoordinate(position.x, position.z))
 
     def zone_contains(self, position: WorldPoint) -> bool:
         """Return whether a measured position lies inside the bound zone's rectangle."""

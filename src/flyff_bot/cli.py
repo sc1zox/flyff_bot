@@ -40,6 +40,7 @@ from flyff_bot.features.input_control import (
     WindowsInputController,
     parse_virtual_key,
 )
+from flyff_bot.features.navigation.live_position import LivePositionReader
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.persistence import load_profile
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
@@ -324,7 +325,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
             orchestrator = _farming_orchestrator(args, controller, window_handle)
             print(translator.text(Message.FARM_STARTED))
             orchestrator.start()
-            asyncio.run(orchestrator.run())
+            try:
+                asyncio.run(orchestrator.run())
+            finally:
+                orchestrator.close()
             if orchestrator.mode.name == "EMERGENCY_STOPPED":
                 print(translator.text(Message.ABORTED))
                 return ExitCode.ABORTED
@@ -438,7 +442,9 @@ def _farming_orchestrator(
         controller,
         window_handle,
         pathing=PathingController(
-            load_profile(navigation_map_path).spatial_map, map_path=navigation_map_path
+            load_profile(navigation_map_path).spatial_map,
+            map_path=navigation_map_path,
+            position_reader=LivePositionReader(window_handle),
         ),
         config=FarmingConfig(
             combat=CombatConfig(

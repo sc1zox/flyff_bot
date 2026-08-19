@@ -7,12 +7,14 @@ sources:
   - ../sources/2026-08-15-target-architecture-proposal.md
   - ../sources/2026-08-18-minimap-odometry-calibration.md
   - ../sources/2026-08-19-target-server-entropia-pserver-clarification.md
+  - ../sources/2026-08-19-entropia-client-navigation-data-extraction.md
 related:
   - project-overview.md
   - glossary.md
   - ../decisions/ADR-001-cli-before-http-server.md
   - ../decisions/ADR-002-target-architecture-and-pyside6.md
   - ../decisions/ADR-003-clean-schema-over-backward-compatibility.md
+  - ../decisions/ADR-004-coordinate-only-read-process-memory.md
   - ../user-stories/completed/US-002-vision-frame-capture.md
   - ../user-stories/completed/US-003-mob-detection-yolo.md
   - ../user-stories/completed/US-004-target-mob-verification.md
@@ -55,6 +57,7 @@ related:
   - ../user-stories/completed/US-043-continuous-approach-target-tracking-and-minimap-zoom-initialization.md
   - ../user-stories/completed/US-039-combat-obstacle-stall-detection-and-re-navigation.md
   - ../user-stories/completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md
+  - ../user-stories/completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md
 ---
 
 # Architecture
@@ -1012,16 +1015,13 @@ solve in 0.26 ms median, zone-to-zone hops in 2.5 ms median and 36 ms worst case
 detour would have to swing wider than the corridor, or whose corridor exceeds the obstacle
 ceiling, is reported blocked - a refusal that falls back, never a wrong route.
 
-**The frame registration is the one thing that cannot be measured.** Session positions are
-minimap pixels relative to wherever the session started (US-035); the extracted map speaks client
-world units. Recovering the offset between them would need the character's absolute world
-position, which only game memory holds, and reading it is out of scope. `WorldRegistration`
-therefore takes it from a stated correspondence instead: the operator names the spawn zone the
-character is standing in, and the position measured at that moment becomes that zone's anchor. No
-rotation is recovered because the minimap is north-up and the ground plane is axis-aligned. The
-scale stays a named provisional constant (`PROVISIONAL_MINIMAP_PIXELS_PER_WORLD_UNIT`, 1.0)
-exposed as a calibration input, for exactly the reason US-035 gives for having no world-unit
-conversion anywhere else: the client displays no run speed to derive one from.
+**US-045 originally had no live world-frame measurement.** Session positions were minimap pixels
+relative to the session start while the extracted map spoke client world units, so
+`WorldRegistration` used an operator-selected zone correspondence and provisional scale. US-048
+now supplies the player's absolute XYZ from a narrowly bounded, read-only adapter for two
+fingerprinted supported client builds. That live sample is the primary world-frame position while
+available; `WorldRegistration` and measured minimap odometry remain the fallback for an unsupported
+build or failed read.
 
 `vector_navigation.VectorZoneNavigator` owns the three decisions above the geometry. Which goal
 is still unfinished - `ZoneGoal(monster_name, kill_quota)`, worked through in order. Which of that
@@ -1056,3 +1056,55 @@ become a `VectorNavigationRequest`, which `run_desktop` turns into a navigator a
 position estimate at the moment the operator confirms it. The dialog cannot do that itself, and
 deliberately does not see the estimate, because a registration is only meaningful against the
 position it was applied at.
+
+## Closed-loop 3D world navigation (US-048)
+
+US-048 makes live client XYZ the primary position signal without widening the process-memory
+boundary. `navigation.live_position.LivePositionReader` accepts only one of two complete SHA-256
+client fingerprints documented by
+[the static extraction](../sources/2026-08-19-entropia-client-navigation-data-extraction.md), opens
+`neuz.exe` with query and read rights, resolves one module-relative player global, reads the pointer
+width, and then reads exactly the 12-byte float32 XYZ struct at player offset `0x188`. It does not
+scan memory or read game state around the coordinate. An unknown build, lost handle, short read, or
+non-finite coordinate closes the handle and publishes minimap fallback; a later poll may recover.
+This boundary and its rejected alternatives are durable in
+[ADR-004](../decisions/ADR-004-coordinate-only-read-process-memory.md).
+
+The world-map schema now retains decoded `.lnd` height blocks rather than only their derived steep
+rectangles. `navigation.terrain_routing.TerrainRoutePlanner` samples that field into 3D route nodes,
+rejects edges above the configured walkable gradient, and weights traversable edges by both
+horizontal distance and elevation change. A* therefore detours around steep cells; smoothed turns
+carry lateral strafe metadata for contour-following movement. Temporary live-coordinate blocks can
+be excluded on a global replan after repeated recovery failure. Terrain routing is authoritative
+only where a decoded loose height block covers the query; the existing visibility graph and learned
+navigation remain available outside that coverage.
+
+`PathingController` polls live position at the adapter's default 10 Hz, anchors route and dashboard
+snapshots to it, and gives that delta to `StallDetector` before its older minimap/frame signals. A
+commanded speed below 0.5 world units per second for 2.0 seconds triggers a bounded strafe,
+backstep, and tangent-replan sequence. Repeated failure at the same coordinate adds a temporary
+impassable node and requests a wider replan. Input still crosses the foreground-checked Win32
+dispatcher, and either END or Escape aborts dispatch; emergency stop also clears navigation state
+and releases the process handle idempotently.
+
+Long-range travel is configuration, not a fact inferred from `teleport.bin`. At more than 150 world
+units, `navigation.teleport.TeleportController` may select the configured anchor nearest the goal and
+dispatch its configured hotkey once. A fresh live sample near that anchor confirms completion. A
+disabled or unavailable dispatch, an in-range goal, or missing confirmation stays on ground
+pathing. The client evidence proves that `teleport.bin` contains option identifiers but no names,
+worlds, coordinates, costs, requirements, or cooldowns, so those anchor semantics remain explicit
+operator configuration rather than extracted authority.
+
+The dashboard exposes the position-source boundary instead of hiding it: green GPS means a finite
+XYZ sample from a hash-supported client, while amber means minimap fallback. The Navigation
+Inspector draws that world point, height-derived topographic samples, 3D route markers, trajectory
+vectors, and a remaining-route elevation strip. Green GPS does not mean that collision, teleport,
+terrain, or server state is complete.
+
+The source inventory is materially incomplete: only 153 of 3,861 declared terrain blocks have a
+matching loose `.lnd`, placed-object formats vary, collision mappings and packed indices are
+unresolved, and dynamic/server state is not present in client files. The resulting design is a
+closed-loop controller with live confirmation, fallback, bounded recovery, and emergency abort. It
+does not and cannot establish a literal guarantee of 100% fault-free autonomous navigation. The
+automated suite covers the adapter and control decisions; the Windows live-client walkthrough in
+US-048 remains outstanding field validation.

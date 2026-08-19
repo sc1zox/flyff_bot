@@ -169,12 +169,16 @@ def test_auto_alias_starts_the_farming_orchestrator(monkeypatch: MonkeyPatch) ->
 
         def __init__(self) -> None:
             self.started = False
+            self.closed = False
 
         def start(self) -> None:
             self.started = True
 
         async def run(self) -> None:
             return None
+
+        def close(self) -> None:
+            self.closed = True
 
     orchestrator = FakeOrchestrator()
     monkeypatch.setattr(cli, "_farming_orchestrator", lambda *_args: orchestrator)
@@ -183,6 +187,7 @@ def test_auto_alias_starts_the_farming_orchestrator(monkeypatch: MonkeyPatch) ->
 
     assert exit_code == ExitCode.SUCCESS
     assert orchestrator.started
+    assert orchestrator.closed
 
 
 def test_search_settle_cli_options() -> None:

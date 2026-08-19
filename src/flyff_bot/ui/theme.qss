@@ -282,6 +282,16 @@ QLabel#StatChip {
     font-weight: 500;
 }
 
+QLabel#StatChip[gps="live"] {
+    color: #86efac;
+    border-color: #16a34a;
+}
+
+QLabel#StatChip[gps="fallback"] {
+    color: #fcd34d;
+    border-color: #d97706;
+}
+
 /* Tooltips */
 QToolTip {
     background-color: #1e293b;

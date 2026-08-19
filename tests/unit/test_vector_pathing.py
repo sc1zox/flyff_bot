@@ -8,6 +8,7 @@ from typing import cast
 import pytest
 from minimap_doubles import MirrorOdometer
 
+from flyff_bot.features.automation.controllers import VIRTUAL_KEY_W
 from flyff_bot.features.automation.models import (
     Position,
     SelectedTarget,
@@ -17,9 +18,18 @@ from flyff_bot.features.automation.models import (
     WorldState,
 )
 from flyff_bot.features.automation.orchestrator import FarmingMode, FarmingOrchestrator
+from flyff_bot.features.navigation.live_position import (
+    LivePositionReader,
+    PositionReading,
+    PositionSource,
+    WorldPosition,
+)
 from flyff_bot.features.navigation.pathing import (
+    VIRTUAL_KEY_Q,
+    VIRTUAL_KEY_S,
     PathingConfig,
     PathingController,
+    PathingDecision,
     PathingMode,
 )
 from flyff_bot.features.navigation.planning import RouteConfig
@@ -29,6 +39,7 @@ from flyff_bot.features.navigation.spatial import (
     SpatialMapConfig,
     WorldPoint,
 )
+from flyff_bot.features.navigation.teleport import TeleportAnchor, TeleportConfig
 from flyff_bot.features.navigation.tracking import MovementModel, StallConfig
 from flyff_bot.features.navigation.vector_navigation import (
     VectorZoneNavigator,
@@ -37,6 +48,8 @@ from flyff_bot.features.navigation.vector_navigation import (
 )
 from flyff_bot.features.navigation.vector_routing import VectorRouteConfig
 from flyff_bot.features.navigation.world_extractor import (
+    LAND_BLOCK_VERTICES_PER_SIDE,
+    LandBlock,
     VectorSpawnZone,
     WorldCoordinate,
     WorldDimensions,
@@ -78,6 +91,28 @@ def _zone(monster_name: str, center: tuple[float, float], monster_id: int) -> Ve
 FLAME_ZONE = _zone("Flame", (200.0, 200.0), 1453)
 RAPRA_ZONE = _zone("Rapra", (320.0, 200.0), 1458)
 WORLD_MAP = WorldVectorMap("wdtest", DIMENSIONS, (FLAME_ZONE, RAPRA_ZONE))
+FLAT_BLOCK = LandBlock(
+    0,
+    0,
+    (100.0,) * (LAND_BLOCK_VERTICES_PER_SIDE * LAND_BLOCK_VERTICES_PER_SIDE),
+)
+TERRAIN_WORLD_MAP = WorldVectorMap(
+    "wdtest", DIMENSIONS, (FLAME_ZONE, RAPRA_ZONE), terrain_blocks=(FLAT_BLOCK,)
+)
+
+
+class _LiveReader:
+    def __init__(self, positions: list[WorldPosition]) -> None:
+        self._positions = iter(positions)
+        self._last: WorldPosition | None = None
+        self.closed = 0
+
+    def poll(self, _at_seconds: float) -> PositionReading:
+        self._last = next(self._positions, self._last)
+        return PositionReading(PositionSource.LIVE, self._last)
+
+    def close(self) -> None:
+        self.closed += 1
 
 
 def _state(seconds: float, mobs: tuple[VisibleMob, ...] = ()) -> WorldState:
@@ -271,6 +306,103 @@ def test_the_route_is_planned_in_world_units_and_delivered_in_minimap_pixels() -
 
     # At two pixels per world unit the same +-18 unit ring is drawn at +-36 px.
     assert max(abs(point.x) for point in controller.waypoints) == pytest.approx(36.0)
+
+
+def test_live_xyz_drives_terrain_route_snapshot_and_emergency_handle_release() -> None:
+    reader = _LiveReader([WorldPosition(100.0, 100.0, 100.0)])
+    navigator = VectorZoneNavigator(
+        TERRAIN_WORLD_MAP,
+        WorldRegistration(WorldCoordinate(0.0, 0.0)),
+        goals=(ZoneGoal("Flame"),),
+    )
+    controller = PathingController(
+        SpatialMap(MAP_CONFIG),
+        config=PATHING_CONFIG,
+        odometer=MirrorOdometer(PATHING_CONFIG.movement),
+        vector_navigator=navigator,
+        position_reader=cast("LivePositionReader", reader),
+    )
+
+    controller.observe(_state(0.0))
+    decision = controller.step(0.0)
+    snapshot = controller.snapshot(0.0)
+
+    assert decision.mode is PathingMode.TRAVELING
+    assert snapshot.position_source is PositionSource.LIVE
+    assert snapshot.world_position == WorldPosition(100.0, 100.0, 100.0)
+    assert snapshot.world_waypoints
+    assert snapshot.terrain_samples
+
+    controller.emergency_stop()
+    assert controller.mode is PathingMode.IDLE
+    assert reader.closed == 1
+
+
+def test_long_range_live_goal_requests_its_configured_teleport_hotkey_once() -> None:
+    reader = _LiveReader([WorldPosition(0.0, 100.0, 0.0)])
+    navigator = VectorZoneNavigator(
+        TERRAIN_WORLD_MAP,
+        WorldRegistration(WorldCoordinate(0.0, 0.0)),
+        goals=(ZoneGoal("Flame"),),
+    )
+    controller = PathingController(
+        SpatialMap(MAP_CONFIG),
+        config=PATHING_CONFIG,
+        odometer=MirrorOdometer(PATHING_CONFIG.movement),
+        vector_navigator=navigator,
+        position_reader=cast("LivePositionReader", reader),
+        teleport_config=TeleportConfig(
+            enabled=True,
+            anchors=(TeleportAnchor("Flame", WorldPosition(190.0, 100.0, 190.0), 0x70),),
+        ),
+    )
+    controller.observe(_state(0.0))
+
+    dispatch = controller.step(0.0)
+    waiting = controller.step(0.1)
+
+    assert dispatch.mode is PathingMode.TELEPORTING
+    assert dispatch.virtual_key == 0x70
+    assert waiting == PathingDecision(PathingMode.TELEPORTING)
+
+
+def test_live_stall_runs_strafe_backstep_tangent_replan_and_repeated_block() -> None:
+    stalled_at = WorldPosition(100.0, 100.0, 100.0)
+    reader = _LiveReader([stalled_at])
+    navigator = VectorZoneNavigator(
+        TERRAIN_WORLD_MAP,
+        WorldRegistration(WorldCoordinate(0.0, 0.0)),
+        goals=(ZoneGoal("Flame"),),
+    )
+    controller = PathingController(
+        SpatialMap(MAP_CONFIG),
+        config=PATHING_CONFIG,
+        odometer=MirrorOdometer(PATHING_CONFIG.movement),
+        vector_navigator=navigator,
+        position_reader=cast("LivePositionReader", reader),
+    )
+    controller.observe(_state(0.0))
+    for at_seconds in (0.5, 1.0, 1.5, 2.0):
+        controller.integrate_movement(VIRTUAL_KEY_W, 0.1)
+        controller.observe(_state(at_seconds))
+
+    strafe = controller.step(2.0)
+    backstep = controller.step(2.1)
+    reroute = controller.step(2.2)
+
+    assert strafe.virtual_key == VIRTUAL_KEY_Q
+    assert backstep.virtual_key == VIRTUAL_KEY_S
+    assert reroute.mode is PathingMode.TRAVELING
+    initial_blocks = controller.temporary_world_blocks
+    assert not initial_blocks
+
+    for at_seconds in (2.5, 3.0, 3.5, 4.0, 4.5):
+        controller.integrate_movement(VIRTUAL_KEY_W, 0.1)
+        controller.observe(_state(at_seconds))
+
+    blocks = controller.temporary_world_blocks
+    assert len(blocks) == 1
+    assert blocks[0] == stalled_at
 
 
 def test_the_registered_frame_maps_the_zone_anchor_onto_the_live_position() -> None:

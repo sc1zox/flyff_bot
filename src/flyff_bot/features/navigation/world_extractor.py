@@ -79,7 +79,7 @@ DYNAMIC_OBJECT_MODEL_NAME_BYTES = 32
 # the passability grid itself resolves: one terrain quad.
 DEFAULT_DYNAMIC_OBJECT_RADIUS_UNITS = DEFAULT_METERS_PER_UNIT
 
-WORLD_VECTOR_MAP_SCHEMA_VERSION = 1
+WORLD_VECTOR_MAP_SCHEMA_VERSION = 2
 
 
 class WorldExtractionError(ValueError):
@@ -312,6 +312,23 @@ class LandBlock:
 
         return self.heights[row * LAND_BLOCK_VERTICES_PER_SIDE + column]
 
+    def to_dict(self) -> dict[str, object]:
+        """Return the complete authoritative height grid for persistence."""
+
+        return {
+            "block": [self.block_x, self.block_z],
+            "heights": list(self.heights),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: object) -> LandBlock:
+        """Rebuild one persisted terrain block."""
+
+        document = _mapping(payload, "terrain block")
+        block = _integers(document.get("block"), "terrain block coordinates", 2)
+        heights = _number_sequence(document.get("heights"), "terrain heights")
+        return cls(block[0], block[1], heights)
+
 
 @dataclass(frozen=True, slots=True)
 class WorldVectorMap:
@@ -321,7 +338,19 @@ class WorldVectorMap:
     dimensions: WorldDimensions
     zones: tuple[VectorSpawnZone, ...] = ()
     obstacles: tuple[ObstacleRectangle, ...] = ()
-    terrain_block_count: int = 0
+    terrain_blocks: tuple[LandBlock, ...] = ()
+
+    @property
+    def terrain_block_count(self) -> int:
+        """Return how many authoritative height grids are available."""
+
+        return len(self.terrain_blocks)
+
+    @property
+    def terrain(self) -> TerrainField:
+        """Return height and gradient lookup over the extracted loose blocks."""
+
+        return TerrainField(self.dimensions, self.terrain_blocks)
 
     @property
     def monster_names(self) -> tuple[str, ...]:
@@ -348,7 +377,7 @@ class WorldVectorMap:
                 "blocks_z": self.dimensions.blocks_z,
                 "meters_per_unit": self.dimensions.meters_per_unit,
             },
-            "terrain_block_count": self.terrain_block_count,
+            "terrain_blocks": [block.to_dict() for block in self.terrain_blocks],
             "zones": [zone.to_dict() for zone in self.zones],
             "obstacles": [obstacle.to_dict() for obstacle in self.obstacles],
         }
@@ -381,10 +410,99 @@ class WorldVectorMap:
                 ObstacleRectangle.from_dict(entry)
                 for entry in _sequence(document.get("obstacles"), "obstacles")
             ),
-            terrain_block_count=_integer(
-                document.get("terrain_block_count"), "terrain block count"
+            terrain_blocks=tuple(
+                LandBlock.from_dict(entry)
+                for entry in _sequence(document.get("terrain_blocks"), "terrain blocks")
             ),
         )
+
+
+class TerrainField:
+    """Bilinear height and slope lookup over extracted ``.lnd`` blocks."""
+
+    def __init__(self, dimensions: WorldDimensions, blocks: Iterable[LandBlock]) -> None:
+        self._dimensions = dimensions
+        self._blocks = {(block.block_x, block.block_z): block for block in blocks}
+
+    @property
+    def is_empty(self) -> bool:
+        return not self._blocks
+
+    def covers(self, point: WorldCoordinate) -> bool:
+        """Return whether a loose height block covers the point."""
+
+        return self._location(point) is not None
+
+    def height_at(self, point: WorldCoordinate) -> float | None:
+        """Return the bilinearly interpolated terrain height, or ``None`` outside coverage."""
+
+        location = self._location(point)
+        if location is None:
+            return None
+        block, column, row, fraction_x, fraction_z = location
+        lower_left = block.height(column, row)
+        lower_right = block.height(column + 1, row)
+        upper_left = block.height(column, row + 1)
+        upper_right = block.height(column + 1, row + 1)
+        lower = lower_left + (lower_right - lower_left) * fraction_x
+        upper = upper_left + (upper_right - upper_left) * fraction_x
+        return lower + (upper - lower) * fraction_z
+
+    def gradient_at(self, point: WorldCoordinate) -> float | None:
+        """Return the local steepest rise-over-run gradient."""
+
+        location = self._location(point)
+        if location is None:
+            return None
+        block, column, row, _fraction_x, _fraction_z = location
+        return _quad_gradient(block, column, row, self._dimensions.meters_per_unit)
+
+    def samples(self, stride: int = 8) -> tuple[tuple[float, float, float], ...]:
+        """Return a bounded topographic sample set for the dashboard."""
+
+        if stride <= 0:
+            raise ValueError("Terrain sample stride must be positive.")
+        samples: list[tuple[float, float, float]] = []
+        span = self._dimensions.meters_per_unit
+        for (block_x, block_z), block in sorted(self._blocks.items()):
+            origin_x = block_x * self._dimensions.block_span_units
+            origin_z = block_z * self._dimensions.block_span_units
+            for row in range(0, LAND_BLOCK_VERTICES_PER_SIDE, stride):
+                for column in range(0, LAND_BLOCK_VERTICES_PER_SIDE, stride):
+                    samples.append(
+                        (
+                            origin_x + column * span,
+                            block.height(column, row),
+                            origin_z + row * span,
+                        )
+                    )
+        return tuple(samples)
+
+    def _location(self, point: WorldCoordinate) -> tuple[LandBlock, int, int, float, float] | None:
+        if point.x < 0.0 or point.z < 0.0:
+            return None
+        block_span = self._dimensions.block_span_units
+        block_x = min(int(point.x // block_span), self._dimensions.blocks_x - 1)
+        block_z = min(int(point.z // block_span), self._dimensions.blocks_z - 1)
+        block = self._blocks.get((block_x, block_z))
+        if block is None and point.x % block_span == 0.0 and block_x > 0:
+            block_x -= 1
+            block = self._blocks.get((block_x, block_z))
+        if block is None and point.z % block_span == 0.0 and block_z > 0:
+            block_z -= 1
+            block = self._blocks.get((block_x, block_z))
+        if block is None:
+            return None
+        span = self._dimensions.meters_per_unit
+        local_x = (point.x - block_x * block_span) / span
+        local_z = (point.z - block_z * block_span) / span
+        if not 0.0 <= local_x <= LAND_BLOCK_CELLS_PER_SIDE:
+            return None
+        if not 0.0 <= local_z <= LAND_BLOCK_CELLS_PER_SIDE:
+            return None
+        column = min(math.floor(local_x), LAND_BLOCK_CELLS_PER_SIDE - 1)
+        row = min(math.floor(local_z), LAND_BLOCK_CELLS_PER_SIDE - 1)
+        return block, column, row, local_x - column, local_z - row
 
 
 @dataclass(frozen=True, slots=True)
@@ -644,11 +762,11 @@ def extract_world(
     if region_path is not None:
         zones = parse_region_script(read_world_text(region_path.read_bytes()), monster_names)
     obstacles: list[ObstacleRectangle] = []
-    block_count = 0
+    terrain_blocks: list[LandBlock] = []
     for block_path in _files(world_directory, LAND_BLOCK_SUFFIX):
         block = decode_land_block(block_path.read_bytes())
         obstacles.extend(land_block_obstacles(block, dimensions))
-        block_count += 1
+        terrain_blocks.append(block)
     object_path = _first_file(world_directory, DYNAMIC_OBJECT_SUFFIX)
     if object_path is not None:
         obstacles.extend(parse_dynamic_objects(object_path.read_bytes(), dimensions))
@@ -657,7 +775,7 @@ def extract_world(
         dimensions=dimensions,
         zones=zones,
         obstacles=tuple(obstacles),
-        terrain_block_count=block_count,
+        terrain_blocks=tuple(terrain_blocks),
     )
 
 
@@ -759,6 +877,18 @@ def _number(value: object, label: str) -> float:
 def _numbers(value: object, label: str, count: int) -> tuple[float, ...]:
     if not isinstance(value, list) or len(value) != count:
         raise WorldExtractionError(f"Persisted {label} must be {count} numbers.")
+    return tuple(_number(entry, label) for entry in value)
+
+
+def _integers(value: object, label: str, count: int) -> tuple[int, ...]:
+    if not isinstance(value, list) or len(value) != count:
+        raise WorldExtractionError(f"Persisted {label} must be {count} integers.")
+    return tuple(_integer(entry, label) for entry in value)
+
+
+def _number_sequence(value: object, label: str) -> tuple[float, ...]:
+    if not isinstance(value, list):
+        raise WorldExtractionError(f"Persisted {label} must be a list of numbers.")
     return tuple(_number(entry, label) for entry in value)
 
 

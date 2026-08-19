@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.tracking import (
     MAXIMUM_STALL_SAMPLE_SECONDS,
     StallConfig,
@@ -232,6 +233,83 @@ def test_invalid_stall_configuration_is_rejected() -> None:
         StallConfig(center_mask_width_fraction=1.0)
     with pytest.raises(ValueError):
         StallConfig(center_mask_height_fraction=-0.1)
+    with pytest.raises(ValueError):
+        StallConfig(live_motion_threshold_units_per_second=0.0)
+    with pytest.raises(ValueError):
+        StallConfig(live_stall_timeout_seconds=0.0)
+
+
+def test_live_world_position_is_the_primary_two_second_stall_signal() -> None:
+    detector = StallDetector()
+    stationary = WorldPosition(100.0, 20.0, 300.0)
+
+    assert not detector.observe(
+        None,
+        measured_speed_pixels_per_second=100.0,
+        movement_commanded=True,
+        at_seconds=0.0,
+        live_position=stationary,
+    )
+    for sample in (0.5, 1.0, 1.5):
+        assert not detector.observe(
+            None,
+            measured_speed_pixels_per_second=100.0,
+            movement_commanded=True,
+            at_seconds=sample,
+            live_position=stationary,
+        )
+    assert detector.observe(
+        None,
+        measured_speed_pixels_per_second=100.0,
+        movement_commanded=True,
+        at_seconds=2.0,
+        live_position=stationary,
+    )
+
+
+def test_live_speed_at_the_threshold_is_not_a_stall_and_resets_the_streak() -> None:
+    detector = StallDetector()
+    start = WorldPosition(0.0, 0.0, 0.0)
+    detector.observe(
+        None,
+        measured_speed_pixels_per_second=None,
+        movement_commanded=True,
+        at_seconds=0.0,
+        live_position=start,
+    )
+    detector.observe(
+        None,
+        measured_speed_pixels_per_second=None,
+        movement_commanded=True,
+        at_seconds=0.5,
+        live_position=start,
+    )
+
+    assert not detector.observe(
+        None,
+        measured_speed_pixels_per_second=None,
+        movement_commanded=True,
+        at_seconds=1.0,
+        live_position=WorldPosition(0.25, 0.0, 0.0),
+    )
+    assert detector.stalled_seconds == pytest.approx(0.0)
+
+
+def test_throttled_duplicate_live_samples_do_not_accumulate_stall_time() -> None:
+    detector = StallDetector()
+    position = WorldPosition(0.0, 0.0, 0.0)
+
+    for tick in (0.0, 0.02, 0.04, 0.06, 0.08):
+        assert not detector.observe(
+            None,
+            measured_speed_pixels_per_second=None,
+            movement_commanded=True,
+            at_seconds=tick,
+            live_position=position,
+            live_sampled_at_seconds=0.0,
+        )
+
+    assert detector.stalled_seconds == pytest.approx(0.0)
 
 
 def test_client_driven_combat_approach_is_sampled_and_stalls_before_the_engagement_timeout() -> (

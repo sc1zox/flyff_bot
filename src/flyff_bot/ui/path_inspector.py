@@ -18,6 +18,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
+from flyff_bot.features.navigation.live_position import PositionSource
 from flyff_bot.features.navigation.tracking import TrackingQuality
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import NavigationSnapshot
@@ -80,6 +81,10 @@ HUD_MAXIMUM_WIDTH_PIXELS = 520.0
 # Amber, so a patrol that is quietly shrinking against the leash reads as a warning rather
 # than as another status figure.
 LEASH_NOTICE_COLOR = QColor(250, 173, 20)
+TERRAIN_LOW_COLOR = QColor(23, 55, 45, 150)
+TERRAIN_HIGH_COLOR = QColor(118, 104, 53, 190)
+ELEVATION_PROFILE_COLOR = QColor(134, 239, 172)
+ELEVATION_STRIP_HEIGHT_PIXELS = 42.0
 
 # Spawn density heat palette: translucent gold at sparse density up to dense ember red at
 # hotspots. Every stop stays red-dominant so a heat cell can never be mistaken for the cyan
@@ -161,6 +166,8 @@ class PathInspectorWidget(QWidget):
 
         if self._snapshot is None or (
             not self._snapshot.cells
+            and not self._snapshot.terrain_samples
+            and self._snapshot.world_position is None
             and self._snapshot.player_x == 0.0
             and self._snapshot.player_y == 0.0
         ):
@@ -178,12 +185,14 @@ class PathInspectorWidget(QWidget):
         self._draw_grid_and_axes(
             painter, width, height, to_screen, min_x, max_x, min_y, max_y, scale
         )
+        self._draw_terrain(painter, to_screen, scale)
         self._draw_leash_boundary(painter, to_screen)
         self._draw_heatmap_cells(painter, to_screen, scale)
         self._draw_graph_edges(painter, to_screen)
         self._draw_active_route(painter, to_screen)
         self._draw_safe_waypoint(painter, to_screen)
         self._draw_player_marker(painter, to_screen, scale)
+        self._draw_elevation_profile(painter, width, height)
         self._draw_overlay_hud(painter, width)
         self._draw_legend(painter, width, height)
         painter.end()
@@ -194,11 +203,15 @@ class PathInspectorWidget(QWidget):
         snapshot = self._snapshot
         assert snapshot is not None
 
-        xs: list[float] = [0.0, snapshot.player_x]
-        ys: list[float] = [0.0, snapshot.player_y]
-        leash = max(MINIMUM_VIEW_EXTENT, snapshot.leash_radius_pixels)
-        xs.extend([-leash, leash])
-        ys.extend([-leash, leash])
+        live_world = snapshot.position_source is PositionSource.LIVE
+        xs: list[float] = [snapshot.player_x]
+        ys: list[float] = [snapshot.player_y]
+        if not live_world:
+            xs.append(0.0)
+            ys.append(0.0)
+            leash = max(MINIMUM_VIEW_EXTENT, snapshot.leash_radius_pixels)
+            xs.extend([-leash, leash])
+            ys.extend([-leash, leash])
 
         for cell in snapshot.cells:
             cell_size = snapshot.cell_size_pixels
@@ -208,6 +221,11 @@ class PathInspectorWidget(QWidget):
         for wx, wy in snapshot.waypoints:
             xs.append(wx)
             ys.append(wy)
+
+        if live_world:
+            for terrain_x, _height, terrain_z in snapshot.terrain_samples:
+                xs.append(terrain_x)
+                ys.append(terrain_z)
 
         if snapshot.safe_waypoint is not None:
             xs.append(snapshot.safe_waypoint[0])
@@ -306,7 +324,7 @@ class PathInspectorWidget(QWidget):
     ) -> None:
         snapshot = self._snapshot
         assert snapshot is not None
-        if snapshot.leash_radius_pixels <= 0.0:
+        if snapshot.position_source is PositionSource.LIVE or snapshot.leash_radius_pixels <= 0.0:
             return
 
         origin = to_screen(0.0, 0.0)
@@ -314,6 +332,40 @@ class PathInspectorWidget(QWidget):
         painter.setPen(QPen(LEASH_COLOR, 1, Qt.PenStyle.DotLine))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(origin, radius_px, radius_px)
+
+    def _draw_terrain(
+        self,
+        painter: QPainter,
+        to_screen: Callable[[float, float], QPointF],
+        scale: float,
+    ) -> None:
+        snapshot = self._snapshot
+        assert snapshot is not None
+        samples = snapshot.terrain_samples
+        if not samples:
+            return
+        minimum = min(sample[1] for sample in samples)
+        maximum = max(sample[1] for sample in samples)
+        height_span = max(1.0, maximum - minimum)
+        sample_size = max(2.0, GRID_STEP_UNITS * scale * 0.4)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for world_x, height, world_z in samples:
+            point = to_screen(world_x, world_z)
+            painter.setBrush(
+                QBrush(
+                    _lerp_color(
+                        TERRAIN_LOW_COLOR, TERRAIN_HIGH_COLOR, (height - minimum) / height_span
+                    )
+                )
+            )
+            painter.drawRect(
+                QRectF(
+                    point.x() - sample_size / 2.0,
+                    point.y() - sample_size / 2.0,
+                    sample_size,
+                    sample_size,
+                )
+            )
 
     def _draw_heatmap_cells(
         self, painter: QPainter, to_screen: Callable[[float, float], QPointF], scale: float
@@ -406,6 +458,46 @@ class PathInspectorWidget(QWidget):
         )
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
+        painter.setBrush(QBrush(ROUTE_COLOR))
+        for waypoint in snapshot.world_waypoints:
+            painter.drawEllipse(to_screen(waypoint.x, waypoint.z), 4.0, 4.0)
+
+    def _draw_elevation_profile(self, painter: QPainter, width: int, height: int) -> None:
+        snapshot = self._snapshot
+        assert snapshot is not None
+        if not snapshot.world_waypoints:
+            return
+        positions = (
+            (snapshot.world_position,) if snapshot.world_position is not None else ()
+        ) + snapshot.world_waypoints
+        if len(positions) < 2:
+            return
+        minimum = min(position.y for position in positions)
+        maximum = max(position.y for position in positions)
+        span = max(1.0, maximum - minimum)
+        left = 12.0
+        right = float(width) - 12.0
+        bottom = float(height) - 26.0
+        top = bottom - ELEVATION_STRIP_HEIGHT_PIXELS
+        painter.setPen(QPen(HUD_BORDER_COLOR, 1))
+        painter.setBrush(QBrush(HUD_BG_COLOR))
+        painter.drawRect(QRectF(left, top, right - left, bottom - top))
+        path = QPainterPath()
+        for index, position in enumerate(positions):
+            x = left + index / (len(positions) - 1) * (right - left)
+            y = bottom - (position.y - minimum) / span * (bottom - top)
+            if index == 0:
+                path.moveTo(x, y)
+            else:
+                path.lineTo(x, y)
+        painter.setPen(QPen(ELEVATION_PROFILE_COLOR, 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+        painter.setFont(QFont("", 7))
+        painter.drawText(
+            QRectF(left + 4.0, top, right - left, 14.0),
+            self._translator.text(Message.UI_NAV_ELEVATION_PROFILE),
+        )
 
     def _draw_safe_waypoint(
         self, painter: QPainter, to_screen: Callable[[float, float], QPointF]

@@ -20,6 +20,12 @@ from flyff_bot.features.navigation.anchoring import (
     capture_anchor,
     match_anchor,
 )
+from flyff_bot.features.navigation.live_position import (
+    LivePositionReader,
+    PositionReadErrorCode,
+    PositionSource,
+    WorldPosition,
+)
 from flyff_bot.features.navigation.persistence import (
     NavigationProfile,
     load_profile,
@@ -32,6 +38,11 @@ from flyff_bot.features.navigation.planning import (
     RoutePlanner,
 )
 from flyff_bot.features.navigation.spatial import GridCell, SpatialMap, WorldPoint
+from flyff_bot.features.navigation.teleport import (
+    TeleportConfig,
+    TeleportController,
+    TeleportStatus,
+)
 from flyff_bot.features.navigation.tracking import (
     MovementModel,
     MovementTracker,
@@ -76,6 +87,12 @@ DEFAULT_REPLAN_INTERVAL_SECONDS = 20.0
 # the anchored zoom level, so the two quantities are already in the same unit.
 DEFAULT_LEASH_RADIUS_PIXELS = float(MINIMAP_SURFACE_RADIUS_PIXELS)
 ARRIVAL_RADIUS_CELL_FRACTION = 0.5
+VIRTUAL_KEY_Q = 0x51
+VIRTUAL_KEY_S = 0x53
+EVASION_STRAFE_DURATION_SECONDS = 0.25
+EVASION_BACKSTEP_DURATION_SECONDS = 0.25
+REPEATED_STALL_RADIUS_UNITS = 3.0
+TEMPORARY_BLOCK_DURATION_SECONDS = 30.0
 
 # Provisional spawn-distance relation. These are estimates, not measurements: the fitted
 # inverse-projection relation of US-037 criterion 1 is blocked on recorded approach
@@ -117,6 +134,8 @@ class PathingMode(StrEnum):
     TRAVELING = "traveling"
     RETREATING = "retreating"
     BLOCKED = "blocked"
+    TELEPORTING = "teleporting"
+    EVADING = "evading"
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +183,8 @@ class PathingController:
         map_path: Path | None = None,
         odometer: MinimapOdometryFeed | None = None,
         vector_navigator: VectorZoneNavigator | None = None,
+        position_reader: LivePositionReader | None = None,
+        teleport_config: TeleportConfig | None = None,
     ) -> None:
         self._config = config or PathingConfig()
         self._map = spatial_map or SpatialMap()
@@ -173,6 +194,19 @@ class PathingController:
         self._stalls = StallDetector(self._config.stall)
         self._map_path = map_path
         self._vector_navigator = vector_navigator
+        self._position_reader = position_reader
+        self._position_source = PositionSource.MINIMAP_FALLBACK
+        self._position_error_code: PositionReadErrorCode | None = None
+        self._live_position: WorldPosition | None = None
+        self._live_sampled_at_seconds: float | None = None
+        self._world_waypoints: tuple[WorldPosition, ...] = ()
+        self._route_uses_live_position = False
+        self._teleport = TeleportController(teleport_config)
+        self._pending_decision: PathingDecision | None = None
+        self._evasion_steps: list[PathingDecision] = []
+        self._last_live_stall: WorldPosition | None = None
+        self._tangent_block: WorldPosition | None = None
+        self._temporary_blocks: list[tuple[WorldPosition, float]] = []
         self._vector_zone: VectorSpawnZone | None = None
         self._mode = PathingMode.IDLE
         self._waypoints: tuple[WorldPoint, ...] = ()
@@ -222,7 +256,27 @@ class PathingController:
     def position(self) -> WorldPoint:
         """Return the current position estimate."""
 
+        if self._live_position is not None:
+            return WorldPoint(self._live_position.x, self._live_position.z)
         return self._tracker.position
+
+    @property
+    def position_source(self) -> PositionSource:
+        """Return whether pathing is anchored by live GPS or minimap fallback."""
+
+        return self._position_source
+
+    @property
+    def live_position(self) -> WorldPosition | None:
+        """Return the newest drift-free client coordinate, when available."""
+
+        return self._live_position
+
+    @property
+    def temporary_world_blocks(self) -> tuple[WorldPosition, ...]:
+        """Return repeated-stall nodes currently excluded from global terrain replans."""
+
+        return tuple(item[0] for item in self._temporary_blocks)
 
     @property
     def tracking_quality(self) -> TrackingQuality:
@@ -289,6 +343,8 @@ class PathingController:
         self._vector_navigator = navigator
         self._vector_zone = None
         self._waypoints = ()
+        self._world_waypoints = ()
+        self._route_uses_live_position = False
         self._waypoint_index = 0
         self._planned_at_seconds = None
 
@@ -335,8 +391,8 @@ class PathingController:
             else _zone_snapshot(zone, self._vector_navigator.registration)
         )
         return NavigationSnapshot(
-            player_x=self._tracker.position.x,
-            player_y=self._tracker.position.y,
+            player_x=self.position.x,
+            player_y=self.position.y,
             heading_degrees=self._tracker.heading_degrees,
             cells=cells,
             edges=tuple(edges),
@@ -349,6 +405,13 @@ class PathingController:
             zoom_signature_anchor=self._tracker.zoom_signature_anchor,
             profile_anchor_state=self._anchor_state,
             vector_zone=vector_zone,
+            position_source=self._position_source,
+            position_error_code=self._position_error_code,
+            world_position=self._live_position,
+            world_waypoints=self._world_waypoints,
+            terrain_samples=(
+                () if self._vector_navigator is None else self._vector_navigator.terrain_samples
+            ),
         )
 
     def track(self, state: WorldState, frame: CapturedFrame | None = None) -> TrackingQuality:
@@ -361,6 +424,7 @@ class PathingController:
         reading: MinimapReading | None = self._odometer.observe(frame)
         update = self._tracker.observe(reading, state.observed_at_seconds)
         self._measured_speed_pixels_per_second = update.measured_speed_pixels_per_second
+        self._poll_live_position(state.observed_at_seconds)
         if reading is not None and update.quality is TrackingQuality.MEASURED:
             # The freshest confidently measured disk is both what a save stores as the
             # profile's landmark and what a load matches a stored landmark against, so
@@ -381,9 +445,13 @@ class PathingController:
             measured_speed_pixels_per_second=self._measured_speed_pixels_per_second,
             movement_commanded=self._movement_commanded,
             at_seconds=at_seconds,
+            live_position=self._live_position,
+            live_sampled_at_seconds=self._live_sampled_at_seconds,
         )
         self._movement_commanded = False
-        if self._map_read_only or quality is TrackingQuality.DEGRADED:
+        if self._map_read_only or (
+            quality is TrackingQuality.DEGRADED and self._live_position is None
+        ):
             # The map stays read-only while the position is unknown, and equally while a
             # loaded profile could not be re-anchored (US-036): routes may still be followed
             # or abandoned, but nothing new is learned, and the trail is broken so recovery
@@ -406,8 +474,15 @@ class PathingController:
                 if mob_point is None:
                     continue
                 self._map.record_spawn(mob_point, at_seconds)
-        if stalled and self._mode not in {PathingMode.RETREATING, PathingMode.BLOCKED}:
-            self._register_stall(position, at_seconds)
+        if stalled and self._mode not in {
+            PathingMode.RETREATING,
+            PathingMode.BLOCKED,
+            PathingMode.EVADING,
+        }:
+            if self._live_position is not None:
+                self._register_live_stall(self._live_position, at_seconds)
+            else:
+                self._register_stall(position, at_seconds)
         elif not stalled and self._map.stall_count(cell) == 0:
             self._remember_safe_waypoint(cell, position)
         self._stalled = stalled
@@ -446,6 +521,8 @@ class PathingController:
         self._waypoint_index = 0
         self._planned_at_seconds = None
         self._vector_zone = None
+        self._world_waypoints = ()
+        self._route_uses_live_position = False
         return True
 
     def integrate_movement(self, virtual_key: int, duration_seconds: float) -> None:
@@ -454,16 +531,28 @@ class PathingController:
         if duration_seconds <= 0.0:
             return
         self._tracker.apply(virtual_key, duration_seconds)
-        self._movement_commanded = virtual_key == VIRTUAL_KEY_W
+        self._movement_commanded = virtual_key in {VIRTUAL_KEY_W, VIRTUAL_KEY_Q, VIRTUAL_KEY_S}
 
     def step(self, at_seconds: float) -> PathingDecision:
         """Return the next interruptible movement request without dispatching input."""
 
+        if self._pending_decision is not None:
+            decision = self._pending_decision
+            self._pending_decision = None
+            return decision
+        if self._evasion_steps:
+            return self._evasion_steps.pop(0)
         if self._mode is PathingMode.RETREATING:
             return self._retreat(at_seconds)
         if self._needs_route(at_seconds):
             self._plan(at_seconds)
+        if self._pending_decision is not None:
+            decision = self._pending_decision
+            self._pending_decision = None
+            return decision
         if not self._waypoints:
+            if self._mode is PathingMode.TELEPORTING:
+                return PathingDecision(PathingMode.TELEPORTING)
             self._mode = PathingMode.IDLE
             return PathingDecision(PathingMode.IDLE)
         return self._follow_route(at_seconds)
@@ -473,7 +562,45 @@ class PathingController:
 
         if decision.virtual_key is None or decision.key_press_duration_seconds is None:
             return
+        if decision.mode is PathingMode.TELEPORTING:
+            return
         self.integrate_movement(decision.virtual_key, decision.key_press_duration_seconds)
+
+    def reject(self, decision: PathingDecision) -> None:
+        """Return a rejected guarded teleport request to direct ground routing."""
+
+        if decision.mode is not PathingMode.TELEPORTING:
+            return
+        self._teleport.reject_pending()
+        self._mode = PathingMode.IDLE
+        self._planned_at_seconds = None
+
+    def emergency_stop(self) -> None:
+        """Immediately idle navigation and release its read-only client handle."""
+
+        self._mode = PathingMode.IDLE
+        self._waypoints = ()
+        self._world_waypoints = ()
+        self._pending_decision = None
+        self._evasion_steps.clear()
+        self._tangent_block = None
+        self._temporary_blocks.clear()
+        self._movement_commanded = False
+        self._route_uses_live_position = False
+        self._last_live_stall = None
+        self._stalls.reset()
+        self._teleport.reset()
+        if self._position_reader is not None:
+            self._position_reader.close()
+        self._live_position = None
+        self._live_sampled_at_seconds = None
+        self._position_source = PositionSource.MINIMAP_FALLBACK
+        self._position_error_code = None
+
+    def close(self) -> None:
+        """Release external navigation resources during application teardown."""
+
+        self.emergency_stop()
 
     def persist(self) -> None:
         """Write the learned map to its configured location, if one was provided."""
@@ -578,6 +705,8 @@ class PathingController:
         self._stalls.reset()
         self._mode = PathingMode.IDLE
         self._waypoints = ()
+        self._world_waypoints = ()
+        self._route_uses_live_position = False
         self._waypoint_index = 0
         self._planned_at_seconds = None
         self._safe_waypoint = None
@@ -588,6 +717,12 @@ class PathingController:
         self._measured_speed_pixels_per_second = None
         self._anchor_candidate = None
         self._vector_zone = None
+        self._pending_decision = None
+        self._evasion_steps.clear()
+        self._temporary_blocks.clear()
+        self._last_live_stall = None
+        self._tangent_block = None
+        self._teleport.reset()
         # The leash radius is operator configuration rather than learned state, so it
         # deliberately survives a map reset or profile load.
         self._hotspots_outside_leash = 0
@@ -652,6 +787,44 @@ class PathingController:
         # would otherwise hold `WorldState.is_stuck` true for the whole recovery.
         self._stalls.reset()
 
+    def _register_live_stall(self, position: WorldPosition, at_seconds: float) -> None:
+        """Run bounded evasion and escalate repeated coordinates into a temporary A* block."""
+
+        previous = self._last_live_stall
+        if previous is not None and previous.distance_to(position) <= REPEATED_STALL_RADIUS_UNITS:
+            self._temporary_blocks.append((position, at_seconds + TEMPORARY_BLOCK_DURATION_SECONDS))
+        self._last_live_stall = position
+        self._tangent_block = position
+        self._waypoints = ()
+        self._world_waypoints = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds = None
+        self._mode = PathingMode.EVADING
+        self._evasion_steps = [
+            PathingDecision(PathingMode.EVADING, VIRTUAL_KEY_Q, EVASION_STRAFE_DURATION_SECONDS),
+            PathingDecision(PathingMode.EVADING, VIRTUAL_KEY_S, EVASION_BACKSTEP_DURATION_SECONDS),
+        ]
+        self._stalls.reset()
+
+    def _poll_live_position(self, at_seconds: float) -> None:
+        reader = self._position_reader
+        if reader is None:
+            return
+        had_live_position = self._live_position is not None
+        reading = reader.poll(at_seconds)
+        self._position_source = reading.source
+        self._position_error_code = None if reading.error is None else reading.error.code
+        self._live_position = reading.position
+        self._live_sampled_at_seconds = reading.sampled_at_seconds
+        if reading.position is not None and self._vector_navigator is not None:
+            self._vector_navigator.update_registration(self._tracker.position, reading.position)
+        if had_live_position and reading.position is None and self._route_uses_live_position:
+            self._waypoints = ()
+            self._world_waypoints = ()
+            self._waypoint_index = 0
+            self._planned_at_seconds = None
+            self._route_uses_live_position = False
+
     def _retreat(self, at_seconds: float) -> PathingDecision:
         target = self._safe_waypoint
         if target is None:
@@ -669,19 +842,21 @@ class PathingController:
     def _follow_route(self, at_seconds: float) -> PathingDecision:
         while self._waypoint_index < len(self._waypoints):
             target = self._waypoints[self._waypoint_index]
-            if distance_pixels(self._tracker.position, target) > self._arrival_radius:
+            if distance_pixels(self._navigation_position, target) > self._arrival_radius:
                 return self._steer(PathingMode.TRAVELING, target)
             self._waypoint_index += 1
         self._waypoints = ()
         self._waypoint_index = 0
         self._planned_at_seconds = None
+        self._world_waypoints = ()
+        self._route_uses_live_position = False
         self._mode = PathingMode.IDLE
         return PathingDecision(PathingMode.IDLE)
 
     def _steer(self, mode: PathingMode, target: WorldPoint) -> PathingDecision:
         self._mode = mode
         error = heading_error_degrees(
-            self._tracker.heading_degrees, bearing_degrees(self._tracker.position, target)
+            self._tracker.heading_degrees, bearing_degrees(self._navigation_position, target)
         )
         if abs(error) > self._config.heading_tolerance_degrees:
             rotation_key = VIRTUAL_KEY_RIGHT if error > 0.0 else VIRTUAL_KEY_LEFT
@@ -716,6 +891,8 @@ class PathingController:
         self._waypoint_index = 0
         self._planned_at_seconds = at_seconds
         self._mode = PathingMode.TRAVELING if self._waypoints else PathingMode.IDLE
+        self._route_uses_live_position = False
+        self._world_waypoints = ()
 
     def _plan_vector_route(self, at_seconds: float) -> bool:
         """Plan over the extracted world map, or report that it has nothing to offer.
@@ -731,11 +908,49 @@ class PathingController:
         if navigator is None or not navigator.is_active:
             self._vector_zone = None
             return False
-        plan = navigator.plan_route(self._tracker.position)
+        live = self._live_position
+        if live is not None:
+            selection = navigator.select_world_zone(live)
+            if selection is None:
+                return False
+            target = WorldPosition(
+                selection.zone.center_x,
+                selection.zone.center_y,
+                selection.zone.center_z,
+            )
+            dispatch = self._teleport.update(live, target, at_seconds)
+            if dispatch is not None:
+                self._pending_decision = PathingDecision(
+                    PathingMode.TELEPORTING,
+                    dispatch.virtual_key,
+                    dispatch.duration_seconds,
+                )
+                self._mode = PathingMode.TELEPORTING
+                self._vector_zone = selection.zone
+                return True
+            if self._teleport.status is TeleportStatus.WAITING_FOR_POSITION:
+                self._mode = PathingMode.TELEPORTING
+                self._vector_zone = selection.zone
+                return True
+            self._temporary_blocks = [
+                item for item in self._temporary_blocks if item[1] > at_seconds
+            ]
+            plan = navigator.plan_live_route(
+                live,
+                temporary_blocks=(
+                    tuple(item[0] for item in self._temporary_blocks)
+                    + (() if self._tangent_block is None else (self._tangent_block,))
+                ),
+            )
+            self._tangent_block = None
+        else:
+            plan = navigator.plan_route(self._tracker.position)
         self._vector_zone = plan.zone
         if plan.is_empty:
             return False
         self._waypoints = plan.points
+        self._world_waypoints = tuple(item.position for item in plan.world_waypoints)
+        self._route_uses_live_position = live is not None
         self._waypoint_index = 0
         self._planned_at_seconds = at_seconds
         self._mode = PathingMode.TRAVELING
@@ -743,6 +958,12 @@ class PathingController:
         # navigation the bound is the spawn zone itself, so nothing is being excluded by it.
         self._hotspots_outside_leash = 0
         return True
+
+    @property
+    def _navigation_position(self) -> WorldPoint:
+        if self._route_uses_live_position and self._live_position is not None:
+            return WorldPoint(self._live_position.x, self._live_position.z)
+        return self._tracker.position
 
     @property
     def _arrival_radius(self) -> float:

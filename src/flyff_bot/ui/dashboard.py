@@ -11,6 +11,11 @@ from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.kill_goals import MobKillProgress
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.navigation.anchoring import ProfileAnchorState
+from flyff_bot.features.navigation.live_position import (
+    PositionReadErrorCode,
+    PositionSource,
+    WorldPosition,
+)
 from flyff_bot.features.navigation.tracking import TrackingQuality
 from flyff_bot.features.vision.models import CapturedFrame
 
@@ -119,6 +124,13 @@ class NavigationSnapshot:
     # The extracted spawn zone bounding the current patrol, when an authoritative world
     # vector map is steering the session instead of the learned heatmap (US-045).
     vector_zone: VectorZoneSnapshot | None = None
+    # US-048 world-space GPS and topographic route fields. Defaults preserve snapshots made
+    # by tests and integrations that only know the learned minimap map.
+    position_source: PositionSource = PositionSource.MINIMAP_FALLBACK
+    position_error_code: PositionReadErrorCode | None = None
+    world_position: WorldPosition | None = None
+    world_waypoints: tuple[WorldPosition, ...] = ()
+    terrain_samples: tuple[tuple[float, float, float], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

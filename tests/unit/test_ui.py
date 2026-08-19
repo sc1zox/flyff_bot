@@ -59,6 +59,11 @@ from flyff_bot.features.input_control import (
     parse_virtual_key,
 )
 from flyff_bot.features.navigation.anchoring import ProfileAnchorState
+from flyff_bot.features.navigation.live_position import (
+    PositionReadErrorCode,
+    PositionSource,
+    WorldPosition,
+)
 from flyff_bot.features.navigation.pathing import (
     PathingController,
     ProfileLoadOutcome,
@@ -708,6 +713,43 @@ def test_main_window_shows_the_profile_anchor_state(
     application.processEvents()
 
     assert window.profile_anchor_label.text() == translator.text(message)
+
+
+def test_main_window_shows_live_gps_and_world_coordinates() -> None:
+    application = QApplication.instance() or QApplication([])
+    translator = Translator(Language.ENGLISH)
+    window = MainWindow(translator)
+    snapshot = NavigationSnapshot(
+        player_x=123.0,
+        player_y=789.0,
+        heading_degrees=90.0,
+        cells=(),
+        edges=(),
+        position_source=PositionSource.LIVE,
+        world_position=WorldPosition(123.0, 45.0, 789.0),
+    )
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE, navigation=snapshot))
+    application.processEvents()
+
+    assert window.gps_label.text() == translator.text(Message.UI_GPS_LIVE)
+    assert window.gps_label.property("gps") == "live"
+    assert "123.00" in window.gps_label.toolTip()
+    assert "45.00" in window.gps_label.toolTip()
+    assert "789.00" in window.gps_label.toolTip()
+
+    fallback = replace(
+        snapshot,
+        position_source=PositionSource.MINIMAP_FALLBACK,
+        position_error_code=PositionReadErrorCode.UNSUPPORTED_BUILD,
+        world_position=None,
+    )
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE, navigation=fallback))
+    application.processEvents()
+
+    assert window.gps_label.text() == translator.text(Message.UI_GPS_FALLBACK)
+    assert window.gps_label.property("gps") == "fallback"
+    assert "not fingerprinted" in window.gps_label.toolTip()
 
 
 def test_unanchored_profile_prompt_offers_read_only_or_cancel(

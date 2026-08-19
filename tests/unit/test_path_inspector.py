@@ -12,6 +12,7 @@ from PySide6.QtCore import QSize
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
+from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import (
     CellSnapshot,
@@ -121,6 +122,38 @@ def test_widget_renders_populated_navigation_map() -> None:
 
     image = QImage(640, 480, QImage.Format.Format_RGB32)
     widget.render(image)
+
+
+def test_widget_renders_live_topography_3d_waypoints_and_elevation_profile() -> None:
+    _app = QApplication.instance() or QApplication([])
+    widget = PathInspectorWidget(Translator(Language.ENGLISH))
+    widget.resize(600, 400)
+    snapshot = NavigationSnapshot(
+        player_x=10.0,
+        player_y=10.0,
+        heading_degrees=30.0,
+        cells=(),
+        edges=(),
+        waypoints=((20.0, 20.0), (30.0, 25.0)),
+        position_source=PositionSource.LIVE,
+        world_position=WorldPosition(10.0, 100.0, 10.0),
+        world_waypoints=(
+            WorldPosition(20.0, 104.0, 20.0),
+            WorldPosition(30.0, 98.0, 25.0),
+        ),
+        terrain_samples=(
+            (0.0, 90.0, 0.0),
+            (20.0, 100.0, 20.0),
+            (40.0, 110.0, 40.0),
+        ),
+    )
+    widget.set_navigation(snapshot)
+
+    image = QImage(600, 400, QImage.Format.Format_RGB32)
+    widget.render(image)
+
+    assert widget.snapshot == snapshot
+    assert not image.isNull()
 
     # Switch to German
     widget.set_translator(Translator(Language.GERMAN))
