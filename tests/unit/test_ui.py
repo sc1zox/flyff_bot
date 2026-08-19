@@ -52,6 +52,7 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerType,
 )
+from flyff_bot.features.diagnostics import SessionEvent, SessionEventKind
 from flyff_bot.features.input_control import (
     InputControlError,
     InputErrorCode,
@@ -1769,6 +1770,76 @@ def test_main_window_target_panel_labels_are_localized() -> None:
     assert window_en.target_panel.title() == "Target Monsters & Kill Quotas"
     assert window_de.target_panel.title() == "Zielmonster & Abschussvorgaben"
     assert window_de.target_panel.close_client_check.text().startswith("Spiel-Client")
+
+
+def test_main_window_event_log_panel_toggle_reveals_the_log() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    assert not window.event_log_panel.isVisible()
+    window.event_log_toggle.setChecked(True)
+
+    assert window.event_log_panel.isVisibleTo(window)
+
+
+def test_main_window_event_log_panel_labels_are_localized() -> None:
+    _application = QApplication.instance() or QApplication([])
+
+    window_en = MainWindow(Translator(Language.ENGLISH))
+    window_de = MainWindow(Translator(Language.GERMAN))
+
+    assert window_en.event_log_panel.title() == "Diagnostic Event Log"
+    assert window_de.event_log_panel.title() == "Diagnose-Ereignisprotokoll"
+
+
+def test_main_window_event_log_panel_renders_recent_events_most_recent_first() -> None:
+    """US-049: the dashboard event log view mirrors the session logger's own ordering."""
+
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    window.update_dashboard(
+        DashboardUpdate(
+            _world_state(),
+            BotStatus.STANDBY,
+            events=(
+                SessionEvent(
+                    timestamp="2026-08-19T12:00:05+00:00",
+                    kind=SessionEventKind.FOCUS_LOST,
+                    previous_mode="searching",
+                    new_mode="paused",
+                    reason="focus_lost",
+                    foreground_window_title="Notepad",
+                    foreground_window_process="notepad.exe",
+                ),
+                SessionEvent(
+                    timestamp="2026-08-19T12:00:00+00:00",
+                    kind=SessionEventKind.MODE_TRANSITION,
+                    previous_mode="paused",
+                    new_mode="searching",
+                    reason="session_start",
+                ),
+            ),
+        )
+    )
+
+    list_widget = window.event_log_panel.list_widget
+    assert list_widget.count() == 2
+    assert "Focus lost" in list_widget.item(0).text()
+    assert "Notepad" in list_widget.item(0).text()
+    assert "Searching" in list_widget.item(0).text()
+    assert "Mode change" in list_widget.item(1).text()
+
+
+def test_main_window_event_log_panel_shows_empty_hint_without_events() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.STANDBY))
+
+    list_widget = window.event_log_panel.list_widget
+    assert list_widget.count() == 1
+    assert list_widget.item(0).text() == "No session events recorded yet."
 
 
 def test_target_selection_reaches_the_session_and_narrows_perception() -> None:

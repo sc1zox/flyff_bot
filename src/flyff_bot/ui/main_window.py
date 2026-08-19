@@ -75,6 +75,7 @@ from flyff_bot.features.vision.target_verification import (
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal, WindowStatus
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
+from flyff_bot.ui.event_log_panel import EventLogPanel
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
@@ -248,6 +249,7 @@ class MainWindow(QMainWindow):
         self._combat_toggle = QCheckBox()
         self._target_debug_toggle = QCheckBox()
         self._monster_stats_toggle = QCheckBox()
+        self._event_log_toggle = QCheckBox()
 
         # Combat settings panel
         self._combat_panel = QGroupBox()
@@ -307,6 +309,10 @@ class MainWindow(QMainWindow):
         # Power-up / timed hotkey configuration panel
         self._powerup_panel = PowerUpPanel(self._translator)
         self._powerup_panel.setVisible(False)
+
+        # Diagnostic session event log panel (US-049)
+        self._event_log_panel = EventLogPanel(self._translator)
+        self._event_log_panel.setVisible(False)
 
         # Target monster selection and per-monster kill quotas
         self._targets_toggle = QCheckBox()
@@ -615,6 +621,18 @@ class MainWindow(QMainWindow):
         """Return the monster selection and quotas the operator configured."""
 
         return self._target_panel.get_config()
+
+    @property
+    def event_log_toggle(self) -> QCheckBox:
+        """Expose the toggle that reveals the diagnostic event log panel."""
+
+        return self._event_log_toggle
+
+    @property
+    def event_log_panel(self) -> EventLogPanel:
+        """Expose the diagnostic session event log panel."""
+
+        return self._event_log_panel
 
     @property
     def target_grace_spin(self) -> QDoubleSpinBox:
@@ -1102,6 +1120,11 @@ class MainWindow(QMainWindow):
         self._monster_stats_panel.setVisible(visible)
         self._adapt_window_geometry()
 
+    @Slot(bool)
+    def _update_event_log_visibility(self, visible: bool) -> None:
+        self._event_log_panel.setVisible(visible)
+        self._adapt_window_geometry()
+
     @Slot()
     def _on_combat_grace_changed(self) -> None:
         self.combat_grace_changed.emit(self._target_grace_spin.value())
@@ -1213,6 +1236,7 @@ class MainWindow(QMainWindow):
         telemetry_layout.addWidget(self._combat_toggle)
         telemetry_layout.addWidget(self._target_debug_toggle)
         telemetry_layout.addWidget(self._monster_stats_toggle)
+        telemetry_layout.addWidget(self._event_log_toggle)
         self._telemetry_card.setLayout(telemetry_layout)
 
         content = QVBoxLayout()
@@ -1226,6 +1250,7 @@ class MainWindow(QMainWindow):
         content.addWidget(self._combat_panel)
         content.addWidget(self._target_debug_panel)
         content.addWidget(self._monster_stats_panel)
+        content.addWidget(self._event_log_panel)
         content.addWidget(self._profile_card)
         content.addWidget(self._map_container)
 
@@ -1278,6 +1303,7 @@ class MainWindow(QMainWindow):
         self._target_panel.selection_changed.connect(self._on_target_selection_changed)
         self._target_debug_toggle.toggled.connect(self._update_target_debug_visibility)
         self._monster_stats_toggle.toggled.connect(self._update_monster_stats_visibility)
+        self._event_log_toggle.toggled.connect(self._update_event_log_visibility)
 
     def refresh_profiles(self, select_path: Path | None = None) -> None:
         """Scan the navigation profiles directory and populate the selector."""
@@ -1483,6 +1509,8 @@ class MainWindow(QMainWindow):
             if self._latest_update is not None
             else MonsterStatsMetrics()
         )
+        self._event_log_toggle.setText(self._translator.text(Message.UI_EVENT_LOG_TOGGLE))
+        self._event_log_panel.set_translator(self._translator)
         self._vitals_panel.setTitle(self._translator.text(Message.UI_VITALS_TITLE))
         self._vitals_col_type.setText(self._translator.text(Message.UI_VITALS_HP)[:2])
         self._vitals_col_active.setText(self._translator.text(Message.UI_VITALS_ACTIVE))
@@ -1674,6 +1702,7 @@ class MainWindow(QMainWindow):
         )
         self._render_monster_stats_debug(update.state.monster_stats)
         self._target_panel.set_progress(update.kill_progress)
+        self._event_log_panel.set_events(update.events)
         self._update_overlay_visibility(self._debug_toggle.isChecked())
         is_active = update.status in {
             BotStatus.ACTIVE,

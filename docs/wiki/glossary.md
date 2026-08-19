@@ -258,3 +258,20 @@ related:
   which contains option identifiers but no verified destination semantics.
 - **Temporary world block** - A live coordinate excluded from subsequent route search after repeated
   recovery failure at that location. It is session recovery state, not a permanent collision claim.
+- **Session event log** — The per-session, fail-safe JSONL diagnostics trail written by
+  `SessionEventLogger` under `logs/sessions/`, gitignored and independent of the durable knowledge
+  under `docs/`. Never interrupts the farming loop or the Qt event loop on a disk or formatting
+  failure.
+- **Session event** — One immutable `SessionEvent` record: an ISO-8601 timestamp, a typed
+  `SessionEventKind`, the previous and new `FarmingMode`, an optional free-text reason, and optional
+  foreground-window diagnostics. Recorded exactly once per actual `FarmingMode` transition through
+  `FarmingOrchestrator._set_mode()`, never on a same-mode no-op.
+- **Session event kind** — The seven-value classification of why a mode transition happened:
+  `MODE_TRANSITION` (the generic case), `FOCUS_LOST`, `EMERGENCY_STOPPED`, `OBSTACLE_STALL`,
+  `SUPERVISOR_FAILURE`, `FRAME_CAPTURE_ERROR`, and `GOAL_COMPLETED`.
+- **Foreground window diagnostics** — The title and owning process name of whichever window
+  currently holds `GetForegroundWindow()`, read by `WindowsInputController.foreground_window_info()`
+  only to explain a `FOCUS_LOST` pause; never used for any input-dispatch decision.
+- **Diagnostic Event Log panel** — The dashboard's `EventLogPanel`, a standalone toggled widget that
+  renders `DashboardUpdate.events` as a reverse-chronological, localized, colour-badged list of
+  recent session events.

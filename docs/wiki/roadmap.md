@@ -53,6 +53,7 @@ Phase 1 (Bootstrap) -> Phase 2 (Perception) -> Phase 3 (Controllers) -> Phase 4 
 - **US-021 (Completed):** Navigation map profiles and session reset safeguards (Multi-profile persistence, dirty session safeguards, auto-save).
 - **US-024 (Completed):** Target verification decision and threshold debug dashboard visualization (Live header-anchor, HP-bar, and name-match scores/thresholds in a dedicated `MainWindow` debug panel).
 - **US-026 (Completed):** Placement calibration visual guide overlay ("Placements" toggle button, color-coded HUD ROI overlay boxes).
+- **US-049 (Completed):** Session event log and transition diagnostics (per-session fail-safe JSONL log, typed `SessionEventLogger`, and a localized "Diagnostic Event Log" dashboard panel).
 
 ### Phase 5: Navigation Accuracy (Active)
 

@@ -594,3 +594,15 @@ height data, object/collision mappings and teleport semantics are incomplete, an
 state is unavailable offline. Focused affected suites pass, but the full repository gate has not
 yet run and the Windows live-client walkthrough remains unchecked; no 100% fault-free navigation
 claim is made. Moved US-048 to completed user stories.
+
+## [2026-08-19] synthesis | Session event log and transition diagnostics (US-049)
+
+Recorded the completed US-049 implementation in the architecture and glossary pages and the phased
+roadmap. Added `flyff_bot.features.diagnostics` (`SessionEventLogger`, `SessionEvent`,
+`SessionEventKind`) as a standalone, fail-safe, non-Qt logging feature; routed every
+`FarmingOrchestrator` mode transition through one new `_set_mode()` chokepoint instead of direct
+`self._mode` assignment; added `WindowsInputController.foreground_window_info()` for `FOCUS_LOST`
+diagnostics without widening the orchestrator's existing Win32-free adapter contract; and added the
+localized `EventLogPanel` dashboard widget fed by a new `DashboardUpdate.events` field. Full gate
+(`ruff check`, `ruff format --check`, `mypy --strict`, `pytest`) passes at 719 passed / 3 skipped,
+92.53% coverage. Moved US-049 to completed user stories.

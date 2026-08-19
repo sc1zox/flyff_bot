@@ -33,6 +33,7 @@ from flyff_bot.features.automation.kill_persistence import (
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import VitalsTriggerConfig
+from flyff_bot.features.diagnostics import DEFAULT_SESSION_LOG_DIRECTORY, SessionEventLogger
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
 from flyff_bot.features.navigation.live_position import LivePositionReader
 from flyff_bot.features.navigation.pathing import (
@@ -365,6 +366,8 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         recorder=SqliteKillLog(Path(DEFAULT_KILL_LOG_PATH)),
                     ),
                     on_target_classes_changed=apply_target_classes,
+                    event_logger=SessionEventLogger(DEFAULT_SESSION_LOG_DIRECTORY),
+                    foreground_window_info=controller.foreground_window_info,
                 )
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)

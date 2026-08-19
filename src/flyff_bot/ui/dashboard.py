@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, Signal
 from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.kill_goals import MobKillProgress
 from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.diagnostics import SessionEvent
 from flyff_bot.features.navigation.anchoring import ProfileAnchorState
 from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
@@ -147,6 +148,9 @@ class DashboardUpdate:
     # Live per-monster quota progress, empty while no monster selection is configured
     # (US-035).
     kill_progress: tuple[MobKillProgress, ...] = ()
+    # Recent session diagnostic events, most recent first, empty when no event logger is
+    # attached (US-049).
+    events: tuple[SessionEvent, ...] = ()
 
 
 class DashboardFeed(QObject):
