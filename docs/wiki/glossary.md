@@ -205,3 +205,15 @@ related:
 - **Schema version 2** — The only navigation profile format. It is the first whose coordinates are
   measured minimap pixels and which can carry a map anchor; version 1 documents are rejected by name
   rather than migrated (ADR-003).
+- **Kill quota** — The number of kills one selected monster class owes before the session stops
+  targeting it. Zero means the class is farmed without an upper bound and can never complete a
+  session.
+- **Active targeting whitelist** — The monster classes whose quota is still open, pushed live into
+  detection, target verification, and combat candidate selection. Empty means no restriction at all.
+- **Kill attribution** — Counting a verified kill against the class of the candidate the engagement
+  clicked, which is the only place a mob's identity is known; the HUD counter reports a total
+  without naming the monster.
+- **Kill log** — The local SQLite database (`data/kill_log.sqlite3`) recording every verified kill
+  with its session id, monster class, and UTC timestamp, plus the quotas that session works towards.
+- **Session completion** — `FarmingMode.COMPLETED`, reached when every configured quota is bounded
+  and reached, or the item goal is met. It optionally posts one cooperative `WM_CLOSE` to the client.

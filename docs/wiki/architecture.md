@@ -48,6 +48,7 @@ related:
   - ../bugs/fixed/BUG-011-target-name-verification-failure-wrong-target.md
   - ../bugs/fixed/BUG-012-monster-stats-ocr-failure-and-misleading-anchor-diagnostics.md
   - ../user-stories/completed/US-034-background-independent-monster-stats-kill-confirmation.md
+  - ../user-stories/completed/US-035-multi-target-selection-and-per-mob-kill-quotas.md
   - ../user-stories/completed/US-038-target-mob-dropdown-and-early-yolo-filtering.md
   - ../bugs/fixed/BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md
   - ../bugs/fixed/BUG-015-camera-alignment-zoom-out-has-no-effect.md
@@ -597,15 +598,15 @@ immediate; `MainWindow.register_teardown()` stops it from `closeEvent` before th
 and results still reach the UI only through `DashboardFeed`'s signal.
 
 US-038 makes the monster the operator is hunting a single dashboard choice that every stage of the
-pipeline follows. The combat panel's "Target Monster" (`Ziel-Monster`) `QComboBox` lists an
-unrestricted "All" (`Alle`) entry — `ALL_TARGET_MOBS`, the empty class name — ahead of the classes
-`models/labels.txt` actually reports, and `MainWindow.set_target_mob_options()` is what fills it from
-the same labels file the whitelist comes from, so the dropdown cannot offer a class the model cannot
-detect. `connect_target_mob_selection` (`flyff_bot.ui.app`) is the one place the selection fans out,
-into three surfaces that must agree: `OpenCVDnnYoloDetector.update_allowed_class_names()`,
-`TargetVerifier.update_allowed_names()`, and `FarmingOrchestrator.configure_target_classes()`. All
-three replace their frozen configuration in place, so switching monsters applies on the next tick of
-the running session — no restart, and no reset of an engagement already in progress.
+pipeline follows. Its single-select dropdown was replaced by the multi-select panel described under
+[multi-target kill quotas](#multi-target-monster-selection-and-per-mob-kill-quotas-us-035-quotas);
+what survives unchanged is where the selection is applied and why. The three surfaces that must agree
+are `OpenCVDnnYoloDetector.update_allowed_class_names()`, `TargetVerifier.update_allowed_names()`,
+and `FarmingOrchestrator.configure_target_classes()`. All three replace their frozen configuration in
+place, so switching monsters applies on the next tick of the running session — no restart, and no
+reset of an engagement already in progress. `MainWindow.set_target_mob_options()` still fills the
+choices from the same `models/labels.txt` the whitelist comes from, so the dashboard cannot offer a
+class the model cannot detect.
 
 The filter is applied at the earliest point it can be. `_decode()` already dropped candidates outside
 `DetectionConfig.allowed_class_names` before non-maximum suppression; pushing the operator's choice
@@ -618,7 +619,7 @@ whose mob ships no anchor of its own keeps the templates already loaded rather t
 verifier with nothing to match, and the cached nameplate reading is dropped on every change because
 it was resolved against the previous whitelist. `CombatController` receives the same set so
 `_allowed_mobs()` cannot prioritize a monster perception has been told to ignore; an empty set
-everywhere is the unconstrained "All" case.
+everywhere is the unconstrained "every monster" case.
 
 
 ## Measured minimap odometry and tracking quality (US-035)
@@ -909,3 +910,58 @@ One consequence is worth naming: a fight that lands no damage for `stall_timeout
 now breaks as an obstacle stall instead of waiting for the 10.0 s engagement timeout. Both reasons
 lead to the same recovery and the same strike, so the only observable difference is that the session
 recovers sooner.
+
+
+## Multi-target monster selection and per-mob kill quotas (US-035 quotas)
+
+US-035 turns the single hunted monster of US-038 into a set of monsters, each with its own kill
+quota, and makes the session end when all of them are satisfied. Two US-035 stories exist in this
+repository — the other one is the minimap odometry work above; this section is the one backed by
+`docs/user-stories/completed/US-035-multi-target-selection-and-per-mob-kill-quotas.md`.
+
+`flyff_bot.features.automation.kill_goals` holds the domain. `MobKillQuota` pairs a class name with
+the kills it owes, where `UNLIMITED_KILL_QUOTA` (0) means "farm without an upper bound";
+`KillGoalConfig` is the operator's whole selection plus the optional shutdown flag and rejects a
+repeated class. `KillGoalTracker` is the only stateful piece: it counts kills per class, answers
+`active_class_names` with the classes whose quota is still open, and answers `is_completed` only when
+every configured quota is bounded and reached — one unlimited entry keeps a session running forever
+by design. An unconfigured tracker answers `frozenset()`, which is the same "no restriction" every
+filtering boundary already understands, so the selected-monsters path and the all-monsters path are
+one path.
+
+Attribution needs the mob's identity, and the HUD counter cannot supply it: US-030 and US-034 give a
+single global kill count with no breakdown by class. The identity that does exist is the candidate
+the engagement clicked, so `CombatController` records `engaged_class_name` when it leaves `IDLE` and
+carries it on the `TARGET_DEAD` decision. `FarmingOrchestrator._record_kill` counts that class and
+nothing else — an engagement whose class is unknown is deliberately not counted, because guessing
+would corrupt a quota. Every kill route (target HP reaching zero, target loss after damage, HUD
+counter increment) reaches the same decision, so all three attribute identically.
+
+A completed quota narrows the session in place. `_apply_active_target_classes()` pushes the still-open
+classes through `configure_target_classes()` into `CombatController` and through the
+`on_target_classes_changed` callback into the detector and the verifier, which is the same fan-out
+`target_class_applier` (`flyff_bot.ui.app`) performs for an operator edit. The orchestrator owns that
+fan-out rather than the dashboard: a quota that completes mid-run has to narrow targeting exactly the
+way an operator's edit does, and only the session knows when that happens. Once `is_completed` turns
+true `_goal_completed()` reports it alongside the existing item goal, and `_complete_session()` moves
+to `FarmingMode.COMPLETED`, flushes the navigation map, and — only when the operator ticked the
+option — asks the client to close through `SessionShutdownAdapter.close_window()`, one request per
+session. That call is `PostMessageW(WM_CLOSE)`: the same cooperative notification the title bar's
+close button sends, which the client may refuse, and never a process kill.
+
+`flyff_bot.features.automation.kill_persistence.SqliteKillLog` is the durable record: `kill_events`
+rows carry session id, class name, and an ISO-8601 UTC timestamp, `kill_quotas` stores what the
+session is working towards. Each operation opens its own short-lived connection — kills arrive at
+most once per engagement, so a connection per write is cheap and keeps the store safe to call from
+the session worker thread and the Qt thread without owning a lock. A tracker constructed with an
+existing session id restores its counts from the log, which is what lets progress survive a pause or
+a reconnect. The database lives at `data/kill_log.sqlite3` and is git-ignored like the other local
+session state.
+
+On the dashboard, `TargetSelectionPanel` (`flyff_bot.ui.target_panel`) replaces US-038's dropdown: one
+row per model class with an activation checkbox, a quota spin box whose zero renders as "unlimited",
+and a live `14 / 20` progress label fed from `DashboardUpdate.kill_progress`. No checked row means
+every detected monster stays eligible, which preserves the previous default exactly. Keeping both
+controls was rejected: two widgets writing the same whitelist would contradict each other. The
+completed session also gets its own `BotStatus.COMPLETED` badge instead of reading as generic
+standby.

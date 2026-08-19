@@ -17,6 +17,7 @@ from flyff_bot.features.input_control.controller import (
     MOUSE_EVENT_VIRTUAL_DESK,
     MOUSE_EVENT_WHEEL,
     WHEEL_DELTA,
+    WINDOW_MESSAGE_CLOSE,
     Input,
     WindowsInputController,
 )
@@ -179,3 +180,32 @@ def test_scroll_wheel_stops_immediately_when_the_client_loses_focus(
     controller.scroll_wheel_while_guarded(12345, 15)
 
     assert events == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")
+def test_close_window_posts_a_standard_close_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """US-035: a completed session asks the client to close, it never terminates it."""
+
+    controller = WindowsInputController()
+    posted: list[tuple[int, int, int, int]] = []
+
+    def _post(handle: int, message: int, wparam: int, lparam: int) -> bool:
+        posted.append((handle, message, wparam, lparam))
+        return True
+
+    monkeypatch.setattr(controller._user32, "PostMessageW", _post)
+
+    assert controller.close_window(12345) is True
+    assert posted == [(12345, WINDOW_MESSAGE_CLOSE, 0, 0)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")
+def test_close_window_reports_a_refused_request_without_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = WindowsInputController()
+    monkeypatch.setattr(
+        controller._user32, "PostMessageW", lambda _handle, _message, _wparam, _lparam: 0
+    )
+
+    assert controller.close_window(12345) is False
