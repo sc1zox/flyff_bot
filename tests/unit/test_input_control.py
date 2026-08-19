@@ -227,3 +227,27 @@ def test_close_window_reports_a_refused_request_without_raising(
     )
 
     assert controller.close_window(12345) is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Win32 platform")
+def test_send_keys_while_guarded_dispatches_chords_simultaneously(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = WindowsInputController()
+    dispatched_calls: list[list[int]] = []
+
+    def mock_send_input(count: int, events_array: ctypes.Array[Input], _size: int) -> int:
+        dispatched_calls.append([events_array[i].keyboard.wVk for i in range(count)])
+        return count
+
+    monkeypatch.setattr(controller, "is_foreground", lambda _h: True)
+    monkeypatch.setattr(controller, "is_aborted", lambda: False)
+    monkeypatch.setattr(controller._user32, "SendInput", mock_send_input)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+
+    controller.send_keys_while_guarded(12345, (0x57, 0x41), 0.05)
+
+    assert len(dispatched_calls) == 2
+    # Both keys pressed down together, then both released up together
+    assert dispatched_calls[0] == [0x57, 0x41]
+    assert dispatched_calls[1] == [0x57, 0x41]

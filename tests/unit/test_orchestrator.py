@@ -13,8 +13,10 @@ import pytest
 
 from flyff_bot.features.automation.camera_alignment import CameraAligner, CameraAlignmentStatus
 from flyff_bot.features.automation.controllers import (
+    VIRTUAL_KEY_A,
     VIRTUAL_KEY_F1,
     VIRTUAL_KEY_RIGHT,
+    VIRTUAL_KEY_S,
     VIRTUAL_KEY_W,
     EngagementBreakReason,
 )
@@ -44,8 +46,6 @@ from flyff_bot.features.navigation.live_position import (
     WorldPosition,
 )
 from flyff_bot.features.navigation.pathing import (
-    VIRTUAL_KEY_Q,
-    VIRTUAL_KEY_S,
     PathingController,
 )
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
@@ -101,6 +101,7 @@ class _InputAdapter:
         self.foreground = foreground
         self.clicks: list[tuple[int, int, int]] = []
         self.keys: list[tuple[int, float]] = []
+        self.key_chords: list[tuple[tuple[int, ...], float]] = []
         self.closed_windows: list[int] = []
 
     def is_aborted(self) -> bool:
@@ -123,6 +124,18 @@ class _InputAdapter:
         self, _window_handle: int, virtual_key: int, duration_seconds: float
     ) -> None:
         self.keys.append((virtual_key, duration_seconds))
+        self.key_chords.append(((virtual_key,), duration_seconds))
+
+    def send_keys_while_guarded(
+        self,
+        _window_handle: int,
+        virtual_keys: tuple[int, ...] | list[int] | int,
+        duration_seconds: float,
+    ) -> None:
+        keys = (virtual_keys,) if isinstance(virtual_keys, int) else tuple(virtual_keys)
+        self.key_chords.append((keys, duration_seconds))
+        for k in keys:
+            self.keys.append((k, duration_seconds))
 
 
 def _state(
@@ -1024,10 +1037,10 @@ def test_live_combat_stall_uses_fast_evasion_before_the_blind_reposition_sweep()
         if update.engagement_break is EngagementBreakReason.OBSTACLE_STALL
     )
     assert stalled.state.observed_at_seconds <= 3.0
-    evasion_strafe = adapter.keys.index((VIRTUAL_KEY_Q, 0.25))
-    evasion_backstep = adapter.keys.index((VIRTUAL_KEY_S, 0.25))
-    reposition_rotation = adapter.keys.index((VIRTUAL_KEY_RIGHT, 0.2))
-    assert evasion_strafe < evasion_backstep < reposition_rotation
+    evasion_diagonal = adapter.key_chords.index(((VIRTUAL_KEY_W, VIRTUAL_KEY_A), 0.25))
+    evasion_backstep = adapter.key_chords.index(((VIRTUAL_KEY_S,), 0.25))
+    reposition_rotation = adapter.key_chords.index(((VIRTUAL_KEY_RIGHT,), 0.2))
+    assert evasion_diagonal < evasion_backstep < reposition_rotation
 
 
 def test_mode_transitions_are_recorded_with_previous_and_new_mode(tmp_path: Path) -> None:

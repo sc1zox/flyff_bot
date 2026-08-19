@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
 from flyff_bot.features.automation.controllers import (
+    VIRTUAL_KEY_A,
+    VIRTUAL_KEY_D,
     VIRTUAL_KEY_LEFT,
     VIRTUAL_KEY_RIGHT,
+    VIRTUAL_KEY_S,
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.automation.models import Viewport, VisibleMob, WorldState
@@ -97,9 +101,7 @@ DEFAULT_NAVMESH_ENGAGEMENT_DISTANCE_UNITS = 3.0
 # the anchored zoom level, so the two quantities are already in the same unit.
 DEFAULT_LEASH_RADIUS_PIXELS = float(MINIMAP_SURFACE_RADIUS_PIXELS)
 ARRIVAL_RADIUS_CELL_FRACTION = 0.5
-VIRTUAL_KEY_Q = 0x51
-VIRTUAL_KEY_S = 0x53
-EVASION_STRAFE_DURATION_SECONDS = 0.25
+EVASION_DIAGONAL_DURATION_SECONDS = 0.25
 EVASION_BACKSTEP_DURATION_SECONDS = 0.25
 REPEATED_STALL_RADIUS_UNITS = 3.0
 TEMPORARY_BLOCK_DURATION_SECONDS = 30.0
@@ -155,6 +157,7 @@ class PathingDecision:
     mode: PathingMode
     virtual_key: int | None = None
     key_press_duration_seconds: float | None = None
+    virtual_keys: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -805,13 +808,24 @@ class PathingController:
         self._route_uses_live_position = False
         return True
 
-    def integrate_movement(self, virtual_key: int, duration_seconds: float) -> None:
+    def integrate_movement(self, virtual_key: int | Sequence[int], duration_seconds: float) -> None:
         """Integrate an external movement or camera-rotation pulse into the position estimate."""
 
         if duration_seconds <= 0.0:
             return
-        self._tracker.apply(virtual_key, duration_seconds)
-        self._movement_commanded = virtual_key in {VIRTUAL_KEY_W, VIRTUAL_KEY_Q, VIRTUAL_KEY_S}
+        keys = tuple(virtual_key) if not isinstance(virtual_key, int) else (virtual_key,)
+        for key in keys:
+            self._tracker.apply(key, duration_seconds)
+        self._movement_commanded = any(
+            key
+            in {
+                VIRTUAL_KEY_W,
+                VIRTUAL_KEY_A,
+                VIRTUAL_KEY_S,
+                VIRTUAL_KEY_D,
+            }
+            for key in keys
+        )
 
     def step(self, at_seconds: float) -> PathingDecision:
         """Return the next interruptible movement request without dispatching input."""
@@ -845,11 +859,18 @@ class PathingController:
     def confirm(self, decision: PathingDecision) -> None:
         """Fold one successfully dispatched pathing input into the position estimate."""
 
-        if decision.virtual_key is None or decision.key_press_duration_seconds is None:
+        if decision.key_press_duration_seconds is None:
             return
         if decision.mode is PathingMode.TELEPORTING:
             return
-        self.integrate_movement(decision.virtual_key, decision.key_press_duration_seconds)
+        keys = (
+            decision.virtual_keys
+            if decision.virtual_keys
+            else ((decision.virtual_key,) if decision.virtual_key is not None else ())
+        )
+        if not keys:
+            return
+        self.integrate_movement(keys, decision.key_press_duration_seconds)
 
     def reject(self, decision: PathingDecision) -> None:
         """Return a rejected guarded teleport request to direct ground routing."""
@@ -1095,8 +1116,16 @@ class PathingController:
         self._planned_at_seconds = None
         self._mode = PathingMode.EVADING
         self._evasion_steps = [
-            PathingDecision(PathingMode.EVADING, VIRTUAL_KEY_Q, EVASION_STRAFE_DURATION_SECONDS),
-            PathingDecision(PathingMode.EVADING, VIRTUAL_KEY_S, EVASION_BACKSTEP_DURATION_SECONDS),
+            PathingDecision(
+                PathingMode.EVADING,
+                key_press_duration_seconds=EVASION_DIAGONAL_DURATION_SECONDS,
+                virtual_keys=(VIRTUAL_KEY_W, VIRTUAL_KEY_A),
+            ),
+            PathingDecision(
+                PathingMode.EVADING,
+                virtual_key=VIRTUAL_KEY_S,
+                key_press_duration_seconds=EVASION_BACKSTEP_DURATION_SECONDS,
+            ),
         ]
         self._stalls.reset()
 

@@ -6,6 +6,7 @@ import ctypes
 import os
 import sys
 import time
+from collections.abc import Sequence
 from ctypes import wintypes
 
 from flyff_bot.features.input_control.models import (
@@ -331,17 +332,28 @@ class WindowsInputController:
             if self._user32.SendInput(1, ctypes.byref(key_up), ctypes.sizeof(Input)) != 1:
                 raise ctypes.WinError(ctypes.get_last_error())
 
-    def send_key_while_guarded(
-        self, window_handle: int, virtual_key: int, duration_seconds: float
+    def send_keys_while_guarded(
+        self, window_handle: int, virtual_keys: Sequence[int] | int, duration_seconds: float
     ) -> None:
-        """Hold a search key only while END is clear and the client stays foregrounded."""
+        """Hold one or more keys simultaneously while END is clear and client stays foregrounded."""
 
-        key_down = Input(type=INPUT_TYPE_KEYBOARD, keyboard=KeyboardInput(wVk=virtual_key))
-        key_up = Input(
-            type=INPUT_TYPE_KEYBOARD,
-            keyboard=KeyboardInput(wVk=virtual_key, dwFlags=KEY_EVENT_KEY_UP),
+        keys = tuple(virtual_keys) if not isinstance(virtual_keys, int) else (virtual_keys,)
+        if not keys or duration_seconds <= 0.0:
+            return
+        array_type = Input * len(keys)
+        key_downs = array_type(
+            *(Input(type=INPUT_TYPE_KEYBOARD, keyboard=KeyboardInput(wVk=k)) for k in keys)
         )
-        if self._user32.SendInput(1, ctypes.byref(key_down), ctypes.sizeof(Input)) != 1:
+        key_ups = array_type(
+            *(
+                Input(
+                    type=INPUT_TYPE_KEYBOARD,
+                    keyboard=KeyboardInput(wVk=k, dwFlags=KEY_EVENT_KEY_UP),
+                )
+                for k in keys
+            )
+        )
+        if self._user32.SendInput(len(keys), key_downs, ctypes.sizeof(Input)) != len(keys):
             raise ctypes.WinError(ctypes.get_last_error())
         deadline = time.monotonic() + duration_seconds
         try:
@@ -353,8 +365,14 @@ class WindowsInputController:
                 remaining = deadline - time.monotonic()
                 time.sleep(min(WAIT_POLL_SECONDS, max(0.0, remaining)))
         finally:
-            if self._user32.SendInput(1, ctypes.byref(key_up), ctypes.sizeof(Input)) != 1:
-                raise ctypes.WinError(ctypes.get_last_error())
+            self._user32.SendInput(len(keys), key_ups, ctypes.sizeof(Input))
+
+    def send_key_while_guarded(
+        self, window_handle: int, virtual_key: int, duration_seconds: float
+    ) -> None:
+        """Hold a search key only while END is clear and the client stays foregrounded."""
+
+        self.send_keys_while_guarded(window_handle, (virtual_key,), duration_seconds)
 
     def _send_mouse_event(self, event: Input) -> None:
         """Dispatch one mouse event, raising the Win32 error when it is not accepted."""

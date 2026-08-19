@@ -21,6 +21,13 @@ class PathingInputAdapter(Protocol):
         self, window_handle: int, virtual_key: int, duration_seconds: float
     ) -> None: ...
 
+    def send_keys_while_guarded(
+        self,
+        window_handle: int,
+        virtual_keys: tuple[int, ...] | list[int] | int,
+        duration_seconds: float,
+    ) -> None: ...
+
 
 class PathingInputDispatcher:
     """Dispatch pathing movement only while the client remains safe to control."""
@@ -32,11 +39,23 @@ class PathingInputDispatcher:
     def dispatch(self, decision: PathingDecision) -> bool:
         """Return whether one guarded pathing movement was issued."""
 
-        if decision.virtual_key is None or decision.key_press_duration_seconds is None:
+        if decision.key_press_duration_seconds is None:
+            return False
+        keys: tuple[int, ...] = (
+            decision.virtual_keys
+            if decision.virtual_keys
+            else ((decision.virtual_key,) if decision.virtual_key is not None else ())
+        )
+        if not keys:
             return False
         if self._adapter.is_aborted() or not self._adapter.is_foreground(self._window_handle):
             return False
-        self._adapter.send_key_while_guarded(
-            self._window_handle, decision.virtual_key, decision.key_press_duration_seconds
-        )
+        if hasattr(self._adapter, "send_keys_while_guarded"):
+            self._adapter.send_keys_while_guarded(
+                self._window_handle, keys, decision.key_press_duration_seconds
+            )
+        else:
+            self._adapter.send_key_while_guarded(
+                self._window_handle, keys[0], decision.key_press_duration_seconds
+            )
         return True

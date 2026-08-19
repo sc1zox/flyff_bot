@@ -8,7 +8,11 @@ from typing import cast
 import pytest
 from minimap_doubles import MirrorOdometer
 
-from flyff_bot.features.automation.controllers import VIRTUAL_KEY_W
+from flyff_bot.features.automation.controllers import (
+    VIRTUAL_KEY_A,
+    VIRTUAL_KEY_S,
+    VIRTUAL_KEY_W,
+)
 from flyff_bot.features.automation.models import (
     Position,
     SelectedTarget,
@@ -27,8 +31,6 @@ from flyff_bot.features.navigation.live_position import (
     WorldPosition,
 )
 from flyff_bot.features.navigation.pathing import (
-    VIRTUAL_KEY_Q,
-    VIRTUAL_KEY_S,
     PathingConfig,
     PathingController,
     PathingDecision,
@@ -409,11 +411,11 @@ def test_live_stall_runs_strafe_backstep_tangent_replan_and_repeated_block() -> 
         controller.integrate_movement(VIRTUAL_KEY_W, 0.1)
         controller.observe(_state(at_seconds))
 
-    strafe = controller.step(2.0)
+    diagonal = controller.step(2.0)
     backstep = controller.step(2.1)
     reroute = controller.step(2.2)
 
-    assert strafe.virtual_key == VIRTUAL_KEY_Q
+    assert diagonal.virtual_keys == (VIRTUAL_KEY_W, VIRTUAL_KEY_A)
     assert backstep.virtual_key == VIRTUAL_KEY_S
     assert reroute.mode is PathingMode.TRAVELING
     initial_blocks = controller.temporary_world_blocks
@@ -440,7 +442,7 @@ def test_an_external_live_combat_obstacle_uses_the_same_evasion_and_blocking() -
     controller.observe(_state(0.0))
 
     assert controller.register_obstacle(0.5)
-    assert controller.step(0.5).virtual_key == VIRTUAL_KEY_Q
+    assert controller.step(0.5).virtual_keys == (VIRTUAL_KEY_W, VIRTUAL_KEY_A)
     assert controller.step(0.6).virtual_key == VIRTUAL_KEY_S
 
     assert controller.register_obstacle(1.0)
@@ -470,6 +472,16 @@ class _Adapter:
         self, _window_handle: int, virtual_key: int, duration_seconds: float
     ) -> None:
         self.keys.append((virtual_key, duration_seconds))
+
+    def send_keys_while_guarded(
+        self,
+        _window_handle: int,
+        virtual_keys: tuple[int, ...] | list[int] | int,
+        duration_seconds: float,
+    ) -> None:
+        keys = (virtual_keys,) if isinstance(virtual_keys, int) else tuple(virtual_keys)
+        for k in keys:
+            self.keys.append((k, duration_seconds))
 
     def close_window(self, _window_handle: int) -> bool:
         return True

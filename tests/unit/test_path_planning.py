@@ -91,6 +91,16 @@ class _Adapter:
     ) -> None:
         self.keys.append((virtual_key, duration_seconds))
 
+    def send_keys_while_guarded(
+        self,
+        _window_handle: int,
+        virtual_keys: tuple[int, ...] | list[int] | int,
+        duration_seconds: float,
+    ) -> None:
+        keys = (virtual_keys,) if isinstance(virtual_keys, int) else tuple(virtual_keys)
+        for k in keys:
+            self.keys.append((k, duration_seconds))
+
 
 class _Pipeline:
     def __init__(self, states: list[WorldState]) -> None:
