@@ -22,6 +22,14 @@ class ScreenRect:
     height: int
 
 
+@dataclass(frozen=True, slots=True)
+class ForegroundWindowInfo:
+    """Diagnostic identity of whichever window currently holds foreground focus."""
+
+    title: str
+    process_name: str
+
+
 class InputErrorCode(StrEnum):
     """Stable failures mapped to localized text at the UI boundary."""
 

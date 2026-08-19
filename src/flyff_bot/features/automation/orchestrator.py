@@ -41,6 +41,8 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalsTriggerController,
 )
+from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
+from flyff_bot.features.input_control import ForegroundWindowInfo
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
@@ -110,6 +112,14 @@ WINDOW_STATUS_BY_CAPTURE_CODE = {
     FrameCaptureErrorCode.OCCLUDED: WindowStatus.NOT_FOREGROUND,
     FrameCaptureErrorCode.CAPTURE_FAILED: WindowStatus.CAPTURE_FAILED,
 }
+
+
+def _break_kind(reason: EngagementBreakReason | None) -> SessionEventKind:
+    """Classify a broken engagement for the diagnostics event log (US-049)."""
+
+    if reason is EngagementBreakReason.OBSTACLE_STALL:
+        return SessionEventKind.OBSTACLE_STALL
+    return SessionEventKind.MODE_TRANSITION
 
 
 class SessionShutdownAdapter(Protocol):
@@ -193,6 +203,8 @@ class FarmingOrchestrator:
         camera_aligner: CameraAligner | None = None,
         kill_goals: KillGoalTracker | None = None,
         on_target_classes_changed: Callable[[frozenset[str]], None] | None = None,
+        event_logger: SessionEventLogger | None = None,
+        foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._input_adapter = input_adapter
@@ -229,12 +241,45 @@ class FarmingOrchestrator:
         self._kill_goals = kill_goals or KillGoalTracker()
         self._on_target_classes_changed = on_target_classes_changed
         self._client_close_requested = False
+        self._event_logger = event_logger
+        self._foreground_window_info = foreground_window_info
+        self._last_capture_error: FrameCaptureErrorCode | None = None
 
     @property
     def mode(self) -> FarmingMode:
         """Return the current session phase."""
 
         return self._mode
+
+    def _set_mode(
+        self,
+        new_mode: FarmingMode,
+        *,
+        kind: SessionEventKind = SessionEventKind.MODE_TRANSITION,
+        reason: str | None = None,
+        foreground: ForegroundWindowInfo | None = None,
+    ) -> None:
+        """Apply a mode transition and record it in the diagnostics event log (US-049).
+
+        A no-op when the phase does not actually change, so retrying an already-current
+        mode (e.g. an idempotent ``emergency_stop()``) never spams a duplicate event.
+        """
+
+        if new_mode is self._mode:
+            return
+        previous = self._mode
+        self._mode = new_mode
+        if self._event_logger is not None:
+            self._event_logger.record(
+                kind,
+                new_mode.value,
+                previous_mode=previous.value,
+                reason=reason,
+                foreground_window_title=foreground.title if foreground is not None else None,
+                foreground_window_process=(
+                    foreground.process_name if foreground is not None else None
+                ),
+            )
 
     def start(self) -> None:
         """Allow cooperative ticks to resume unless an emergency stop is active."""
@@ -246,9 +291,9 @@ class FarmingOrchestrator:
         # at the standardized camera state, so alignment runs before the first farming tick.
         if self._config.auto_align_camera and self._camera_aligner is not None:
             self._mode_after_alignment = FarmingMode.SEARCHING
-            self._mode = FarmingMode.ALIGNING
+            self._set_mode(FarmingMode.ALIGNING, reason="session_start")
             return
-        self._mode = FarmingMode.SEARCHING
+        self._set_mode(FarmingMode.SEARCHING, reason="session_start")
 
     def request_camera_alignment(self) -> None:
         """Queue one on-demand alignment that the next tick performs on its worker thread."""
@@ -259,24 +304,32 @@ class FarmingOrchestrator:
             return
         self._alignment_failure = None
         self._mode_after_alignment = self._mode
-        self._mode = FarmingMode.ALIGNING
+        self._set_mode(FarmingMode.ALIGNING, reason="operator_request")
 
     def configure_auto_align(self, enabled: bool) -> None:
         """Toggle the pre-flight camera alignment performed when a session starts."""
 
         self._config = replace(self._config, auto_align_camera=enabled)
 
-    def pause(self) -> None:
+    def pause(
+        self,
+        *,
+        kind: SessionEventKind = SessionEventKind.MODE_TRANSITION,
+        reason: str | None = None,
+        foreground: ForegroundWindowInfo | None = None,
+    ) -> None:
         """Pause without sending any compensating input to the client."""
 
         if self._mode is not FarmingMode.EMERGENCY_STOPPED:
-            self._mode = FarmingMode.PAUSED
+            self._set_mode(FarmingMode.PAUSED, kind=kind, reason=reason, foreground=foreground)
         self._persist_navigation()
 
-    def emergency_stop(self) -> None:
+    def emergency_stop(self, *, reason: str | None = None) -> None:
         """Latch a session-local emergency stop until a new session is created."""
 
-        self._mode = FarmingMode.EMERGENCY_STOPPED
+        self._set_mode(
+            FarmingMode.EMERGENCY_STOPPED, kind=SessionEventKind.EMERGENCY_STOPPED, reason=reason
+        )
         if self._pathing is not None:
             self._pathing.emergency_stop()
         self._persist_navigation()
@@ -441,13 +494,18 @@ class FarmingOrchestrator:
                 self._pathing.track(self._state, self._last_frame)
             return self._publish(False)
         if self._input_adapter.is_aborted():
-            self.emergency_stop()
+            self.emergency_stop(reason="killswitch")
             return self._publish(False)
         if not self._input_adapter.is_foreground(self._window_handle):
-            self.pause()
+            lookup_foreground = self._foreground_window_info
+            foreground = lookup_foreground() if lookup_foreground is not None else None
+            self.pause(kind=SessionEventKind.FOCUS_LOST, reason="focus_lost", foreground=foreground)
             return self._publish(False)
         if not self._observe():
-            self.pause()
+            self.pause(
+                kind=SessionEventKind.FRAME_CAPTURE_ERROR,
+                reason=self._last_capture_error.value if self._last_capture_error else None,
+            )
             return self._publish(False)
 
         if self._pathing is not None:
@@ -489,20 +547,20 @@ class FarmingOrchestrator:
         """Perform the blocking pre-flight alignment on the calling worker thread."""
 
         if self._camera_aligner is None:
-            self._mode = self._mode_after_alignment
+            self._set_mode(self._mode_after_alignment, reason="alignment_skipped")
             return self._publish(False)
         # Publishing first lets the dashboard show the alignment state for the whole
         # sequence instead of only after the camera stopped moving.
         self._publish(False)
         status = self._camera_aligner.align()
         if status is CameraAlignmentStatus.ALIGNED:
-            self._mode = self._mode_after_alignment
+            self._set_mode(self._mode_after_alignment, reason="alignment_complete")
         elif status is CameraAlignmentStatus.ABORTED:
             self._alignment_failure = status
-            self.emergency_stop()
+            self.emergency_stop(reason="alignment_aborted")
         else:
             self._alignment_failure = status
-            self.pause()
+            self.pause(reason=f"alignment_failed:{status.value}")
         return self._publish(False)
 
     def _observe(self) -> bool:
@@ -518,9 +576,11 @@ class FarmingOrchestrator:
             self._window_status = WINDOW_STATUS_BY_CAPTURE_CODE.get(
                 error.code, WindowStatus.CAPTURE_FAILED
             )
+            self._last_capture_error = error.code
             self._last_frame = None
             self._has_live_frame = False
             return False
+        self._last_capture_error = None
         self._state = perception.state
         self._last_frame = perception.frame
         self._has_live_frame = True
@@ -535,7 +595,7 @@ class FarmingOrchestrator:
         if self._mode is FarmingMode.SEARCHING:
             combat = self._combat.step(self._state)
             if combat.mode is not CombatMode.IDLE:
-                self._mode = FarmingMode.TARGETING
+                self._set_mode(FarmingMode.TARGETING, reason="mob_detected")
                 self._engagement_break = None
                 self._approach_stalls.reset()
                 return self._combat_dispatcher.dispatch(combat)
@@ -569,14 +629,18 @@ class FarmingOrchestrator:
                 if combat.reposition_requested:
                     self._begin_repositioning()
                     return False
-                self._mode = FarmingMode.SEARCHING
+                self._set_mode(
+                    FarmingMode.SEARCHING,
+                    kind=_break_kind(combat.break_reason),
+                    reason=combat.break_reason.value if combat.break_reason is not None else None,
+                )
                 return False
             if combat.mode is CombatMode.TARGET_DEAD:
                 self._approach_stalls.reset()
                 self._state = replace(self._state, progress_marker=self._state.progress_marker + 1)
                 self._record_kill(combat.engaged_class_name)
                 self._attribute_kill()
-                self._mode = FarmingMode.RECONCILING
+                self._set_mode(FarmingMode.RECONCILING, reason="target_dead")
                 return False
             if combat.mode in {CombatMode.ENGAGING, CombatMode.FIGHTING}:
                 self._remember_engaged_monster()
@@ -584,7 +648,7 @@ class FarmingOrchestrator:
                 # confirmed is not progress, so repeated lockout retries cannot keep
                 # postponing camera search recovery (BUG-010).
                 self._search.reset()
-            self._mode = FarmingMode.COMBAT
+            self._set_mode(FarmingMode.COMBAT, reason="engaging")
             return self._combat_dispatcher.dispatch(combat)
 
         if self._mode is FarmingMode.RECONCILING:
@@ -592,9 +656,12 @@ class FarmingOrchestrator:
                 self._config.effective_desired_state, self._state
             )
             if reconciliation.is_healthy:
-                self._mode = FarmingMode.SEARCHING
+                self._set_mode(FarmingMode.SEARCHING, reason="reconciled")
             else:
-                self.pause()
+                self.pause(
+                    kind=SessionEventKind.SUPERVISOR_FAILURE,
+                    reason=",".join(sorted(flag.value for flag in reconciliation.failures)),
+                )
             return False
 
         return False
@@ -627,14 +694,18 @@ class FarmingOrchestrator:
         """Start one bounded rotate-and-roam sweep to clear the blocked approach."""
 
         self._reposition.reset()
-        self._mode = FarmingMode.REPOSITIONING
+        self._set_mode(
+            FarmingMode.REPOSITIONING,
+            kind=_break_kind(self._engagement_break),
+            reason=self._engagement_break.value if self._engagement_break is not None else None,
+        )
 
     def _advance_repositioning(self) -> bool:
         """Steer one re-positioning step, or hand back to searching once the sweep is done."""
 
         decision = self._reposition.step(self._state.observed_at_seconds)
         if self._reposition.completed_cycles >= REPOSITION_SWEEP_CYCLES:
-            self._mode = FarmingMode.SEARCHING
+            self._set_mode(FarmingMode.SEARCHING, reason="reposition_complete")
             self._search.reset()
             return False
         dispatched = self._search_dispatcher.dispatch(decision)
@@ -712,7 +783,8 @@ class FarmingOrchestrator:
     def _complete_session(self) -> None:
         """End the session, and optionally ask the game client to close itself."""
 
-        self._mode = FarmingMode.COMPLETED
+        reason = "kill_quota" if self._kill_goals.is_completed else "item_goal"
+        self._set_mode(FarmingMode.COMPLETED, kind=SessionEventKind.GOAL_COMPLETED, reason=reason)
         self._persist_navigation()
         if self._kill_goals.close_client_on_completion and not self._client_close_requested:
             self._client_close_requested = True
@@ -745,6 +817,9 @@ class FarmingOrchestrator:
                     window=self._window_status,
                     engagement_break=self._engagement_break,
                     kill_progress=self._kill_goals.progress,
+                    events=(
+                        self._event_logger.recent_events if self._event_logger is not None else ()
+                    ),
                 )
             )
         return tick

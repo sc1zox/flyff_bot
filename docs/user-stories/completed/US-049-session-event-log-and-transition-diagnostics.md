@@ -1,7 +1,7 @@
 ---
 id: US-049
 title: Session Event Log and Transition Diagnostics
-status: draft
+status: completed
 created: 2026-08-19
 updated: 2026-08-19
 ---
@@ -27,14 +27,14 @@ As an **operator**, I want **a structured session event log recorded on disk and
 
 ## Acceptance criteria
 
-- [ ] Given a farming session start, the application initializes a dedicated per-session log file (e.g. `logs/sessions/session_<timestamp>.jsonl` or `.log`) in a gitignored `logs/` directory.
-- [ ] Given any mode transition in `FarmingOrchestrator` (`PAUSED`, `ALIGNING`, `SEARCHING`, `REPOSITIONING`, `TARGETING`, `COMBAT`, `RECONCILING`, `COMPLETED`, `EMERGENCY_STOPPED`), an event is recorded containing ISO-8601 timestamp, previous mode, new mode, and optional contextual reason.
-- [ ] Given an automatic pause caused by game window focus loss (`!is_foreground`), the event record includes diagnostic details about the active foreground window (e.g. window title, class name, or process identifier if queryable via Win32 APIs).
-- [ ] Given an emergency stop, obstacle stall, supervisor failure, frame capture error, or goal completion, the event record includes the typed reason (`EngagementBreakReason`, `FailureFlag`, `FrameCaptureErrorCode`, or quota progress).
-- [ ] Given the dashboard UI (`MainWindow`), a dedicated Diagnostic Event Log view/panel displays recent session events in reverse chronological order with localized timestamps, event badges, and human-readable event summaries.
-- [ ] Logging operations are fail-safe: disk I/O errors or formatting errors never interrupt or crash the farming loop or UI event loop.
-- [ ] Log files and session directories remain strictly local and are excluded from git version control.
-- [ ] All user-visible text in the UI log view is available and synchronized in German (`de.json`) and English (`en.json`).
+- [x] Given a farming session start, the application initializes a dedicated per-session log file (e.g. `logs/sessions/session_<timestamp>.jsonl` or `.log`) in a gitignored `logs/` directory.
+- [x] Given any mode transition in `FarmingOrchestrator` (`PAUSED`, `ALIGNING`, `SEARCHING`, `REPOSITIONING`, `TARGETING`, `COMBAT`, `RECONCILING`, `COMPLETED`, `EMERGENCY_STOPPED`), an event is recorded containing ISO-8601 timestamp, previous mode, new mode, and optional contextual reason.
+- [x] Given an automatic pause caused by game window focus loss (`!is_foreground`), the event record includes diagnostic details about the active foreground window (e.g. window title, class name, or process identifier if queryable via Win32 APIs).
+- [x] Given an emergency stop, obstacle stall, supervisor failure, frame capture error, or goal completion, the event record includes the typed reason (`EngagementBreakReason`, `FailureFlag`, `FrameCaptureErrorCode`, or quota progress).
+- [x] Given the dashboard UI (`MainWindow`), a dedicated Diagnostic Event Log view/panel displays recent session events in reverse chronological order with localized timestamps, event badges, and human-readable event summaries.
+- [x] Logging operations are fail-safe: disk I/O errors or formatting errors never interrupt or crash the farming loop or UI event loop.
+- [x] Log files and session directories remain strictly local and are excluded from git version control.
+- [x] All user-visible text in the UI log view is available and synchronized in German (`de.json`) and English (`en.json`).
 
 ## Out of scope
 

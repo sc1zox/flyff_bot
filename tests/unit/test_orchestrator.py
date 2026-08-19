@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime
+from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -16,6 +19,7 @@ from flyff_bot.features.automation.controllers import (
     EngagementBreakReason,
 )
 from flyff_bot.features.automation.models import (
+    DesiredState,
     InventoryEntry,
     PlayerVitals,
     Position,
@@ -31,7 +35,8 @@ from flyff_bot.features.automation.orchestrator import (
     FarmingOrchestrator,
 )
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig, PowerUpEntry
-from flyff_bot.features.input_control import parse_virtual_key
+from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
+from flyff_bot.features.input_control import ForegroundWindowInfo, parse_virtual_key
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
 from flyff_bot.features.vision.models import (
     CapturedFrame,
@@ -135,6 +140,8 @@ def _orchestrator(
     config: FarmingConfig | None = None,
     dashboard_feed: DashboardFeed | None = None,
     pipeline: _Pipeline | None = None,
+    event_logger: SessionEventLogger | None = None,
+    foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
 ) -> FarmingOrchestrator:
     return FarmingOrchestrator(
         cast(PerceptionPipeline, pipeline or _Pipeline(states)),
@@ -142,6 +149,8 @@ def _orchestrator(
         WINDOW_HANDLE,
         config=config,
         dashboard_feed=dashboard_feed,
+        event_logger=event_logger,
+        foreground_window_info=foreground_window_info,
     )
 
 
@@ -959,3 +968,204 @@ def test_a_blocked_approach_registers_the_obstacle_in_the_learned_map() -> None:
         orchestrator.tick()
 
     assert pathing.obstacles
+
+
+def test_mode_transitions_are_recorded_with_previous_and_new_mode(tmp_path: Path) -> None:
+    """US-049: every mode change is logged with ISO-8601 timestamp, previous, and new mode."""
+
+    adapter = _InputAdapter()
+    logger = SessionEventLogger(tmp_path / "sessions")
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    states = [
+        _state(1.0, mobs=(MOB,)),
+        _state(2.0, target=valid),
+        _state(3.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)),
+        _state(4.0, target=SelectedTarget(TargetState.NONE, None, 0)),
+        _state(5.0),
+    ]
+    orchestrator = _orchestrator(states, adapter, event_logger=logger)
+    orchestrator.start()
+
+    for _ in states:
+        orchestrator.tick()
+
+    events = logger.recent_events
+    transitions = [(event.previous_mode, event.new_mode) for event in events]
+    # Most recent first: reconciling->searching, combat->reconciling, targeting->combat,
+    # searching->targeting, paused->searching. A same-mode tick (combat->combat) logs
+    # nothing, so five transitions cover the whole run.
+    assert transitions == [
+        ("reconciling", "searching"),
+        ("combat", "reconciling"),
+        ("targeting", "combat"),
+        ("searching", "targeting"),
+        ("paused", "searching"),
+    ]
+    for event in events:
+        datetime.fromisoformat(event.timestamp)
+
+
+def test_focus_lost_pause_records_foreground_window_diagnostics(tmp_path: Path) -> None:
+    """US-049: a focus-loss pause captures the offending foreground window's identity."""
+
+    adapter = _InputAdapter(foreground=False)
+    logger = SessionEventLogger(tmp_path / "sessions")
+    thief = ForegroundWindowInfo(title="Notepad", process_name="notepad.exe")
+    orchestrator = _orchestrator(
+        [_state(1.0)],
+        adapter,
+        event_logger=logger,
+        foreground_window_info=lambda: thief,
+    )
+    orchestrator.start()
+
+    result = orchestrator.tick()
+
+    assert result.mode is FarmingMode.PAUSED
+    event = logger.recent_events[0]
+    assert event.kind is SessionEventKind.FOCUS_LOST
+    assert event.reason == "focus_lost"
+    assert event.foreground_window_title == "Notepad"
+    assert event.foreground_window_process == "notepad.exe"
+
+
+def test_emergency_stop_via_killswitch_is_recorded(tmp_path: Path) -> None:
+    """US-049: the END/Escape killswitch path is distinguished from a button-triggered stop."""
+
+    adapter = _InputAdapter(aborted=True)
+    logger = SessionEventLogger(tmp_path / "sessions")
+    orchestrator = _orchestrator([_state(1.0)], adapter, event_logger=logger)
+    orchestrator.start()
+
+    orchestrator.tick()
+
+    event = logger.recent_events[0]
+    assert event.kind is SessionEventKind.EMERGENCY_STOPPED
+    assert event.new_mode == FarmingMode.EMERGENCY_STOPPED.value
+    assert event.reason == "killswitch"
+
+
+def test_frame_capture_error_pause_records_the_capture_error_code(tmp_path: Path) -> None:
+    """US-049: a frame-capture failure pause names the typed capture error code."""
+
+    adapter = _InputAdapter()
+    logger = SessionEventLogger(tmp_path / "sessions")
+    orchestrator = _orchestrator(
+        [],
+        adapter,
+        event_logger=logger,
+        pipeline=_Pipeline([], capture_error=FrameCaptureErrorCode.MINIMIZED),
+    )
+    orchestrator.start()
+
+    orchestrator.tick()
+
+    event = logger.recent_events[0]
+    assert event.kind is SessionEventKind.FRAME_CAPTURE_ERROR
+    assert event.reason == FrameCaptureErrorCode.MINIMIZED.value
+
+
+def test_obstacle_stall_repositioning_is_recorded(tmp_path: Path) -> None:
+    """US-049: a blocked approach records the typed EngagementBreakReason."""
+
+    adapter = _InputAdapter()
+    logger = SessionEventLogger(tmp_path / "sessions")
+    states = _blocked_approach_states(30)
+    orchestrator = _orchestrator(
+        states,
+        adapter,
+        event_logger=logger,
+        pipeline=_Pipeline(states, frame=FROZEN_FRAME),
+    )
+    orchestrator.start()
+
+    for _ in states:
+        orchestrator.tick()
+
+    obstacle_event = next(
+        event for event in logger.recent_events if event.kind is SessionEventKind.OBSTACLE_STALL
+    )
+    assert obstacle_event.new_mode == FarmingMode.REPOSITIONING.value
+    assert obstacle_event.reason == EngagementBreakReason.OBSTACLE_STALL.value
+
+
+def test_supervisor_failure_pause_records_the_failure_flags(tmp_path: Path) -> None:
+    """US-049: a reconciliation pause names the FailureFlag(s) that triggered it."""
+
+    adapter = _InputAdapter()
+    logger = SessionEventLogger(tmp_path / "sessions")
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    states = [
+        _state(1.0, mobs=(MOB,)),
+        _state(2.0, target=valid),
+        _state(3.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)),
+        _state(4.0, target=SelectedTarget(TargetState.NONE, None, 0)),
+        # The kill lands mode in RECONCILING on tick 4; a 5th tick is required to reach
+        # the reconciliation check itself and pause on the unmet minimum mob count.
+        _state(5.0),
+    ]
+    config = FarmingConfig(desired_state=DesiredState(minimum_mob_count=1))
+    orchestrator = _orchestrator(states, adapter, config=config, event_logger=logger)
+    orchestrator.start()
+
+    for _ in states:
+        orchestrator.tick()
+
+    assert orchestrator.mode is FarmingMode.PAUSED
+    failure_event = next(
+        event for event in logger.recent_events if event.kind is SessionEventKind.SUPERVISOR_FAILURE
+    )
+    assert failure_event.reason is not None
+    assert "no_mobs" in failure_event.reason.split(",")
+
+
+def test_goal_completion_is_recorded(tmp_path: Path) -> None:
+    """US-049: reaching an item goal records a typed GOAL_COMPLETED event."""
+
+    adapter = _InputAdapter()
+    logger = SessionEventLogger(tmp_path / "sessions")
+    orchestrator = _orchestrator(
+        [_state(1.0, inventory=(InventoryEntry("Sunstones", 3),))],
+        adapter,
+        config=FarmingConfig(goal=FarmingGoal("Sunstones", 3)),
+        event_logger=logger,
+    )
+    orchestrator.start()
+
+    result = orchestrator.tick()
+
+    assert result.mode is FarmingMode.COMPLETED
+    event = logger.recent_events[0]
+    assert event.kind is SessionEventKind.GOAL_COMPLETED
+    assert event.reason == "item_goal"
+
+
+def test_dashboard_update_carries_recent_session_events(tmp_path: Path) -> None:
+    """US-049: the diagnostics event log reaches the dashboard, not only the log file."""
+
+    adapter = _InputAdapter()
+    logger = SessionEventLogger(tmp_path / "sessions")
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    orchestrator = _orchestrator([_state(1.0)], adapter, dashboard_feed=feed, event_logger=logger)
+
+    orchestrator.start()
+    orchestrator.tick()
+
+    assert updates[-1].events
+    assert updates[-1].events[0].new_mode == FarmingMode.SEARCHING.value
+
+
+def test_repeated_pause_from_the_same_mode_does_not_duplicate_events(tmp_path: Path) -> None:
+    """US-049: a no-op transition never spams a duplicate diagnostic event."""
+
+    adapter = _InputAdapter()
+    logger = SessionEventLogger(tmp_path / "sessions")
+    orchestrator = _orchestrator([_state(1.0)], adapter, event_logger=logger)
+    orchestrator.start()
+    orchestrator.pause()
+
+    orchestrator.pause()
+
+    assert len(logger.recent_events) == 2

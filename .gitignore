@@ -46,3 +46,6 @@ data/kill_log.sqlite3
 
 # Calibration recordings from scripts/capture_minimap_samples.py (large PNG sequences)
 data/calibration/
+
+# Per-session structured event logs (US-049)
+logs/

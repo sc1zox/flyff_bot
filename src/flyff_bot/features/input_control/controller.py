@@ -9,6 +9,7 @@ import time
 from ctypes import wintypes
 
 from flyff_bot.features.input_control.models import (
+    ForegroundWindowInfo,
     InputControlError,
     InputErrorCode,
     ScreenRect,
@@ -283,6 +284,23 @@ class WindowsInputController:
 
         foreground_handle = self._user32.GetForegroundWindow()
         return bool(foreground_handle and int(foreground_handle) == window_handle)
+
+    def foreground_window_info(self) -> ForegroundWindowInfo | None:
+        """Return the title and owning process of whichever window currently has focus.
+
+        Used only for diagnostics (US-049): recording what stole focus when a farming
+        session pauses, not for any input-dispatch decision.
+        """
+
+        foreground_handle = self._user32.GetForegroundWindow()
+        if not foreground_handle:
+            return None
+        length = self._user32.GetWindowTextLengthW(foreground_handle)
+        title = ctypes.create_unicode_buffer(length + 1)
+        self._user32.GetWindowTextW(foreground_handle, title, len(title))
+        return ForegroundWindowInfo(
+            title=title.value, process_name=self._process_name(foreground_handle)
+        )
 
     def send_key(self, virtual_key: int, duration_seconds: float) -> None:
         """Press and release one virtual key while honoring the emergency stop."""

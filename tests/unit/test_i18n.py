@@ -59,6 +59,11 @@ def test_each_language_contains_every_message() -> None:
                 monster="x",
                 capacity=0,
                 z=0,
+                time="x",
+                kind="x",
+                previous="x",
+                new="x",
+                summary="x",
             )
 
 

@@ -58,6 +58,7 @@ related:
   - ../user-stories/completed/US-039-combat-obstacle-stall-detection-and-re-navigation.md
   - ../user-stories/completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md
   - ../user-stories/completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md
+  - ../user-stories/completed/US-049-session-event-log-and-transition-diagnostics.md
 ---
 
 # Architecture
@@ -1108,3 +1109,68 @@ closed-loop controller with live confirmation, fallback, bounded recovery, and e
 does not and cannot establish a literal guarantee of 100% fault-free autonomous navigation. The
 automated suite covers the adapter and control decisions; the Windows live-client walkthrough in
 US-048 remains outstanding field validation.
+
+## Session event log and transition diagnostics (US-049)
+
+Before US-049 a paused or stalled session left no inspectable trail: the dashboard showed only the
+current `BotStatus`, and the reason a run had stopped unattended — lost focus, a killswitch press,
+an unreachable target, a reconciliation failure, a capture error, or a completed goal — was never
+recorded anywhere. `flyff_bot.features.diagnostics` adds that trail as its own small feature rather
+than folding it into `automation`, because logging is a cross-cutting concern the orchestrator
+depends on, not a farming behavior itself.
+
+`SessionEventLogger` (`diagnostics.event_log`) is a plain, non-Qt class so it stays independently
+unit-testable and safe to call from either the session worker thread or the Qt thread. Constructing
+it creates one `logs/sessions/session_<UTC timestamp>.jsonl` file (`DEFAULT_SESSION_LOG_DIRECTORY`);
+`record()` appends one JSON object per line and keeps a bounded in-memory ring buffer
+(`DEFAULT_EVENT_HISTORY_LIMIT`, 200) that `recent_events` returns most-recent-first. Every failure
+path — a directory that cannot be created, a write that raises `OSError`, or a formatting failure —
+is caught narrowly (never a bare or broad `except`) and swallowed: a full disk can never interrupt
+the farming loop or the Qt event loop that ticks it, per the story's fail-safe acceptance criterion.
+A `SessionEvent` is immutable and typed: ISO-8601 timestamp, `SessionEventKind`, previous and new
+`FarmingMode` values, an optional free-text `reason`, and optional foreground-window diagnostics.
+
+`FarmingOrchestrator._set_mode()` is the single place every `FarmingMode` transition now passes
+through, replacing direct `self._mode = ...` assignment everywhere except the initial `PAUSED`
+construction. It is a no-op when the mode does not actually change — so an idempotent
+`emergency_stop()` call, or a RECONCILING tick that stays RECONCILING, never spams a duplicate
+event — and otherwise records the transition through the optional `SessionEventLogger` the
+orchestrator was constructed with. Seven `SessionEventKind` values classify *why* a transition
+happened: `MODE_TRANSITION` is the generic case (session start, a mob detected, a confirmed kill, a
+completed reconciliation, a finished re-positioning sweep), and `FOCUS_LOST`, `EMERGENCY_STOPPED`,
+`OBSTACLE_STALL`, `SUPERVISOR_FAILURE`, `FRAME_CAPTURE_ERROR`, and `GOAL_COMPLETED` cover the six
+discrete pause/stop triggers the story enumerates. `EngagementBreakReason` values (including the
+other break reasons `ACQUISITION_TIMEOUT`, `TARGET_UNVERIFIED`, and `ENGAGEMENT_TIMEOUT`, which stay
+under the generic `MODE_TRANSITION` kind) and comma-joined `FailureFlag` values travel unchanged as
+the event's `reason`, so the diagnostics module never re-derives or duplicates a classification that
+already exists as a typed enum elsewhere.
+
+Foreground-window diagnostics stay decoupled from the orchestrator's existing Win32-free design:
+`FarmingOrchestrator` takes an optional `foreground_window_info: Callable[[], ForegroundWindowInfo |
+None]` rather than depending on `WindowsInputController` through its `FarmingInputAdapter` protocol,
+so every existing test fake is unaffected. `WindowsInputController.foreground_window_info()`
+(`input_control.controller`) is the one concrete implementation: it reads whichever window currently
+holds `GetForegroundWindow()` — not the farming session's own window — and returns its title and
+owning process name via the same `GetWindowTextW`/`QueryFullProcessImageNameW` calls
+`find_windows()` and `focus_window()` already use. `run_desktop` wires it in as
+`controller.foreground_window_info`, so a `FOCUS_LOST` event names whatever stole focus (Notepad, a
+notification toast, another window) without widening the Win32 surface the safety boundaries
+restrict.
+
+On the dashboard, `DashboardUpdate.events` carries the logger's `recent_events` tuple on every
+publish, mirroring how `kill_progress` and `engagement_break` already travel — an empty tuple when
+no logger is attached, exactly like the other optional diagnostics fields. `EventLogPanel`
+(`flyff_bot.ui.event_log_panel`) is a standalone `QGroupBox` widget, matching the `TargetSelectionPanel`
+and `PowerUpPanel` precedent of decomposing telemetry panels rather than inlining more widgets into
+`MainWindow`: a toggle checkbox reveals it, and `set_events()` clears and repopulates a `QListWidget`
+from the update's `events` tuple, unaffected by the panel's own visibility so a hidden panel still
+stays current. Each row is one summary sentence colour-coded by `SessionEventKind` (neutral, amber
+for the four warning kinds, crimson for emergency stop, emerald for goal completion) and localized
+through `Message.UI_EVENT_LOG_SUMMARY`; `previous_mode`/`new_mode` map through a small `FarmingMode`
+value dictionary to their own localized labels, and the stored UTC timestamp renders as the
+operator's local wall-clock time (`datetime.astimezone()`). The free-text `reason` and any
+foreground-window title/process stay untranslated diagnostic detail appended to the sentence,
+following the same precedent as OCR raw text and world-data status strings elsewhere in the
+dashboard: they are operator-facing evidence, not narrative prose, and a window title cannot be
+localized. `logs/` is git-ignored alongside the other local session state
+(`data/navigation/`, `data/kill_log.sqlite3`).
