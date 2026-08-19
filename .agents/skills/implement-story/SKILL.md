@@ -15,13 +15,13 @@ Detailed playbook for implementing a user story in the flyff_bot repository.
 - **MANDATORY**: Follow the project knowledge workflow first:
   - Read `docs/wiki/index.md`, `docs/wiki/architecture.md`, and relevant decisions in `docs/decisions/`.
   - Read the story file (`docs/user-stories/US-XXX-*.md`) in full — do not work from a summary.
-- **OPTIONAL**: Spawn the `researcher` subagent (`Model='flash'`) if you need extensive exploration to locate existing logic or patterns.
+- **OPTIONAL**: Spawn the `researcher` subagent (`Model='gpt-5.6-terra'`) if you need extensive exploration to locate existing logic or patterns.
 - Check existing features under `src/flyff_bot/features/`.
 - Identify touched layers (CLI, UI/PySide6, domain feature logic, platform adapters/Win32, locales).
 
 ## 2. Plan
 
-- **MANDATORY**: For non-trivial stories, spawn the `advisor` or `planner` subagent (`Model='pro'`) to generate the architectural plan before writing code.
+- **MANDATORY**: For non-trivial stories, spawn the `advisor` or `planner` subagent (`Model='gpt-5.6-sol'`) to generate the architectural plan before writing code.
 - Map each acceptance criterion to specific required changes.
 - Surface assumptions. **Ask first** only for genuine ambiguity, safety boundaries, or breaking changes.
 - Check for existing constants, models, and helpers before creating new ones.
@@ -39,13 +39,13 @@ Detailed playbook for implementing a user story in the flyff_bot repository.
 
 ## 4. Verify
 
-- **MANDATORY**: Spawn the `verifier` subagent (`Model='flash'`) to run `./scripts/check.ps1` (uv sync, ruff check/format, mypy, pytest) and report exact results.
+- **MANDATORY**: Spawn the `verifier` subagent (`Model='gpt-5.6-luna'`) to run `./scripts/check.ps1` (uv sync, ruff check/format, mypy, pytest) and report exact results.
 - Functional core features must have automated unit/integration tests.
 - Never report done on red.
 
 ## 5. Complete Documentation
 
-- **MANDATORY**: Spawn the `documenter` subagent (`Model='flash'`) to:
+- **MANDATORY**: Spawn the `documenter` subagent (`Model='gpt-5.6-luna'`) to:
   - Check off satisfied acceptance criteria (`- [x]`) in the story markdown.
   - Update story status to `completed` with updated date.
   - Move the story file to `docs/user-stories/completed/`.
@@ -53,5 +53,5 @@ Detailed playbook for implementing a user story in the flyff_bot repository.
 
 ## 6. Commit
 
-- **MANDATORY**: Spawn the `committer` subagent (`Model='flash'`) to create the commit for you (e.g., `feat(vision): implement mob detection US-003`).
+- **MANDATORY**: Spawn the `committer` subagent (`Model='gpt-5.6-luna'`) to create the commit for you (e.g., `feat(vision): implement mob detection US-003`).
 - Do NOT push unless explicitly requested.

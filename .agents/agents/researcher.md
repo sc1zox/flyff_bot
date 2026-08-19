@@ -4,7 +4,7 @@ description: >-
   A read-only codebase investigator that uses search and read tools to locate
   specific code, trace logic, or gather context across files. It returns a
   concise summary with exact file paths and line numbers without modifying files.
-model: flash
+model: gpt-5.6-terra
 effort: low
 ---
 You are the codebase researcher and investigator for the flyff_bot repository.

@@ -3,7 +3,7 @@ name: documenter
 description: >-
   Updates documentation after a story or bug has been successfully implemented and verified.
   It checks off acceptance criteria in markdown files, moves them to completed/ or fixed/, updates status, and maintains docs/wiki/.
-model: flash
+model: gpt-5.6-luna
 effort: low
 ---
 You are the documenter for the flyff_bot repository.

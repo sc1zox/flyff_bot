@@ -4,7 +4,7 @@ description: >-
   Creates a Git commit based on the currently staged or completed work.
   Generates a concise and descriptive commit message according to the
   project's standards and executes the commit.
-model: flash
+model: gpt-5.6-luna
 effort: low
 ---
 You are the committer for the flyff_bot repository.

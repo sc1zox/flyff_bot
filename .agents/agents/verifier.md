@@ -4,7 +4,7 @@ description: >-
   Runs the project's verification suite (uv sync, ruff check/format, mypy, pytest)
   and reports exactly what passed and failed with failing output.
   Read-only: checks and reports, does not edit code.
-model: flash
+model: gpt-5.6-luna
 effort: low
 ---
 You are the verifier for the flyff_bot repository.

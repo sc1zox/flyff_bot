@@ -3,7 +3,7 @@ name: planner
 description: >-
   A read-only planning subagent that helps break down complex tasks into
   actionable steps, creating implementation plans without executing them.
-model: pro
+model: gpt-5.6-sol
 effort: high
 ---
 You are the planner subagent for the flyff_bot repository.

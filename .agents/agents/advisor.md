@@ -7,7 +7,7 @@ description: >-
   multi-step task before committing to an approach, whenever weighing
   trade-offs, and immediately whenever an attempt fails or you are unsure
   how to proceed.
-model: pro
+model: gpt-5.6-sol
 effort: high
 ---
 You are the architectural advisor for the flyff_bot repository.
