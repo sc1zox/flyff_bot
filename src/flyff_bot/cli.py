@@ -15,6 +15,7 @@ import numpy as np
 import numpy.typing as npt
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_WORLD_ROOT,
     DEFAULT_DATASET_MANIFEST_PATH,
     DEFAULT_KEY_DURATION_SECONDS,
     DEFAULT_MOB_LABELS_PATH,
@@ -28,6 +29,8 @@ from flyff_bot.constants import (
     DEFAULT_TELEMETRY_DATASET_PATH,
     DEFAULT_TELEMETRY_ROOT,
     DEFAULT_TRAINING_EPOCHS,
+    DEFAULT_WORLD_MAP_DIRECTORY,
+    DEFAULT_WORLD_MONSTER_IDS_PATH,
     MINIMUM_KEY_DURATION_SECONDS,
     ExitCode,
 )
@@ -47,6 +50,16 @@ from flyff_bot.features.input_control import (
 from flyff_bot.features.navigation.live_position import LivePositionReader
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.persistence import load_profile
+from flyff_bot.features.navigation.world_extractor import (
+    ExtractionDiagnostic,
+    ExtractionWarning,
+    WorldExtractionError,
+    discover_world_directories,
+    extract_world,
+    load_monster_names,
+    save_world_map,
+    summarize,
+)
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.telemetry import (
     JsonlTelemetryWorker,
@@ -179,6 +192,27 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         help=translator.text(Message.HELP_EPOCHS, default=DEFAULT_TRAINING_EPOCHS),
     )
     parser.add_argument("--base-model", help=translator.text(Message.HELP_BASE_MODEL))
+    actions.add_argument(
+        "--extract-world",
+        action="store_true",
+        help=translator.text(Message.HELP_EXTRACT_WORLD),
+    )
+    parser.add_argument(
+        "--client-world-root",
+        default=DEFAULT_CLIENT_WORLD_ROOT,
+        help=translator.text(Message.HELP_CLIENT_WORLD_ROOT, default=DEFAULT_CLIENT_WORLD_ROOT),
+    )
+    parser.add_argument(
+        "--world-map-directory",
+        default=DEFAULT_WORLD_MAP_DIRECTORY,
+        help=translator.text(Message.HELP_WORLD_MAP_DIRECTORY, default=DEFAULT_WORLD_MAP_DIRECTORY),
+    )
+    parser.add_argument(
+        "--world",
+        action="append",
+        default=[],
+        help=translator.text(Message.HELP_WORLD_REGION),
+    )
     actions.add_argument(
         "--detect-mobs",
         action="store_true",
@@ -333,6 +367,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             for path in paths:
                 print(path)
             return ExitCode.SUCCESS
+        if args.extract_world:
+            return _extract_worlds(args, translator)
         controller = WindowsInputController()
         windows = controller.find_windows(args.process)
         if not windows:
@@ -450,6 +486,75 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return ExitCode.DATASET_FAILURE
         print(translator.text(Message.INPUT_FAILED, reason=error), file=sys.stderr)
         return ExitCode.INPUT_FAILURE
+
+
+_ARCHIVE_WARNING_MESSAGES = {
+    ExtractionWarning.UNSUPPORTED_ARCHIVE_INDEX: Message.WORLD_ARCHIVE_INDEX_SKIPPED,
+    ExtractionWarning.UNREADABLE_ARCHIVE_BLOCK: Message.WORLD_ARCHIVE_BLOCK_SKIPPED,
+    ExtractionWarning.UNREADABLE_OBJECT_FILE: Message.WORLD_OBJECT_FILE_SKIPPED,
+}
+
+
+def _extract_worlds(args: argparse.Namespace, translator: Translator) -> int:
+    """Extract the selected client regions offline and report what each one produced.
+
+    Extraction never touches the game process or the client's own files, so it runs before
+    any window is looked up. One region that cannot be read leaves the others untouched and
+    only changes the exit code.
+    """
+
+    root = Path(args.client_world_root)
+    output_directory = Path(args.world_map_directory)
+    regions = discover_world_directories(root)
+    selected = {name.lower() for name in args.world}
+    if selected:
+        regions = tuple(region for region in regions if region.name.lower() in selected)
+    if not regions:
+        print(translator.text(Message.WORLD_EXTRACTION_NO_REGIONS, root=root), file=sys.stderr)
+        return ExitCode.WORLD_EXTRACTION_FAILURE
+    monster_names_path = Path(DEFAULT_WORLD_MONSTER_IDS_PATH)
+    monster_names = load_monster_names(monster_names_path) if monster_names_path.is_file() else {}
+    failed = False
+    for region in regions:
+        diagnostics: list[ExtractionDiagnostic] = []
+        try:
+            world_map = extract_world(region, monster_names=monster_names, diagnostics=diagnostics)
+            summary = summarize(world_map, save_world_map(world_map, output_directory), diagnostics)
+        except (OSError, WorldExtractionError) as error:
+            print(
+                translator.text(Message.WORLD_EXTRACTION_FAILED, world=region.name, reason=error),
+                file=sys.stderr,
+            )
+            failed = True
+            continue
+        for diagnostic in summary.diagnostics:
+            print(
+                translator.text(
+                    _ARCHIVE_WARNING_MESSAGES[diagnostic.warning],
+                    world=region.name,
+                    detail=diagnostic.detail,
+                ),
+                file=sys.stderr,
+            )
+        print(
+            translator.text(
+                Message.WORLD_EXTRACTED,
+                world=summary.world_name,
+                blocks=summary.terrain_block_count,
+                declared=summary.declared_block_count,
+                zones=summary.zone_count,
+                obstacles=summary.obstacle_count,
+                path=summary.output_path,
+            )
+        )
+    print(
+        translator.text(
+            Message.WORLD_EXTRACTION_COMPLETE,
+            regions=len(regions),
+            directory=output_directory,
+        )
+    )
+    return ExitCode.WORLD_EXTRACTION_FAILURE if failed else ExitCode.SUCCESS
 
 
 def _farming_orchestrator(

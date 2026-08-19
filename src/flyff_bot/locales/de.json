@@ -334,5 +334,17 @@
   "ui.event_mode_combat": "Kampf",
   "ui.event_mode_reconciling": "Abgleich",
   "ui.event_mode_completed": "Abgeschlossen",
-  "ui.event_mode_emergency_stopped": "Notgestoppt"
+  "ui.event_mode_emergency_stopped": "Notgestoppt",
+  "help.extract_world": "Weltgeometrie und Gelände-Höhenfelder des Clients offline extrahieren",
+  "help.client_world_root": "Pfad zum Weltverzeichnis des Clients (Standard: {default})",
+  "help.world_map_directory": "Verzeichnis, in das die extrahierten Weltkarten geschrieben werden (Standard: {default})",
+  "help.world_region": "Extraktion auf eine Client-Region beschränken; für mehrere wiederholen",
+  "status.world_extracted": "{world}: {blocks} von {declared} Geländeblöcken, {zones} Spawn-Zonen, {obstacles} unpassierbare Flächen -> {path}",
+  "status.world_extraction_complete": "{regions} Regionen nach {directory} extrahiert",
+  "status.world_archive_index_skipped": "{world}: Der gepackte Archivindex von {detail} nutzt ein nicht unterstütztes Format und wurde übersprungen",
+  "status.world_archive_block_skipped": "{world}: Der gepackte Geländeblock {detail} konnte nicht dekodiert werden und wurde übersprungen",
+  "error.world_extraction_no_regions": "Unter {root} wurde keine Client-Region mit Weltskript gefunden",
+  "error.world_extraction_failed": "{world}: {reason}",
+  "ui.world_data_warnings": "{count} Teile dieser Region konnten nicht gelesen werden und wurden übersprungen.",
+  "status.world_object_file_skipped": "{world}: Die Objektdatei {detail} nutzt ein nicht unterstütztes Satzformat und wurde übersprungen"
 }

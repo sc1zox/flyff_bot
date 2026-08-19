@@ -334,5 +334,17 @@
   "ui.event_mode_combat": "Combat",
   "ui.event_mode_reconciling": "Reconciling",
   "ui.event_mode_completed": "Completed",
-  "ui.event_mode_emergency_stopped": "Emergency Stopped"
+  "ui.event_mode_emergency_stopped": "Emergency Stopped",
+  "help.extract_world": "Extract client world geometry and terrain height fields offline",
+  "help.client_world_root": "Path to the client's world directory (default: {default})",
+  "help.world_map_directory": "Directory the extracted world maps are written to (default: {default})",
+  "help.world_region": "Restrict extraction to one client region; repeat for several",
+  "status.world_extracted": "{world}: {blocks} of {declared} terrain blocks, {zones} spawn zones, {obstacles} impassable areas -> {path}",
+  "status.world_extraction_complete": "{regions} regions extracted into {directory}",
+  "status.world_archive_index_skipped": "{world}: the packed archive index of {detail} uses an unsupported layout and was skipped",
+  "status.world_archive_block_skipped": "{world}: the packed terrain block {detail} could not be decoded and was skipped",
+  "error.world_extraction_no_regions": "No client region with a world script was found under {root}",
+  "error.world_extraction_failed": "{world}: {reason}",
+  "ui.world_data_warnings": "{count} parts of this region could not be read and were skipped.",
+  "status.world_object_file_skipped": "{world}: the placed-object file {detail} uses an unsupported record layout and was skipped"
 }

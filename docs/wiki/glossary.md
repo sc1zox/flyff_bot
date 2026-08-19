@@ -266,9 +266,17 @@ related:
   scanning, neighbouring state reads, writes, injection, and hooks remain forbidden.
 - **GPS state** - The dashboard's source indicator: green means the latest position came from a
   supported live-coordinate read; amber means navigation is using minimap odometry fallback.
-- **Terrain field** - The decoded 129 by 129 float32 height vertices from a loose `.lnd` block,
-  retained in the world-map schema for elevation queries. It is partial whenever declared blocks
-  exist only in packed archives.
+- **Terrain field** - The decoded 129 by 129 float32 height vertices of one `.lnd` block, read
+  either from a loose patch file or out of the region's packed archive, and persisted beside the
+  world map as a 66,576-byte height field. It is partial only where the client itself ships no
+  block for a declared grid coordinate.
+- **Packed world archive** - One client region's `<world>.hdr` index and `<world>.one` payload. The
+  index stores an opaque digest of each file name; entry bytes are obfuscated with a keystream
+  derived from the plain lower-case file name. Reading it is offline and read-only: nothing is
+  repacked or written back.
+- **Extraction diagnostic** - A typed record of one part of a region that was skipped rather than
+  extracted: an unsupported archive index, an undecodable packed block, or a placed-object file in
+  an unknown record layout. It never aborts the rest of the region.
 - **Terrain route** - A 3D A* route whose edge cost includes elevation and whose walkability rejects
   excessive gradients. Smoothed corner metadata can request lateral strafe to follow a contour.
 - **Teleport anchor** - An operator-configured destination position and hotkey used for long-range

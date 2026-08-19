@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
+
+from world_fixtures import write_world_directory
 
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.terrain_routing import (
@@ -14,6 +17,7 @@ from flyff_bot.features.navigation.world_extractor import (
     ObstacleRectangle,
     WorldDimensions,
     WorldVectorMap,
+    extract_world,
 )
 
 
@@ -96,3 +100,44 @@ def test_diagonal_route_cannot_cut_through_an_obstacle_corner() -> None:
 
     assert route.blocked is False
     assert len(route.waypoints) >= 3
+
+
+def _extracted_archive_map(tmp_path: Path, ridge_height: float) -> WorldVectorMap:
+    """Extract a region whose whole height field lives only inside its packed archive."""
+
+    plateau = [
+        ridge_height if column >= LAND_BLOCK_VERTICES_PER_SIDE // 2 else 0.0
+        for _row in range(LAND_BLOCK_VERTICES_PER_SIDE)
+        for column in range(LAND_BLOCK_VERTICES_PER_SIDE)
+    ]
+    directory = write_world_directory(
+        tmp_path,
+        "wdtest",
+        archived_blocks=[
+            (block_x, block_z, plateau) for block_x in range(2) for block_z in range(2)
+        ],
+    )
+    return extract_world(directory)
+
+
+def test_a_route_over_a_packed_block_follows_its_archived_heights(tmp_path: Path) -> None:
+    """Before US-052 only block 0,0 could be loose, so a far block had no elevation at all."""
+
+    planner = TerrainRoutePlanner(_extracted_archive_map(tmp_path, 12.0))
+
+    route = planner.plan(WorldPosition(800.0, 12.0, 600.0), WorldPosition(880.0, 12.0, 680.0))
+
+    assert route.blocked is False
+    assert [waypoint.position.y for waypoint in route.waypoints] == [12.0] * len(route.waypoints)
+
+
+def test_a_cliff_that_exists_only_in_the_packed_archive_blocks_the_route(
+    tmp_path: Path,
+) -> None:
+    planner = TerrainRoutePlanner(
+        _extracted_archive_map(tmp_path, 400.0), TerrainRouteConfig(grid_stride=2)
+    )
+
+    route = planner.plan(WorldPosition(760.0, 0.0, 600.0), WorldPosition(800.0, 400.0, 600.0))
+
+    assert route.blocked is True

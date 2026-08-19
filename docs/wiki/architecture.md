@@ -63,6 +63,7 @@ related:
   - ../bugs/fixed/BUG-017-invisible-wall-collision-stall-detection-and-recovery-pathfinding.md
   - ../user-stories/completed/US-049-session-event-log-and-transition-diagnostics.md
   - ../user-stories/completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md
+  - ../user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md
 ---
 
 # Architecture
@@ -1058,11 +1059,12 @@ dynamic-object file (`.dyo`) places props, and its position is validated against
 bounds because a position off the map is the clearest available evidence that the record offsets
 do not describe that file.
 
-**What the packed archive holds is out of reach and stays that way.** `<world>.one` is
-obfuscated, so extraction sees only the blocks a client leaves loose on disk. For Eden that is
-exactly one - `WdEden03-02.lnd` - beside the full 83 spawn zones and all six monster classes.
-Zones outside that block extract normally and route without terrain constraints, which is what
-leaves `StallDetector` as their safety net rather than a redundancy. The client's own
+**The packed archive was out of reach when US-045 shipped.** `<world>.one` is obfuscated, so
+extraction saw only the blocks a client leaves loose on disk. For Eden that was exactly one -
+`WdEden03-02.lnd` - beside the full 83 spawn zones and all six monster classes. Zones outside that
+block extracted normally and routed without terrain constraints, which is what left `StallDetector`
+as their safety net rather than a redundancy. US-052 lifts that limit and reads the archives
+themselves; the paragraphs below describe the state US-045 left behind. The client's own
 identifier-to-name table shares that fate, so `data/assets/world/monster_ids.json` pairs the six
 Eden identifiers with the six `models/labels.txt` classes in ascending identifier order as an
 operator-editable assumption; an unmapped identifier still extracts under its numeric identity.
@@ -1297,6 +1299,70 @@ interaction paths. It passed at 750 tests passed, 2 skipped, and 92.54% coverage
 live-client visual walkthrough remains outstanding, including visual responsiveness and confirmation
 that both `Escape` and `END` halt a live `neuz.exe` session; automated evidence is not presented as
 field validation.
+
+## Packed client archives and complete terrain height fields (US-052)
+
+US-045 read only the terrain blocks a patch had left loose on disk. Across the client that was 153
+of 3,861 declared blocks - 3.96% - so almost every region routed over flat approximation with
+`StallDetector` as its only safety net. US-052 reads the packed archives themselves, and the same
+client tree now yields 1,116 decoded height fields.
+
+`flyff_bot.features.navigation.client_archive` is the reader. Each region ships one `<world>.hdr`
+index and one `<world>.one` payload. The index is `int32 count` followed by one record per packed
+file: `int32 name_length`, that many identity bytes, `int32 offset`, `int32 size`. The identity is a
+64-character digest of the original file name, so the index never states what an entry is called.
+Entry bytes are obfuscated with a keystream derived from the file name itself:
+
+```text
+stored[i] = swap_nibbles(plain[i]) ^ ((name[i % len(name)] - 1) & 0xFF)
+```
+
+The name is the plain lower-case file name, which makes the transform its own inverse and makes the
+opaque identities irrelevant. A terrain block is named by the client's own
+`<world><xx>-<zz>.lnd` convention, and its first twelve plaintext bytes are known in advance -
+version 3 plus the two block coordinates - so the extractor encodes that prefix and finds the entry
+by its *stored* bytes. Lookup is therefore one pass over the index rather than a search: Madrigal's
+1,800 entries index in 0.33 s and its 874 blocks extract in about 10 s. Decoding runs as one
+`bytes.translate` per key position, so it needs no new dependency.
+
+**Extraction is strictly offline and non-destructive.** No game process is opened, and no client
+file is written, repacked, or modified. `encode_archive_payload` exists only to rebuild a known
+plaintext prefix in memory so an entry can be recognized.
+
+`extract_world` now merges two terrain sources. A loose `.lnd` is a patch the client itself
+prefers, so it wins; every remaining coordinate in the `.wld` grid is read from the archive. Blocks
+the archive simply does not hold are not failures - Madrigal declares 900 and ships 874, the rest
+being void the client never renders. Extracted maps are named after the region *directory* rather
+than its world script, because the seasonal Madrigal variants all declare `wdmadrigal` and a shared
+name would have them overwrite each other.
+
+Persistence changes shape with schema version 3. Height grids no longer sit inside the JSON
+document: `save_world_map` writes each block beside it as a plain 66,576-byte `.lnd` height field
+under `data/navigation/worlds/<region>/`, and `load_world_map` reads them back. Madrigal is
+therefore an 11 MB document plus 58 MB of height fields instead of a single JSON of several hundred
+megabytes, and it reloads in about a second. The terrain directory is the extractor's own output
+namespace, so a re-extraction replaces its `.lnd` files wholesale rather than merging with a larger
+earlier run.
+
+**Two client layouts are read, and the third is refused rather than guessed at.** Twenty-five
+regions ship a `.hdr` whose records carry an extra leading `-1` field; every later offset lands
+wrong and the index cannot describe itself. Those archives are reported as
+`UNSUPPORTED_ARCHIVE_INDEX` and skipped, and the region still extracts whatever it leaves loose -
+`wdverux` keeps 7 blocks and all 281 spawn zones. A packed block that decodes to something other
+than a version 3 height field is reported as `UNREADABLE_ARCHIVE_BLOCK`, and a `.dyo` in one of the
+placement layouts this reader does not know is reported as `UNREADABLE_OBJECT_FILE`. All three are
+typed `ExtractionDiagnostic` values that the CLI prints as localized lines on stderr and the world
+dialog summarizes as a count; none of them costs a region its height field.
+
+`uv run python -m flyff_bot --extract-world` drives this offline. It opens no game window, takes
+`--client-world-root`, `--world-map-directory`, and a repeatable `--world` region filter, and
+reports blocks extracted against blocks declared per region. Eden goes from 1 mapped block to all
+25, with sampled height coverage over its whole 5-by-5 grid.
+
+The automated repository gate passed at 768 tests passed, 3 skipped, and 92.44% coverage, and the
+extractor was run against the operator's own unmodified Entropia installation. Terrain accuracy in
+a live `neuz.exe` session - that routes over newly mapped blocks match what the client's physics
+actually permits - remains outstanding and is not claimed here.
 
 ## Asynchronous farming telemetry and offline dataset export (US-054, in progress)
 

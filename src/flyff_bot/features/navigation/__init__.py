@@ -69,6 +69,8 @@ from flyff_bot.features.navigation.vector_routing import (
     VectorRoutePlanner,
 )
 from flyff_bot.features.navigation.world_extractor import (
+    ExtractionDiagnostic,
+    ExtractionWarning,
     ObstacleKind,
     ObstacleRectangle,
     VectorSpawnZone,
@@ -84,9 +86,12 @@ from flyff_bot.features.navigation.world_extractor import (
     save_world_map,
     summarize,
     world_map_path,
+    world_terrain_directory,
 )
 
 __all__ = [
+    "ExtractionDiagnostic",
+    "ExtractionWarning",
     "GridCell",
     "LeashBound",
     "LivePositionReader",
@@ -150,5 +155,6 @@ __all__ = [
     "save_world_map",
     "summarize",
     "world_map_path",
+    "world_terrain_directory",
     "zone_goals_from_selection",
 ]
