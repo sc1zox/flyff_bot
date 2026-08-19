@@ -60,7 +60,7 @@ a kill from the counter instead of guessing from target HP alone**.
 ## Out of scope
 
 - Bundling a Tesseract binary or its language data with the application (see
-  [US-033](../US-033-tesseract-ocr-automated-installation-and-detection.md)).
+  [US-033](../obsolete/US-033-tesseract-ocr-automated-installation-and-detection.md)).
 - Reading any stats-HUD field other than `Monster Kills:`.
 - Making the HUD text colour operator-configurable; it is a client constant.
 

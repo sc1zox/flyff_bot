@@ -17,10 +17,10 @@ so that **I can visually verify the character's exact spatial alignment with the
 ## Context and assumptions
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
-- [US-045](completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md) extracts vector spawn zones, terrain elevation, and impassable slope meshes (`WorldVectorMap`) and introduces `WorldRegistration` to map client world coordinates to session minimap pixels.
-- [US-035](completed/US-035-measured-minimap-odometry-and-tracking-quality.md) measures live player position and heading from the minimap via phase correlation.
-- [US-037](completed/US-037-measured-spawn-distance-and-enforced-leash.md) defines and enforces the patrol leash radius around the session anchor.
-- [BUG-008](../bugs/fixed/BUG-008-placement-guides-in-game-overlay.md) established the transparent desktop overlay architecture: a frameless, click-through (`Qt.WindowType.WindowTransparentForInput`, `WA_ShowWithoutActivating`, `WA_TranslucentBackground`) `Qt.Tool` window tracking the game client window on screen via `ClientGeometryProvider` without stealing window focus or pausing guarded sessions.
+- [US-045](../completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md) extracts vector spawn zones, terrain elevation, and impassable slope meshes (`WorldVectorMap`) and introduces `WorldRegistration` to map client world coordinates to session minimap pixels.
+- [US-035](../completed/US-035-measured-minimap-odometry-and-tracking-quality.md) measures live player position and heading from the minimap via phase correlation.
+- [US-037](../completed/US-037-measured-spawn-distance-and-enforced-leash.md) defines and enforces the patrol leash radius around the session anchor.
+- [BUG-008](../../bugs/fixed/BUG-008-placement-guides-in-game-overlay.md) established the transparent desktop overlay architecture: a frameless, click-through (`Qt.WindowType.WindowTransparentForInput`, `WA_ShowWithoutActivating`, `WA_TranslucentBackground`) `Qt.Tool` window tracking the game client window on screen via `ClientGeometryProvider` without stealing window focus or pausing guarded sessions.
 - In Area Farm Mode, the start point / anchor defines the reference origin $(0, 0)$ for relative navigation or the registered centroid of the active `VectorSpawnZone` in the world vector map.
 - The overlay must display:
   - The start point / anchor position (crosshair / marker symbol with coordinate and zone name label).

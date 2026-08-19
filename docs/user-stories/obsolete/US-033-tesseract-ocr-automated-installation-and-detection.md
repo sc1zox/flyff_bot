@@ -31,7 +31,7 @@ As a **bot operator on Windows**, I want **the desktop UI to detect a missing Te
 - [ ] The UI provides visual status feedback during installation (e.g., "Installing OCR engine...", "Installation completed successfully", or "Installation failed").
 - [ ] If `winget` is missing, permissions are denied (UAC cancelled), or the process exits with an error, the failure is reported clearly to the operator with actionable guidance.
 - [ ] Upon successful installation, the application triggers a live reload/re-check of `resolve_tesseract_executable()`, transitioning the OCR status from `ENGINE_UNAVAILABLE` to ready without restarting the application.
-- [ ] All user-visible dialog messages, buttons, and status labels are synchronized in German and English in `src/flyff_bot/locales/de.json` and `src/flyff_bot/locales/en.json`.
+- [ ] All user-visible dialog messages, buttons, and status labels are synchronized in German and English in `../../../src/flyff_bot/locales/de.json` and `../../../src/flyff_bot/locales/en.json`.
 
 ## Out of scope
 
@@ -43,9 +43,9 @@ As a **bot operator on Windows**, I want **the desktop UI to detect a missing Te
 ## Verification
 
 - Automated:
-  - Unit tests in `tests/unit/` for the installation worker / runner with mocked `subprocess` / `winget` outcomes (success, UAC cancellation, missing executable).
+  - Unit tests in `../../../tests/unit` for the installation worker / runner with mocked `subprocess` / `winget` outcomes (success, UAC cancellation, missing executable).
   - Unit tests verifying live re-evaluation of `resolve_tesseract_executable()` and dynamic recovery of `MonsterStatsReader` / `TargetVerifier` without restarting the process.
-  - Locale synchronization check in `tests/unit/test_i18n.py`.
+  - Locale synchronization check in `../../../tests/unit/test_i18n.py`.
 - Manual (Windows):
   - On a clean Windows machine without Tesseract installed, launch `flyff-bot ui`.
   - Verify that the UI displays the missing OCR engine prompt and the install button.
