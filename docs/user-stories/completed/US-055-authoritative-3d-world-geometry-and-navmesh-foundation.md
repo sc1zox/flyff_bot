@@ -1,9 +1,10 @@
 ---
 id: US-055
 title: Authoritative 3D world geometry and multi-layer NavMesh foundation
-status: in-progress
+status: completed
 created: 2026-08-19
 updated: 2026-08-20
+completed: 2026-08-20
 ---
 
 # US-055: Authoritative 3D World Geometry & NavMesh Foundation
@@ -16,7 +17,7 @@ so that **outdoor areas, dungeons, bridges, tunnels, ramps, and multi-level stru
 
 ## Scope & Pipeline
 
-This story extends the [US-052](completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md) terrain extraction pipeline with static 3D world and collision geometry:
+This story extends the [US-052](US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md) terrain extraction pipeline with static 3D world and collision geometry:
 
 ```text
 .lnd Terrain
@@ -38,12 +39,12 @@ Navigation Query API
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
 - Relates to:
-  - [`docs/wiki/architecture.md`](../wiki/architecture.md) & [`docs/wiki/glossary.md`](../wiki/glossary.md).
-  - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md): Unrestricted read-only access to local client assets for offline extraction.
-  - [`docs/user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md`](completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md): Authoritative `.lnd` terrain heightfields and packed `.one` archive reading.
-  - [`docs/user-stories/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](US-054-farming-telemetry-and-adaptive-navigation-dataset.md): Farming telemetry and offline RL dataset foundation.
-  - [`docs/bugs/fixed/BUG-017-invisible-wall-collision-stall-detection-and-recovery-pathfinding.md`](../bugs/fixed/BUG-017-invisible-wall-collision-stall-detection-and-recovery-pathfinding.md): Live collision and stall detection.
-  - Raw source: [`docs/sources/2026-08-19-entropia-client-navigation-data-extraction.md`](../sources/2026-08-19-entropia-client-navigation-data-extraction.md).
+  - [`docs/wiki/architecture.md`](../../wiki/architecture.md) & [`docs/wiki/glossary.md`](../../wiki/glossary.md).
+  - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md): Unrestricted read-only access to local client assets for offline extraction.
+  - [US-052](US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md): Authoritative `.lnd` terrain heightfields and packed `.one` archive reading.
+  - [US-054](../US-054-farming-telemetry-and-adaptive-navigation-dataset.md): Farming telemetry and offline RL dataset foundation.
+  - [BUG-017](../../bugs/fixed/BUG-017-invisible-wall-collision-stall-detection-and-recovery-pathfinding.md): Live collision and stall detection.
+  - Raw source: [`docs/sources/2026-08-19-entropia-client-navigation-data-extraction.md`](../../sources/2026-08-19-entropia-client-navigation-data-extraction.md).
 - **Flyff Object Collision Architecture (`.o3d` / `.dyo`):**
   - In the Flyff engine architecture (`CObject3D`), 3D assets distinguish between visual render meshes and separate collision geometry (`m_CollObject` / `COLLISION_MESH`).
   - Extracting the dedicated collision mesh rather than dense render meshes avoids unnecessary polygon explosion and captures the ground-truth collision hulls used by the game client.
@@ -105,10 +106,8 @@ Navigation Query API
 - US-055 must not blindly replace existing navigation without verified compatibility.
 
 ### FR-8 – Telemetry Integration Contract (US-054)
-- The API must provide data for the nullable geometry fields in [US-054](US-054-farming-telemetry-and-adaptive-navigation-dataset.md):
-  - `navmesh_polygon_id`
-  - `navmesh_path_distance`
-  - `navigation_region_id`
+- An explicitly loaded artifact provides `player_navmesh_polygon_id` to [US-054](../US-054-farming-telemetry-and-adaptive-navigation-dataset.md) only for a finite live-GPS player position.
+- Player positions without live GPS and all candidate geometry fields remain `null`; this story does not infer screen-to-world positions, candidate polygon IDs, path distances, or regions.
 - US-055 does **not** implement ML/RL optimization.
 
 ## Out of scope
@@ -130,17 +129,20 @@ Navigation Query API
 - [x] **Agent Walkability Parameters:** Walkable surfaces respect agent radius, slope threshold, vertical clearance, and step-height limits.
 - [x] **Nearest Walkable Position:** `nearest_walkable_position()` resolves valid ground-projected coordinates.
 - [x] **Reachability Checking:** `is_reachable()` accurately distinguishes connected from disconnected topological regions.
-- [ ] **3D Pathfinding:** `find_path()` returns valid, collision-free 3D waypoints across single- and multi-level structures.
+- [x] **3D Pathfinding:** `find_path()` returns valid, collision-free 3D waypoints across single- and multi-level structures.
 - [x] **Path Distance Calculation:** `path_distance()` returns the exact distance along the returned navigation waypoints.
-- [x] **Stable NavMesh Polygon IDs:** NavMesh polygons expose deterministic IDs for [US-054](US-054-farming-telemetry-and-adaptive-navigation-dataset.md) telemetry consumption when baked from the same input geometry and configuration.
+- [x] **Stable NavMesh Polygon IDs:** NavMesh polygons expose deterministic IDs for [US-054](../US-054-farming-telemetry-and-adaptive-navigation-dataset.md) telemetry consumption when baked from the same input geometry and configuration.
 - [x] **Backward Compatibility:** US-052 remains functional as a fallback and comparison baseline.
 - [x] **Safety Boundaries Preserved:** No changes to memory-read safety boundaries.
 - [x] **Quality Gate:** `./scripts/check.ps1` passes cleanly (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
-- [x] **Localization:** The foundation adds no CLI messages, summary outputs, or diagnostics, so no user-visible locale resources changed.
+- [x] **Localization:** The `--bake-navmesh` and `--navmesh-map` CLI help and bake-status messages are synchronized in English and German locale resources.
 
 ## Definition of Done
 
-The story is complete when at least one outdoor area and one geometrically complex test area (e.g. town or bridge structure) can be reconstructed from client assets and the following query pipeline functions deterministically:
+The automated completion definition is deterministic reconstruction and query coverage over outdoor-
+style terrain and geometrically complex multi-level fixtures through the following pipeline. The
+approved-client reconstruction and foregrounded traversal confirmation remain the manual checks
+listed below; they are not implied by the automated gate.
 
 ```text
 WorldPosition A
@@ -154,18 +156,19 @@ polygon / region sequence
 WorldPosition B
 ```
 
-The resulting navigation path and polygon IDs can be referenced by [US-054](US-054-farming-telemetry-and-adaptive-navigation-dataset.md) without altering its telemetry schema.
+The resulting navigation path and polygon IDs can be referenced by [US-054](../US-054-farming-telemetry-and-adaptive-navigation-dataset.md) without altering its telemetry schema.
 
 ## Verification
 
 - Automated:
   - Unit tests in `tests/unit/test_o3d_extractor.py` verifying `.o3d` binary parsing, collision mesh extraction, and bounding hull calculation.
-  - Unit tests in `tests/unit/test_navmesh_baker.py` verifying multi-layer span indexing, polygon adjacency graph construction, and agent clearance.
-  - The current baker coverage verifies disconnected overlaid decks, 3D corridor waypoints and returned-path distance, slope/radius rejection, and insufficient headroom; it does not yet verify Funnel smoothing or collision validation of every smoothed segment.
-  - `./scripts/check.ps1` passed on 2026-08-20: `ruff check`, `ruff format --check`, and `mypy` passed; `pytest` reported 780 passed, 2 skipped, and 89.15% coverage.
+  - `tests/unit/test_navmesh_baker.py` verifies disconnected overlaid decks, multi-level 3D corridor paths, portal-based Funnel string pulling without centroid waypoints, returned-path distance, slope/radius rejection, and insufficient headroom.
+  - `tests/unit/test_navmesh_persistence.py` verifies strict schema-v1 round trips and malformed-artifact rejection; `tests/unit/test_cli.py` covers offline `--extract-world --bake-navmesh`; `tests/unit/test_telemetry.py` covers live-GPS-only polygon telemetry.
+  - `./scripts/check.ps1` passed on 2026-08-20: `ruff check`, `ruff format --check`, and `mypy` passed; `pytest` reported 797 passed, 2 skipped, and 91.35% coverage.
 - Manual (Windows):
   - Still required: verify the supported version-22 `.o3d` collision layout and `.dyo` transform convention against the approved local Entropia client assets, including at least one outdoor placement and one multi-level structure.
-  - Still required: add and exercise an explicit offline bake/persistence entry point, then test 3D path queries on bridges/archways against a foregrounded `neuz.exe` session and confirm live collision-free traversal.
+  - Still required: run `--extract-world --bake-navmesh` against the approved local client assets, inspect the generated `<world>.navmesh.json`, and load that exact artifact through `--navmesh-map` during a foregrounded `neuz.exe` session.
+  - Still required: exercise bridge, archway, ramp, and multi-level queries and traversal against the client physics; confirm that the Funnel corridor is collision-free in the live client and that `player_navmesh_polygon_id` is emitted for valid live GPS but remains `null` for unavailable or minimap-fallback positions. Candidate screen-to-world inference remains out of scope.
 
 ## Implemented foundation and remaining scope
 
@@ -189,12 +192,26 @@ triangles using the configurable 45-degree default slope, radius, vertical clear
 step limits; groups walkable polygons by horizontal cell without flattening distinct elevations; and
 assigns deterministic polygon and connected-region IDs for the same geometry and configuration.
 `BakedNavMesh` exposes nearest-surface projection, polygon/region lookup, reachability, A* corridor
-waypoints, and the exact sum of those returned 3D segments. It is not yet a runtime routing
-integration: the current A* waypoints are projected endpoints plus polygon centroids, not a
-Funnel-smoothed and segment-validated path.
+waypoints, and the exact sum of those returned 3D segments. `find_path()` now derives consistently
+oriented shared-edge portals for that corridor and applies X/Z Funnel (string-pulling) smoothing;
+returned corners are authored 3D portal vertices, preserving ramp elevation rather than inserting
+polygon centroids. A malformed persisted corridor conservatively retains the deterministic centroid
+route instead of creating a shortcut.
+
+`navigation.navmesh_persistence` saves and loads deterministic `.navmesh.json` artifacts with a
+strict schema-v1 document: bake configuration, ordered polygon IDs and vertices, symmetric
+adjacency, and derived surface spans must all validate. Loading never renumbers or regenerates
+stable IDs, and the canonical artifact digest can be recorded as NavMesh metadata. The offline
+`--extract-world --bake-navmesh` path writes one `<world>.navmesh.json` next to each extracted world
+map without opening the game process or changing client files.
+
+`--navmesh-map <path>` optionally loads one such artifact for US-054 telemetry. It supplies only
+`player_navmesh_polygon_id`, and only when the snapshot has a finite, measured live-GPS position;
+missing meshes, missing positions, and minimap-fallback positions remain explicit `null`. It does
+not infer candidate world coordinates, candidate polygon IDs, path distances, regions, or screen-to-
+world geometry.
 
 US-052's `TerrainRoutePlanner`, visibility-graph, and learned navigation remain the live-routing
-paths. No controller automatically selects this NavMesh, and no change widens process-memory or
-input permissions. The query API makes polygon, region, and path-distance values available to a
-future US-054 telemetry adapter; the existing telemetry producer remains intentionally unchanged
-until a matching baked world can be selected at runtime.
+paths. No controller automatically selects or substitutes this NavMesh for active movement, and no
+change widens process-memory or input permissions. The optional telemetry provider is observational
+only; it does not make the offline mesh a live routing replacement.

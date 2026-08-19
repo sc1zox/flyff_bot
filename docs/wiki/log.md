@@ -742,3 +742,18 @@ access to exact fingerprinted fixed ranges and to clarify that `check.ps1` is a 
 complete prohibited-API detector. The automated gate passed at 792 tests passed, 2 skipped, and
 91.48% coverage; Windows live rotation, zoom, resize, sign, latency, restart, and minimize checks
 remain outstanding.
+
+## [2026-08-20] synthesis | Completed Funnel, persisted NavMesh, and telemetry polygon wiring (US-055)
+
+Updated the US-055 architecture and glossary synthesis for completed offline NavMesh work: X/Z
+Funnel string pulling over consistently oriented polygon portals, strict schema-v1 canonical
+`.navmesh.json` persistence, and the offline `--extract-world --bake-navmesh` workflow. The optional
+`--navmesh-map` provider now gives US-054 `player_navmesh_polygon_id` only from finite live GPS;
+minimap fallback, missing mesh/position, and all candidate screen-to-world fields remain explicit
+`null` rather than inferred.
+
+The full repository gate passed on 2026-08-20 at 797 passed, 2 skipped, and 91.35% coverage.
+US-052 and other navigation paths remain the live-routing fallbacks: this does not activate NavMesh
+routing. Manual Windows/client-asset validation remains open for the supported collision/placement
+formats, generated artifacts, bridge/archway/ramp traversal, live Funnel collision confirmation,
+and live-GPS telemetry polygon output.

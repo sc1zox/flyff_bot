@@ -244,6 +244,32 @@ def test_extract_world_writes_a_map_and_its_height_fields_without_a_game_window(
     assert "1 regions extracted" in printed
 
 
+def test_extract_world_optionally_bakes_a_persisted_navmesh_without_a_game_window(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: MonkeyPatch
+) -> None:
+    root = tmp_path / "client"
+    write_world_directory(root, "wdtest", blocks=[(0, 0, flat_heights(50.0))])
+    output = tmp_path / "worlds"
+    monkeypatch.setattr(cli, "terrain_triangles", lambda _blocks, _dimensions: ())
+
+    exit_code = cli.main(
+        [
+            "--extract-world",
+            "--bake-navmesh",
+            "--client-world-root",
+            str(root),
+            "--world-map-directory",
+            str(output),
+            "--language",
+            "en",
+        ]
+    )
+
+    assert exit_code == ExitCode.SUCCESS
+    assert (output / "wdtest.navmesh.json").is_file()
+    assert "baked 0 NavMesh polygons" in capsys.readouterr().out
+
+
 def test_extract_world_reports_an_unreadable_archive_and_keeps_going(
     tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:

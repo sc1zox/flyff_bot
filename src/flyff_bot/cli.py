@@ -58,7 +58,6 @@ from flyff_bot.features.navigation.navmesh_persistence import (
 )
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.persistence import load_profile
-from flyff_bot.features.navigation.world_geometry import terrain_triangles
 from flyff_bot.features.navigation.world_extractor import (
     ExtractionDiagnostic,
     ExtractionWarning,
@@ -69,6 +68,7 @@ from flyff_bot.features.navigation.world_extractor import (
     save_world_map,
     summarize,
 )
+from flyff_bot.features.navigation.world_geometry import terrain_triangles
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.telemetry import (
     JsonlTelemetryWorker,

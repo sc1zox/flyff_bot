@@ -59,6 +59,24 @@ def test_connected_surface_path_is_3d_and_distance_matches_returned_waypoints() 
     )
 
 
+def test_funnel_string_pulling_uses_polygon_portals_instead_of_centroids() -> None:
+    triangles = (
+        *_deck(0.0, "west"),
+        _triangle((4.0, 0.0, 0.0), (8.0, 0.0, 0.0), (4.0, 0.0, 4.0), "east"),
+        _triangle((8.0, 0.0, 0.0), (8.0, 0.0, 4.0), (4.0, 0.0, 4.0), "east"),
+        _triangle((4.0, 0.0, 4.0), (8.0, 0.0, 4.0), (4.0, 0.0, 8.0), "north"),
+        _triangle((8.0, 0.0, 4.0), (8.0, 0.0, 8.0), (4.0, 0.0, 8.0), "north"),
+    )
+    mesh = NavMeshBaker().bake(triangles)
+
+    path = mesh.find_path(WorldPosition(1.0, 0.0, 1.0), WorldPosition(6.0, 0.0, 6.0))
+
+    assert path[0] == WorldPosition(1.0, 0.0, 1.0)
+    assert path[-1] == WorldPosition(6.0, 0.0, 6.0)
+    assert len(path) < 5
+    assert all(point not in {polygon.centroid for polygon in mesh.polygons} for point in path[1:-1])
+
+
 def test_agent_radius_and_slope_limits_reject_unsuitable_surfaces() -> None:
     narrow = _triangle((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), "narrow")
     steep = _triangle((0.0, 0.0, 0.0), (4.0, 5.0, 0.0), (0.0, 0.0, 4.0), "steep")

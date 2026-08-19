@@ -6,6 +6,8 @@ from pathlib import Path
 
 from flyff_bot.features.automation.models import Position, Viewport, VisibleMob, WorldState
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
+from flyff_bot.features.navigation.navmesh import NavMeshBaker
+from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
 from flyff_bot.features.telemetry import (
     JsonlTelemetryWorker,
     KinematicsDeriver,
@@ -97,6 +99,50 @@ def test_recorder_derives_live_velocity(tmp_path: Path) -> None:
         .splitlines()
     ]
     assert records[2]["payload"]["player_velocity"] == {"x": 1.0, "y": 0.0, "z": 0.0}
+
+
+def test_recorder_wires_loaded_navmesh_polygon_for_live_gps_only(tmp_path: Path) -> None:
+    mesh = NavMeshBaker().bake(
+        (
+            WorldTriangle(
+                WorldVertex(0.0, 0.0, 0.0),
+                WorldVertex(4.0, 0.0, 0.0),
+                WorldVertex(0.0, 0.0, 4.0),
+                "fixture",
+            ),
+        )
+    )
+    timestamps = iter((1, 2, 3, 4))
+    recorder = TelemetryRecorder(
+        TelemetrySessionMetadata(area_id="area", session_id="navmesh"),
+        lambda session_id, area_id: JsonlTelemetryWorker(session_id, area_id, root=tmp_path),
+        clock_ns=lambda: next(timestamps),
+        utc_now=lambda: datetime(2026, 8, 19, tzinfo=UTC),
+        navmesh=mesh,
+    )
+    recorder.start()
+    recorder.record_snapshot(
+        _state(),
+        "searching",
+        live_position=WorldPosition(1.0, 0.0, 1.0),
+        position_source=PositionSource.LIVE,
+    )
+    recorder.record_snapshot(
+        _state(),
+        "searching",
+        live_position=WorldPosition(1.0, 0.0, 1.0),
+        position_source=PositionSource.MINIMAP_FALLBACK,
+    )
+    recorder.close()
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "area" / "2026-08-19" / "session_navmesh.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+
+    assert records[1]["payload"]["player_navmesh_polygon_id"] == "1"
+    assert records[2]["payload"]["player_navmesh_polygon_id"] is None
 
 
 def test_recorder_persists_only_live_terrain_route_trajectory_and_stalls(tmp_path: Path) -> None:

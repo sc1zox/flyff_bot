@@ -67,7 +67,7 @@ related:
   - ../user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md
   - ../user-stories/completed/US-053-pure-gps-navigation-and-client-profile-configuration.md
   - ../user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md
-  - ../user-stories/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
+  - ../user-stories/completed/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
 ---
 
 # Architecture
@@ -1391,7 +1391,7 @@ extractor was run against the operator's own unmodified Entropia installation. T
 a live `neuz.exe` session - that routes over newly mapped blocks match what the client's physics
 actually permits - remains outstanding and is not claimed here.
 
-## Offline O3D geometry and multi-layer NavMesh foundation (US-055, in progress)
+## Offline O3D geometry and multi-layer NavMesh foundation (US-055, completed)
 
 US-055 adds a deliberately narrow **offline** geometry/query layer below the existing live
 controllers. `navigation.o3d_extractor` reads supported version-22 O3D payloads only: it checks the
@@ -1415,16 +1415,32 @@ collapsing vertically distinct floors; polygon adjacency requires a common edge 
 step. Canonical triangle ordering gives polygon and connected-region IDs deterministic values for
 the same geometry/configuration. `BakedNavMesh` exposes nearest-surface projection, polygon and
 region lookup, reachability, A* polygon-corridor waypoints, and distance as the exact sum of the
-returned 3D segments.
+returned 3D segments. `find_path()` turns the ordered shared portal edges into a consistently
+oriented X/Z Funnel corridor: string pulling removes centroid detours while retaining the selected
+portal vertices' authored 3D elevations. A malformed persisted corridor falls back to the
+conservative deterministic centroid route instead of making an unverified shortcut.
 
-This is an implemented foundation rather than an active movement path. No controller loads or
-automatically chooses a baked mesh, and US-052 terrain A*, vector visibility routing, and learned
-navigation remain the live fallbacks. The A* route currently uses projected endpoints and polygon
-centroids; Funnel smoothing and collision validation of every smoothed segment remain open, as do a
-CLI bake/persistence workflow, real outdoor and multi-level client-asset reconstruction, telemetry
-adapter wiring, and foregrounded Windows/client traversal validation. The new modules use client
-files only and do not read or write process memory, dispatch input, mutate archives, or widen the
-existing safety paths.
+`navigation.navmesh_persistence` persists a canonical `.navmesh.json` document at strict schema
+version 1. It validates the configuration, contiguous ordered polygon IDs, finite vertices,
+symmetric adjacency, and exact derived surface spans before exposing a mesh; it never regenerates
+stable IDs during loading. `--extract-world --bake-navmesh` performs this terrain-NavMesh bake
+offline for each extracted region and writes `<world>.navmesh.json` next to its world map. The
+optional `--navmesh-map <path>` loads one validated artifact for telemetry and records its content
+digest in session metadata.
+
+US-054 now receives `player_navmesh_polygon_id` from that optional provider only when a snapshot
+has a finite live-GPS position. Missing artifacts/positions and minimap-fallback positions remain
+JSON `null`; candidate polygon IDs, candidate world coordinates, regions, path distances, and other
+screen-to-world fields are not inferred. This is an observational telemetry integration, not a
+screen-geometry adapter.
+
+This remains an offline foundation rather than an active movement path. No controller loads or
+automatically chooses a baked mesh for routing, and US-052 terrain A*, vector visibility routing,
+and learned navigation remain the live fallbacks. The new modules use client files only and do not
+read or write process memory, dispatch input, mutate archives, or widen the existing safety paths.
+The full automated gate passed on 2026-08-20 at 797 passed, 2 skipped, and 91.35% coverage. Real
+client-asset reconstruction and foregrounded Windows/client traversal—including live Funnel
+collision confirmation—remain manual checks, not automated claims.
 
 ## Asynchronous farming telemetry and offline dataset export (US-054, in progress)
 
@@ -1449,9 +1465,11 @@ SQLite, and generated datasets remain local git-ignored operational data, not so
 
 The current landing is intentionally partial. `TelemetryRecorder` can represent navigation episodes
 and stall events, but the active navigation controller does not yet emit them, so no real trajectory,
-replan, or stall episode reaches storage. Likewise, the current US-052 geometry/raycast provider is
-not available: NavMesh polygon/slope and candidate world-coordinate/path fields are emitted as
-explicit JSON `null` values rather than inferred from screen geometry. A verified kill cycle carries
+replan, or stall episode reaches storage. Candidate geometry/raycast providers remain unavailable:
+candidate world-coordinate and path fields are emitted as explicit JSON `null` values rather than
+inferred from screen geometry. When an operator explicitly loads a US-055 artifact, the player
+NavMesh polygon ID is populated only from finite live GPS; it remains `null` for minimap fallback
+or no matching mesh. A verified kill cycle carries
 actual combat duration, but its decision and navigation components are not yet instrumented, so the
 required four-part kill-to-kill decomposition remains open. Session header fields for client hash,
 bot version, loaded NavMesh version, and spawn-zone metadata also await their producers; candidate

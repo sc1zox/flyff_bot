@@ -116,7 +116,9 @@ def _document(mesh: BakedNavMesh) -> dict[str, object]:
 
 
 def _encode(document: dict[str, object]) -> bytes:
-    return json.dumps(document, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return json.dumps(document, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode(
+        "utf-8"
+    )
 
 
 def _digest(encoded: bytes) -> str:
@@ -140,7 +142,8 @@ def _polygons(value: object) -> tuple[NavMeshPolygon, ...]:
         vertices = _sequence(data.get("vertices"), "vertices")
         if len(vertices) != 3:
             raise NavMeshPersistenceError("NavMesh polygons must have exactly three vertices.")
-        triangle = WorldTriangle(*(_vertex(item) for item in vertices), source)
+        first, second, third = (_vertex(item) for item in vertices)
+        triangle = WorldTriangle(first, second, third, source)
         polygons.append(NavMeshPolygon(polygon_id, region_id, triangle))
     return tuple(polygons)
 
@@ -153,11 +156,24 @@ def _adjacency(value: object, polygons: tuple[NavMeshPolygon, ...]) -> dict[int,
     adjacency: dict[int, tuple[int, ...]] = {}
     for raw_key, raw_neighbours in data.items():
         polygon_id = _integer_from_string(raw_key, "adjacency polygon ID")
-        neighbours = tuple(_integer(item, "adjacent polygon ID") for item in _sequence(raw_neighbours, "adjacency neighbours"))
-        if neighbours != tuple(sorted(set(neighbours))) or polygon_id in neighbours or not set(neighbours) <= ids:
-            raise NavMeshPersistenceError("NavMesh adjacency must be sorted, distinct, and in range.")
+        neighbours = tuple(
+            _integer(item, "adjacent polygon ID")
+            for item in _sequence(raw_neighbours, "adjacency neighbours")
+        )
+        if (
+            neighbours != tuple(sorted(set(neighbours)))
+            or polygon_id in neighbours
+            or not set(neighbours) <= ids
+        ):
+            raise NavMeshPersistenceError(
+                "NavMesh adjacency must be sorted, distinct, and in range."
+            )
         adjacency[polygon_id] = neighbours
-    if any(polygon_id not in adjacency[neighbour] for polygon_id, neighbours in adjacency.items() for neighbour in neighbours):
+    if any(
+        polygon_id not in adjacency[neighbour]
+        for polygon_id, neighbours in adjacency.items()
+        for neighbour in neighbours
+    ):
         raise NavMeshPersistenceError("NavMesh adjacency must be symmetric.")
     return adjacency
 
@@ -173,7 +189,9 @@ def _spans(
             _integer(_mapping(entry, "surface span").get("cell_z"), "cell_z"),
             tuple(
                 _integer(item, "surface span polygon ID")
-                for item in _sequence(_mapping(entry, "surface span").get("polygon_ids"), "polygon_ids")
+                for item in _sequence(
+                    _mapping(entry, "surface span").get("polygon_ids"), "polygon_ids"
+                )
             ),
         )
         for entry in entries
@@ -184,7 +202,9 @@ def _spans(
         or not set(span.polygon_ids) <= ids
         for span in spans
     ):
-        raise NavMeshPersistenceError("NavMesh surface spans must contain sorted valid polygon IDs.")
+        raise NavMeshPersistenceError(
+            "NavMesh surface spans must contain sorted valid polygon IDs."
+        )
     expected = _expected_spans(polygons, config.cell_size_units)
     if spans != expected:
         raise NavMeshPersistenceError("NavMesh surface spans do not match the persisted polygons.")

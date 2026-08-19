@@ -315,8 +315,14 @@ related:
   elevations in that cell, so bridge decks and ground beneath them do not collapse into one surface.
 - **Baked NavMesh** - The deterministic offline query object formed from walkable world triangles
   under one agent configuration. It projects positions, reports polygon/region IDs, tests
-  reachability, returns A* polygon-corridor waypoints, and sums those 3D segments; it is not yet a
-  live movement controller or a Funnel-smoothed path service.
+  reachability, returns Funnel-smoothed A* polygon-corridor waypoints, and sums those 3D segments;
+  it is not a live movement controller or a replacement for existing live-routing paths.
+- **Funnel string pulling** - X/Z-plane smoothing of an A* polygon corridor through consistently
+  oriented shared-edge portals. It removes centroid detours while retaining the selected authored
+  3D portal vertices, including their ramp or deck elevations.
+- **NavMesh artifact** - A canonical `<world>.navmesh.json` file persisted at strict schema version
+  1. It contains bake configuration, ordered polygons, symmetric adjacency, and derived surface
+  spans; loading validates all of them without renumbering the stable polygon IDs.
 - **Teleport anchor** - An operator-configured destination position and hotkey used for long-range
   dispatch. It is confirmed from a fresh live position; it is not inferred from `teleport.bin`,
   which contains option identifiers but no verified destination semantics.
@@ -352,6 +358,8 @@ related:
 - **Telemetry dataset export** — `TelemetryDatasetExporter` and `--export-telemetry`, which compile
   SQLite event records into zstd-compressed Parquet tables for target decisions, navigation
   trajectories, and kill cycles under `data/datasets/rl/`.
-- **Explicitly unavailable geometry** — A telemetry field whose US-052 NavMesh or calibrated
-  raycast producer is absent. Player/candidate geometry, NavMesh polygon, slope, and path fields
-  use `null` when unavailable; the telemetry subsystem must not invent a screen-space estimate.
+- **Explicitly unavailable geometry** — A telemetry field whose producer is absent. An optional
+  loaded NavMesh artifact supplies only the player's polygon ID from finite live GPS; it remains
+  `null` for no artifact, no position, or minimap fallback. Candidate geometry, candidate polygon
+  IDs, slope, and path fields use `null` until their own measured producers exist; telemetry must
+  not invent a screen-space estimate.

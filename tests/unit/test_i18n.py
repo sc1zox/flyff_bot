@@ -71,6 +71,7 @@ def test_each_language_contains_every_message() -> None:
                 root="x",
                 directory="x",
                 regions=0,
+                polygons=0,
             )
 
 

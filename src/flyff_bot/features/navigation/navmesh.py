@@ -157,16 +157,17 @@ class BakedNavMesh:
         )
         if not polygon_path:
             return ()
-        portals = tuple(
-            portal
-            for current, following in pairwise(polygon_path)
-            for portal in (_portal_between(self._by_id[current], self._by_id[following]),)
-        )
-        if len(portals) != len(polygon_path) - 1:
-            # A corridor edge must be a shared triangle edge. Retain the prior deterministic
-            # centroid route rather than turning an unexpected malformed mesh into a shortcut.
-            return _centroid_waypoints(self._by_id, polygon_path, projected_start, projected_goal)
-        return _string_pull(projected_start, portals, projected_goal)
+        portals: list[_Portal] = []
+        for current, following in pairwise(polygon_path):
+            portal = _portal_between(self._by_id[current], self._by_id[following])
+            if portal is None:
+                # A corridor edge must be a shared triangle edge. Retain the prior deterministic
+                # centroid route rather than turning an unexpected malformed mesh into a shortcut.
+                return _centroid_waypoints(
+                    self._by_id, polygon_path, projected_start, projected_goal
+                )
+            portals.append(portal)
+        return _string_pull(projected_start, tuple(portals), projected_goal)
 
     def path_distance(self, start: WorldPosition, goal: WorldPosition) -> float | None:
         """Return the exact sum of the returned 3D path segments, or ``None`` if blocked."""
@@ -212,10 +213,17 @@ class NavMeshBaker:
         accepted = sorted(
             (triangle for triangle in triangles if self._walkable(triangle)), key=_triangle_key
         )
+        clearance_candidates = _clearance_candidates(triangles, self._config.cell_size_units)
         accepted = [
             triangle
             for triangle in accepted
-            if _has_vertical_clearance(triangle, triangles, self._config.agent_height_units)
+            if _has_vertical_clearance(
+                triangle,
+                clearance_candidates[
+                    _clearance_cell(_triangle_centroid(triangle), self._config.cell_size_units)
+                ],
+                self._config.agent_height_units,
+            )
         ]
         adjacency = _adjacency(accepted, self._config.maximum_step_height_units)
         region_by_index = _regions(adjacency)
@@ -306,11 +314,33 @@ def _spans(polygons: tuple[NavMeshPolygon, ...], cell_size: float) -> tuple[Surf
     )
 
 
+def _clearance_candidates(
+    triangles: tuple[WorldTriangle, ...], cell_size: float
+) -> dict[tuple[int, int], tuple[WorldTriangle, ...]]:
+    """Index ceiling candidates by horizontal coverage before per-floor clearance checks."""
+
+    candidates: dict[tuple[int, int], list[WorldTriangle]] = defaultdict(list)
+    for triangle in triangles:
+        vertices = triangle.first, triangle.second, triangle.third
+        first_cell_x = math.floor(min(vertex.x for vertex in vertices) / cell_size)
+        last_cell_x = math.floor(max(vertex.x for vertex in vertices) / cell_size)
+        first_cell_z = math.floor(min(vertex.z for vertex in vertices) / cell_size)
+        last_cell_z = math.floor(max(vertex.z for vertex in vertices) / cell_size)
+        for cell_x in range(first_cell_x, last_cell_x + 1):
+            for cell_z in range(first_cell_z, last_cell_z + 1):
+                candidates[(cell_x, cell_z)].append(triangle)
+    return {cell: tuple(value) for cell, value in candidates.items()}
+
+
+def _clearance_cell(position: WorldPosition, cell_size: float) -> tuple[int, int]:
+    return math.floor(position.x / cell_size), math.floor(position.z / cell_size)
+
+
 def _has_vertical_clearance(
-    floor: WorldTriangle, triangles: tuple[WorldTriangle, ...], agent_height: float
+    floor: WorldTriangle, candidates: tuple[WorldTriangle, ...], agent_height: float
 ) -> bool:
     centroid = _triangle_centroid(floor)
-    for possible_ceiling in triangles:
+    for possible_ceiling in candidates:
         if possible_ceiling == floor:
             continue
         ceiling_y = _height_at_xz(possible_ceiling, centroid.x, centroid.z)
@@ -327,7 +357,9 @@ def _centroid_waypoints(
 ) -> tuple[WorldPosition, ...]:
     """Return the conservative pre-funnel route for an invalid persisted corridor."""
 
-    return _remove_repeated([start, *(polygons[polygon_id].centroid for polygon_id in polygon_path[1:-1]), goal])
+    return _remove_repeated(
+        [start, *(polygons[polygon_id].centroid for polygon_id in polygon_path[1:-1]), goal]
+    )
 
 
 def _portal_between(first: NavMeshPolygon, second: NavMeshPolygon) -> _Portal | None:
@@ -346,9 +378,9 @@ def _portal_between(first: NavMeshPolygon, second: NavMeshPolygon) -> _Portal | 
     direction_end = second.centroid
     orientation = _triarea2(direction_start, direction_end, first_point)
     if orientation > 0.0:
-        return _Portal(first_point, second_point)
-    if orientation < 0.0:
         return _Portal(second_point, first_point)
+    if orientation < 0.0:
+        return _Portal(first_point, second_point)
     # Coplanar/collinear centroids are unusual but deterministic ordering still gives the
     # funnel a valid portal instead of silently changing its route between equal bakes.
     if _point_key(first_point) <= _point_key(second_point):
@@ -562,9 +594,7 @@ def _same_xz(first: WorldPosition, second: WorldPosition) -> bool:
 def _triarea2(first: WorldPosition, second: WorldPosition, third: WorldPosition) -> float:
     """Return the signed doubled X/Z area used by the two-dimensional funnel."""
 
-    return (second.x - first.x) * (third.z - first.z) - (third.x - first.x) * (
-        second.z - first.z
-    )
+    return (second.x - first.x) * (third.z - first.z) - (third.x - first.x) * (second.z - first.z)
 
 
 def _subtract(
