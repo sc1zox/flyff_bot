@@ -65,6 +65,7 @@ related:
   - ../user-stories/completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md
   - ../user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md
   - ../user-stories/completed/US-053-pure-gps-navigation-and-client-profile-configuration.md
+  - ../user-stories/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
 ---
 
 # Architecture
@@ -1387,6 +1388,41 @@ The automated repository gate passed at 768 tests passed, 3 skipped, and 92.44% 
 extractor was run against the operator's own unmodified Entropia installation. Terrain accuracy in
 a live `neuz.exe` session - that routes over newly mapped blocks match what the client's physics
 actually permits - remains outstanding and is not claimed here.
+
+## Offline O3D geometry and multi-layer NavMesh foundation (US-055, in progress)
+
+US-055 adds a deliberately narrow **offline** geometry/query layer below the existing live
+controllers. `navigation.o3d_extractor` reads supported version-22 O3D payloads only: it checks the
+XOR-obfuscated basename embedded in the model header, retains the model bounds, and reconstructs the
+dedicated collision mesh from its source-vertex and indexed buffers. Render geometry is deliberately
+not used as a collision substitute. `extract_o3d_file()` reads a loose model. `extract_packed_o3d()`
+uses the existing read-only HDR/ONE known-prefix lookup for one supplied model name; it cannot
+enumerate the archive's opaque entries, so an unknown model name simply remains unresolved.
+
+`navigation.world_geometry` parses the supported fixed-size DYO placement records and preserves the
+model reference, XYZ translation, yaw and axis rotations, non-uniform scale, and object identity.
+It applies scale, X/Y/Z rotation, and translation to collision vertices, while `terrain_triangles()`
+turns the retained US-052 `LandBlock` height fields into triangles in that same client-world frame.
+`fuse_world_geometry()` only joins a placement whose collision hull is known. It omits missing or
+unsupported models instead of guessing a footprint or treating a visual mesh as physics geometry.
+
+`navigation.navmesh` bakes this static geometry into individually indexed walkable triangles. The
+`AgentNavigationConfig` supplies a 45-degree default slope threshold, radius, height, step, and
+cell-size constraints. `SurfaceSpan` indexes the polygon IDs that share a horizontal cell without
+collapsing vertically distinct floors; polygon adjacency requires a common edge and allowed vertical
+step. Canonical triangle ordering gives polygon and connected-region IDs deterministic values for
+the same geometry/configuration. `BakedNavMesh` exposes nearest-surface projection, polygon and
+region lookup, reachability, A* polygon-corridor waypoints, and distance as the exact sum of the
+returned 3D segments.
+
+This is an implemented foundation rather than an active movement path. No controller loads or
+automatically chooses a baked mesh, and US-052 terrain A*, vector visibility routing, and learned
+navigation remain the live fallbacks. The A* route currently uses projected endpoints and polygon
+centroids; Funnel smoothing and collision validation of every smoothed segment remain open, as do a
+CLI bake/persistence workflow, real outdoor and multi-level client-asset reconstruction, telemetry
+adapter wiring, and foregrounded Windows/client traversal validation. The new modules use client
+files only and do not read or write process memory, dispatch input, mutate archives, or widen the
+existing safety paths.
 
 ## Asynchronous farming telemetry and offline dataset export (US-054, in progress)
 

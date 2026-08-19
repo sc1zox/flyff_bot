@@ -287,6 +287,24 @@ related:
   an unknown record layout. It never aborts the rest of the region.
 - **Terrain route** - A 3D A* route whose edge cost includes elevation and whose walkability rejects
   excessive gradients. Smoothed corner metadata can request lateral strafe to follow a contour.
+- **O3D collision mesh** - The supported version-22 model asset's dedicated collision hull: source
+  vertices and indexed triangles decoded offline after its XOR-obfuscated basename matches the
+  requested file. It is preferred to a render mesh, which is never assumed to describe physics.
+- **Known-name model archive lookup** - Read-only lookup of one caller-supplied O3D file in a model
+  `.hdr` / `.one` pair. The predictable encrypted O3D header is used as a prefix; opaque archive
+  entries are not enumerated and an unknown name is not guessed.
+- **DYO placement** - One supported 200-byte static-object record retaining model reference, XYZ
+  translation, yaw/axis rotation, non-uniform scale, and identity. Its collision vertices are
+  scaled, rotated X/Y/Z, then translated into the same client-world frame as terrain triangles.
+- **World geometry** - The offline union of US-052 terrain triangles and resolved, placed O3D
+  collision triangles. A placement with no supported collision hull is omitted, never replaced by
+  visual geometry or a guessed obstacle.
+- **Surface span** - The polygon IDs indexed in one horizontal NavMesh cell. It retains all distinct
+  elevations in that cell, so bridge decks and ground beneath them do not collapse into one surface.
+- **Baked NavMesh** - The deterministic offline query object formed from walkable world triangles
+  under one agent configuration. It projects positions, reports polygon/region IDs, tests
+  reachability, returns A* polygon-corridor waypoints, and sums those 3D segments; it is not yet a
+  live movement controller or a Funnel-smoothed path service.
 - **Teleport anchor** - An operator-configured destination position and hotkey used for long-range
   dispatch. It is confirmed from a fresh live position; it is not inferred from `teleport.bin`,
   which contains option identifiers but no verified destination semantics.

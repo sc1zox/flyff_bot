@@ -718,3 +718,16 @@ access to game client process memory for automation, navigation, perception, and
 coordinate-only limitation across `AGENTS.md`, `CLAUDE.md`, and project rules while preserving non-invasive
 safety invariants (strictly no memory writes, no code injection, no hooking, and no anti-cheat evasion).
 
+## [2026-08-20] synthesis | Offline O3D geometry and multi-layer NavMesh foundation (US-055, in progress)
+
+Recorded the implemented offline foundation in the architecture and glossary: strict version-22
+O3D collision parsing from loose models or caller-supplied known-name model archive entries;
+supported DYO scale/rotation/translation transforms; terrain-plus-resolved-collision world
+geometry; and a deterministic multi-layer NavMesh query API with agent slope, radius, height, and
+step constraints. The existing US-052 terrain and other live-routing fallbacks remain active, and
+the new code opens neither the game process nor an input path.
+
+Recorded the evidence boundary as well: the full repository gate passed at 780 tests passed, 2
+skipped, and 89.15% coverage, but the implementation does not yet have Funnel-smoothed,
+segment-validated paths, a CLI bake/persistence integration, telemetry-adapter wiring, a real
+outdoor/complex-area reconstruction, or a foregrounded Windows/client traversal walkthrough.

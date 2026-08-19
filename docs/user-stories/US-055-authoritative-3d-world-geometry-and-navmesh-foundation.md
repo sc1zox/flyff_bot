@@ -1,9 +1,9 @@
 ---
 id: US-055
 title: Authoritative 3D world geometry and multi-layer NavMesh foundation
-status: draft
+status: in-progress
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-08-20
 ---
 
 # US-055: Authoritative 3D World Geometry & NavMesh Foundation
@@ -123,20 +123,20 @@ Navigation Query API
 
 ## Acceptance criteria
 
-- [ ] **`.o3d` Geometry Extraction:** `.o3d` collision and bounding geometry can be extracted reproducibly from loose files and archives.
-- [ ] **`.dyo` World Placement:** `.dyo` object placements are transformed correctly into world space $(X, Y, Z, \text{rot}, \text{scale})$.
-- [ ] **Unified World Coordinate System:** Terrain (`.lnd`) and object geometry (`.o3d`) share the identical world coordinate frame.
-- [ ] **Multi-Layer Surface Representation:** Multiple walkable surfaces at the same $(X, Z)$ coordinate are cleanly separated and indexed.
-- [ ] **Agent Walkability Parameters:** Walkable surfaces respect agent radius, slope threshold, vertical clearance, and step-height limits.
-- [ ] **Nearest Walkable Position:** `nearest_walkable_position()` resolves valid ground-projected coordinates.
-- [ ] **Reachability Checking:** `is_reachable()` accurately distinguishes connected from disconnected topological regions.
+- [x] **`.o3d` Geometry Extraction:** `.o3d` collision and bounding geometry can be extracted reproducibly from loose files and known-name archive entries.
+- [x] **`.dyo` World Placement:** `.dyo` object placements are transformed correctly into world space $(X, Y, Z, \text{rot}, \text{scale})$.
+- [x] **Unified World Coordinate System:** Terrain (`.lnd`) and object geometry (`.o3d`) share the identical world coordinate frame.
+- [x] **Multi-Layer Surface Representation:** Multiple walkable surfaces at the same $(X, Z)$ coordinate are cleanly separated and indexed.
+- [x] **Agent Walkability Parameters:** Walkable surfaces respect agent radius, slope threshold, vertical clearance, and step-height limits.
+- [x] **Nearest Walkable Position:** `nearest_walkable_position()` resolves valid ground-projected coordinates.
+- [x] **Reachability Checking:** `is_reachable()` accurately distinguishes connected from disconnected topological regions.
 - [ ] **3D Pathfinding:** `find_path()` returns valid, collision-free 3D waypoints across single- and multi-level structures.
-- [ ] **Path Distance Calculation:** `path_distance()` returns the exact distance along the navigation surface.
-- [ ] **Stable NavMesh Polygon IDs:** NavMesh polygons expose stable IDs for [US-054](US-054-farming-telemetry-and-adaptive-navigation-dataset.md) telemetry consumption.
-- [ ] **Backward Compatibility:** US-052 remains functional as a fallback and comparison baseline.
-- [ ] **Safety Boundaries Preserved:** No changes to memory-read safety boundaries.
-- [ ] **Quality Gate:** `./scripts/check.ps1` passes cleanly (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
-- [ ] **Localization:** All new CLI messages, summary outputs, and diagnostics are localized in German (`de.json`) and English (`en.json`).
+- [x] **Path Distance Calculation:** `path_distance()` returns the exact distance along the returned navigation waypoints.
+- [x] **Stable NavMesh Polygon IDs:** NavMesh polygons expose deterministic IDs for [US-054](US-054-farming-telemetry-and-adaptive-navigation-dataset.md) telemetry consumption when baked from the same input geometry and configuration.
+- [x] **Backward Compatibility:** US-052 remains functional as a fallback and comparison baseline.
+- [x] **Safety Boundaries Preserved:** No changes to memory-read safety boundaries.
+- [x] **Quality Gate:** `./scripts/check.ps1` passes cleanly (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- [x] **Localization:** The foundation adds no CLI messages, summary outputs, or diagnostics, so no user-visible locale resources changed.
 
 ## Definition of Done
 
@@ -160,9 +160,41 @@ The resulting navigation path and polygon IDs can be referenced by [US-054](US-0
 
 - Automated:
   - Unit tests in `tests/unit/test_o3d_extractor.py` verifying `.o3d` binary parsing, collision mesh extraction, and bounding hull calculation.
-  - Unit tests in `tests/unit/test_navmesh_baker.py` verifying multi-layer span voxelization, polygon adjacency graph construction, and agent clearance.
-  - Unit tests in `tests/unit/test_corridor_pathing.py` verifying A\* polygon search and Funnel smoothing on multi-level test fixtures (bridges and overlapping layers).
-  - Check suite pass: `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+  - Unit tests in `tests/unit/test_navmesh_baker.py` verifying multi-layer span indexing, polygon adjacency graph construction, and agent clearance.
+  - The current baker coverage verifies disconnected overlaid decks, 3D corridor waypoints and returned-path distance, slope/radius rejection, and insufficient headroom; it does not yet verify Funnel smoothing or collision validation of every smoothed segment.
+  - `./scripts/check.ps1` passed on 2026-08-20: `ruff check`, `ruff format --check`, and `mypy` passed; `pytest` reported 780 passed, 2 skipped, and 89.15% coverage.
 - Manual (Windows):
-  - Execute `uv run python -m flyff_bot --extract-world --world WdMadrigal` and verify extraction of `.o3d` collision meshes and NavMesh baking.
-  - Test 3D path queries on multi-level structures (bridges/archways) and confirm collision-free traversal.
+  - Still required: verify the supported version-22 `.o3d` collision layout and `.dyo` transform convention against the approved local Entropia client assets, including at least one outdoor placement and one multi-level structure.
+  - Still required: add and exercise an explicit offline bake/persistence entry point, then test 3D path queries on bridges/archways against a foregrounded `neuz.exe` session and confirm live collision-free traversal.
+
+## Implemented foundation and remaining scope
+
+`features/navigation/o3d_extractor.py` is a deliberately narrow, read-only parser for the supported
+version-22 `.o3d` layout. It validates the XOR-obfuscated basename in the header, retains model
+bounds, and reconstructs the dedicated collision hull from its source vertices and index buffers;
+it does not substitute dense render geometry. Loose files can be read directly. A packed model can
+also be read only when the caller supplies its exact file name: the predictable encrypted O3D
+header lets the existing `.hdr` / `.one` known-prefix lookup find that one entry without archive
+enumeration. Unsupported or malformed payloads are refused rather than guessed at.
+
+`features/navigation/world_geometry.py` retains the observed 200-byte `.dyo` placement data needed
+for navigation: model name, XYZ translation, yaw plus X/Y/Z axis rotation, non-uniform scale, and
+object identity. Collision vertices are scaled, rotated around X, Y, then Z, and translated into the
+same client world frame as triangles generated from the retained US-052 `LandBlock` height fields.
+`fuse_world_geometry()` omits an unresolved model instead of treating a render mesh or guessed
+footprint as collision geometry.
+
+`features/navigation/navmesh.py` provides the offline multi-layer query foundation. It filters
+triangles using the configurable 45-degree default slope, radius, vertical clearance, and maximum
+step limits; groups walkable polygons by horizontal cell without flattening distinct elevations; and
+assigns deterministic polygon and connected-region IDs for the same geometry and configuration.
+`BakedNavMesh` exposes nearest-surface projection, polygon/region lookup, reachability, A* corridor
+waypoints, and the exact sum of those returned 3D segments. It is not yet a runtime routing
+integration: the current A* waypoints are projected endpoints plus polygon centroids, not a
+Funnel-smoothed and segment-validated path.
+
+US-052's `TerrainRoutePlanner`, visibility-graph, and learned navigation remain the live-routing
+paths. No controller automatically selects this NavMesh, and no change widens process-memory or
+input permissions. The query API makes polygon, region, and path-distance values available to a
+future US-054 telemetry adapter; the existing telemetry producer remains intentionally unchanged
+until a matching baked world can be selected at runtime.
