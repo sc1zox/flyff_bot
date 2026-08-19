@@ -1,7 +1,7 @@
 ---
 id: US-057
 title: YOLO bottom-center camera unprojection and NavMesh mob world positioning
-status: draft
+status: completed
 created: 2026-08-20
 updated: 2026-08-20
 ---
@@ -110,16 +110,16 @@ EstimatedMobWorldPosition
 
 ## Acceptance criteria
 
-- [ ] **Bottom-Center Anchor Precision:** Bounding boxes strictly use the bottom-center coordinate $((x_1 + x_2) / 2, y_2)$ as the screen-space ground anchor.
-- [ ] **3D Ray Unprojection:** Ray direction accurately matches the Direct3D 9 view-projection camera state verified in US-056.
-- [ ] **Möller–Trumbore Ray–Triangle Intersection:** Raycast against `BakedNavMesh` returns the exact intersection $(X, Y, Z)$ and polygon ID.
-- [ ] **Multi-Layer Surface Correctness:** On multi-level geometry (bridges, ramps, elevated platforms), the ray hits the first visible surface along the ray ($t > 0$ minimum) and does not fall through to occluded lower ground.
-- [ ] **Robust Miss & Sky Handling:** Rays not intersecting walkable NavMesh polygons (horizon, sky, unmeshed regions) return `None` safely.
-- [ ] **Batch Performance:** Estimating 20 mob detections against local NavMesh chunks executes in $\le 2$ ms on CPU.
-- [ ] **WorldState Integration:** `PerceptionPipeline` populates estimated mob world positions whenever camera state and NavMesh are available, and degrades to `None` when either is missing.
-- [ ] **Safety Boundaries Preserved:** Process memory access remains strictly read-only (`PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION`); no memory writes or DLL injections.
-- [ ] **Quality Gate:** `./scripts/check.ps1` passes cleanly (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
-- [ ] **Localization:** Any user-visible diagnostics, inspector legends, or status indicators are fully synchronized in German (`de.json`) and English (`en.json`).
+- [x] **Bottom-Center Anchor Precision:** Bounding boxes strictly use the bottom-center coordinate $((x_1 + x_2) / 2, y_2)$ as the screen-space ground anchor.
+- [x] **3D Ray Unprojection:** Ray direction accurately matches the Direct3D 9 view-projection camera state verified in US-056.
+- [x] **Möller–Trumbore Ray–Triangle Intersection:** Raycast against `BakedNavMesh` returns the exact intersection $(X, Y, Z)$ and polygon ID.
+- [x] **Multi-Layer Surface Correctness:** On multi-level geometry (bridges, ramps, elevated platforms), the ray hits the first visible surface along the ray ($t > 0$ minimum) and does not fall through to occluded lower ground.
+- [x] **Robust Miss & Sky Handling:** Rays not intersecting walkable NavMesh polygons (horizon, sky, unmeshed regions) return `None` safely.
+- [x] **Batch Performance:** Estimating 20 mob detections against local NavMesh chunks executes in $\le 2$ ms on CPU.
+- [x] **WorldState Integration:** `PerceptionPipeline` populates estimated mob world positions whenever camera state and NavMesh are available, and degrades to `None` when either is missing.
+- [x] **Safety Boundaries Preserved:** Process memory access remains strictly read-only (`PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION`); no memory writes or DLL injections.
+- [x] **Quality Gate:** `./scripts/check.ps1` passes cleanly (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- [x] **Localization:** Any user-visible diagnostics, inspector legends, or status indicators are fully synchronized in German (`de.json`) and English (`en.json`).
 
 ## Out of scope
 

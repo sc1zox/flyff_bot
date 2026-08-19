@@ -175,6 +175,8 @@ class WindowsInputController:
             wintypes.LPARAM,
         ]
         self._user32.PostMessageW.restype = wintypes.BOOL
+        self._user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
+        self._user32.EnumWindows.restype = wintypes.BOOL
 
     def process_image_path(self, window_handle: int) -> str | None:
         """Return the target executable path through documented query-only Win32 APIs."""

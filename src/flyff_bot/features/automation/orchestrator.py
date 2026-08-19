@@ -241,7 +241,9 @@ class FarmingOrchestrator:
         self._pathing = pathing
         # The pathing controller owns the polled camera, live GPS, and baked mesh, so it is
         # also what lets one perception tick unproject its own detections (US-057).
-        self._pipeline.attach_world_geometry(pathing)
+        attach_geometry = getattr(self._pipeline, "attach_world_geometry", None)
+        if callable(attach_geometry):
+            attach_geometry(pathing)
         self._pathing_dispatcher = PathingInputDispatcher(input_adapter, window_handle)
         self._dashboard_feed = dashboard_feed
         self._mode = FarmingMode.PAUSED
