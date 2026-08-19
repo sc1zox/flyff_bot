@@ -60,6 +60,7 @@ related:
   - ../user-stories/completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md
   - ../user-stories/completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md
   - ../user-stories/completed/US-049-session-event-log-and-transition-diagnostics.md
+  - ../user-stories/completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md
 ---
 
 # Architecture
@@ -525,12 +526,21 @@ than `QGridLayout` row surgery — with a name field, a combo box covering `F1`�
 `config_changed` signal drives JSON persistence to `data/powerups_config.json` and
 `MainWindow.powerup_config_changed`, wired straight to `FarmingOrchestrator.configure_powerups`; the
 name field publishes on `editingFinished` rather than per keystroke to avoid a disk write per typed
-character, and `rows_changed` re-runs `_adapt_window_geometry()` so an added row is not clipped by
-`adjustSize()`. Unlike `vitals_config_from_dict`, a parsed-empty entry list is preserved instead of
+character. In the current tabbed dashboard, added rows extend the Vitals & Buffs page inside its
+scroll area without resizing the top-level window. Unlike `vitals_config_from_dict`, a parsed-empty
+entry list is preserved instead of
 being replaced by defaults, because deleting every row is a legitimate configuration; only an absent
 or corrupt file falls back. Labels and tooltips are localized in German and English.
 
-US-022 overhauls the desktop dashboard boundary (`flyff_bot.ui`) with a cohesive Dark Slate Qt Style Sheet (QSS) theme, card-based panel grouping, streamlined visual hierarchy, a standalone pop-out navigation map window (`NavigationMapWindow`), and an `Escape` key emergency stop shortcut. All UI windows, inputs, buttons, and modal dialogs adopt dark slate styling with emerald green (Start), amber (Pause), and danger crimson (Emergency Stop) action accents alongside responsive hover/pressed states. Dashboard controls are organized into logical card panels—*Status & Metrics Card* (with colored status pill badges and metric chips), *Action Controls Card*, *Navigation & Profiles Card*, and *Telemetry & Diagnostics Toolbar*—eliminating redundant text clutter. Operators can pop out `PathInspectorWidget` into a secondary standalone window (`NavigationMapWindow`) to maintain a compact controller dashboard while monitoring live 2D pathing and heatmap telemetry on a separate display. Pressing `Escape` (`Qt.Key.Key_Escape`) while any UI window has focus instantly triggers an emergency stop (`emergency_stop_requested.emit()`), matching the physical UI button and the global Win32 `END` key safeguard. All user-visible strings, badge labels, and tooltips are localized across German and English.
+US-022 introduced the desktop dashboard's cohesive Dark Slate Qt Style Sheet (QSS), streamlined
+visual hierarchy, standalone pop-out navigation map window (`NavigationMapWindow`), and `Escape`
+emergency-stop shortcut. US-050 retains and expands that theme while replacing the earlier card and
+telemetry-toolbar composition with the tabbed layout documented below. Operators can still pop out
+`PathInspectorWidget` into the secondary navigation window. Pressing `Escape`
+(`Qt.Key.Key_Escape`) while either UI window has focus emits `emergency_stop_requested`, alongside
+the global Win32 `END` safeguard; US-050 removes the former physical emergency-stop button without
+removing either shortcut or the signal path. All user-visible strings, badge labels, and tooltips
+remain localized across German and English.
 
 
 US-032 replaces target name verification's RGB template matching with colour-masked OCR, fixing
@@ -1221,9 +1231,10 @@ publish, mirroring how `kill_progress` and `engagement_break` already travel —
 no logger is attached, exactly like the other optional diagnostics fields. `EventLogPanel`
 (`flyff_bot.ui.event_log_panel`) is a standalone `QGroupBox` widget, matching the `TargetSelectionPanel`
 and `PowerUpPanel` precedent of decomposing telemetry panels rather than inlining more widgets into
-`MainWindow`: a toggle checkbox reveals it, and `set_events()` clears and repopulates a `QListWidget`
-from the update's `events` tuple, unaffected by the panel's own visibility so a hidden panel still
-stays current. Each row is one summary sentence colour-coded by `SessionEventKind` (neutral, amber
+`MainWindow`. US-050 hosts it directly on the Diagnostics & Logs tab; `set_events()` clears and
+repopulates a `QListWidget` from the update's `events` tuple regardless of which tab is selected, so
+the panel stays current while hidden. Each row is one summary sentence colour-coded by
+`SessionEventKind` (neutral, amber
 for the four warning kinds, crimson for emergency stop, emerald for goal completion) and localized
 through `Message.UI_EVENT_LOG_SUMMARY`; `previous_mode`/`new_mode` map through a small `FarmingMode`
 value dictionary to their own localized labels, and the stored UTC timestamp renders as the
@@ -1233,3 +1244,44 @@ following the same precedent as OCR raw text and world-data status strings elsew
 dashboard: they are operator-facing evidence, not narrative prose, and a window title cannot be
 localized. `logs/` is git-ignored alongside the other local session state
 (`data/navigation/`, `data/kill_log.sqlite3`).
+
+## Responsive tabbed dashboard and UI refactoring (US-050)
+
+US-050 keeps the desktop application as one native PySide6 boundary but replaces the growing
+accordion-style dashboard with a pinned header above one `QTabWidget`. The header retains the
+session status and window-condition badges, tracking and GPS indicators, Start and Pause actions,
+attack-key binding, camera alignment and auto-alignment, and the language selector. The five
+localized pages separate the operator surface by job: Dashboard, Combat & Targets, Vitals & Buffs,
+Navigation & World, and Diagnostics & Logs. Each page owns an internal `QScrollArea`, so changing
+content or selecting another page does not call `adjustSize()` or resize the top-level window; the
+main-window geometry remains stable while page content scrolls within the available viewport.
+
+The tabs reorganize presentation only. They neither start nor stop workers, and the selected tab is
+not an input to perception, navigation, diagnostics, or controller updates. `DashboardUpdate` and
+the existing widget-specific update paths continue feeding every page while it is hidden, so
+switching tabs reveals current state rather than a feed that paused when its widgets were not
+visible. The camera preview, vitals and target summary, target quotas, power-up configuration,
+embedded and pop-out navigation inspector, world-data tools, placement guide, OCR diagnostics, and
+session event log remain on their existing application and feature boundaries.
+
+The former telemetry row of eleven panel-visibility checkboxes is removed because tabs now own
+panel discovery and visibility. Boolean configuration remains interactive, but uses the reusable
+styled `QCheckBox#Switch` treatment for settings such as auto-alignment, kill verification, and
+vitals rules.
+This is an intentional distinction: a switch changes application configuration, while selecting a
+tab changes only which already-live view is shown. Keeping generic panel toggles beside the tabs
+would create two competing visibility models and reintroduce the unstable accordion geometry.
+
+The dedicated red emergency-stop button is also removed from the header as a presentation choice,
+not as a safety-boundary change. The window-level `Escape` shortcut, global `END` hook, Qt emergency
+signal, orchestrator latch, foreground checks, and guarded input release paths remain active. The
+expanded Dark Slate QSS applies the existing `#0f172a`, `#1e293b`, `#334155`, and `#3b82f6` palette
+to the tab widget, tab bar, scroll areas, switches, and their child controls. Tab names, controls,
+and tooltips are message-catalog entries synchronized in English and German; the stylesheet itself
+contains presentation rules, not user-visible prose.
+
+The automated repository gate covers the hierarchy, wiring, geometry contract, locale parity, and
+interaction paths. It passed at 750 tests passed, 2 skipped, and 92.54% coverage. The Windows
+live-client visual walkthrough remains outstanding, including visual responsiveness and confirmation
+that both `Escape` and `END` halt a live `neuz.exe` session; automated evidence is not presented as
+field validation.

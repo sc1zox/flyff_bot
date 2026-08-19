@@ -161,6 +161,8 @@ def connect_farming_controls(
 
     window.start_requested.connect(on_start or orchestrator.start)
     window.pause_requested.connect(orchestrator.pause)
+    # Escape in either window and the global END path converge on this signal;
+    # emergency handling is intentionally independent of the selected dashboard tab.
     window.emergency_stop_requested.connect(orchestrator.emergency_stop)
 
     def _safe_load_profile(path: Path) -> None:

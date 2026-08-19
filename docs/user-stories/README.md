@@ -55,6 +55,7 @@ stories are moved to `docs/user-stories/completed/`.
 - [x] [**US-030: Monster stats HUD OCR diagnostics and debug dashboard panel**](completed/US-030-monster-stats-hud-ocr-diagnostics-and-debug-panel.md) — Live OCR diagnostics and dedicated dashboard debug panel for session monster kill statistics.
 - [x] [**US-032: Tesseract OCR target name verification and robust whitelist matching**](completed/US-032-tesseract-ocr-target-name-verification.md) — Robust OCR-based target name verification replacing rigid template matching.
 - [ ] [**US-033: Automated Tesseract OCR installation via winget and live reload**](US-033-tesseract-ocr-automated-installation-and-detection.md) — One-click background `winget` installation of Tesseract OCR with UI guidance and non-restarting live reload.
+- [x] [**US-050: Responsive tabbed dashboard and UI design overhaul**](completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md) — Pinned session controls above five scrollable functional tabs, stable geometry, localized switch controls, and independent live state feeds.
 
 ### Phase 5: Navigation Accuracy (Planned)
 

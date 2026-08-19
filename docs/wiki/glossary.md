@@ -152,7 +152,16 @@ related:
 - **Periodic navigation persistence** — Automatic background serialization of the active spatial map every 30 seconds during active farming, on state transitions (pause, emergency stop, goal reached), and upon desktop window closure (`closeEvent`).
 - **Fixed-pixel HUD anchoring** — Bounding top-left player vitals gauge extraction to fixed pixel dimensions (`0..260` width, `0..113` height) rather than normalized window percentages, ensuring consistent gauge readings across arbitrary screen resolutions.
 - **Placements overlay** — A desktop UI visual guide toggle ("Placements" / "Platzierungshilfen") that draws color-coded, labeled ROI overlay boxes (Player Vitals orb, Target Header bar, Monster Stats window) scaled over the live viewport preview for HUD alignment calibration.
-- **Dark Slate theme** — The modern dark stylesheet (QSS) applied across the PySide6 desktop UI, featuring rounded card containers, high-contrast action accents (emerald Start, amber Pause, crimson Emergency Stop), and responsive hover/pressed states.
+- **Dark Slate theme** — The modern dark stylesheet (QSS) applied across the PySide6 desktop UI,
+  including its cards, tab widget, tab bar, internal scroll areas, switches, and child controls;
+  it uses restrained slate surfaces, a blue selection accent, and responsive hover/pressed states.
+- **Tabbed dashboard** — The US-050 PySide6 main-window composition: a pinned session-control header
+  above five localized, internally scrollable views for Dashboard, Combat & Targets, Vitals &
+  Buffs, Navigation & World, and Diagnostics & Logs. Selecting a tab changes presentation only;
+  hidden pages continue receiving live worker and `DashboardUpdate` state.
+- **Toggle switch** — A styled boolean configuration control such as auto-alignment, kill
+  verification, or a vitals rule. Unlike the removed panel-visibility checkboxes, it changes a
+  setting rather than deciding whether an independently updated dashboard panel exists.
 - **Navigation map window** — A standalone pop-out secondary window (`NavigationMapWindow`) hosting the `PathInspectorWidget`, allowing operators to decouple 2D navigation/heatmap inspection from the main controller dashboard.
 - **Standby perception** — Continuous read-only perception while the session is paused, completed,
   or emergency-stopped: one frame is captured per tick to refresh vitals, mob counts, target
@@ -281,6 +290,6 @@ related:
 - **Foreground window diagnostics** — The title and owning process name of whichever window
   currently holds `GetForegroundWindow()`, read by `WindowsInputController.foreground_window_info()`
   only to explain a `FOCUS_LOST` pause; never used for any input-dispatch decision.
-- **Diagnostic Event Log panel** — The dashboard's `EventLogPanel`, a standalone toggled widget that
-  renders `DashboardUpdate.events` as a reverse-chronological, localized, colour-badged list of
-  recent session events.
+- **Diagnostic Event Log panel** — The dashboard's `EventLogPanel`, hosted on the Diagnostics & Logs
+  tab, which renders `DashboardUpdate.events` as a reverse-chronological, localized, colour-badged
+  list of recent session events and stays current when another tab is selected.

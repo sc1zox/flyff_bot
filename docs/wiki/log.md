@@ -620,3 +620,25 @@ diagnostics without widening the orchestrator's existing Win32-free adapter cont
 localized `EventLogPanel` dashboard widget fed by a new `DashboardUpdate.events` field. Full gate
 (`ruff check`, `ruff format --check`, `mypy --strict`, `pytest`) passes at 719 passed / 3 skipped,
 92.53% coverage. Moved US-049 to completed user stories.
+
+## [2026-08-19] synthesis | Responsive tabbed dashboard and UI refactoring (US-050)
+
+Recorded the completed US-050 presentation refactoring in the architecture, glossary, roadmap, and
+story index: one pinned status/action header above five localized, internally scrollable tabs for
+Dashboard, Combat & Targets, Vitals & Buffs, Navigation & World, and Diagnostics & Logs. Documented
+that selecting a tab changes visibility only; perception, navigation, diagnostics, controller, and
+`DashboardUpdate` feeds continue updating hidden pages, while stable top-level geometry replaces the
+old accordion and `adjustSize()` behavior.
+
+Recorded the deliberate control distinction: styled switches change boolean configuration, while
+the eleven former panel-visibility checkboxes were removed because tab selection now owns view
+navigation. The dedicated UI emergency-stop button was removed from the header, but the `Escape`
+shortcut, global `END` hook, Qt emergency signal, orchestrator latch, foreground guards, and input
+release paths remain unchanged. Expanded Dark Slate QSS covers tabs, scroll areas, switches, and
+child controls, with all user-visible tab labels, controls, and tooltips synchronized in English
+and German.
+
+The full `./scripts/check.ps1` repository gate passed: 750 tests passed, 2 skipped, and coverage was
+92.54%. The Windows live-client visual and interaction walkthrough remains outstanding, including
+tab responsiveness and confirmation of both emergency-stop keys against `neuz.exe`; no automated
+result is treated as live-client validation. Moved US-050 to completed user stories.

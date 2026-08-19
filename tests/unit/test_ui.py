@@ -17,7 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QMessageBox, QScrollArea
 
 from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import (
@@ -94,7 +94,7 @@ from flyff_bot.ui.dashboard import (
     WindowStatus,
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
-from flyff_bot.ui.main_window import MainWindow
+from flyff_bot.ui.main_window import DashboardTab, MainWindow
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import (
@@ -131,7 +131,7 @@ def test_main_window_receives_dashboard_signal_and_renders_overlay() -> None:
     assert window.overlay_label.pixmap() is not None
     assert window.overlay_label.isHidden()
 
-    window._debug_toggle.setChecked(True)
+    window.camera_preview_toggle.setChecked(True)
     assert not window.overlay_label.isHidden()
 
 
@@ -146,11 +146,28 @@ def test_controls_emit_intent_and_update_status() -> None:
 
     window.start_button.click()
     window.pause_button.click()
-    window.emergency_stop_button.click()
+    QTest.keyClick(window, Qt.Key.Key_Escape)
     application.processEvents()
 
     assert requested == ["start", "pause", "emergency"]
     assert window.status_label.text() == "Bot status: Emergency Stopped"
+
+
+def test_switching_tabs_does_not_emit_operator_or_configuration_intent() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    emitted: list[str] = []
+    window.start_requested.connect(lambda: emitted.append("start"))
+    window.pause_requested.connect(lambda: emitted.append("pause"))
+    window.emergency_stop_requested.connect(lambda: emitted.append("stop"))
+    window.auto_align_changed.connect(lambda _enabled: emitted.append("auto-align"))
+    window.kill_verification_changed.connect(lambda _enabled: emitted.append("kill-check"))
+
+    for tab in DashboardTab:
+        window.tab_widget.setCurrentIndex(tab)
+        application.processEvents()
+
+    assert emitted == []
 
 
 def test_language_switch_retranslates_cached_dashboard() -> None:
@@ -249,7 +266,8 @@ def test_farming_controls_connect_dashboard_intent() -> None:
     connect_farming_controls(window, session)
     window.start_button.click()
     window.pause_button.click()
-    window.emergency_stop_button.click()
+    window.tab_widget.setCurrentIndex(DashboardTab.DIAGNOSTICS_LOGS)
+    QTest.keyClick(window, Qt.Key.Key_Escape)
     window.align_camera_button.click()
     window.auto_align_toggle.setChecked(False)
     window.save_profile_requested.emit(Path("spot.json"))
@@ -395,7 +413,7 @@ def test_path_inspector_widget_renders_cleanly_with_populated_snapshot() -> None
     widget.render(widget)
 
 
-def test_main_window_path_inspector_toggle_and_update() -> None:
+def test_main_window_path_inspector_stays_current_before_navigation_tab_is_selected() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
     feed = DashboardFeed()
@@ -420,13 +438,12 @@ def test_main_window_path_inspector_toggle_and_update() -> None:
     application.processEvents()
 
     assert window.path_inspector.snapshot == snapshot
-    assert window.path_inspector.isHidden()
-
-    window.path_toggle.setChecked(True)
     assert not window.path_inspector.isHidden()
 
-    window.path_toggle.setChecked(False)
-    assert window.path_inspector.isHidden()
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.NAVIGATION_WORLD)
+    application.processEvents()
+    assert window.path_inspector.isVisibleTo(window)
 
 
 def test_debug_overlay_widget_renders_cleanly_with_aspect_scaling() -> None:
@@ -504,7 +521,7 @@ def test_debug_overlay_placements_toggle_draws_vitals_and_target_guide_boxes() -
     assert with_placements.toImage() != without_placements.toImage()
 
 
-def test_main_window_debug_toggle_dynamically_adjusts_window_size() -> None:
+def test_main_window_camera_preview_does_not_resize_the_window() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
     window.update_dashboard(
@@ -517,21 +534,20 @@ def test_main_window_debug_toggle_dynamically_adjusts_window_size() -> None:
     )
     window.show()
     application.processEvents()
-    compact_height = window.height()
+    initial_size = window.size()
 
-    window._debug_toggle.setChecked(True)
+    window.camera_preview_toggle.setChecked(True)
     application.processEvents()
-    expanded_height = window.height()
-    assert expanded_height > compact_height
     assert not window.overlay_label.isHidden()
+    assert window.size() == initial_size
 
-    window._debug_toggle.setChecked(False)
+    window.camera_preview_toggle.setChecked(False)
     application.processEvents()
     assert window.overlay_label.isHidden()
-    assert window.height() < expanded_height
+    assert window.size() == initial_size
 
 
-def test_main_window_path_toggle_dynamically_adjusts_window_size() -> None:
+def test_main_window_switching_functional_tabs_does_not_resize_the_window() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
     snapshot = NavigationSnapshot(
@@ -546,27 +562,21 @@ def test_main_window_path_toggle_dynamically_adjusts_window_size() -> None:
     window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE, navigation=snapshot))
     window.show()
     application.processEvents()
-    compact_height = window.height()
+    initial_size = window.size()
 
-    window.path_toggle.setChecked(True)
-    application.processEvents()
-    expanded_height = window.height()
-    assert expanded_height > compact_height
-    assert not window.path_inspector.isHidden()
-
-    window.path_toggle.setChecked(False)
-    application.processEvents()
-    assert window.path_inspector.isHidden()
-    assert window.height() < expanded_height
+    for tab in DashboardTab:
+        window.tab_widget.setCurrentIndex(tab)
+        application.processEvents()
+        assert window.size() == initial_size
 
 
-def test_main_window_profile_bar_toggle_and_state_gating(tmp_path: Path) -> None:
-    _application = QApplication.instance() or QApplication([])
+def test_main_window_profile_bar_in_navigation_tab_and_state_gating(tmp_path: Path) -> None:
+    application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH), navigation_dir=tmp_path)
-    assert window.profile_bar.isHidden()
-
-    window.path_toggle.setChecked(True)
-    assert not window.profile_bar.isHidden()
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.NAVIGATION_WORLD)
+    application.processEvents()
+    assert window.profile_bar.isVisibleTo(window)
 
     # Active farming status disables profile controls
     window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE))
@@ -880,13 +890,14 @@ def test_main_window_renders_live_vitals() -> None:
     assert "FP 42.3%" in window.vitals_label.text()
 
 
-def test_main_window_vitals_panel_toggle_and_config_signals(tmp_path: Path) -> None:
+def test_main_window_vitals_panel_in_tab_and_config_signals(tmp_path: Path) -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH), vitals_config_path=tmp_path / "vitals.json")
 
-    assert window.vitals_panel.isHidden()
-    window.vitals_toggle.setChecked(True)
-    assert not window.vitals_panel.isHidden()
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.VITALS_BUFFS)
+    application.processEvents()
+    assert window.vitals_panel.isVisibleTo(window)
 
     configs: list[VitalsTriggerConfig] = []
     window.vitals_config_changed.connect(configs.append)
@@ -930,13 +941,14 @@ def test_main_window_placements_toggle_label_localized() -> None:
     assert window_de.placements_toggle.text() == "Platzierungshilfen"
 
 
-def test_main_window_combat_panel_toggle_and_config_signals() -> None:
+def test_main_window_combat_panel_in_tab_and_config_signals() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
 
-    assert window.combat_panel.isHidden()
-    window.combat_toggle.setChecked(True)
-    assert not window.combat_panel.isHidden()
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.COMBAT_TARGETS)
+    application.processEvents()
+    assert window.combat_panel.isVisibleTo(window)
 
     grace_values: list[float] = []
     kill_verification_values: list[bool] = []
@@ -952,13 +964,14 @@ def test_main_window_combat_panel_toggle_and_config_signals() -> None:
     assert kill_verification_values == [False]
 
 
-def test_main_window_target_debug_panel_toggle_and_renders_failure_metrics() -> None:
+def test_main_window_target_debug_panel_in_tab_and_renders_failure_metrics() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
 
-    assert window.target_debug_panel.isHidden()
-    window.target_debug_toggle.setChecked(True)
-    assert not window.target_debug_panel.isHidden()
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.DIAGNOSTICS_LOGS)
+    application.processEvents()
+    assert window.target_debug_panel.isVisibleTo(window)
 
     target = SelectedTarget(
         TargetState.WRONG,
@@ -991,13 +1004,14 @@ def test_main_window_target_debug_panel_toggle_and_renders_failure_metrics() -> 
     assert window.target_reason_value.text() == "HP bar below minimum pixel threshold"
 
 
-def test_main_window_monster_stats_panel_toggle_and_renders_a_successful_reading() -> None:
+def test_main_window_monster_stats_panel_in_tab_and_renders_a_successful_reading() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
 
-    assert window.monster_stats_panel.isHidden()
-    window.monster_stats_toggle.setChecked(True)
-    assert not window.monster_stats_panel.isHidden()
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.DIAGNOSTICS_LOGS)
+    application.processEvents()
+    assert window.monster_stats_panel.isVisibleTo(window)
 
     metrics = MonsterStatsMetrics(
         anchor_configured=True,
@@ -1021,12 +1035,9 @@ def test_main_window_monster_stats_panel_toggle_and_renders_a_successful_reading
     assert window.monster_text_value.text() == "Monster Kills: 12"
     assert window.monster_status_value.text() == "OK"
 
-    window.monster_stats_toggle.setChecked(False)
-    assert window.monster_stats_panel.isHidden()
-
 
 def test_main_window_monster_stats_panel_reports_a_failed_reading_and_stays_updated() -> None:
-    """The panel renders even while hidden, so it is current the moment it is opened."""
+    """The panel renders off-tab, so it is current the moment Diagnostics opens."""
 
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
@@ -1043,13 +1054,18 @@ def test_main_window_monster_stats_panel_reports_a_failed_reading_and_stays_upda
     )
     application.processEvents()
 
-    assert window.monster_stats_panel.isHidden()
+    window.show()
+    assert not window.monster_stats_panel.isVisibleTo(window)
     assert window.monster_anchor_value.text() == "FAIL 0.42 / 0.85"
     assert window.monster_kills_value.text() == "Not recognized"
     assert window.monster_text_value.text() == "No text recognized"
     assert window.monster_status_value.text() == "No kill counter found in the text"
     # A missed anchor still reads, so the panel must name which crop produced the number.
     assert window.monster_source_value.text() == "Predefined placement region"
+
+    window.tab_widget.setCurrentIndex(DashboardTab.DIAGNOSTICS_LOGS)
+    application.processEvents()
+    assert window.monster_stats_panel.isVisibleTo(window)
 
 
 def test_main_window_monster_stats_panel_marks_an_unconfigured_anchor() -> None:
@@ -1123,7 +1139,7 @@ def test_main_window_monster_stats_panel_renders_in_german_locale() -> None:
     )
     application.processEvents()
 
-    assert window.monster_stats_toggle.text() == "Monster-Stats-Debug"
+    assert window.monster_stats_panel.title() == "Monster-Stats-Debug"
     assert window.monster_status_value.text() == "OCR fehlgeschlagen"
     assert window.monster_kills_value.text() == "Nicht erkannt"
 
@@ -1257,8 +1273,11 @@ def test_theme_stylesheet_loading_and_fallback(tmp_path: Path) -> None:
     stylesheet = load_theme_stylesheet()
     assert "#ActionStart" in stylesheet
     assert "#ActionPause" in stylesheet
-    assert "#ActionEmergencyStop" in stylesheet
     assert "#StatusBadge" in stylesheet
+    assert "QTabWidget::pane" in stylesheet
+    assert "QTabBar::tab:selected" in stylesheet
+    assert "QScrollArea" in stylesheet
+    assert "QCheckBox#Switch::indicator" in stylesheet
 
     # Fallback safely when path does not exist
     invalid_path = tmp_path / "non_existent.qss"
@@ -1337,22 +1356,79 @@ def test_navigation_map_popout_and_dock_lifecycle() -> None:
     assert window.popout_map_button.text() == "Pop-out Map"
 
 
-def test_main_window_card_hierarchy_and_object_names() -> None:
+def test_main_window_tab_hierarchy_and_object_names() -> None:
     _application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
 
     assert window.start_button.objectName() == "ActionStart"
     assert window.pause_button.objectName() == "ActionPause"
-    assert window.emergency_stop_button.objectName() == "ActionEmergencyStop"
     assert window.reset_map_button.objectName() == "ActionDanger"
     assert window.status_label.objectName() == "StatusBadge"
     assert window.goal_label.objectName() == "StatChip"
     assert window.vitals_label.objectName() == "StatChip"
+    assert window.camera_preview_toggle.objectName() == "Switch"
+    assert window.auto_align_toggle.objectName() == "Switch"
+    assert window.kill_verification_toggle.objectName() == "Switch"
 
     assert window.status_card.title() == "Status & Telemetry"
     assert window.controls_card.title() == "Controls"
     assert window.profile_card.title() == "Navigation & Profiles"
-    assert window.telemetry_card.title() == "Diagnostics & Views"
+    assert not window.tab_widget.isAncestorOf(window.status_card)
+    assert not window.tab_widget.isAncestorOf(window.controls_card)
+    assert not hasattr(window, "emergency_stop_button")
+
+    expected_labels = [
+        "Dashboard",
+        "Combat & Targets",
+        "Vitals & Buffs",
+        "Navigation & World",
+        "Diagnostics & Logs",
+    ]
+    assert window.tab_widget.count() == len(DashboardTab)
+    assert [window.tab_widget.tabText(index) for index in range(window.tab_widget.count())] == (
+        expected_labels
+    )
+    assert all(window.tab_widget.tabToolTip(index) for index in range(window.tab_widget.count()))
+
+    for tab in DashboardTab:
+        scroll_area = window.tab_scroll_area(tab)
+        assert isinstance(scroll_area, QScrollArea)
+        assert scroll_area.widgetResizable()
+        assert scroll_area.sizeAdjustPolicy() is QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored
+
+    combat_page = window.tab_scroll_area(DashboardTab.COMBAT_TARGETS).widget()
+    vitals_page = window.tab_scroll_area(DashboardTab.VITALS_BUFFS).widget()
+    navigation_page = window.tab_scroll_area(DashboardTab.NAVIGATION_WORLD).widget()
+    diagnostics_page = window.tab_scroll_area(DashboardTab.DIAGNOSTICS_LOGS).widget()
+    assert combat_page is not None
+    assert vitals_page is not None
+    assert navigation_page is not None
+    assert diagnostics_page is not None
+    assert combat_page.isAncestorOf(window.target_panel)
+    assert vitals_page.isAncestorOf(window.powerup_panel)
+    assert navigation_page.isAncestorOf(window.profile_card)
+    assert diagnostics_page.isAncestorOf(window.event_log_panel)
+
+
+def test_main_window_tab_labels_and_tooltips_retranslate_in_place() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    original_scroll_area = window.tab_scroll_area(DashboardTab.NAVIGATION_WORLD)
+    window.tab_widget.setCurrentIndex(DashboardTab.NAVIGATION_WORLD)
+
+    window._language_selector.setCurrentIndex(0)
+    application.processEvents()
+
+    assert [window.tab_widget.tabText(index) for index in range(window.tab_widget.count())] == [
+        "Übersicht",
+        "Kampf & Ziele",
+        "Vitals & Buffs",
+        "Navigation & Karte",
+        "Diagnose & Tools",
+    ]
+    assert all(window.tab_widget.tabToolTip(index) for index in range(window.tab_widget.count()))
+    assert window.tab_widget.currentIndex() == DashboardTab.NAVIGATION_WORLD
+    assert window.tab_scroll_area(DashboardTab.NAVIGATION_WORLD) is original_scroll_area
 
 
 def test_main_window_status_badge_dynamic_property() -> None:
@@ -1588,10 +1664,12 @@ def test_main_window_powerup_panel_adds_edits_and_removes_rows(tmp_path: Path) -
     window = MainWindow(Translator(Language.ENGLISH), powerup_config_path=config_path)
     panel = window.powerup_panel
 
-    assert panel.isHidden()
-    window.powerups_toggle.setChecked(True)
-    assert not panel.isHidden()
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.VITALS_BUFFS)
+    application.processEvents()
+    assert panel.isVisibleTo(window)
     assert panel.rows == ()
+    initial_size = window.size()
 
     configs: list[PowerUpConfig] = []
     window.powerup_config_changed.connect(configs.append)
@@ -1600,6 +1678,7 @@ def test_main_window_powerup_panel_adds_edits_and_removes_rows(tmp_path: Path) -
     panel.add_button.click()
     application.processEvents()
     assert len(panel.rows) == 2
+    assert window.size() == initial_size
 
     first_row = panel.rows[0]
     first_row.name_input.setText("Grilled Eel")
@@ -1673,7 +1752,6 @@ def test_main_window_powerup_labels_are_localized() -> None:
     _application = QApplication.instance() or QApplication([])
 
     window_en = MainWindow(Translator(Language.ENGLISH))
-    assert window_en.powerups_toggle.text() == "Power-ups"
     assert window_en.powerup_panel.title() == "Power-ups & Timed Hotkeys"
 
     window_de = MainWindow(Translator(Language.GERMAN))
@@ -1762,14 +1840,17 @@ def test_main_window_target_panel_renders_live_quota_progress() -> None:
 
     assert window.target_panel.rows[0].progress_label.text() == "14 / 20"
     assert window.target_panel.rows[1].progress_label.text() == "5"
+    assert window.kill_progress_label.text() == "Kills: Flame 14/20, Rapra 5"
 
 
-def test_main_window_target_panel_toggle_reveals_the_selection() -> None:
-    _application = QApplication.instance() or QApplication([])
+def test_main_window_target_panel_is_available_on_combat_tab() -> None:
+    application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
+    window.show()
 
     assert not window.target_panel.isVisible()
-    window.targets_toggle.setChecked(True)
+    window.tab_widget.setCurrentIndex(DashboardTab.COMBAT_TARGETS)
+    application.processEvents()
 
     assert window.target_panel.isVisibleTo(window)
 
@@ -1785,12 +1866,14 @@ def test_main_window_target_panel_labels_are_localized() -> None:
     assert window_de.target_panel.close_client_check.text().startswith("Spiel-Client")
 
 
-def test_main_window_event_log_panel_toggle_reveals_the_log() -> None:
-    _application = QApplication.instance() or QApplication([])
+def test_main_window_event_log_panel_is_available_on_diagnostics_tab() -> None:
+    application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
+    window.show()
 
     assert not window.event_log_panel.isVisible()
-    window.event_log_toggle.setChecked(True)
+    window.tab_widget.setCurrentIndex(DashboardTab.DIAGNOSTICS_LOGS)
+    application.processEvents()
 
     assert window.event_log_panel.isVisibleTo(window)
 
@@ -1925,9 +2008,10 @@ def test_the_recovery_panel_persists_the_timeout_and_teleport_hotkey(tmp_path: P
     config_path = tmp_path / "emergency.json"
     window = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
 
-    assert window.recovery_panel.isHidden()
-    window.recovery_toggle.setChecked(True)
-    assert not window.recovery_panel.isHidden()
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.COMBAT_TARGETS)
+    application.processEvents()
+    assert window.recovery_panel.isVisibleTo(window)
 
     configs: list[EmergencyRecoveryConfig] = []
     window.emergency_config_changed.connect(configs.append)

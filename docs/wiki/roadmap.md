@@ -54,6 +54,7 @@ Phase 1 (Bootstrap) -> Phase 2 (Perception) -> Phase 3 (Controllers) -> Phase 4 
 - **US-024 (Completed):** Target verification decision and threshold debug dashboard visualization (Live header-anchor, HP-bar, and name-match scores/thresholds in a dedicated `MainWindow` debug panel).
 - **US-026 (Completed):** Placement calibration visual guide overlay ("Placements" toggle button, color-coded HUD ROI overlay boxes).
 - **US-049 (Completed):** Session event log and transition diagnostics (per-session fail-safe JSONL log, typed `SessionEventLogger`, and a localized "Diagnostic Event Log" dashboard panel).
+- **US-050 (Completed):** Responsive tabbed dashboard overhaul (pinned session header, five localized scrollable functional tabs, stable top-level geometry, and live feeds independent of selected tab).
 
 ### Phase 5: Navigation Accuracy (Active)
 

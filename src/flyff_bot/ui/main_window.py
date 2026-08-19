@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from enum import IntEnum
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
+    QAbstractScrollArea,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -19,7 +22,9 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -41,7 +46,7 @@ from flyff_bot.features.automation.emergency_recovery import (
     MINIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
     EmergencyRecoveryConfig,
 )
-from flyff_bot.features.automation.kill_goals import KillGoalConfig
+from flyff_bot.features.automation.kill_goals import KillGoalConfig, MobKillProgress
 from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
     MonsterStatsSource,
@@ -134,6 +139,20 @@ EMERGENCY_HOTKEY_CHOICES = [
 STUCK_TIMEOUT_STEP_SECONDS = 5.0
 STUCK_TIMEOUT_DECIMALS = 1
 SPAWN_POINT_DECIMALS = 1
+DEFAULT_WINDOW_WIDTH = 1100
+DEFAULT_WINDOW_HEIGHT = 760
+MINIMUM_WINDOW_WIDTH = 760
+MINIMUM_WINDOW_HEIGHT = 520
+
+
+class DashboardTab(IntEnum):
+    """Stable indices for the five operator-facing dashboard views."""
+
+    DASHBOARD = 0
+    COMBAT_TARGETS = 1
+    VITALS_BUFFS = 2
+    NAVIGATION_WORLD = 3
+    DIAGNOSTICS_LOGS = 4
 
 
 class MainWindow(QMainWindow):
@@ -183,17 +202,18 @@ class MainWindow(QMainWindow):
         self._emergency_config_path = emergency_config_path or DEFAULT_EMERGENCY_CONFIG_PATH
         self._latest_update: DashboardUpdate | None = None
 
-        # Card Panels
+        # Persistent header cards
         self._status_card = QGroupBox()
         self._status_card.setObjectName("CardPanel")
         self._controls_card = QGroupBox()
         self._controls_card.setObjectName("CardPanel")
+
+        # Functional view cards
+        self._summary_card = QGroupBox()
+        self._summary_card.setObjectName("CardPanel")
         self._profile_card = QGroupBox()
         self._profile_card.setObjectName("CardPanel")
-        self._profile_card.setVisible(False)
         self._profile_bar = self._profile_card
-        self._telemetry_card = QGroupBox()
-        self._telemetry_card.setObjectName("CardPanel")
 
         # Status & Metrics
         self._status_label = QLabel()
@@ -215,6 +235,8 @@ class MainWindow(QMainWindow):
         self._goal_label.setObjectName("StatChip")
         self._vitals_label = QLabel()
         self._vitals_label.setObjectName("StatChip")
+        self._kill_progress_label = QLabel()
+        self._kill_progress_label.setObjectName("StatChip")
 
         # Debug Overlay Viewport
         self._overlay_label = DebugOverlayWidget()
@@ -225,12 +247,10 @@ class MainWindow(QMainWindow):
 
         # Navigation Map & Inspector
         self._path_inspector = PathInspectorWidget(self._translator)
-        self._path_inspector.setVisible(False)
         self._map_container = QWidget()
         self._map_container_layout = QVBoxLayout(self._map_container)
         self._map_container_layout.setContentsMargins(0, 0, 0, 0)
         self._map_container_layout.addWidget(self._path_inspector)
-        self._map_container.setVisible(False)
         self._map_window = NavigationMapWindow(self._translator)
         self._popout_map_button = QPushButton()
         self._is_map_popped_out = False
@@ -256,34 +276,31 @@ class MainWindow(QMainWindow):
         self._start_button.setObjectName("ActionStart")
         self._pause_button = QPushButton()
         self._pause_button.setObjectName("ActionPause")
-        self._emergency_stop_button = QPushButton()
-        self._emergency_stop_button.setObjectName("ActionEmergencyStop")
         self._attack_key_label = QLabel()
         self._attack_key_button = QPushButton()
         self._align_camera_button = QPushButton()
         self._auto_align_toggle = QCheckBox()
+        self._auto_align_toggle.setObjectName("Switch")
         self._auto_align_toggle.setChecked(DEFAULT_AUTO_ALIGN_CAMERA)
         self._attack_virtual_key = parse_virtual_key("F3")
         self._attack_key_name = "F3"
         self._is_recording_attack_key = False
+        self._language_label = QLabel()
         self._language_selector = QComboBox()
 
-        # Telemetry & Diagnostics Toggles
-        self._debug_toggle = QCheckBox()
+        # True display settings remain switches inside their functional views.
+        self._camera_preview_toggle = QCheckBox()
+        self._camera_preview_toggle.setObjectName("Switch")
         self._placements_toggle = QCheckBox()
-        self._path_toggle = QCheckBox()
-        self._vitals_toggle = QCheckBox()
-        self._powerups_toggle = QCheckBox()
-        self._combat_toggle = QCheckBox()
-        self._target_debug_toggle = QCheckBox()
-        self._monster_stats_toggle = QCheckBox()
-        self._event_log_toggle = QCheckBox()
-        self._recovery_toggle = QCheckBox()
+        self._placements_toggle.setObjectName("Switch")
+
+        self._tab_widget = QTabWidget()
+        self._tab_widget.setObjectName("FunctionalTabs")
+        self._tab_scroll_areas: dict[DashboardTab, QScrollArea] = {}
 
         # Unrecoverable stuck recovery panel (US-040)
         self._recovery_panel = QGroupBox()
         self._recovery_panel.setObjectName("CardPanel")
-        self._recovery_panel.setVisible(False)
         self._recovery_timeout_label = QLabel()
         self._recovery_timeout_spin = QDoubleSpinBox()
         self._recovery_hotkey_label = QLabel()
@@ -292,7 +309,6 @@ class MainWindow(QMainWindow):
         # Combat settings panel
         self._combat_panel = QGroupBox()
         self._combat_panel.setObjectName("CardPanel")
-        self._combat_panel.setVisible(False)
         self._target_grace_label = QLabel()
         self._target_grace_spin = QDoubleSpinBox()
         self._target_grace_spin.setRange(0.1, 5.0)
@@ -302,6 +318,7 @@ class MainWindow(QMainWindow):
         self._target_grace_spin.setSuffix(" s")
         self._kill_verification_label = QLabel()
         self._kill_verification_toggle = QCheckBox()
+        self._kill_verification_toggle.setObjectName("Switch")
         self._kill_verification_toggle.setChecked(CombatConfig().kill_verification_enabled)
         self._anchor_threshold_label = QLabel()
         self._anchor_threshold_spin = _match_threshold_spin(DEFAULT_ANCHOR_MATCH_THRESHOLD)
@@ -309,7 +326,6 @@ class MainWindow(QMainWindow):
         # Target verification debug panel
         self._target_debug_panel = QGroupBox()
         self._target_debug_panel.setObjectName("CardPanel")
-        self._target_debug_panel.setVisible(False)
         self._target_anchor_label = QLabel()
         self._target_anchor_value = QLabel()
         self._target_hp_label = QLabel()
@@ -328,7 +344,6 @@ class MainWindow(QMainWindow):
         # Monster stats OCR debug panel
         self._monster_stats_panel = QGroupBox()
         self._monster_stats_panel.setObjectName("CardPanel")
-        self._monster_stats_panel.setVisible(False)
         self._monster_anchor_label = QLabel()
         self._monster_anchor_value = QLabel()
         self._monster_roi_label = QLabel()
@@ -346,21 +361,16 @@ class MainWindow(QMainWindow):
 
         # Power-up / timed hotkey configuration panel
         self._powerup_panel = PowerUpPanel(self._translator)
-        self._powerup_panel.setVisible(False)
 
         # Diagnostic session event log panel (US-049)
         self._event_log_panel = EventLogPanel(self._translator)
-        self._event_log_panel.setVisible(False)
 
         # Target monster selection and per-monster kill quotas
-        self._targets_toggle = QCheckBox()
         self._target_panel = TargetSelectionPanel(self._translator)
-        self._target_panel.setVisible(False)
 
         # Vitals configuration panel
         self._vitals_panel = QGroupBox()
         self._vitals_panel.setObjectName("CardPanel")
-        self._vitals_panel.setVisible(False)
         self._vitals_col_type = QLabel()
         self._vitals_col_active = QLabel()
         self._vitals_col_threshold = QLabel()
@@ -385,6 +395,9 @@ class MainWindow(QMainWindow):
         self._fp_key_combo = QComboBox()
         self._fp_debounce_spin = QSpinBox()
 
+        for switch in (self._hp_enabled, self._mp_enabled, self._fp_enabled):
+            switch.setObjectName("Switch")
+
         apply_theme(self)
         self._init_vitals_widgets()
         self._init_recovery_widgets()
@@ -397,7 +410,8 @@ class MainWindow(QMainWindow):
         self._load_emergency_config_to_ui()
         self._retranslate()
         self.set_status(mob_count=0)
-        self._adapt_window_geometry()
+        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        self.setMinimumSize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
 
     @property
     def start_button(self) -> QPushButton:
@@ -412,12 +426,6 @@ class MainWindow(QMainWindow):
         return self._pause_button
 
     @property
-    def emergency_stop_button(self) -> QPushButton:
-        """Expose the emergency-stop control for application-service wiring."""
-
-        return self._emergency_stop_button
-
-    @property
     def status_label(self) -> QLabel:
         """Expose current operator status for lightweight integrations."""
 
@@ -428,6 +436,12 @@ class MainWindow(QMainWindow):
         """Expose current goal progress for lightweight integrations."""
 
         return self._goal_label
+
+    @property
+    def kill_progress_label(self) -> QLabel:
+        """Expose the concise per-monster kill summary shown on the Dashboard tab."""
+
+        return self._kill_progress_label
 
     @property
     def window_label(self) -> QLabel:
@@ -472,10 +486,21 @@ class MainWindow(QMainWindow):
         return self._path_inspector
 
     @property
-    def path_toggle(self) -> QCheckBox:
-        """Expose the path toggle checkbox for testing."""
+    def tab_widget(self) -> QTabWidget:
+        """Expose the functional tab container for application wiring and tests."""
 
-        return self._path_toggle
+        return self._tab_widget
+
+    def tab_scroll_area(self, tab: DashboardTab) -> QScrollArea:
+        """Return the stable scroll container for one functional view."""
+
+        return self._tab_scroll_areas[tab]
+
+    @property
+    def camera_preview_toggle(self) -> QCheckBox:
+        """Expose the camera-preview display switch."""
+
+        return self._camera_preview_toggle
 
     @property
     def placements_toggle(self) -> QCheckBox:
@@ -543,12 +568,6 @@ class MainWindow(QMainWindow):
         return self._spawn_point_label
 
     @property
-    def recovery_toggle(self) -> QCheckBox:
-        """Expose the stuck-recovery panel toggle."""
-
-        return self._recovery_toggle
-
-    @property
     def recovery_panel(self) -> QGroupBox:
         """Expose the unrecoverable stuck recovery settings panel."""
 
@@ -595,12 +614,6 @@ class MainWindow(QMainWindow):
         """Expose the vitals readout label for testing and verification."""
 
         return self._vitals_label
-
-    @property
-    def vitals_toggle(self) -> QCheckBox:
-        """Expose the vitals panel toggle control."""
-
-        return self._vitals_toggle
 
     @property
     def vitals_panel(self) -> QGroupBox:
@@ -657,22 +670,10 @@ class MainWindow(QMainWindow):
         return self._fp_debounce_spin
 
     @property
-    def powerups_toggle(self) -> QCheckBox:
-        """Expose the power-up panel toggle control."""
-
-        return self._powerups_toggle
-
-    @property
     def powerup_panel(self) -> PowerUpPanel:
         """Expose the dynamic power-up configuration panel."""
 
         return self._powerup_panel
-
-    @property
-    def combat_toggle(self) -> QCheckBox:
-        """Expose the combat settings panel toggle control."""
-
-        return self._combat_toggle
 
     @property
     def combat_panel(self) -> QGroupBox:
@@ -687,22 +688,10 @@ class MainWindow(QMainWindow):
         return self._target_panel
 
     @property
-    def targets_toggle(self) -> QCheckBox:
-        """Expose the toggle that reveals the monster selection panel."""
-
-        return self._targets_toggle
-
-    @property
     def target_selection(self) -> KillGoalConfig:
         """Return the monster selection and quotas the operator configured."""
 
         return self._target_panel.get_config()
-
-    @property
-    def event_log_toggle(self) -> QCheckBox:
-        """Expose the toggle that reveals the diagnostic event log panel."""
-
-        return self._event_log_toggle
 
     @property
     def event_log_panel(self) -> EventLogPanel:
@@ -727,12 +716,6 @@ class MainWindow(QMainWindow):
         """Expose the header-anchor match threshold spin box."""
 
         return self._anchor_threshold_spin
-
-    @property
-    def target_debug_toggle(self) -> QCheckBox:
-        """Expose the target verification debug panel toggle control."""
-
-        return self._target_debug_toggle
 
     @property
     def target_debug_panel(self) -> QGroupBox:
@@ -769,12 +752,6 @@ class MainWindow(QMainWindow):
         """Expose the target-failure-reason debug readout for testing."""
 
         return self._target_reason_value
-
-    @property
-    def monster_stats_toggle(self) -> QCheckBox:
-        """Expose the monster stats debug panel toggle control."""
-
-        return self._monster_stats_toggle
 
     @property
     def monster_stats_panel(self) -> QGroupBox:
@@ -835,12 +812,6 @@ class MainWindow(QMainWindow):
         """Expose the navigation and profiles card panel."""
 
         return self._profile_card
-
-    @property
-    def telemetry_card(self) -> QGroupBox:
-        """Expose the diagnostics and views toolbar card panel."""
-
-        return self._telemetry_card
 
     @property
     def popout_map_button(self) -> QPushButton:
@@ -1109,6 +1080,7 @@ class MainWindow(QMainWindow):
         self._mob_label.setText(self._translator.text(Message.UI_WORLD_STATUS, mob_count=mob_count))
         self._target_label.setText(self._translator.text(Message.UI_TARGET_NONE))
         self._goal_label.setText(self._translator.text(Message.UI_NO_GOAL))
+        self._kill_progress_label.setText(self._translator.text(Message.UI_KILL_PROGRESS_NONE))
         self._vitals_label.setText(
             self._translator.text(
                 Message.UI_VITALS_STATUS,
@@ -1170,24 +1142,11 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _update_overlay_visibility(self, visible: bool) -> None:
         self._overlay_label.setVisible(visible)
-        self._adapt_window_geometry()
-
-    @Slot(bool)
-    def _update_path_visibility(self, visible: bool) -> None:
-        self._profile_card.setVisible(visible)
-        if self._is_map_popped_out:
-            self._map_window.setVisible(visible)
-        else:
-            self._map_container.setVisible(visible)
-            self._path_inspector.setVisible(visible)
-        self._adapt_window_geometry()
 
     @Slot()
     def _toggle_map_popout(self) -> None:
         if not self._is_map_popped_out:
             self._is_map_popped_out = True
-            if not self._path_toggle.isChecked():
-                self._path_toggle.setChecked(True)
             self._map_container_layout.removeWidget(self._path_inspector)
             self._path_inspector.setVisible(True)
             self._map_window.set_inspector(self._path_inspector)
@@ -1198,7 +1157,6 @@ class MainWindow(QMainWindow):
             self._popout_map_button.setText(self._translator.text(Message.UI_DOCK_MAP))
         else:
             self._dock_map()
-        self._adapt_window_geometry()
 
     def _dock_map(self) -> None:
         if not self._is_map_popped_out:
@@ -1208,10 +1166,9 @@ class MainWindow(QMainWindow):
         self._map_window.hide()
         if inspector is not None:
             self._map_container_layout.addWidget(inspector)
-            inspector.setVisible(self._path_toggle.isChecked())
-        self._map_container.setVisible(self._path_toggle.isChecked())
+            inspector.setVisible(True)
+        self._map_container.setVisible(True)
         self._popout_map_button.setText(self._translator.text(Message.UI_POPOUT_MAP))
-        self._adapt_window_geometry()
 
     @Slot()
     def _on_map_window_closed(self) -> None:
@@ -1222,47 +1179,6 @@ class MainWindow(QMainWindow):
         self._placement_overlay.set_guides_visible(checked)
         if self._latest_update is not None:
             self._render_update()
-
-    @Slot(bool)
-    def _update_vitals_visibility(self, visible: bool) -> None:
-        self._vitals_panel.setVisible(visible)
-        self._adapt_window_geometry()
-
-    @Slot(bool)
-    def _update_powerups_visibility(self, visible: bool) -> None:
-        self._powerup_panel.setVisible(visible)
-        self._adapt_window_geometry()
-
-    @Slot()
-    def _on_powerup_rows_changed(self) -> None:
-        # Added and removed rows change the panel's height, and the window sizes
-        # itself with adjustSize(), so a new row would otherwise be clipped.
-        self._adapt_window_geometry()
-
-    @Slot(bool)
-    def _update_combat_visibility(self, visible: bool) -> None:
-        self._combat_panel.setVisible(visible)
-        self._adapt_window_geometry()
-
-    @Slot(bool)
-    def _update_recovery_visibility(self, visible: bool) -> None:
-        self._recovery_panel.setVisible(visible)
-        self._adapt_window_geometry()
-
-    @Slot(bool)
-    def _update_target_debug_visibility(self, visible: bool) -> None:
-        self._target_debug_panel.setVisible(visible)
-        self._adapt_window_geometry()
-
-    @Slot(bool)
-    def _update_monster_stats_visibility(self, visible: bool) -> None:
-        self._monster_stats_panel.setVisible(visible)
-        self._adapt_window_geometry()
-
-    @Slot(bool)
-    def _update_event_log_visibility(self, visible: bool) -> None:
-        self._event_log_panel.setVisible(visible)
-        self._adapt_window_geometry()
 
     @Slot()
     def _on_combat_grace_changed(self) -> None:
@@ -1276,11 +1192,6 @@ class MainWindow(QMainWindow):
     def _on_anchor_threshold_changed(self, threshold: float) -> None:
         self.anchor_threshold_changed.emit(threshold)
 
-    @Slot(bool)
-    def _update_targets_visibility(self, visible: bool) -> None:
-        self._target_panel.setVisible(visible)
-        self._adapt_window_geometry()
-
     @Slot(object)
     def _on_target_selection_changed(self, config: object) -> None:
         self.target_selection_changed.emit(config)
@@ -1289,15 +1200,6 @@ class MainWindow(QMainWindow):
         """List the monster classes the active detection model reports."""
 
         self._target_panel.set_class_names(class_names)
-        self._adapt_window_geometry()
-
-    def _adapt_window_geometry(self) -> None:
-        central = self.centralWidget()
-        if central is not None:
-            layout = central.layout()
-            if layout is not None:
-                layout.activate()
-        self.adjustSize()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Trigger emergency stop immediately upon Escape keypress."""
@@ -1311,9 +1213,10 @@ class MainWindow(QMainWindow):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Record one supported physical key while the attack-key button is active."""
 
+        attack_key_button = getattr(self, "_attack_key_button", None)
         if (
-            watched is self._attack_key_button
-            and self._is_recording_attack_key
+            watched is attack_key_button
+            and getattr(self, "_is_recording_attack_key", False)
             and event.type() is QEvent.Type.KeyPress
             and isinstance(event, QKeyEvent)
         ):
@@ -1322,7 +1225,7 @@ class MainWindow(QMainWindow):
         return super().eventFilter(watched, event)
 
     def _build_layout(self) -> None:
-        # Status & Metrics Card
+        # Persistent status header
         status_layout = QVBoxLayout()
         status_top = QHBoxLayout()
         status_top.addWidget(self._status_label)
@@ -1331,93 +1234,135 @@ class MainWindow(QMainWindow):
         status_top.addWidget(self._gps_label)
         status_top.addStretch()
         status_layout.addLayout(status_top)
-
-        metrics_row = QHBoxLayout()
-        metrics_row.addWidget(self._mob_label)
-        metrics_row.addWidget(self._target_label)
-        metrics_row.addWidget(self._vitals_label)
-        metrics_row.addWidget(self._goal_label)
-        status_layout.addLayout(metrics_row)
         self._status_card.setLayout(status_layout)
 
-        # Action Controls Card
-        controls_layout = QHBoxLayout()
-        controls_layout.addWidget(self._start_button)
-        controls_layout.addWidget(self._pause_button)
-        controls_layout.addWidget(self._emergency_stop_button)
-        controls_layout.addWidget(self._attack_key_label)
-        controls_layout.addWidget(self._attack_key_button)
-        controls_layout.addWidget(self._align_camera_button)
-        controls_layout.addWidget(self._auto_align_toggle)
-        controls_layout.addWidget(self._language_selector)
+        # Dashboard summary stays live even when another functional tab is selected.
+        metrics_layout = QGridLayout()
+        metrics_layout.addWidget(self._mob_label, 0, 0)
+        metrics_layout.addWidget(self._target_label, 0, 1)
+        metrics_layout.addWidget(self._kill_progress_label, 0, 2)
+        metrics_layout.addWidget(self._vitals_label, 1, 0, 1, 2)
+        metrics_layout.addWidget(self._goal_label, 1, 2)
+        self._summary_card.setLayout(metrics_layout)
+
+        # Persistent controls use two rows so German labels do not force a wide window.
+        controls_layout = QGridLayout()
+        controls_layout.addWidget(self._start_button, 0, 0)
+        controls_layout.addWidget(self._pause_button, 0, 1)
+        controls_layout.addWidget(self._attack_key_label, 0, 2)
+        controls_layout.addWidget(self._attack_key_button, 0, 3)
+        controls_layout.addWidget(self._align_camera_button, 1, 0)
+        controls_layout.addWidget(self._auto_align_toggle, 1, 1, 1, 2)
+        controls_layout.addWidget(self._language_label, 1, 3)
+        controls_layout.addWidget(self._language_selector, 1, 4)
+        controls_layout.setColumnStretch(5, 1)
         self._controls_card.setLayout(controls_layout)
 
-        # Navigation & Profiles Card
-        profile_layout = QHBoxLayout()
-        profile_layout.addWidget(self._profile_selector)
-        profile_layout.addWidget(self._profile_name_input)
-        profile_layout.addWidget(self._save_profile_button)
-        profile_layout.addWidget(self._load_profile_button)
-        profile_layout.addWidget(self._reset_map_button)
-        profile_layout.addWidget(self._world_data_button)
-        profile_layout.addWidget(self._spawn_point_button)
-        profile_layout.addWidget(self._spawn_point_label)
-        profile_layout.addWidget(self._profile_anchor_label)
+        # Navigation/profile controls are responsive within their own tab.
+        profile_layout = QGridLayout()
+        profile_layout.addWidget(self._profile_selector, 0, 0)
+        profile_layout.addWidget(self._profile_name_input, 0, 1)
+        profile_layout.addWidget(self._save_profile_button, 0, 2)
+        profile_layout.addWidget(self._load_profile_button, 0, 3)
+        profile_layout.addWidget(self._reset_map_button, 0, 4)
+        profile_layout.addWidget(self._world_data_button, 1, 0)
+        profile_layout.addWidget(self._spawn_point_button, 1, 1)
+        profile_layout.addWidget(self._spawn_point_label, 1, 2)
+        profile_layout.addWidget(self._profile_anchor_label, 1, 3, 1, 2)
+        profile_layout.setColumnStretch(1, 1)
         self._profile_card.setLayout(profile_layout)
 
-        # Telemetry & Diagnostics Toolbar Card
-        telemetry_layout = QHBoxLayout()
-        telemetry_layout.addWidget(self._debug_toggle)
-        telemetry_layout.addWidget(self._placements_toggle)
-        telemetry_layout.addWidget(self._path_toggle)
-        telemetry_layout.addWidget(self._popout_map_button)
-        telemetry_layout.addWidget(self._vitals_toggle)
-        telemetry_layout.addWidget(self._powerups_toggle)
-        telemetry_layout.addWidget(self._targets_toggle)
-        telemetry_layout.addWidget(self._combat_toggle)
-        telemetry_layout.addWidget(self._recovery_toggle)
-        telemetry_layout.addWidget(self._target_debug_toggle)
-        telemetry_layout.addWidget(self._monster_stats_toggle)
-        telemetry_layout.addWidget(self._event_log_toggle)
-        self._telemetry_card.setLayout(telemetry_layout)
+        preview_controls = QWidget()
+        preview_controls_layout = QHBoxLayout(preview_controls)
+        preview_controls_layout.setContentsMargins(0, 0, 0, 0)
+        preview_controls_layout.addWidget(self._camera_preview_toggle)
+        preview_controls_layout.addStretch()
+
+        map_controls = QWidget()
+        map_controls_layout = QHBoxLayout(map_controls)
+        map_controls_layout.setContentsMargins(0, 0, 0, 0)
+        map_controls_layout.addWidget(self._popout_map_button)
+        map_controls_layout.addStretch()
+
+        diagnostics_controls = QWidget()
+        diagnostics_controls_layout = QHBoxLayout(diagnostics_controls)
+        diagnostics_controls_layout.setContentsMargins(0, 0, 0, 0)
+        diagnostics_controls_layout.addWidget(self._placements_toggle)
+        diagnostics_controls_layout.addStretch()
+
+        self._add_scroll_tab(
+            DashboardTab.DASHBOARD,
+            self._summary_card,
+            preview_controls,
+            self._overlay_label,
+        )
+        self._add_scroll_tab(
+            DashboardTab.COMBAT_TARGETS,
+            self._target_panel,
+            self._combat_panel,
+            self._recovery_panel,
+        )
+        self._add_scroll_tab(
+            DashboardTab.VITALS_BUFFS,
+            self._vitals_panel,
+            self._powerup_panel,
+        )
+        self._add_scroll_tab(
+            DashboardTab.NAVIGATION_WORLD,
+            self._profile_card,
+            map_controls,
+            self._map_container,
+        )
+        self._add_scroll_tab(
+            DashboardTab.DIAGNOSTICS_LOGS,
+            diagnostics_controls,
+            self._event_log_panel,
+            self._target_debug_panel,
+            self._monster_stats_panel,
+        )
 
         content = QVBoxLayout()
         content.addWidget(self._status_card)
         content.addWidget(self._controls_card)
-        content.addWidget(self._telemetry_card)
-        content.addWidget(self._overlay_label)
-        content.addWidget(self._vitals_panel)
-        content.addWidget(self._powerup_panel)
-        content.addWidget(self._target_panel)
-        content.addWidget(self._combat_panel)
-        content.addWidget(self._recovery_panel)
-        content.addWidget(self._target_debug_panel)
-        content.addWidget(self._monster_stats_panel)
-        content.addWidget(self._event_log_panel)
-        content.addWidget(self._profile_card)
-        content.addWidget(self._map_container)
+        content.addWidget(self._tab_widget, 1)
 
         container = QWidget()
         container.setLayout(content)
         self.setCentralWidget(container)
 
+    def _add_scroll_tab(self, tab: DashboardTab, *widgets: QWidget) -> None:
+        """Create one stable, top-aligned scroll page without resizing the window."""
+
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        for widget in widgets:
+            page_layout.addWidget(widget)
+        page_layout.addStretch()
+
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("FunctionalTabScrollArea")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setWidget(page)
+        index = self._tab_widget.addTab(scroll_area, "")
+        if index != int(tab):
+            raise RuntimeError("Functional dashboard tabs must be added in stable index order.")
+        self._tab_scroll_areas[tab] = scroll_area
+
     def _connect_controls(self) -> None:
         self._start_button.clicked.connect(self._request_start)
         self._pause_button.clicked.connect(self._request_pause)
-        self._emergency_stop_button.clicked.connect(self._request_emergency_stop)
         self._attack_key_button.clicked.connect(self._begin_attack_key_recording)
         self._align_camera_button.clicked.connect(self._request_camera_alignment)
         self._auto_align_toggle.toggled.connect(self.auto_align_changed)
         self._attack_key_button.installEventFilter(self)
-        self._debug_toggle.toggled.connect(self._update_overlay_visibility)
-        self._path_toggle.toggled.connect(self._update_path_visibility)
+        self._camera_preview_toggle.toggled.connect(self._update_overlay_visibility)
         self._popout_map_button.clicked.connect(self._toggle_map_popout)
         self._map_window.closed.connect(self._on_map_window_closed)
         self._map_window.emergency_stop_requested.connect(self._request_emergency_stop)
-        self._vitals_toggle.toggled.connect(self._update_vitals_visibility)
-        self._powerups_toggle.toggled.connect(self._update_powerups_visibility)
         self._powerup_panel.config_changed.connect(self._on_powerup_config_changed)
-        self._powerup_panel.rows_changed.connect(self._on_powerup_rows_changed)
         self._placements_toggle.toggled.connect(self._on_placements_toggled)
         self._language_selector.currentIndexChanged.connect(self._switch_language)
         self._save_profile_button.clicked.connect(self._on_save_profile_clicked)
@@ -1425,7 +1370,6 @@ class MainWindow(QMainWindow):
         self._reset_map_button.clicked.connect(self._on_reset_map_clicked)
         self._world_data_button.clicked.connect(self._on_world_data_clicked)
         self._spawn_point_button.clicked.connect(self.set_spawn_point_requested)
-        self._recovery_toggle.toggled.connect(self._update_recovery_visibility)
         self._recovery_timeout_spin.valueChanged.connect(self._on_emergency_inputs_changed)
         self._recovery_hotkey_combo.currentIndexChanged.connect(self._on_emergency_inputs_changed)
 
@@ -1442,15 +1386,10 @@ class MainWindow(QMainWindow):
             spin.valueChanged.connect(self._on_vitals_inputs_changed)
         for combo in (self._hp_key_combo, self._mp_key_combo, self._fp_key_combo):
             combo.currentTextChanged.connect(self._on_vitals_inputs_changed)
-        self._combat_toggle.toggled.connect(self._update_combat_visibility)
         self._target_grace_spin.valueChanged.connect(self._on_combat_grace_changed)
         self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
         self._anchor_threshold_spin.valueChanged.connect(self._on_anchor_threshold_changed)
-        self._targets_toggle.toggled.connect(self._update_targets_visibility)
         self._target_panel.selection_changed.connect(self._on_target_selection_changed)
-        self._target_debug_toggle.toggled.connect(self._update_target_debug_visibility)
-        self._monster_stats_toggle.toggled.connect(self._update_monster_stats_visibility)
-        self._event_log_toggle.toggled.connect(self._update_event_log_visibility)
 
     def refresh_profiles(self, select_path: Path | None = None) -> None:
         """Scan the navigation profiles directory and populate the selector."""
@@ -1578,8 +1517,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self._translator.text(Message.UI_TITLE))
         self._status_card.setTitle(self._translator.text(Message.UI_CARD_STATUS))
         self._controls_card.setTitle(self._translator.text(Message.UI_CARD_CONTROLS))
+        self._summary_card.setTitle(self._translator.text(Message.UI_DASHBOARD_SUMMARY))
         self._profile_card.setTitle(self._translator.text(Message.UI_CARD_PROFILES))
-        self._telemetry_card.setTitle(self._translator.text(Message.UI_CARD_TELEMETRY))
+        self._retranslate_tabs()
         self._popout_map_button.setText(
             self._translator.text(
                 Message.UI_DOCK_MAP if self._is_map_popped_out else Message.UI_POPOUT_MAP
@@ -1589,7 +1529,6 @@ class MainWindow(QMainWindow):
 
         self._start_button.setText(self._translator.text(Message.UI_START))
         self._pause_button.setText(self._translator.text(Message.UI_PAUSE))
-        self._emergency_stop_button.setText(self._translator.text(Message.UI_EMERGENCY_STOP))
         self._attack_key_label.setText(self._translator.text(Message.UI_ATTACK_KEY))
         self._attack_key_button.setToolTip(self._translator.text(Message.UI_ATTACK_KEY_TOOLTIP))
         self._attack_key_button.setText(
@@ -1603,16 +1542,16 @@ class MainWindow(QMainWindow):
         self._auto_align_toggle.setToolTip(
             self._translator.text(Message.UI_AUTO_ALIGN_CAMERA_TOOLTIP)
         )
-        self._debug_toggle.setText(self._translator.text(Message.UI_DEBUG_OVERLAY))
-        self._path_toggle.setText(self._translator.text(Message.UI_PATH_INSPECTOR))
-        self._vitals_toggle.setText(self._translator.text(Message.UI_VITALS_TOGGLE))
-        self._powerups_toggle.setText(self._translator.text(Message.UI_POWERUPS_TOGGLE))
+        self._language_label.setText(self._translator.text(Message.UI_LANGUAGE))
+        self._camera_preview_toggle.setText(self._translator.text(Message.UI_CAMERA_PREVIEW))
+        self._camera_preview_toggle.setToolTip(
+            self._translator.text(Message.UI_CAMERA_PREVIEW_TOOLTIP)
+        )
         self._powerup_panel.set_translator(self._translator)
         self._placements_toggle.setText(self._translator.text(Message.UI_PLACEMENTS_TOGGLE))
-        self._combat_toggle.setText(self._translator.text(Message.UI_COMBAT_SETTINGS))
+        self._placements_toggle.setToolTip(self._translator.text(Message.UI_PLACEMENTS_TOOLTIP))
         self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))
         self._retranslate_recovery()
-        self._targets_toggle.setText(self._translator.text(Message.UI_TARGETS_TOGGLE))
         self._target_panel.set_translator(self._translator)
         self._target_grace_label.setText(self._translator.text(Message.UI_TARGET_GRACE_PERIOD))
         self._target_grace_spin.setToolTip(self._translator.text(Message.UI_TARGET_GRACE_TOOLTIP))
@@ -1624,7 +1563,6 @@ class MainWindow(QMainWindow):
         self._anchor_threshold_spin.setToolTip(
             self._translator.text(Message.UI_ANCHOR_THRESHOLD_TOOLTIP)
         )
-        self._target_debug_toggle.setText(self._translator.text(Message.UI_TARGET_DEBUG_TOGGLE))
         self._target_debug_panel.setTitle(self._translator.text(Message.UI_TARGET_DEBUG_TITLE))
         self._target_anchor_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_ANCHOR))
         self._target_hp_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_HP))
@@ -1632,9 +1570,6 @@ class MainWindow(QMainWindow):
         self._target_state_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_STATE))
         self._target_reason_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_REASON))
         self._target_break_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_BREAK))
-        self._monster_stats_toggle.setText(
-            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_TOGGLE)
-        )
         self._monster_stats_panel.setTitle(
             self._translator.text(Message.UI_MONSTER_STATS_DEBUG_TITLE)
         )
@@ -1657,7 +1592,6 @@ class MainWindow(QMainWindow):
             if self._latest_update is not None
             else MonsterStatsMetrics()
         )
-        self._event_log_toggle.setText(self._translator.text(Message.UI_EVENT_LOG_TOGGLE))
         self._event_log_panel.set_translator(self._translator)
         self._vitals_panel.setTitle(self._translator.text(Message.UI_VITALS_TITLE))
         self._vitals_col_type.setText(self._translator.text(Message.UI_VITALS_HP)[:2])
@@ -1698,10 +1632,35 @@ class MainWindow(QMainWindow):
         self._language_selector.setCurrentIndex(self._language_selector.findData(previous_language))
         self._language_selector.blockSignals(False)
 
+    def _retranslate_tabs(self) -> None:
+        """Relabel existing tabs without rebuilding widgets or losing their state."""
+
+        labels = {
+            DashboardTab.DASHBOARD: (Message.UI_TAB_DASHBOARD, Message.UI_TAB_DASHBOARD_TOOLTIP),
+            DashboardTab.COMBAT_TARGETS: (
+                Message.UI_TAB_COMBAT_TARGETS,
+                Message.UI_TAB_COMBAT_TARGETS_TOOLTIP,
+            ),
+            DashboardTab.VITALS_BUFFS: (
+                Message.UI_TAB_VITALS_BUFFS,
+                Message.UI_TAB_VITALS_BUFFS_TOOLTIP,
+            ),
+            DashboardTab.NAVIGATION_WORLD: (
+                Message.UI_TAB_NAVIGATION_WORLD,
+                Message.UI_TAB_NAVIGATION_WORLD_TOOLTIP,
+            ),
+            DashboardTab.DIAGNOSTICS_LOGS: (
+                Message.UI_TAB_DIAGNOSTICS_LOGS,
+                Message.UI_TAB_DIAGNOSTICS_LOGS_TOOLTIP,
+            ),
+        }
+        for tab, (label, tooltip) in labels.items():
+            self._tab_widget.setTabText(int(tab), self._translator.text(label))
+            self._tab_widget.setTabToolTip(int(tab), self._translator.text(tooltip))
+
     def _retranslate_recovery(self) -> None:
         """Re-label the stuck recovery controls, keeping the selected hotkey selected."""
 
-        self._recovery_toggle.setText(self._translator.text(Message.UI_RECOVERY_TOGGLE))
         self._recovery_panel.setTitle(self._translator.text(Message.UI_RECOVERY_TITLE))
         self._recovery_timeout_label.setText(self._translator.text(Message.UI_RECOVERY_TIMEOUT))
         self._recovery_timeout_spin.setToolTip(
@@ -1872,6 +1831,9 @@ class MainWindow(QMainWindow):
             self._translator.text(_target_state_message(update.state.selected_target.state))
         )
         self._goal_label.setText(_goal_text(self._translator, update.state, update.goal))
+        self._kill_progress_label.setText(
+            _kill_progress_text(self._translator, update.kill_progress)
+        )
         vitals = update.state.player_vitals
         self._vitals_label.setText(
             self._translator.text(
@@ -1902,7 +1864,7 @@ class MainWindow(QMainWindow):
         self._render_monster_stats_debug(update.state.monster_stats)
         self._target_panel.set_progress(update.kill_progress)
         self._event_log_panel.set_events(update.events)
-        self._update_overlay_visibility(self._debug_toggle.isChecked())
+        self._update_overlay_visibility(self._camera_preview_toggle.isChecked())
         is_active = update.status in {
             BotStatus.ACTIVE,
             BotStatus.RECONCILING,
@@ -2210,3 +2172,24 @@ def _goal_text(translator: Translator, state: WorldState, goal: FarmingGoal | No
         required=goal.required_quantity,
         item_name=goal.item_name,
     )
+
+
+def _kill_progress_text(translator: Translator, progress: tuple[MobKillProgress, ...]) -> str:
+    """Render the Dashboard's concise per-monster kill counter summary."""
+
+    if not progress:
+        return translator.text(Message.UI_KILL_PROGRESS_NONE)
+    entries = [
+        translator.text(
+            (
+                Message.UI_KILL_PROGRESS_UNLIMITED_ENTRY
+                if item.is_unlimited
+                else Message.UI_KILL_PROGRESS_ENTRY
+            ),
+            name=item.class_name,
+            kills=item.kills,
+            required=item.required_kills,
+        )
+        for item in progress
+    ]
+    return translator.text(Message.UI_KILL_PROGRESS_SUMMARY, progress=", ".join(entries))

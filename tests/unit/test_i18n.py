@@ -64,6 +64,8 @@ def test_each_language_contains_every_message() -> None:
                 previous="x",
                 new="x",
                 summary="x",
+                progress="x",
+                kills=0,
             )
 
 

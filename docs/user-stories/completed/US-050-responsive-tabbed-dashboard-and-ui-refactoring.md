@@ -1,7 +1,7 @@
 ---
 id: US-050
 title: Responsive tabbed dashboard and UI design overhaul
-status: draft
+status: completed
 created: 2026-08-19
 updated: 2026-08-19
 ---
@@ -15,8 +15,8 @@ As a **bot operator**, I want **a clean, responsive, tabbed dashboard interface 
 ## Context and assumptions
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
-- The desktop UI is built using PySide6 (Qt) as specified in [ADR-002](../../decisions/ADR-002-target-architecture-and-pyside6.md) and styled with Qt Style Sheets (QSS) ([US-022](completed/US-022-modern-dark-theme-and-streamlined-dashboard-ui.md)).
-- The previous UI suffered from checkbox bloat (11 bare checkboxes in a single toolbar) and vertical accordion stacking, causing erratic window jumping ([BUG-005](../bugs/fixed/BUG-005-dashboard-window-fails-to-shrink-on-overlay-toggle.md)) on dynamic panel toggles.
+- The desktop UI is built using PySide6 (Qt) as specified in [ADR-002](../../decisions/ADR-002-target-architecture-and-pyside6.md) and styled with Qt Style Sheets (QSS) ([US-022](US-022-modern-dark-theme-and-streamlined-dashboard-ui.md)).
+- The previous UI suffered from checkbox bloat (11 bare checkboxes in a single toolbar) and vertical accordion stacking, causing erratic window jumping ([BUG-005](../../bugs/fixed/BUG-005-dashboard-window-fails-to-shrink-on-overlay-toggle.md)) on dynamic panel toggles.
 - Operator requirements from interview:
   - Tab-based navigation (`QTabWidget`) dividing the UI into 5 dedicated views:
     1. **Dashboard (`Übersicht`):** Camera preview toggle/display, live vitals, target state summary, kill counters, primary quick-status indicators.
@@ -35,22 +35,22 @@ As a **bot operator**, I want **a clean, responsive, tabbed dashboard interface 
 
 ## Acceptance criteria
 
-- [ ] **Structured tabbed navigation (`QTabWidget`):**
+- [x] **Structured tabbed navigation (`QTabWidget`):**
   - Given the dashboard is initialized, when the main window is displayed, then a cohesive `QTabWidget` renders the 5 dedicated functional tabs with localized labels and tooltips.
   - Switching tabs preserves all active worker feeds, background updates, and controller state without lagging or desyncing.
-- [ ] **Streamlined Header & Control Bar:**
+- [x] **Streamlined Header & Control Bar:**
   - Status badges, window status chips, tracking/GPS chips, and primary actions (Start, Pause, Attack Key, Camera Align, Auto-Align, Language) remain pinned at the top above the tab widget for persistent access.
   - The global emergency stop (`END` key, `Escape` key) remains fully operational and halts automation instantly upon trigger.
-- [ ] **Elimination of Checkbox Bloat:**
+- [x] **Elimination of Checkbox Bloat:**
   - The 11 bare panel-toggling checkboxes in the previous telemetry card are completely replaced by the dedicated tab pages.
   - Setting options (e.g. Auto-Align, Kill Verification, Vitals enable) are styled cleanly as standard switches or integrated form controls.
-- [ ] **Scrollable & Responsive Tab Layouts:**
+- [x] **Scrollable & Responsive Tab Layouts:**
   - Each tab contains an internal `QScrollArea` or responsive container so content scales cleanly without triggering erratic `adjustSize()` window shrinking/growing jumps.
-- [ ] **Cohesive Dark Slate Styling (QSS):**
+- [x] **Cohesive Dark Slate Styling (QSS):**
   - The dark theme is expanded to style `QTabWidget`, `QTabBar`, `QScrollArea`, and all child controls consistently with the dark slate palette (`#0f172a`, `#1e293b`, `#334155`, `#3b82f6`).
-- [ ] **Localization:**
+- [x] **Localization:**
   - All user-visible strings (tab headers, new control labels, tooltips) are completely synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
-- [ ] **Automated verification:**
+- [x] **Automated verification:**
   - Application wiring in `src/flyff_bot/ui/app.py` and UI tests in `tests/unit/test_ui.py` are updated to reflect the tabbed hierarchy and verify all interactions.
 
 ## Out of scope
@@ -63,6 +63,20 @@ As a **bot operator**, I want **a clean, responsive, tabbed dashboard interface 
 - Automated:
   - `uv run pytest tests/unit/test_ui.py`
   - `./scripts/check.ps1`
-- Manual (Windows):
-  - Run `uv run flyff-bot ui` or `uv run flyff-bot --farm --auto`.
-  - Verify modern dark theme appearance, tab navigation responsiveness, hover/pressed button feedback, status badge updates, popping out the navigation map window, and triggering emergency stop via `Escape` or `END`.
+
+The full `./scripts/check.ps1` repository gate passed on 2026-08-19: dependency sync, Ruff check,
+Ruff format check, mypy, and pytest completed successfully; pytest reported 750 passed, 2 skipped,
+and 92.54% coverage.
+
+- Manual (Windows, outstanding after automated completion):
+  - [ ] Run `uv run flyff-bot ui` or `uv run flyff-bot --farm --auto` against `neuz.exe`.
+  - [ ] Verify the modern dark theme, tab navigation responsiveness, hover/pressed button feedback,
+    pinned status updates, stable window geometry, and the embedded and pop-out navigation views.
+  - [ ] Confirm live perception, diagnostics, navigation, and controller feeds keep updating while
+    switching among all five tabs.
+  - [ ] Trigger emergency stop through both `Escape` and `END` and confirm automation halts even
+    though the previous dedicated UI emergency-stop button is no longer present.
+
+Automated checks establish the tab hierarchy, wiring, state-feed independence, localization, and
+emergency-stop dispatch paths. They do not replace the outstanding Windows live-client visual and
+interaction walkthrough above.
