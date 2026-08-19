@@ -656,3 +656,11 @@ No raw source or live measurement was ingested; these claims are derived from th
 and regression tests. The automated repository gate passed, but a foregrounded Windows
 `neuz.exe` walkthrough against real invisible collision geometry remains outstanding. Moved BUG-017
 to fixed bugs.
+
+## [2026-08-19] synthesis | Unrestricted read-only client asset extraction (ADR-005)
+
+Recorded ADR-005 establishing full read-only access to local Entropia client files (`Data/World/`,
+`.one`, `.hdr`, `.lnd`, `.wld`, `.rgn`, `.dyo`, `.inc`, `neuz.exe`, etc.) for offline static data
+extraction and NavMesh baking tooling. Decoupled offline asset parsing from runtime safety boundaries,
+confirmed the non-destructive read-only requirement on local installations, and reinforced the
+repository safety boundary forbidding commits of raw proprietary client files.
