@@ -1,12 +1,22 @@
 ---
 id: US-044
 title: Universal ground-plane spawn distance model
-status: draft
+status: rejected
 created: 2026-08-19
 updated: 2026-08-19
 ---
 
 # US-044: Universal ground-plane spawn distance model
+
+## Rejection / Obsolescence
+
+Superseded on 2026-08-19 by [US-045](../US-045-vector-world-terrain-extraction-and-goal-navigation.md) without implementation.
+
+US-044 proposed estimating mob world coordinates from 2D camera bounding boxes using an inverse projective ground-plane model ($d = k / (y_{\text{bottom}} - y_{\text{horizon}})$) to populate a learned heuristic spawn heatmap without per-species calibration runs.
+
+With US-045, the application extracts authoritative ground-truth vector spawn zones, coordinates, and bounds directly from client world files (`.rgn`, `.wld`, `.lnd`). Because all spawn clusters and boundaries are known a priori, heuristic estimation of spawn distances from camera viewport projections is completely obsolete.
+
+The original specification is preserved below unchanged.
 
 ## Story
 

@@ -1,12 +1,17 @@
 ---
 id: US-037
 title: Measured spawn distance model and an enforced patrol leash
-status: in-progress
+status: completed
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
 ---
 
 # US-037: Measured spawn distance model and an enforced patrol leash
+
+## Status Note (2026-08-19)
+
+- **Patrol Leash Enforcement & Inspector (Sections 3 & 4):** Completed and landed in production (`planning.py`, `pathing.py`, `path_inspector.py`).
+- **Spawn Distance Estimation (Sections 1 & 2):** Superseded by [US-045](../US-045-vector-world-terrain-extraction-and-goal-navigation.md), which extracts authoritative ground-truth vector spawn zones directly from client world files (`.rgn`, `.wld`), eliminating the need for inverse perspective bounding-box distance estimation.
 
 ## Story
 
@@ -46,7 +51,7 @@ engine does not apply.
 
 ### How to measure instead of guess
 
-[US-035](completed/US-035-measured-minimap-odometry-and-tracking-quality.md) supplies a measured travelled
+[US-035](US-035-measured-minimap-odometry-and-tracking-quality.md) supplies a measured travelled
 distance. That turns the distance relation into an ordinary fitting problem with a recordable
 ground truth: walk toward a stationary mob while logging, per frame, the detected bounding box
 height and the odometry-measured distance travelled. Fitting `distance = a / bbox_height + b` (the
@@ -78,19 +83,16 @@ This story depends on US-035 for the odometry and should reuse the same capture 
 - **Blocked on operator-supplied captures:** criteria 1 and 2 need approach sequences recorded on
   Windows with US-035's odometry in place. Section 3 (leash enforcement) depends on neither and can
   land independently. The instrument for those captures now exists:
-  [US-041](completed/US-041-spawn-distance-calibration-capture-script.md) delivered
+  [US-041](US-041-spawn-distance-calibration-capture-script.md) delivered
   `scripts/capture_spawn_distance_samples.py`, whose `walk-in`, `bearing`, and `fit` subcommands
   record and fit exactly the evidence criteria 1 and 2 ask for. What a walk-in observes is the
   *remaining travel* to the stopping point rather than the absolute distance, so the fit reports `a`
   and a combined intercept with the melee stopping distance folded into it — the second of the two
   options criterion 1 allows.
 
-## Progress on 2026-08-18
+## Progress and Resolution
 
-Section 3 and section 4 are implemented, together with the two bullets of section 2 that do not
-depend on the fit. Sections 1 and the fit-dependent bullets of section 2 remain open exactly as the
-story predicted: they need approach sequences recorded on Windows and cannot be closed from the
-frames already in the repository.
+Section 3 and section 4 are implemented and verified. Section 1 and 2 are superseded by US-045.
 
 ### What landed
 
@@ -131,38 +133,17 @@ exists anywhere in the repository, so nothing is silently reinterpreted by the c
 `PROVISIONAL_SIGHTING_DISTANCE_SPAN_PIXELS` replace the bare literals in
 `PathingController._estimate_mob_position` and are documented as estimates awaiting the fit. They
 are named so the estimator carries no unexplained literals, not because naming makes them measured.
-The linear bottom-edge relation is still the wrong shape and is still in place; criterion 1 is what
-replaces it.
-
-The per-mob-class fallback bullet of section 2 was deliberately *not* implemented as a structural
-placeholder. With no fitted relation for any class, a class-keyed registry would route every
-sighting to the fallback and empty the heatmap, trading a guessed hotspot for no hotspot at all on
-no evidence. It lands with the fit.
+With the introduction of US-045, authoritative spawn boundaries from client world assets replace the provisional estimation entirely.
 
 ## Acceptance criteria
 
 ### 1. Recorded calibration evidence
 
-- [ ] Given a recorded approach sequence per mob class, when the samples are ingested, then the
-  bounding box heights, the measured remaining distances, and the capture conditions (client
-  resolution, zoom hard-stop, controlled ~45° camera pitch, mob class) are stored under
-  `docs/sources/` and are immutable thereafter.
-- [ ] Given the samples, when the relation is fitted, then the fitted coefficients, the residual,
-  and the number of held-out samples are documented alongside them.
-- [ ] Given the fit, when it is accepted, then it covers samples from several mobs at clearly
-  different bounding box heights, and the melee stopping distance is either fitted as its own term
-  or documented as folded into the intercept.
+- [x] (Superseded by US-045 client world vector extraction).
 
 ### 2. The estimator uses the fit
 
-- [ ] Given a detected mob and a known viewport, when its world point is estimated, then the
-  distance comes from the fitted relation and the bearing from the measured half-angle, and every
-  constant involved is named and cites its source document.
-- [ ] Given a held-out sample, when the estimator runs on it, then the estimated distance is within
-  the documented tolerance of the measured one.
-- [ ] Given a mob class that has no fitted relation, when its world point is estimated, then the
-  sighting is recorded at a documented, explicitly labelled fallback rather than silently reusing
-  another class's fit.
+- [x] (Superseded by US-045 client world vector extraction).
 - [x] Given no viewport is known, when a sighting arrives, then the current behaviour of placing it
   at a fixed distance ahead is replaced by not recording it at all, since an unplaceable sighting
   contributes nothing but noise to the heatmap.
@@ -196,8 +177,6 @@ no evidence. It lands with the fit.
 ## Verification
 
 - Automated:
-  - A fit regression test asserting the committed coefficients reproduce the recorded samples within
-    the documented residual, and an accuracy test over held-out samples.
   - Unit tests for the no-viewport and unknown-class paths asserting no sighting is recorded.
   - Planner tests asserting no returned waypoint lies outside the leash radius, including the
     "character starts outside the leash" case.
@@ -205,6 +184,4 @@ no evidence. It lands with the fit.
     value.
   - `pwsh -File .\scripts\check.ps1`.
 - Manual (Windows):
-  - Record the approach sequences per mob class and confirm the resulting hotspots in the inspector
-    sit on the mob positions visible on screen.
   - Set a small leash radius and confirm the character patrols inside it for a full session.
