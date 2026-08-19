@@ -12,31 +12,31 @@ updated: 2026-08-19
 
 As a **Flyff bot developer and ML engineer**,
 I want **to record structured, noise-free telemetry into an append-only JSONL stream via a decoupled background worker, maintain an operative SQLite telemetry database for fast local queries and UI diagnostics, and provide a batch converter for compiling compressed Parquet datasets**,
-so that **we have instant operational insight during farming sessions and an authoritative, high-performance dataset for training Reinforcement Learning (RL) and trajectory optimization policies without impacting the 10 Hz orchestrator loop or violating safety boundaries**.
+so that **we have instant operational insight during farming sessions and an authoritative, high-performance dataset for training Reinforcement Learning (RL) and trajectory optimization policies without impacting the 10 Hz orchestrator loop**.
 
 ## Context and assumptions
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
 - Relates to:
   - [`docs/wiki/architecture.md`](../wiki/architecture.md) & [`docs/wiki/glossary.md`](../wiki/glossary.md).
-  - [`docs/decisions/ADR-004-coordinate-only-read-process-memory.md`](../decisions/ADR-004-coordinate-only-read-process-memory.md): Read-only `ReadProcessMemory` exclusively for player XYZ at `CMover + 0x188`. No additional memory offsets or code hooking.
-  - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md): Read-only access to local client directory files for offline asset extraction, spawn zones (.rgn), world definitions (.wld), and 3D NavMeshes (.lnd), keeping client files immutable.
+  - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md): Vollständiger Lesezugriff auf lokale Client-Dateien, Archive (.one/.hdr), Spawn-Zonen (.rgn), Weltdefinitionen (.wld) und 3D-Terrain (.lnd).
   - [`docs/user-stories/completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md`](completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md) & [`docs/user-stories/completed/US-049-session-event-log-and-transition-diagnostics.md`](completed/US-049-session-event-log-and-transition-diagnostics.md).
-  - [`docs/user-stories/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md`](US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md): Extraction of all 3,861 terrain blocks across all worlds (.lnd, .wld, .rgn, .dyo) and compilation of baked 3D NavMeshes with sub-millisecond corridor routing and funnel string-pulling.
-  - [`docs/user-stories/US-053-pure-gps-navigation-and-client-profile-configuration.md`](US-053-pure-gps-navigation-and-client-profile-configuration.md): Pure 3D GPS navigation requiring `PositionSource.LIVE`.
+  - [`docs/user-stories/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md`](US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md): Extraktion aller 3.861 Terrainblöcke und 3D-NavMesh-Kompilierung mit Sub-Millisekunden-Routing.
+  - [`docs/user-stories/US-053-pure-gps-navigation-and-client-profile-configuration.md`](US-053-pure-gps-navigation-and-client-profile-configuration.md): Reines 3D-GPS-Navigationsmodell.
+- **Freie Datenverfügbarkeit & Entwickler-Handlungsspielraum:**
+  - Alle für die Telemetrie und das RL-Training relevanten Datenquellen des Clients (Live-Speicher, Bild-/HUD-Sensoren, statische Client-Dateien und extrahierte 3D-NavMeshes) stehen für die Implementierung uneingeschränkt zur Verfügung.
+  - Die in dieser User Story beschriebenen Datenstrukturen, Event-Formate, Tabellenschemata, Parquet-Layouts und Worker-Konzepte dienen als **fundierter Referenzvorschlag und Leitfaden, nicht als starre Solution Outline**.
+  - Der implementierende Entwickler besitzt **vollen Handlungsspielraum** bei der konkreten softwaretechnischen Modellierung (z. B. SQLite-Schema-Design, Batch-Größen, Parquet-Kompression snappy/zstd, Queue-Drop-Policies und Dataclass-Hierarchien), solange die Akzeptanzkriterien, die Rauschfreiheit und die Performance-Ziele (I/O-Entkopplung) erfüllt werden.
 - **Dual-Tier Storage Architecture (Append-Only JSONL + SQLite + Parquet Export):**
   1. *Live Capture Layer (JSONL):* Bounded in-memory queue $\to$ asynchronous background worker $\to$ append-only JSONL files (`data/telemetry/<area_id>/<date>/session_<session_id>.jsonl`). Fail-safe and zero-latency impact on 10 Hz orchestrator ticks.
   2. *Operative Storage Layer (SQLite):* `SqliteTelemetryStore` (`data/telemetry.sqlite3`) for fast indexed queries across session histories, kill totals, stall frequencies, combat durations, and dashboard analytics.
   3. *ML/RL Training Layer (Parquet):* Batch exporter / CLI command (`flyff-bot export-telemetry --format parquet`) that compiles raw JSONL/SQLite sessions into columnar, compressed `.parquet` tables (e.g. `target_decisions.parquet`, `navigation_episodes.parquet`, `kill_cycles.parquet`) optimized for PyTorch, DuckDB, Polars, and Pandas.
-- **Entwickler-Handlungsspielraum & Architektur-Vorschlag:**
-  - Die in dieser User Story beschriebenen Datenstrukturen, Event-Formate, Tabellenschemata, Parquet-Layouts und Worker-Konzepte dienen als **fundierter Referenzvorschlag und Leitfaden, nicht als starre, unumstößliche Solution Outline**.
-  - Der implementierende Entwickler besitzt **vollen Handlungsspielraum** bei der konkreten softwaretechnischen Modellierung (z. B. SQLite-Schema-Design, Batch-Größen, Parquet-Kompression snappy/zstd, Queue-Drop-Policies und Dataclass-Hierarchien), solange die Akzeptanzkriterien, die Rauschfreiheit, die Performance-Ziele (I/O-Entkopplung) und die Sicherheitsgrenzen (ADR-004 / ADR-005) gewahrt bleiben.
 - **100% Ground Truth & Integration mit 3D NavMesh (US-052 & ADR-005):**
   - *Player Kinematics:* Live 3D world coordinates $(x, y, z)$ read from memory via `LivePositionReader` at 10 Hz. Velocity $(\dot{x}, \dot{y}, \dot{z})$ and scalar speed $v = \|\dot{\mathbf{p}}\|$ are mathematically derived ($\Delta \mathbf{p} / \Delta t$).
   - *Terrain & NavMesh Geometry:* Gemäß ADR-005 und US-052 stellt das extrahierte 3D-NavMesh authoritative Bodenhöhen $y = \text{height\_at}(x, z)$, Geländesteigungen $\nabla y$, NavMesh-Polygon-IDs und Hindernis-Clearances bereit.
   - *Player Vitals:* $HP\%, MP\%, FP\%$ measured pixel-accurately from the top-left HUD orb via `PlayerVitalsReader`.
   - *Perception (YOLO + 3D NavMesh Raycast):* 2D bounding boxes $(x, y, w, h)$, confidences, class IDs, screen centers $(c_x, c_y)$, and screen distances to center $d_{\text{screen}}$. 3D world coordinates of mobs $(x_m, y_m, z_m)$ are determined via calibrated ground-raycast on the US-052 3D NavMesh/Heightfield. If the map/camera is uncalibrated, world coordinates are explicitly `null` (no fabricated heuristics).
-  - *Kill Verification:* Authoritative HUD kill counter OCR (`MonsterStatsReader`) and target HP bar collapse (`TargetVerifier`).
+  - *Kill Verification:* Authoritative HUD kill counter OCR (`MonsterStatsReader`) und Target HP bar collapse (`TargetVerifier`).
 - **Offline Reinforcement Learning (RL) Transition Formulation:**
   - *Target Sequencing MDP Transition:*
     - State $S_t$: Player kinematics $(x, y, z, \dot{x}, \dot{y}, \dot{z})$, current NavMesh polygon ID, vitals, plus feature matrix for all $K$ visible mob candidates (BBox area, screen distance, confidence, class, 3D Euclidean distance $d_{3D}$, US-052 NavMesh topological path distance $d_{\text{path}}$, relative elevation $\Delta y$, local terrain slope, lockout status).
@@ -170,10 +170,6 @@ so that **we have instant operational insight during farming sessions and an aut
 - [ ] **Performance & Threading-Entkopplung:**
   - Telemetrie-I/O blockiert zu keinem Zeitpunkt den 10-Hz-Orchestrator-Thread oder die Qt-GUI.
   - Serialisierung und Dateizugriffe laufen auf einem separaten Hintergrund-Worker.
-- [ ] **Safety & ADR-004 / ADR-005 Konformität:**
-  - Keine zusätzlichen Memory-Offsets oder Speicher-Leseoperationen über `CMover + 0x188` hinaus (ADR-004).
-  - Statische Client-Dateien werden ausschließlich schreibgeschützt zur Datenextraktion und Metadaten-Generierung verwendet (ADR-005).
-  - Keine Memory-Writes, Code-Injections oder Umgehung bestehender Foreground-/Emergency-Stop-Gates.
 - [ ] **Storage Control:**
   - Rohe Videoframes/Screenshots sind standardmäßig deaktiviert (rein numerische strukturierte JSONL-Events).
 - [ ] **Typisierung & Tests:**
