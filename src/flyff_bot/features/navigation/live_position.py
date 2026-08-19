@@ -37,6 +37,7 @@ TOOLHELP_SNAPSHOT_MODULE_32 = 0x00000010
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 MAXIMUM_PROCESS_PATH_LENGTH = 32_768
 MAXIMUM_MODULE_NAME_LENGTH = 256
+MAXIMUM_MODULE_PATH_LENGTH = 260
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +215,7 @@ class _ModuleEntry32W(ctypes.Structure):
         ("modBaseSize", wintypes.DWORD),
         ("hModule", wintypes.HMODULE),
         ("szModule", wintypes.WCHAR * MAXIMUM_MODULE_NAME_LENGTH),
-        ("szExePath", wintypes.WCHAR * MAXIMUM_PROCESS_PATH_LENGTH),
+        ("szExePath", wintypes.WCHAR * MAXIMUM_MODULE_PATH_LENGTH),
     ]
 
 

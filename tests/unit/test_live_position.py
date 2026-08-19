@@ -278,3 +278,15 @@ def test_reader_recovers_on_a_later_successful_poll(
     assert recovered.source is PositionSource.LIVE
     assert recovered.position == api.position
     assert [event.code for event in events] == [PositionReadErrorCode.HANDLE_LOST]
+
+
+def test_module_entry_structure_matches_win32_layout() -> None:
+    import ctypes
+    import struct
+
+    from flyff_bot.features.navigation.live_position import _ModuleEntry32W
+
+    entry = _ModuleEntry32W()
+    # 64-bit Windows: 1080 bytes; 32-bit Windows: 568 bytes
+    expected_size = 1080 if struct.calcsize("P") == 8 else 568
+    assert ctypes.sizeof(entry) == expected_size
