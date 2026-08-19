@@ -1,0 +1,7 @@
+model_verbosity = "medium"
+model_reasoning_summary = "auto"
+sandbox_mode = "workspace-write"
+
+web_search = "indexed"
+[sandbox_workspace_write]
+network_access = true

@@ -23,8 +23,11 @@ heuristics, window capture mechanisms, and Win32 input injection rely on the cla
 - The operating platform is Windows with the stable Python version pinned by `.python-version`.
 - The emergency stop is the `END` key (and `Escape` key in the UI).
 - The local `Entropia/` client installation is runtime context, not source code, and is ignored.
-- Process injection, memory manipulation, stealth, anti-cheat evasion, and credential handling are
-  outside project scope.
+- Read-only access to the game client's process memory (`ReadProcessMemory`) is permitted
+  exclusively for reading live world coordinates (player position, actor coordinates). No other
+  memory regions may be read for automation purposes.
+- Process injection, memory writes, code hooking, stealth, anti-cheat evasion, and credential
+  handling are outside project scope.
 - There is no HTTP boundary, so an ASGI framework or Uvicorn is not currently justified.
 
 ## Open product questions

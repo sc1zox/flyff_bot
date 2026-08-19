@@ -32,7 +32,8 @@ Detailed playbook for implementing a user story in the flyff_bot repository.
 - Adhere strictly to `CLAUDE.md`, `AGENTS.md`, and safety boundaries:
   - Windows API calls require game window foregrounding.
   - Emergency stop mechanism must be preserved.
-  - No memory manipulation, process injection, or anti-cheat evasion.
+  - No memory writes, process injection, code hooking, or anti-cheat evasion.
+    Read-only `ReadProcessMemory` for live coordinates is permitted.
   - All user-visible text must belong in `src/flyff_bot/locales/*.json` (sync `de.json` and `en.json`).
   - Strict Python type hints and clean domain boundaries.
 

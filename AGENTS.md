@@ -40,8 +40,11 @@ cleverness or speculative architecture.
 ## Safety boundaries
 
 - Use documented Windows APIs and require the game window to be foregrounded.
-- Do not add process injection, memory manipulation, anti-cheat evasion, credential handling, or
-  stealth behavior.
+- Read-only access to the game client's process memory (`ReadProcessMemory`) is permitted
+  exclusively for reading live world coordinates (player position, actor coordinates). No other
+  memory regions may be read for automation purposes.
+- Do not add process injection, memory writes (`WriteProcessMemory`), code hooking, anti-cheat
+  evasion, credential handling, or stealth behavior.
 - Preserve the emergency stop and document any action that can affect another process.
 - Never commit the local game installation, logs, secrets, generated caches, or virtual environment.
 
