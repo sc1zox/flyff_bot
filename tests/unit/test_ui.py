@@ -19,6 +19,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import (
     KillGoalConfig,
     MobKillProgress,
@@ -224,6 +225,13 @@ def test_farming_controls_connect_dashboard_intent() -> None:
 
         def configure_powerups(self, config: PowerUpConfig) -> None:
             self.requests.append("powerups")
+
+        def configure_emergency_recovery(self, config: EmergencyRecoveryConfig) -> None:
+            self.requests.append("emergency")
+
+        def mark_spawn_point(self) -> tuple[float, float] | None:
+            self.requests.append("spawn_point")
+            return (12.0, -4.0)
 
         def request_camera_alignment(self) -> None:
             self.requests.append("align")
@@ -633,6 +641,11 @@ class _ProfileSession:
     def configure_vitals(self, config: VitalsTriggerConfig) -> None: ...
 
     def configure_powerups(self, config: PowerUpConfig) -> None: ...
+
+    def configure_emergency_recovery(self, config: EmergencyRecoveryConfig) -> None: ...
+
+    def mark_spawn_point(self) -> tuple[float, float] | None:
+        return None
 
     def request_camera_alignment(self) -> None: ...
 
@@ -1790,3 +1803,78 @@ def test_the_world_data_button_is_localized() -> None:
     window = MainWindow(Translator(Language.GERMAN))
 
     assert window.world_data_button.text() == "Weltdaten & Karten"
+
+
+def test_the_recovery_panel_persists_the_timeout_and_teleport_hotkey(tmp_path: Path) -> None:
+    """US-040: the operator's stuck timeout and teleport hotkey survive a restart."""
+
+    application = QApplication.instance() or QApplication([])
+    config_path = tmp_path / "emergency.json"
+    window = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
+
+    assert window.recovery_panel.isHidden()
+    window.recovery_toggle.setChecked(True)
+    assert not window.recovery_panel.isHidden()
+
+    configs: list[EmergencyRecoveryConfig] = []
+    window.emergency_config_changed.connect(configs.append)
+
+    window.recovery_timeout_spin.setValue(90.0)
+    window.recovery_hotkey_combo.setCurrentIndex(window.recovery_hotkey_combo.findData("F7"))
+    application.processEvents()
+
+    assert configs[-1].stuck_timeout_seconds == pytest.approx(90.0)
+    assert configs[-1].teleport_virtual_key == parse_virtual_key("F7")
+
+    restored = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
+    assert restored.get_emergency_config() == configs[-1]
+
+
+def test_an_unassigned_teleport_hotkey_is_stored_and_restored(tmp_path: Path) -> None:
+    """US-040: switching the teleport off is a choice, not a missing setting."""
+
+    application = QApplication.instance() or QApplication([])
+    config_path = tmp_path / "emergency.json"
+    window = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
+
+    window.recovery_hotkey_combo.setCurrentIndex(window.recovery_hotkey_combo.findData(None))
+    application.processEvents()
+
+    assert window.get_emergency_config().teleport_virtual_key is None
+    restored = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
+    assert restored.get_emergency_config().teleport_virtual_key is None
+
+
+def test_the_spawn_point_button_requests_a_marker_and_the_chip_shows_it() -> None:
+    """US-040: the operator marks the anchor and reads it back from the live snapshot."""
+
+    application = QApplication.instance() or QApplication([])
+    translator = Translator(Language.ENGLISH)
+    window = MainWindow(translator)
+    requests: list[object] = []
+    window.set_spawn_point_requested.connect(lambda: requests.append("marked"))
+
+    assert window.spawn_point_label.text() == translator.text(Message.UI_RECOVERY_SPAWN_POINT_NONE)
+
+    window.spawn_point_button.click()
+    application.processEvents()
+    assert requests == ["marked"]
+
+    window.update_dashboard(
+        DashboardUpdate(
+            _world_state(),
+            BotStatus.STANDBY,
+            navigation=NavigationSnapshot(
+                player_x=0.0,
+                player_y=0.0,
+                heading_degrees=0.0,
+                cells=(),
+                edges=(),
+                spawn_point=(120.0, -45.5),
+            ),
+        )
+    )
+
+    assert window.spawn_point_label.text() == translator.text(
+        Message.UI_RECOVERY_SPAWN_POINT_VALUE, x="120.0", y="-45.5"
+    )

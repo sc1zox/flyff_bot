@@ -433,12 +433,15 @@ def _farming_orchestrator(
         TargetVerifier(allowed_names, anchors, TesseractTextRecognizer()),
     )
     navigation_map_path = Path(args.navigation_map)
+    navigation_profile = load_profile(navigation_map_path)
     return FarmingOrchestrator(
         pipeline,
         controller,
         window_handle,
         pathing=PathingController(
-            load_profile(navigation_map_path).spatial_map, map_path=navigation_map_path
+            navigation_profile.spatial_map,
+            map_path=navigation_map_path,
+            spawn_point=navigation_profile.spawn_point,
         ),
         config=FarmingConfig(
             combat=CombatConfig(

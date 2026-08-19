@@ -54,6 +54,7 @@ related:
   - ../bugs/fixed/BUG-015-camera-alignment-zoom-out-has-no-effect.md
   - ../user-stories/completed/US-043-continuous-approach-target-tracking-and-minimap-zoom-initialization.md
   - ../user-stories/completed/US-039-combat-obstacle-stall-detection-and-re-navigation.md
+  - ../user-stories/completed/US-040-unrecoverable-stuck-emergency-teleport-and-spawn-reset.md
 ---
 
 # Architecture
@@ -965,3 +966,62 @@ every detected monster stays eligible, which preserves the previous default exac
 controls was rejected: two widgets writing the same whitelist would contradict each other. The
 completed session also gets its own `BotStatus.COMPLETED` badge instead of reading as generic
 standby.
+
+
+## Unrecoverable stuck recovery and spawn re-anchoring (US-040)
+
+US-039 gave a blocked *approach* a way out; US-040 gives a blocked *character* one. When the camera
+sweep, the roaming pulses, the Dijkstra bypass, the retreat to the last safe waypoint, and the
+re-positioning sweep have all run and none of them moved the character — the picture of a body wedged
+in terrain geometry or dropped off a floating-island edge — nothing inside the movement model can
+help, because the only remaining exit is not walkable. The recovery is therefore a teleport item or
+skill on a quickslot, and the price of using one is that the session's whole spatial estimate becomes
+wrong at once.
+
+`flyff_bot.features.automation.emergency_recovery` holds the detection. `EmergencyRecoveryMonitor`
+accumulates one span: the continuous time across the ticks it is actually stepped in which the session
+produced no evidence of progress. Three things count as evidence and each resets the span to zero — a
+position that moved at least `progress_distance_pixels` (10.0, deliberately below the 15-pixel
+navigation cell so real travel always counts while measurement jitter around a wedged character never
+does), a fight that is landing damage, and the tick a kill reconciles on. A target *click* is
+explicitly not evidence: running against a tree towards a mob re-targets forever, which is the exact
+situation this recovery exists for. One accumulator covers every failed unstuck mechanism rather than
+one timer per stage, because their common observable outcome is the same absence of progress. Like
+`PowerUpScheduler`, the monitor is halted rather than reset in standby, so a paused, unfocused, or
+settling span never expires the timeout unobserved.
+
+`EmergencyTeleportDispatcher` is the only place the hotkey is sent, and it applies the same two guards
+as every other dispatcher: the client must be foregrounded and the `END` emergency stop clear. A
+refused dispatch changes nothing — the span stays expired, so the attempt simply repeats on the next
+tick the guards allow through. An operator who assigns no hotkey gets the honest alternative rather
+than a silent no-op: `EmergencyRecoveryAction.UNAVAILABLE` pauses the session and raises
+`BotStatus.EMERGENCY_TELEPORT_UNAVAILABLE` on the dashboard, because only a person can free the
+character at that point. The default hotkey is `F4`, so an untouched installation teleports instead of
+pausing; leaving it unassigned is a choice the persisted `null` in
+`data/emergency_recovery_config.json` preserves across restarts.
+
+Because the teleport is instantaneous, `FarmingMode.TELEPORTING` exists purely to *stop* doing things.
+For `settle_delay_seconds` (2.0) the session still captures frames but observes nothing into the map
+and steps no controller: every estimate measured during the transition describes the place the
+character just left. The reset splits across the two moments accordingly.
+`PathingController.begin_teleport_recovery()` runs at dispatch, while the stuck position is still
+known, and records it as a stall on its cell exactly as a self-steered stall would — without it the
+first route planned from the spawn anchor would lead straight back off the same ledge — then drops the
+route. It refuses on an unknown or read-only position for the same reason `register_obstacle` does: a
+stall is only evidence about a place while the place is known. `complete_teleport_recovery()` runs when
+the settle window closes and relocates `MovementTracker` onto the profile's mapped spawn point, or onto
+the session origin when none is mapped. It also breaks the map trail, so the traversal graph never
+invents an edge across a jump the character did not walk. The session then rebuilds
+`CombatController` from the active config — an engagement, its lockouts, and its approach-failure
+strikes all describe a mob that is now a map away — resets the search stages, and returns to
+`FarmingMode.SEARCHING`.
+
+The spawn anchor belongs to the map, not to the session, so it travels in the profile:
+`NavigationProfile.spawn_point` serializes as a `spawn_point` object beside the existing `anchor`
+record, and an unreadable one costs the profile only its anchor rather than failing the load, matching
+how a corrupted landmark is already handled. `PathingController.mark_spawn_point_here()` stores the
+currently measured position and refuses a degraded one, which the dashboard turns into a localized
+refusal dialog rather than a silently stored guess. On the dashboard the "Set Spawn Point" button sits
+in the Profile Controls next to save, load, and reset — the anchor is map-scoped like they are — the
+chip beside it reads the value back out of the live `NavigationSnapshot`, and `PathInspectorWidget`
+draws it as a magenta crosshair with its own legend entry.

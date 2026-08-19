@@ -30,6 +30,11 @@ class BotStatus(StrEnum):
     REPOSITIONING = "repositioning"
     ALIGNING = "aligning"
     ALIGNMENT_FAILED = "alignment_failed"
+    # The last-resort teleport out of un-walkable geometry is running (US-040).
+    EMERGENCY_TELEPORT = "emergency_teleport"
+    # Every unstuck mechanism failed and no teleport hotkey is configured, so only the
+    # operator can free the character (US-040).
+    EMERGENCY_TELEPORT_UNAVAILABLE = "emergency_teleport_unavailable"
 
 
 class WindowStatus(StrEnum):
@@ -119,6 +124,9 @@ class NavigationSnapshot:
     # The extracted spawn zone bounding the current patrol, when an authoritative world
     # vector map is steering the session instead of the learned heatmap (US-045).
     vector_zone: VectorZoneSnapshot | None = None
+    # The mapped town or respawn anchor an emergency teleport arrives at, when the
+    # operator marked one for this profile (US-040).
+    spawn_point: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)

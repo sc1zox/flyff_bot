@@ -7,20 +7,31 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from flyff_bot.features.navigation.anchoring import MapAnchor
-from flyff_bot.features.navigation.spatial import SpatialMap, SpatialMapConfig
+from flyff_bot.features.navigation.spatial import SpatialMap, SpatialMapConfig, WorldPoint
 
 JSON_INDENT_SPACES = 2
 DEFAULT_NAVIGATION_DIR = Path("data/navigation")
 INVALID_FILENAME_CHARS = frozenset(r'\/:*?"<>|')
 PROFILE_ANCHOR_KEY = "anchor"
+PROFILE_SPAWN_POINT_KEY = "spawn_point"
+SPAWN_POINT_X_KEY = "x"
+SPAWN_POINT_Y_KEY = "y"
+# Named so the handlers below stay single-name `except` clauses. The pinned formatter
+# rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
+# what the group of failures means.
+PROFILE_READ_ERRORS = (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError, TypeError)
+SPAWN_POINT_FIELD_ERRORS = (KeyError, ValueError, TypeError)
 
 
 @dataclass(frozen=True, slots=True)
 class NavigationProfile:
-    """One persisted map profile: the learned map and the landmark it was recorded at."""
+    """One persisted map profile: the learned map, its landmark, and its spawn anchor."""
 
     spatial_map: SpatialMap
     anchor: MapAnchor | None = None
+    # The town or respawn point an emergency teleport arrives at, in this profile's own
+    # coordinate frame. ``None`` means the operator mapped none for this map (US-040).
+    spawn_point: WorldPoint | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +60,7 @@ def count_cells_in_profile(path: Path) -> int:
         data: object = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict) and isinstance(data.get("cells"), list):
             return len(data["cells"])
-    except json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError, TypeError:
+    except PROFILE_READ_ERRORS:
         pass
     return 0
 
@@ -80,6 +91,11 @@ def save_profile(profile: NavigationProfile, path: Path) -> None:
     document = profile.spatial_map.to_dict()
     if profile.anchor is not None:
         document[PROFILE_ANCHOR_KEY] = profile.anchor.to_dict()
+    if profile.spawn_point is not None:
+        document[PROFILE_SPAWN_POINT_KEY] = {
+            SPAWN_POINT_X_KEY: profile.spawn_point.x,
+            SPAWN_POINT_Y_KEY: profile.spawn_point.y,
+        }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(document, indent=JSON_INDENT_SPACES, sort_keys=True),
@@ -92,7 +108,8 @@ def load_profile(path: Path, config: SpatialMapConfig | None = None) -> Navigati
 
     An unsupported schema version or an unreadable map is an explicit failure (ADR-003), but
     a corrupted anchor record only costs the profile its landmark: it then loads unanchored,
-    exactly as one saved while tracking was degraded does (US-036).
+    exactly as one saved while tracking was degraded does (US-036). An unreadable spawn
+    anchor is treated the same way and only costs the profile its mapped spawn point.
     """
 
     if not path.is_file():
@@ -105,4 +122,18 @@ def load_profile(path: Path, config: SpatialMapConfig | None = None) -> Navigati
             anchor = MapAnchor.from_dict(document[PROFILE_ANCHOR_KEY])
         except ValueError:
             anchor = None
-    return NavigationProfile(spatial_map, anchor)
+    spawn_point: WorldPoint | None = None
+    if isinstance(document, dict):
+        spawn_point = _spawn_point_from(document.get(PROFILE_SPAWN_POINT_KEY))
+    return NavigationProfile(spatial_map, anchor, spawn_point)
+
+
+def _spawn_point_from(value: object) -> WorldPoint | None:
+    """Read one stored spawn anchor, or return ``None`` when it is absent or unusable."""
+
+    if not isinstance(value, dict):
+        return None
+    try:
+        return WorldPoint(float(value[SPAWN_POINT_X_KEY]), float(value[SPAWN_POINT_Y_KEY]))
+    except SPAWN_POINT_FIELD_ERRORS:
+        return None

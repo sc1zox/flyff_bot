@@ -217,3 +217,13 @@ related:
   with its session id, monster class, and UTC timestamp, plus the quotas that session works towards.
 - **Session completion** — `FarmingMode.COMPLETED`, reached when every configured quota is bounded
   and reached, or the item goal is met. It optionally posts one cooperative `WM_CLOSE` to the client.
+- **Unrecoverable stuck** — A continuous span, default 60.0 s and configurable between 10.0 s and
+  300.0 s, in which the session produced no verified displacement, no landed damage, and no kill.
+  It is the state every micro-unstuck mechanism having failed looks like from the session loop.
+- **Emergency teleport** — The operator-assigned quickslot hotkey (default `F4`) holding a teleport
+  item or skill such as a Town Blinkwing, dispatched under the usual foreground and `END` guards as
+  the last resort out of un-walkable geometry. Leaving it unassigned pauses the session instead.
+- **Teleport settle delay** — The 2.0 s span (`FarmingMode.TELEPORTING`) in which the session
+  observes nothing into the map and steps no controller while the client finishes the transition.
+- **Spawn anchor** — The town or respawn coordinate an emergency teleport arrives at, mapped per
+  navigation profile and persisted with it. Without one, the reset falls back to the session origin.

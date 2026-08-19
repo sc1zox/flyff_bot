@@ -25,6 +25,13 @@ from flyff_bot.features.automation.controllers import (
     SearchController,
     SearchMode,
 )
+from flyff_bot.features.automation.emergency_recovery import (
+    EmergencyRecoveryAction,
+    EmergencyRecoveryConfig,
+    EmergencyRecoveryMonitor,
+    EmergencyTeleportDispatcher,
+    EmergencyTeleportInputAdapter,
+)
 from flyff_bot.features.automation.kill_goals import KillGoalConfig, KillGoalTracker
 from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
 from flyff_bot.features.automation.powerup_controller import (
@@ -42,7 +49,7 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerController,
 )
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
-from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
+from flyff_bot.features.navigation.tracking import StallConfig, StallDetector, TrackingQuality
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision.models import (
     CapturedFrame,
@@ -95,6 +102,7 @@ class FarmingMode(StrEnum):
     REPOSITIONING = "repositioning"
     TARGETING = "targeting"
     COMBAT = "combat"
+    TELEPORTING = "teleporting"
     RECONCILING = "reconciling"
     COMPLETED = "completed"
     EMERGENCY_STOPPED = "emergency_stopped"
@@ -125,6 +133,7 @@ class FarmingInputAdapter(
     PathingInputAdapter,
     VitalsInputAdapter,
     PowerUpInputAdapter,
+    EmergencyTeleportInputAdapter,
     SessionShutdownAdapter,
     Protocol,
 ):
@@ -145,6 +154,7 @@ class FarmingConfig:
     approach_stall: StallConfig = field(default_factory=StallConfig)
     vitals: VitalsTriggerConfig = field(default_factory=VitalsTriggerConfig)
     powerups: PowerUpConfig = field(default_factory=PowerUpConfig)
+    emergency: EmergencyRecoveryConfig = field(default_factory=EmergencyRecoveryConfig)
     auto_align_camera: bool = DEFAULT_AUTO_ALIGN_CAMERA
 
     def __post_init__(self) -> None:
@@ -205,10 +215,12 @@ class FarmingOrchestrator:
         self._approach_stalls = StallDetector(self._config.approach_stall)
         self._vitals = VitalsTriggerController(self._config.vitals)
         self._powerups = PowerUpScheduler(self._config.powerups)
+        self._emergency = EmergencyRecoveryMonitor(self._config.emergency)
         self._combat_dispatcher = CombatInputDispatcher(input_adapter, window_handle)
         self._search_dispatcher = SearchInputDispatcher(input_adapter, window_handle)
         self._vitals_dispatcher = VitalsInputDispatcher(input_adapter, window_handle)
         self._powerup_dispatcher = PowerUpInputDispatcher(input_adapter, window_handle)
+        self._emergency_dispatcher = EmergencyTeleportDispatcher(input_adapter, window_handle)
         self._pathing = pathing
         self._pathing_dispatcher = PathingInputDispatcher(input_adapter, window_handle)
         self._dashboard_feed = dashboard_feed
@@ -229,6 +241,8 @@ class FarmingOrchestrator:
         self._kill_goals = kill_goals or KillGoalTracker()
         self._on_target_classes_changed = on_target_classes_changed
         self._client_close_requested = False
+        self._teleport_settled_at_seconds = 0.0
+        self._emergency_teleport_unavailable = False
 
     @property
     def mode(self) -> FarmingMode:
@@ -242,6 +256,8 @@ class FarmingOrchestrator:
         if self._mode is FarmingMode.EMERGENCY_STOPPED:
             return
         self._alignment_failure = None
+        self._emergency_teleport_unavailable = False
+        self._emergency.reset()
         # Perception and pathing read distances from a perspective that is only calibrated
         # at the standardized camera state, so alignment runs before the first farming tick.
         if self._config.auto_align_camera and self._camera_aligner is not None:
@@ -368,6 +384,18 @@ class FarmingOrchestrator:
 
         self._powerups.reset()
 
+    def configure_emergency_recovery(self, config: EmergencyRecoveryConfig) -> None:
+        """Apply the unrecoverable-stuck timeout and teleport hotkey (US-040).
+
+        The accumulated stuck span survives the edit: an operator who lowers the timeout
+        while the character is already wedged means the recovery to happen sooner, not the
+        wait to start again.
+        """
+
+        self._config = replace(self._config, emergency=config)
+        self._emergency.update_config(config)
+        self._emergency_teleport_unavailable = False
+
     def save_navigation_profile(self, path: Path) -> None:
         """Persist the active spatial map to a specific profile file."""
 
@@ -407,6 +435,22 @@ class FarmingOrchestrator:
             self._pathing.attach_vector_navigator(navigator)
             self._publish(False)
 
+    def mark_spawn_point(self) -> tuple[float, float] | None:
+        """Store the character's current position as this map's spawn anchor (US-040).
+
+        Returns the stored coordinate, or ``None`` when the session runs without learned
+        navigation or the position is currently unmeasured - an unknown position is no
+        place, so nothing is marked rather than an arbitrary one.
+        """
+
+        if self._pathing is None:
+            return None
+        marked = self._pathing.mark_spawn_point_here()
+        if marked is None:
+            return None
+        self._publish(False)
+        return (marked.x, marked.y)
+
     def reset_navigation_map(self) -> None:
         """Reset the active spatial map and tracking origin."""
 
@@ -425,6 +469,7 @@ class FarmingOrchestrator:
             # Every route into standby freezes the power-up countdowns here, so a
             # paused, completed, or stopped span never expires a timer unobserved.
             self._powerups.halt()
+            self._emergency.halt()
             self._observe()
             if self._pathing is not None:
                 # Standby still follows the character: the minimap measures motion the
@@ -440,6 +485,12 @@ class FarmingOrchestrator:
         if not self._observe():
             self.pause()
             return self._publish(False)
+
+        if self._mode is FarmingMode.TELEPORTING:
+            # Nothing is observed into the map and no controller steps while the client
+            # finishes the teleport: every estimate measured now is about the place the
+            # character just left (US-040).
+            return self._settle_teleport()
 
         if self._pathing is not None:
             self._pathing.observe(self._state, self._last_frame)
@@ -464,6 +515,13 @@ class FarmingOrchestrator:
         if powerup_decision.triggered and self._powerup_dispatcher.dispatch(powerup_decision):
             self._powerups.confirm(powerup_decision, self._state.observed_at_seconds)
             return self._publish(True)
+
+        if self._advance_emergency_recovery():
+            return self._publish(True)
+        if self._mode in STANDBY_MODES:
+            # The timeout expired with no teleport hotkey configured, so the session paused
+            # and the operator has to free the character by hand.
+            return self._publish(False)
 
         dispatched = self._advance()
         return self._publish(dispatched)
@@ -640,6 +698,77 @@ class FarmingOrchestrator:
             )
         return dispatched
 
+    def _advance_emergency_recovery(self) -> bool:
+        """Escape geometry no unstuck mechanism could free the character from (US-040).
+
+        Only a session with learned navigation runs this: judging spatial progress needs a
+        position estimate, and the recovery itself is a reset of exactly that estimate.
+        Returns whether the teleport hotkey was dispatched.
+        """
+
+        if self._pathing is None:
+            return False
+        known_position = self._pathing.tracking_quality is not TrackingQuality.DEGRADED
+        position = self._pathing.position
+        decision = self._emergency.observe(
+            self._state.observed_at_seconds,
+            position_x=position.x if known_position else None,
+            position_y=position.y if known_position else None,
+            engaged=self._engagement_progressed(),
+        )
+        if decision.action is EmergencyRecoveryAction.UNAVAILABLE:
+            self._emergency_teleport_unavailable = True
+            self.pause()
+            return False
+        if decision.action is not EmergencyRecoveryAction.TELEPORT:
+            return False
+        if not self._emergency_dispatcher.dispatch(decision):
+            # Focus was lost or the emergency stop engaged; the timer stays expired, so the
+            # attempt simply repeats on the next tick the guards allow through.
+            return False
+        self._begin_teleport_recovery()
+        return True
+
+    def _engagement_progressed(self) -> bool:
+        """Return whether this tick carries evidence that the character is still fighting.
+
+        A click that started an approach is deliberately not enough: running against a tree
+        towards a mob re-targets forever, which is the very situation this recovery exists
+        for (US-039). Landing damage, or the tick a kill is reconciled on, is real progress.
+        """
+
+        return self._combat.damage_dealt or self._mode is FarmingMode.RECONCILING
+
+    def _begin_teleport_recovery(self) -> None:
+        """Blame the place being escaped and hold the session until the client settles."""
+
+        if self._pathing is not None:
+            self._pathing.begin_teleport_recovery(self._state.observed_at_seconds)
+        self._emergency.halt()
+        self._teleport_settled_at_seconds = (
+            self._state.observed_at_seconds + self._config.emergency.settle_delay_seconds
+        )
+        self._mode = FarmingMode.TELEPORTING
+
+    def _settle_teleport(self) -> FarmingTick:
+        """Wait out the post-teleport transition, then resume from the spawn anchor."""
+
+        if self._state.observed_at_seconds < self._teleport_settled_at_seconds:
+            return self._publish(False)
+        if self._pathing is not None:
+            self._pathing.complete_teleport_recovery()
+        # The engagement, the approach evidence, and the search stage all describe a place
+        # the character no longer stands in, so the session restarts them from the anchor.
+        self._combat = CombatController(self._config.combat)
+        self._engagement_break = None
+        self._engaged_monster_name = None
+        self._approach_stalls.reset()
+        self._search.reset()
+        self._reposition.reset()
+        self._emergency.reset()
+        self._mode = FarmingMode.SEARCHING
+        return self._publish(False)
+
     def _register_navigation_obstacle(self) -> None:
         """Penalize the blocked path in the learned map, if the session is learning one."""
 
@@ -724,6 +853,7 @@ class FarmingOrchestrator:
                         self._search.mode if self._mode is FarmingMode.SEARCHING else None,
                         live_preview=self._has_live_frame,
                         alignment_failed=self._alignment_failure is not None,
+                        teleport_unavailable=self._emergency_teleport_unavailable,
                     ),
                     self._config.goal,
                     frame=self._last_frame,
@@ -746,11 +876,16 @@ def _dashboard_status(
     *,
     live_preview: bool = False,
     alignment_failed: bool = False,
+    teleport_unavailable: bool = False,
 ) -> BotStatus:
     if mode is FarmingMode.ALIGNING:
         return BotStatus.ALIGNING
+    if mode is FarmingMode.TELEPORTING:
+        return BotStatus.EMERGENCY_TELEPORT
     if mode is FarmingMode.EMERGENCY_STOPPED:
         return BotStatus.EMERGENCY_STOPPED
+    if teleport_unavailable:
+        return BotStatus.EMERGENCY_TELEPORT_UNAVAILABLE
     if alignment_failed:
         return BotStatus.ALIGNMENT_FAILED
     if mode is FarmingMode.RECONCILING:

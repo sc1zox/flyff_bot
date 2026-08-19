@@ -1,9 +1,9 @@
 ---
 id: US-040
 title: Unrecoverable stuck emergency teleport and spawn point reset
-status: draft
+status: completed
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
 ---
 
 # US-040: Unrecoverable stuck emergency teleport and spawn point reset
@@ -32,30 +32,30 @@ so that **the character does not remain stuck permanently off the map or in un-w
 
 ## Acceptance criteria
 
-- [ ] **Configurable Unstuck Timeout & Teleport Hotkey:**
+- [x] **Configurable Unstuck Timeout & Teleport Hotkey:**
   - The UI exposes a configurable unrecoverable stuck timeout (default: `60.0s`, configurable range `10.0s`–`300.0s`).
   - The UI exposes a configurable emergency teleport hotkey (supporting `F1`–`F12`, `0`–`9`, `A`–`Z`; default `F4` or unassigned).
   - Teleport settings are persisted to disk alongside recovery configurations.
-- [ ] **Unrecoverable Stuck Detection:**
+- [x] **Unrecoverable Stuck Detection:**
   - `FarmingOrchestrator` / `Supervisor` monitors the continuous duration during which the bot remains in a stalled or stuck state without successful spatial progress, movement displacement, or target engagement.
   - Any successful mob engagement, damage deal, or verified position advancement immediately resets the unrecoverable stuck timer.
   - If the continuous stuck duration reaches the configured timeout, the bot initiates emergency teleport recovery.
-- [ ] **Guarded Emergency Teleport Dispatch:**
+- [x] **Guarded Emergency Teleport Dispatch:**
   - The bot dispatches the configured emergency teleport hotkey using guarded Win32 input (ensuring foreground window focus and verifying that the `END`/`Escape` emergency stop is clear).
   - An instant post-teleport settling delay (default: `2.0s`) pauses controller actions while the client rendering/teleport transition settles.
-- [ ] **Per-Map Spawn Point Mapping:**
-  - The navigation map profile schema and UI (`PathInspectorWidget` / Profile Controls) allow the operator to mark/set a single designated spawn anchor coordinate $(x_s, y_s)$ per navigation profile (e.g. via a "Set Spawn Point" button or right-click coordinate selection).
-  - The mapped spawn coordinate is persisted in the profile `.json` file.
-- [ ] **Pathing & Position Reset:**
+- [x] **Per-Map Spawn Point Mapping:**
+  - The Profile Controls carry a "Set Spawn Point" button that stores the character's currently measured position as the anchor; an unmeasured position is refused with a localized dialog rather than stored as a guess. `PathInspectorWidget` draws the mapped anchor and names it in the legend.
+  - The mapped spawn coordinate is persisted in the profile `.json` file under `spawn_point`.
+- [x] **Pathing & Position Reset:**
   - Upon successful emergency teleport execution, `MovementTracker` resets its estimated dead-reckoning coordinates directly to the profile's mapped spawn point $(x_s, y_s)$ (or $(0.0, 0.0)$ if no custom spawn coordinate was mapped).
   - `SpatialMap` clears transient route traces and marks the previous stuck position as blocked/penalized to prevent immediately walking back off the same ledge.
   - The bot resumes navigation/patrol planning from the mapped spawn anchor.
-- [ ] **Failure & Cancellation Behavior:**
+- [x] **Failure & Cancellation Behavior:**
   - If the emergency teleport hotkey is triggered but foreground focus is lost or emergency stop is engaged, input is immediately aborted.
   - If no emergency hotkey is configured when the timeout expires, the bot pauses farming and alerts the operator in the dashboard.
-- [ ] **Localization:**
+- [x] **Localization:**
   - All new dashboard labels, tooltips, dialogs, and recovery status messages are fully synchronized in German (`de.json`) and English (`en.json`).
-- [ ] **Verification:**
+- [x] **Verification:**
   - Unit tests verify timer accumulation, timer cancellation upon progress, guarded hotkey execution, and position reset to mapped spawn coordinates.
   - `./scripts/check.ps1` passes cleanly with zero lint and type errors.
 
@@ -68,9 +68,15 @@ so that **the character does not remain stuck permanently off the map or in un-w
 ## Verification
 
 - Automated:
-  - Unit tests in `tests/unit/test_emergency_recovery.py` verifying stuck timeout trigger logic and timer reset upon progress.
-  - Unit tests in `tests/unit/test_pathing.py` and `tests/unit/test_movement_tracker.py` verifying spawn point anchoring and coordinate reset on teleport.
-  - Integration tests in `tests/unit/test_orchestrator.py` verifying orchestrator transition into emergency recovery and back to navigation.
+  - Unit tests in `tests/unit/test_emergency_recovery.py` verifying stuck timeout accumulation, timer
+    reset upon displacement and engagement, guarded hotkey execution, spawn-anchor persistence,
+    coordinate reset on teleport, and the orchestrator transition into emergency recovery and back to
+    navigation. This repository has no `test_pathing.py` or `test_movement_tracker.py`, and the
+    orchestrator transitions for this story are exercised alongside the rest of the recovery, so all
+    of it lives in the one module rather than being scattered to match the original plan.
+  - Dashboard tests in `tests/unit/test_ui.py` verifying that the timeout, the teleport hotkey, and an
+    explicitly unassigned hotkey survive a restart, and that the spawn-anchor chip renders the live
+    value.
   - `./scripts/check.ps1` passes.
 - Manual (Windows):
   - In the dashboard, configure an emergency teleport key (e.g. assigned to Town Blinkwing) and map a spawn point.
