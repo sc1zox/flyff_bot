@@ -53,6 +53,7 @@ related:
   - ../bugs/fixed/BUG-015-camera-alignment-zoom-out-has-no-effect.md
   - ../user-stories/completed/US-043-continuous-approach-target-tracking-and-minimap-zoom-initialization.md
   - ../user-stories/completed/US-039-combat-obstacle-stall-detection-and-re-navigation.md
+  - ../user-stories/completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md
 ---
 
 # Architecture
@@ -909,3 +910,95 @@ One consequence is worth naming: a fight that lands no damage for `stall_timeout
 now breaks as an obstacle stall instead of waiting for the 10.0 s engagement timeout. Both reasons
 lead to the same recovery and the same strike, so the only observable difference is that the session
 recovers sooner.
+
+
+## Authoritative world geometry and goal-driven zone navigation (US-045)
+
+Every navigation surface before this one learned the world by walking into it. US-045 adds the
+other half: the client already ships the region's spawn zones and its terrain, so the map can be
+read before the first step instead of inferred from thousands of them.
+
+`flyff_bot.features.navigation.world_extractor` is the reader, and it is strictly offline file
+I/O - no game process is opened, read, or written. Four loose client files carry everything it
+needs. The world script (`.wld`) states the block grid and `MPU`, the world units one terrain
+vertex spans. The region script (`.rgn`) is UTF-16 text whose `respawn7` records become typed
+`VectorSpawnZone` values: monster id, 3D centroid, 2D bounding rectangle, mob capacity, and
+respawn interval. Each terrain block (`.lnd`) is a version integer, its block coordinates, and a
+raw 129x129 IEEE-754 float32 height grid addressed row-major with z as the row. The
+dynamic-object file (`.dyo`) places props, and its position is validated against the region
+bounds because a position off the map is the clearest available evidence that the record offsets
+do not describe that file.
+
+**What the packed archive holds is out of reach and stays that way.** `<world>.one` is
+obfuscated, so extraction sees only the blocks a client leaves loose on disk. For Eden that is
+exactly one - `WdEden03-02.lnd` - beside the full 83 spawn zones and all six monster classes.
+Zones outside that block extract normally and route without terrain constraints, which is what
+leaves `StallDetector` as their safety net rather than a redundancy. The client's own
+identifier-to-name table shares that fate, so `data/assets/world/monster_ids.json` pairs the six
+Eden identifiers with the six `models/labels.txt` classes in ascending identifier order as an
+operator-editable assumption; an unmapped identifier still extracts under its numeric identity.
+
+Passability is a slope test, not a paint layer. A terrain quad whose steepest rise between two
+adjacent corners exceeds one metre per metre of run is impassable, which is the >45 deg cliff the
+client's physics refuses. Contiguous impassable quads are merged greedily into maximal
+axis-aligned rectangles, because the planner needs only their outer corners and a raster of
+single quads would hand it thousands of redundant ones. Eden's one mapped block is a quarter
+impassable and reduces to 348 rectangles.
+
+`vector_routing.VectorRoutePlanner` searches those rectangles exactly. Among axis-aligned
+obstacles the shortest obstacle-free path bends only at corners, so the corners plus the two
+endpoints are a complete vertex set and A* over their mutual visibility is optimal rather than
+heuristic. Three things keep it affordable. The graph is built per query over a corridor - the
+endpoints' bounding box plus a margin - instead of the whole region. Route vertices are clipped
+to that corridor, which is what makes the local view *sound*: the box is convex, so every leg
+between two vertices stays inside it, and every obstacle overlapping it is a blocker, so nothing
+a leg can reach was left out. And one vertex's visibility against every other is evaluated as a
+single vectorised Liang-Barsky slab clip. Measured on the extracted Eden map: intra-zone legs
+solve in 0.26 ms median, zone-to-zone hops in 2.5 ms median and 36 ms worst case. A query whose
+detour would have to swing wider than the corridor, or whose corridor exceeds the obstacle
+ceiling, is reported blocked - a refusal that falls back, never a wrong route.
+
+**The frame registration is the one thing that cannot be measured.** Session positions are
+minimap pixels relative to wherever the session started (US-035); the extracted map speaks client
+world units. Recovering the offset between them would need the character's absolute world
+position, which only game memory holds, and reading it is out of scope. `WorldRegistration`
+therefore takes it from a stated correspondence instead: the operator names the spawn zone the
+character is standing in, and the position measured at that moment becomes that zone's anchor. No
+rotation is recovered because the minimap is north-up and the ground plane is axis-aligned. The
+scale stays a named provisional constant (`PROVISIONAL_MINIMAP_PIXELS_PER_WORLD_UNIT`, 1.0)
+exposed as a calibration input, for exactly the reason US-035 gives for having no world-unit
+conversion anywhere else: the client displays no run speed to derive one from.
+
+`vector_navigation.VectorZoneNavigator` owns the three decisions above the geometry. Which goal
+is still unfinished - `ZoneGoal(monster_name, kill_quota)`, worked through in order. Which of that
+monster's zones the session is bound to - the nearest, and the binding is deliberately sticky, so
+drifting toward a neighbour never abandons a route in progress. And what polyline leads there: a
+zone is a patrol *boundary*, so the route sweeps an inset ring of its rectangle starting at the
+station nearest the character, with each leg planned through the visibility graph. Completing a
+quota drops the binding, which is what makes the session walk to the next monster's nearest zone
+without a restart. Kills reach it from `FarmingOrchestrator`, which remembers the verified target
+nameplate while fighting because the header is already gone by the time a kill confirms. These
+quotas are the minimum the story's zone-switching criterion needs, not the dashboard and SQLite
+surface the pending multi-target selection story specifies.
+
+**Only route generation is replaced.** `PathingController.waypoints` became continuous
+`WorldPoint`s so a vector route needs no rounding through the grid, and `_plan` consults the
+navigator first, falling through to the learned circuit whenever it has nothing - no extracted
+map, no zone for the active monster, or a blocked corridor. Everything underneath keeps running
+unchanged: `MinimapOdometer` and `MovementTracker` measure, `StallDetector` still catches the
+obstacles no file describes (other players, dynamic entities), retreat to the last safe waypoint
+still works, and visit and stall history is still written. What *is* bypassed is the spawn
+heatmap: the decaying sighting weight exists to decide where to explore, and an extracted map
+already states where the spawns are, so accumulating estimated sightings beside it would only
+compete with authoritative geometry.
+
+The operator surface is `flyff_bot.ui.world_data_dialog`. It lists the client regions found under
+the configured world root, extracts one on a worker thread - decoding megabytes of terrain is far
+too slow for the Qt event loop, so results reach the widgets only through its signals - and
+reports zones, impassable areas, terrain blocks, monster classes, and the output path. Extracted
+maps are written as versioned JSON to `data/navigation/worlds/<world>.json`. The same dialog arms
+navigation: the standing zone, the scale calibration, and an optional per-monster kill quota
+become a `VectorNavigationRequest`, which `run_desktop` turns into a navigator against the live
+position estimate at the moment the operator confirms it. The dialog cannot do that itself, and
+deliberately does not see the estimate, because a registration is only meaningful against the
+position it was applied at.

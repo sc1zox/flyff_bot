@@ -542,3 +542,23 @@ addition, `scroll_wheel_while_guarded` now sets the hardware cursor via `SetCurs
 `MOUSEEVENTF_MOVE` absolute mouse events, ensuring the pointer is centered over the game viewport across DPI-scaled
 and multi-monitor setups before wheel notches are sent. Moved BUG-016 to fixed bugs.
 
+## [2026-08-19] synthesis | Authoritative world geometry and goal-driven zone navigation (US-045)
+
+Recorded US-045 on `docs/wiki/architecture.md` and `docs/wiki/glossary.md`: the offline client world
+extractor (`.wld`, `.rgn`, `.lnd`, `.dyo`), slope-derived impassable rectangles, the corridor-local
+visibility-graph A* planner, `WorldRegistration`, `VectorZoneNavigator`, and the World Data & Maps
+dialog.
+
+Measurements ingested, taken against the operator's own Entropia client tree rather than a fixture:
+Eden extracts 83 spawn zones, 6 monster classes, 348 impassable slope rectangles from its one loose
+terrain block, and 1 placed-object footprint, in 0.01 s. Routing over those 349 obstacles solves
+intra-zone patrol legs in 0.26 ms median and zone-to-zone hops in 2.5 ms median with a 36 ms worst
+case; 6 of 72 zone pairs report blocked and fall back to learned pathing. The story's sub-millisecond
+figure holds for the short legs a patrol walks, not for cross-block queries.
+
+Three assumptions are recorded as assumptions, not findings. The monster-id to detector-class
+mapping is ascending-order pairing, because the client's own table ships only inside the obfuscated
+`data.one`. The minimap-pixels-per-world-unit scale is a provisional constant for the same reason
+US-035 records for every other world-unit conversion. And the `.dyo` record offsets are read off a
+single shipped file, guarded by a region-bounds check rather than a schema. Moved US-045 to
+completed user stories.

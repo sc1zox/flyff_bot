@@ -205,3 +205,25 @@ related:
 - **Schema version 2** — The only navigation profile format. It is the first whose coordinates are
   measured minimap pixels and which can carry a map anchor; version 1 documents are rejected by name
   rather than migrated (ADR-003).
+
+- **World vector map** - The extracted, serializable description of one client region: its block
+  grid and `MPU`, its `VectorSpawnZone` records, and its impassable rectangles. Stored as versioned
+  JSON under `data/navigation/worlds/<world>.json` and read before a session's first step, unlike
+  the learned spatial map which is written during one.
+- **Vector spawn zone** - One `respawn7` record from a client region script: a monster id, a 3D
+  centroid, a 2D bounding rectangle, a mob capacity, and a respawn interval. Under vector navigation
+  the rectangle is the patrol boundary, replacing the leash circle around the session anchor.
+- **Impassable rectangle** - A merged run of terrain quads whose steepest rise between adjacent
+  corners exceeds one metre per metre of run, i.e. the >45 deg cliff the client's physics refuses.
+  Merged greedily so the planner gets outer corners rather than a per-quad raster.
+- **Search corridor** - The bounding box of one routing query's endpoints plus a margin. Obstacles
+  overlapping it are blockers and route vertices are clipped to it, which is what makes a local
+  visibility graph sound: the box is convex, so no leg can leave it past an obstacle that was never
+  selected.
+- **World registration** - The affine map between client world units and a session's minimap pixels.
+  It carries no rotation, because the minimap is north-up and the ground plane is axis-aligned; its
+  translation comes from the operator naming the zone the character stands in, and its scale is a
+  provisional constant because no observation relates the two units.
+- **Zone goal** - One monster class to farm and, optionally, the kill count that completes it. The
+  navigator works its goals through in order and rebinds to the next unfinished monster's nearest
+  zone the moment a quota is reached.
