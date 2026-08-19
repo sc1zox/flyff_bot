@@ -33,7 +33,7 @@ For any non-trivial search, investigation, or task:
 - Game foregrounding must be verified before executing Win32 simulated input.
 - Emergency stop shortcut / hook must always be honored.
 - No memory writes (`WriteProcessMemory`), code hooking, packet sniffing, anti-cheat evasion, or stealth routines.
-  Read-only `ReadProcessMemory` for live world coordinates (player/actor position) is permitted.
+  Read-only `ReadProcessMemory` for live game state (coordinates, camera state, projection matrices, player/actor data, and client structures) is permitted.
 - User-visible text belongs strictly in `src/flyff_bot/locales/*.json` (keep German `de.json` and English `en.json` synchronized).
 
 ## Verify every change

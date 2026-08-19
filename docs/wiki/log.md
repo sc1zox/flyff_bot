@@ -709,3 +709,12 @@ the World Data dialog's `QSettings` persistence of stable region, map, zone, and
 No raw source or live measurement was ingested; these claims are derived from the implementation and
 regression tests. The automated repository gate passed. The Windows `neuz.exe` walkthrough for live
 GPS, focus loss, and dialog persistence remains outstanding. Moved US-053 to completed user stories.
+
+## [2026-08-20] ingest | Read-only process memory access policy (ADR-006)
+
+Recorded ADR-006 generalizing runtime `ReadProcessMemory` safety boundaries to permit unrestricted read-only
+access to game client process memory for automation, navigation, perception, and telemetry state extraction
+(coordinates, camera state, projection matrices, player/actor data, and client structures). Replaced the
+coordinate-only limitation across `AGENTS.md`, `CLAUDE.md`, and project rules while preserving non-invasive
+safety invariants (strictly no memory writes, no code injection, no hooking, and no anti-cheat evasion).
+

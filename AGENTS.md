@@ -40,9 +40,9 @@ cleverness or speculative architecture.
 ## Safety boundaries
 
 - Use documented Windows APIs and require the game window to be foregrounded.
-- Read-only access to the game client's process memory (`ReadProcessMemory`) is permitted
-  exclusively for reading live world coordinates (player position, actor coordinates). No other
-  memory regions may be read for automation purposes.
+- Read-only access to the game client's process memory (`ReadProcessMemory`) is permitted for
+  reading live game state (world coordinates, camera state, projection matrices, player/actor
+  data, and client structures).
 - Do not add process injection, memory writes (`WriteProcessMemory`), code hooking, anti-cheat
   evasion, credential handling, or stealth behavior.
 - Preserve the emergency stop and document any action that can affect another process.

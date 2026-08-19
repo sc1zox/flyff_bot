@@ -48,9 +48,9 @@ clear, verifiable behavior over cleverness or speculative architecture.
 
 - Use documented Windows APIs and require the game window to be foregrounded before sending input.
 - Automatically pause and release all keys if the game window loses focus.
-- Read-only access to the game client's process memory (`ReadProcessMemory`) is permitted exclusively
-  for reading live world coordinates (player position, actor coordinates). No other memory regions
-  may be read for automation purposes.
+- Read-only access to the game client's process memory (`ReadProcessMemory`) is permitted for
+  reading live game state (world coordinates, camera state, projection matrices, player/actor
+  data, and client structures).
 - Do not add process injection, memory writes (`WriteProcessMemory`), code hooking, anti-cheat evasion,
   credential handling, or stealth behavior.
 - Preserve the emergency stop hotkey / killswitch (e.g. `F12` / `Ctrl+Shift+Q`) to immediately release keys and halt execution.

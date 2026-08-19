@@ -10,3 +10,4 @@ that are obvious from the code do not need an ADR.
 - [ADR-002: Target architecture and PySide6](ADR-002-target-architecture-and-pyside6.md)
 - [ADR-003: Clean schema over backward compatibility](ADR-003-clean-schema-over-backward-compatibility.md)
 - [ADR-005: Unrestricted read-only client asset access for offline data extraction](ADR-005-client-folder-asset-access-for-data-extraction.md)
+- [ADR-006: Unrestricted read-only process memory access for runtime game state extraction](ADR-006-read-only-process-memory-access.md)

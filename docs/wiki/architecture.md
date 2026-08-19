@@ -15,6 +15,7 @@ related:
   - ../decisions/ADR-002-target-architecture-and-pyside6.md
   - ../decisions/ADR-003-clean-schema-over-backward-compatibility.md
   - ../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md
+  - ../decisions/ADR-006-read-only-process-memory-access.md
   - ../user-stories/completed/US-002-vision-frame-capture.md
   - ../user-stories/completed/US-003-mob-detection-yolo.md
   - ../user-stories/completed/US-004-target-mob-verification.md
