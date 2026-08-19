@@ -202,6 +202,7 @@ class KillCycle:
     stall_seconds: float
     verified_kill: bool
     reward: float
+    target_decision_timestamp_ns: int | None = None
 
     @property
     def total_seconds(self) -> float:

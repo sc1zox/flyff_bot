@@ -358,8 +358,9 @@ related:
 - **Telemetry dataset export** — `TelemetryDatasetExporter` and `--export-telemetry`, which compile
   SQLite event records into zstd-compressed Parquet tables for target decisions, navigation
   trajectories, and kill cycles under `data/datasets/rl/`.
-- **Explicitly unavailable geometry** — A telemetry field whose producer is absent. An optional
-  loaded NavMesh artifact supplies only the player's polygon ID from finite live GPS; it remains
-  `null` for no artifact, no position, or minimap fallback. Candidate geometry, candidate polygon
-  IDs, slope, and path fields use `null` until their own measured producers exist; telemetry must
-  not invent a screen-space estimate.
+- **Measured telemetry geometry** — The optional, read-only conversion of a target candidate's
+  screen bounding-box bottom centre through `CameraState` into a NavMesh ray hit. A valid loaded
+  NavMesh plus finite live GPS produces the hit position, relative distance/elevation, polygon, and
+  mesh path distance; player polygon and slope come from the same mesh. No mesh, live GPS, camera,
+  or ray hit leaves the corresponding field `null`; telemetry must not invent a screen-space
+  estimate.

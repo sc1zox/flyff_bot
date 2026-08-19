@@ -291,6 +291,20 @@ class PathingController:
         return self._live_position
 
     @property
+    def camera_state(self) -> CameraState | None:
+        """Return the latest exact-profile camera state without polling it again."""
+
+        return self._camera_state
+
+    @property
+    def active_spawn_zone_metadata(self) -> dict[str, object] | None:
+        """Return the configured extracted spawn-zone record for a new session header."""
+
+        navigator = self._vector_navigator
+        zone = None if navigator is None else navigator.configured_zone
+        return None if zone is None else zone.to_dict()
+
+    @property
     def live_sampled_at_seconds(self) -> float | None:
         """Return when the newest live coordinate was actually sampled."""
 

@@ -38,8 +38,14 @@ class TelemetryDatasetExporter:
 
     def _target_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
+        cycle_by_decision = {
+            payload["target_decision_timestamp_ns"]: payload
+            for event in self._store.events(TelemetryEventKind.KILL_CYCLE)
+            if isinstance((payload := event["payload"]).get("target_decision_timestamp_ns"), int)
+        }
         for event in self._store.events(TelemetryEventKind.TARGET_SELECTED):
             payload = event["payload"]
+            cycle = cycle_by_decision.get(event["timestamp_ns"])
             for candidate in payload["candidates"]:
                 rows.append(
                     {
@@ -51,6 +57,8 @@ class TelemetryDatasetExporter:
                         == payload["selected_candidate_index"],
                         "decision_reason": payload["decision_reason"],
                         "decision_latency_ms": payload["decision_latency_ms"],
+                        "reward": None if cycle is None else cycle["reward"],
+                        "verified_kill": None if cycle is None else cycle["verified_kill"],
                         "class_id": candidate["class_id"],
                         "class_name": candidate["class_name"],
                         "confidence": candidate["confidence"],

@@ -1,6 +1,11 @@
 """Asynchronous farming telemetry, operational storage, and offline dataset export."""
 
 from flyff_bot.features.telemetry.exporter import TelemetryDatasetExporter
+from flyff_bot.features.telemetry.geometry import (
+    ProjectedCandidate,
+    navmesh_slope,
+    project_candidate,
+)
 from flyff_bot.features.telemetry.kinematics import KinematicsDeriver
 from flyff_bot.features.telemetry.models import (
     TELEMETRY_SCHEMA_VERSION,
@@ -29,6 +34,7 @@ __all__ = [
     "KillCycle",
     "KinematicsDeriver",
     "NavigationEpisode",
+    "ProjectedCandidate",
     "SqliteTelemetryStore",
     "TelemetryDatasetExporter",
     "TelemetryEventKind",
@@ -37,4 +43,6 @@ __all__ = [
     "TelemetrySessionMetadata",
     "TelemetryVelocity",
     "WorldSnapshot",
+    "navmesh_slope",
+    "project_candidate",
 ]

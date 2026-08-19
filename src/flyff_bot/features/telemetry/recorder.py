@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from math import dist, hypot
 from time import monotonic_ns
 
 from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
+from flyff_bot.features.telemetry.geometry import navmesh_slope, project_candidate
 from flyff_bot.features.telemetry.kinematics import KinematicsDeriver
 from flyff_bot.features.telemetry.models import (
     AttackAction,
@@ -62,6 +64,7 @@ class TelemetryRecorder:
         self._kinematics = KinematicsDeriver()
         self._started = False
         self._selection_started_at_ns = 0
+        self._active_decision_timestamp_ns: int | None = None
         self._combat_started_at: tuple[int, str | None, float, float | None] | None = None
         self._attack_actions: list[AttackAction] = []
         self._last_verified_kill_at_ns: int | None = None
@@ -78,11 +81,13 @@ class TelemetryRecorder:
 
         return self._metadata.session_id
 
-    def start(self) -> None:
+    def start(self, *, active_spawn_zone: dict[str, object] | None = None) -> None:
         """Queue the immutable schema-v1 header before any session observations."""
 
         if self._started:
             return
+        if active_spawn_zone is not None:
+            self._metadata = replace(self._metadata, active_spawn_zone=active_spawn_zone)
         self._started = True
         self._submit(TelemetryEventKind.SESSION_HEADER, primitive(self._metadata))
         self._selection_started_at_ns = self._clock_ns()
@@ -114,7 +119,14 @@ class TelemetryRecorder:
             player_navmesh_polygon_id=_navmesh_polygon_id(
                 self._navmesh, live_position, position_source
             ),
-            player_terrain_slope=player_terrain_slope,
+            player_terrain_slope=(
+                player_terrain_slope
+                if player_terrain_slope is not None
+                else navmesh_slope(
+                    self._navmesh,
+                    live_position if position_source is PositionSource.LIVE else None,
+                )
+            ),
             hp_percentage=state.player_vitals.hp_percentage,
             mp_percentage=state.player_vitals.mp_percentage,
             fp_percentage=state.player_vitals.fp_percentage,
@@ -141,6 +153,7 @@ class TelemetryRecorder:
         *,
         reason: str,
         player_position: WorldPosition | None = None,
+        camera_state: CameraState | None = None,
         is_locked_out: Callable[[int, int], bool] | None = None,
     ) -> None:
         """Persist all visible alternatives in perception order at the actual click boundary."""
@@ -161,6 +174,15 @@ class TelemetryRecorder:
             )
             if int(center_x) == selected_x and int(center_y) == selected_y:
                 selected_index = index
+            geometry = project_candidate(
+                camera=camera_state,
+                navmesh=self._navmesh,
+                player_position=player_position,
+                viewport_width=viewport.width,
+                viewport_height=viewport.height,
+                screen_x=center_x,
+                screen_bottom_y=mob.y + mob.height,
+            )
             candidates.append(
                 CandidateFeatures(
                     index,
@@ -175,11 +197,11 @@ class TelemetryRecorder:
                     center_y,
                     distance,
                     mob.width * mob.height,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
+                    None if geometry is None else _position(geometry.position),
+                    None if geometry is None else geometry.relative_distance,
+                    None if geometry is None else geometry.relative_elevation,
+                    None if geometry is None else str(geometry.polygon_id),
+                    None if geometry is None else geometry.path_distance,
                     False if is_locked_out is None else is_locked_out(int(center_x), int(center_y)),
                 )
             )
@@ -196,6 +218,7 @@ class TelemetryRecorder:
         self._submit(TelemetryEventKind.TARGET_SELECTED, payload, timestamp_ns)
         self._decision_seconds += (timestamp_ns - self._selection_started_at_ns) / 1_000_000_000
         self._selection_started_at_ns = timestamp_ns
+        self._active_decision_timestamp_ns = timestamp_ns
 
     def begin_navigation(
         self,
@@ -388,6 +411,7 @@ class TelemetryRecorder:
                     stall_seconds=self._stall_seconds,
                     verified_kill=True,
                     reward=-total_seconds + 1.0,
+                    target_decision_timestamp_ns=self._active_decision_timestamp_ns,
                 )
             )
             self._last_verified_kill_at_ns = ended_at_ns
@@ -397,6 +421,7 @@ class TelemetryRecorder:
             self._stall_seconds = 0.0
         self._combat_started_at = None
         self._attack_actions = []
+        self._active_decision_timestamp_ns = None
 
     def record_combat_episode(self, episode: CombatEpisode) -> None:
         """Queue a completed combat episode without retaining frames or input adapters."""

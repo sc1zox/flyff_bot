@@ -147,6 +147,12 @@ class VectorZoneNavigator:
         return selection.zone if selection is not None else None
 
     @property
+    def configured_zone(self) -> VectorSpawnZone | None:
+        """Return the operator-selected zone before the first GPS route binds it."""
+
+        return self.active_zone or self._preferred_zone
+
+    @property
     def is_active(self) -> bool:
         """Return whether an unfinished goal has at least one extracted zone to work in."""
 

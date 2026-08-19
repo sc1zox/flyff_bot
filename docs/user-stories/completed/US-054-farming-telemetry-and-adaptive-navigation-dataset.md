@@ -1,9 +1,9 @@
 ---
 id: US-054
 title: Farming Telemetrie, SQLite Betriebsdaten, Parquet-Export und Offline-RL-Dataset-Generierung
-status: in-progress
+status: completed
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-08-20
 ---
 
 # US-054: Farming Telemetrie, SQLite Betriebsdaten, Parquet-Export und Offline-RL-Dataset-Generierung
@@ -150,18 +150,18 @@ so that **we have instant operational insight during farming sessions and an aut
 
 ## Acceptance criteria
 
-- [ ] **Session & Metadata Lifecycle:**
+- [x] **Session & Metadata Lifecycle:**
   - Jede Farming-Session erzeugt beim Start einen versionierten Header-Datensatz (`schema_version: 1`) mit eindeutiger `session_id`, `client_sha256`, UTC-Startzeit, Modellpfaden, 3D-NavMesh-Metadaten (US-052 / ADR-005) und Gebiets-Metadaten.
-- [ ] **10 Hz World-State Telemetrie:**
+- [x] **10 Hz World-State Telemetrie:**
   - In jedem 10-Hz-Orchestrator-Tick wird ein Snapshot mit autoritativen GPS-Koordinaten $(x, y, z)$, numerisch abgeleitetem Geschwindigkeitsvektor $(\dot{x}, \dot{y}, \dot{z}, v)$, aktuellem NavMesh-Polygon-ID, Geländesteigung, Vitals ($HP\%, MP\%, FP\%$) und Farming-Modus in die Telemetrie-Queue geschrieben.
-- [ ] **Target Decision & Alternative Candidates Logging (US-052 NavMesh & ADR-005):**
+- [x] **Target Decision & Alternative Candidates Logging (US-052 NavMesh & ADR-005):**
   - Bei jedem `TARGET_SELECTED`-Event werden der gewählte Mob sowie die vollständige Feature-Matrix aller alternativen sichtbaren Kandidaten (BBox, Screen-Distanz, Fläche, Confidence, Klasse, Lockout-Status, projizierte 3D-Koordinate, 3D-Distanz und US-052 NavMesh-Pfaddistanz $d_{\text{path}}$) persistiert.
   - Wenn keine Weltkoordinaten verfügbar sind, wird `world_position` explizit als `null` gespeichert; es werden keine erfundenen Heuristiken abgelegt.
-- [ ] **Navigation Episode & Trajectory Extraction:**
+- [x] **Navigation Episode & Trajectory Extraction:**
   - Für jede Navigationsepisode werden Start-/Zielkoordinaten, geplante 3D-Funnel-Wegpunkte (US-052), reale 10-Hz-GPS-Trajektorie, zurückgelegte Wegstrecke, Pfadeffizienz $\eta$, Stall-Events, Ausweichschritte und das Navigationsergebnis aufgezeichnet.
 - [x] **Combat Episode & Kill Verification:**
   - Für jeden Kampf werden Start-/Endzeitpunkte, Time-to-Kill ($T_{\text{ttk}}$), Spielerschaden ($\Delta HP$), gesendete Angriffs-Hotkeys, Verifikationsquelle (`HUD_COUNTER` vs. `HP_ZERO`) und Kampfergebnis protokolliert.
-- [ ] **Kill-to-Kill Cycle & Transition Dataset:**
+- [x] **Kill-to-Kill Cycle & Transition Dataset:**
   - Jeder Kill-Zyklus wird vollständig in $T_{\text{decision}} + T_{\text{navigation}} + T_{\text{combat}} + T_{\text{idle}}$ zerlegt und als vollständiges State-Action-Reward-Transition-Tuple für Offline-RL exportiert.
 - [x] **Operative SQLite-Telemetrie:**
   - `SqliteTelemetryStore` persistiert strukturierte Session-, Target-, Navigations- und Combat-Ereignisse in `data/telemetry.sqlite3` mit optimierten Indizes für schnelle Abfragen.
@@ -178,27 +178,28 @@ so that **we have instant operational insight during farming sessions and an aut
 
 ## Implementation status
 
-The delivered numeric telemetry path is deliberately truthful about its current integration
-boundary. `TelemetryRecorder` writes schema-v1 session envelopes, 10-Hz world snapshots, target
-decisions, combat episodes, and verified-kill cycles through a bounded asynchronous JSONL worker;
-the worker mirrors records into SQLite and the CLI exports the three stable Parquet tables.
+`TelemetryRecorder` is now an orchestrator-owned, non-blocking observation sidecar. At session
+start it emits a schema-v1 header with generated UUID4/UTC identity, the readable client digest,
+bot version, active model paths, optional loaded-NavMesh digest, and the configured vector spawn
+zone metadata. If a read-only producer is unavailable, its field remains explicitly `null`; no
+identity, geometry, or zone data is fabricated.
 
-The following acceptance criteria remain open and keep this story **in progress**:
+Each newly observed live farming frame records the numeric world snapshot. When a validated
+NavMesh and finite live GPS are available, the recorder derives its polygon and local slope. At
+target selection, it keeps every visible candidate in perception order, includes the controller's
+active lockout decision, and raycasts each bounding box's bottom centre through the measured camera
+state onto the loaded NavMesh. The resulting world position, relative 3D distance/elevation,
+polygon, and path distance are stored only for a real hit; unavailable camera, mesh, GPS, or hit
+still serializes as `null`.
 
-- Session metadata is not yet populated with a client digest, bot version, loaded NavMesh version,
-  or active spawn-zone metadata.
-- The US-052 NavMesh/raycast provider is not available to this integration. Snapshot polygon and
-  terrain-slope fields, plus candidate world position, 3D distance, relative elevation, target
-  polygon, and path distance, are therefore persisted explicitly as `null`; no estimated geometry
-  is fabricated.
-- Target-selection envelopes preserve the visible candidate ordering and screen-space features, but
-  their lockout status is not yet connected to the active lockout list.
-- `NavigationEpisode` and `STALL_EVENT` contracts and storage/export support exist, but the
-  orchestrator does not yet instrument active navigation into completed episodes, trajectories,
-  replans, or stall events.
-- Verified kill cycles currently record measured combat duration and the remaining interval as
-  idle time; they do not yet derive the required decision, navigation, combat, and idle
-  decomposition from integrated episode boundaries.
+The active terrain-navigation path opens/replans episodes, adds only live-GPS trajectory samples,
+counts stalls and confirmed evasions, and finalizes the episode on arrival, target selection, or
+session close. Verified combat records the dispatch-confirmed hotkeys and emits a kill cycle whose
+decision, navigation, combat, and residual idle intervals are reset at the confirmed-kill
+boundary. Its exact target-decision timestamp joins the verified cycle's reward and kill flag to
+the Parquet target-decision rows, creating a deterministic offline state-action-reward link. The
+asynchronous JSONL worker mirrors into SQLite, and the CLI exporter produces the three
+zstd-compressed Parquet tables without doing persistence work on the farming or Qt thread.
 
 ## Out of scope
 
@@ -213,7 +214,11 @@ The following acceptance criteria remain open and keep this story **in progress*
   - Unit-Tests in `tests/unit/test_telemetry.py` zur Validierung von Session-Metadaten, 10-Hz-Snapshot-Generierung und JSONL-Serialisierung.
   - Unit-Tests in `tests/unit/test_telemetry_sqlite.py` zur Validierung von Schema-Initialisierung, Event-Inserts und operativen Abfragen.
   - Unit-Tests in `tests/unit/test_telemetry_parquet.py` zur Validierung der Parquet-Export-Pipeline, Columnar-Schemas und Datentyp-Integrität.
-  - `./scripts/check.ps1` läuft fehlerfrei durch (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+  - Unit-Tests in `tests/unit/test_telemetry_geometry.py` zur Validierung der gemessenen
+    Kamera-zu-NavMesh-Kandidatenprojektion, der expliziten `null`-Fallbacks, Geländesteigung und
+    Spawn-Zonen-Metadaten.
+  - `./scripts/check.ps1` lief am 2026-08-20 fehlerfrei durch (`ruff check`, `ruff format --check`,
+    `mypy`, `pytest`): 800 bestanden, 2 übersprungen, 91,30 % Coverage.
 - Manual (Windows, outstanding):
   - [ ] Starte eine Farming-Session in Entropia Flyff mit geladenem US-052 3D-NavMesh, führe mehrere Kills und Laufwege aus, und überprüfe, dass sowohl `data/telemetry/<area_id>/<date>/session_<session_id>.jsonl` als auch `data/telemetry.sqlite3` aktualisiert werden.
   - [ ] Führe den Parquet-Export aus und verifiziere, dass die erzeugten `.parquet`-Dateien in Python (z. B. via `duckdb` oder `polars`) direkt geladen und für RL-Training analysiert werden können.

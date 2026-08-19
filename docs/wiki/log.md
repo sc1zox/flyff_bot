@@ -757,3 +757,21 @@ US-052 and other navigation paths remain the live-routing fallbacks: this does n
 routing. Manual Windows/client-asset validation remains open for the supported collision/placement
 formats, generated artifacts, bridge/archway/ramp traversal, live Funnel collision confirmation,
 and live-GPS telemetry polygon output.
+
+## [2026-08-20] synthesis | Completed farming telemetry and adaptive navigation dataset (US-054)
+
+Updated the US-054 architecture and glossary synthesis from the implementation and regression
+tests. `FarmingOrchestrator` now starts `TelemetryRecorder` with configured vector spawn-zone
+metadata, while the CLI supplies the readable client digest, bot version, model paths, and optional
+NavMesh digest. Its live-frame snapshots use finite GPS plus the loaded mesh for player polygon and
+slope. Pathing lifecycle events now form navigation episodes with live-GPS trajectories, replans,
+stalls, evasions, and final outcomes; controller lockout decisions and confirmed attack dispatches
+are also recorded. Verified kills create reset-at-kill decision/navigation/combat/idle cycles whose
+decision timestamp deterministically links reward and verification to Parquet target-decision rows.
+
+Recorded the read-only camera-to-NavMesh candidate projection: a detected bottom-centre ray yields
+world coordinate, relative distance/elevation, polygon, and path distance only on a measured mesh
+hit. Every unavailable prerequisite or miss remains explicit `null`; no screen-space approximation
+is stored as client-world data. The full automated repository gate passed on 2026-08-20 at 800
+passed, 2 skipped, and 91.30% coverage. The manual Windows farming-session and direct Parquet-load
+walkthroughs remain outstanding. Moved US-054 to completed user stories.

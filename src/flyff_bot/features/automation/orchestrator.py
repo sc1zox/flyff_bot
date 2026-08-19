@@ -309,7 +309,11 @@ class FarmingOrchestrator:
         self._emergency_teleport_unavailable = False
         self._emergency.reset()
         if self._telemetry is not None:
-            self._telemetry.start()
+            self._telemetry.start(
+                active_spawn_zone=(
+                    self._pathing.active_spawn_zone_metadata if self._pathing is not None else None
+                )
+            )
         # Perception and pathing read distances from a perspective that is only calibrated
         # at the standardized camera state, so alignment runs before the first farming tick.
         if self._config.auto_align_camera and self._camera_aligner is not None:
@@ -674,6 +678,9 @@ class FarmingOrchestrator:
                         reason="nearest_to_viewport_center",
                         player_position=(
                             self._pathing.live_position if self._pathing is not None else None
+                        ),
+                        camera_state=(
+                            self._pathing.camera_state if self._pathing is not None else None
                         ),
                         is_locked_out=lambda x, y: self._combat.is_position_locked_out(
                             x, y, self._state.observed_at_seconds

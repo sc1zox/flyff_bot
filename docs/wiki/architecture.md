@@ -1428,11 +1428,12 @@ offline for each extracted region and writes `<world>.navmesh.json` next to its 
 optional `--navmesh-map <path>` loads one validated artifact for telemetry and records its content
 digest in session metadata.
 
-US-054 now receives `player_navmesh_polygon_id` from that optional provider only when a snapshot
-has a finite live-GPS position. Missing artifacts/positions and minimap-fallback positions remain
-JSON `null`; candidate polygon IDs, candidate world coordinates, regions, path distances, and other
-screen-to-world fields are not inferred. This is an observational telemetry integration, not a
-screen-geometry adapter.
+US-054 receives `player_navmesh_polygon_id` and local slope from that optional provider only when a
+snapshot has a finite live-GPS position. At target selection, the camera-state projection unprojects
+the detected bounding box's bottom centre and accepts world coordinates, candidate polygon IDs, and
+path distances only after its ray intersects the loaded NavMesh. Missing artifacts/positions,
+minimap fallback, unavailable camera state, and ray misses remain JSON `null`; no screen-space
+estimate is represented as a world observation.
 
 This remains an offline foundation rather than an active movement path. No controller loads or
 automatically chooses a baked mesh for routing, and US-052 terrain A*, vector visibility routing,
@@ -1442,7 +1443,7 @@ The full automated gate passed on 2026-08-20 at 797 passed, 2 skipped, and 91.35
 client-asset reconstruction and foregrounded Windows/client traversal—including live Funnel
 collision confirmation—remain manual checks, not automated claims.
 
-## Asynchronous farming telemetry and offline dataset export (US-054, in progress)
+## Asynchronous farming telemetry and offline dataset export (US-054, completed)
 
 US-054 introduces `flyff_bot.features.telemetry` as a write-only observation sidecar to the farming
 loop. `TelemetryRecorder` is owned by `FarmingOrchestrator`: it queues a schema-v1 session header
@@ -1463,19 +1464,25 @@ action writes zstd-compressed, dataframe-compatible `target_decisions.parquet`,
 `navigation_trajectories.parquet`, and `kill_cycles.parquet` under `data/datasets/rl/`. JSONL,
 SQLite, and generated datasets remain local git-ignored operational data, not source evidence.
 
-The current landing is intentionally partial. `TelemetryRecorder` can represent navigation episodes
-and stall events, but the active navigation controller does not yet emit them, so no real trajectory,
-replan, or stall episode reaches storage. Candidate geometry/raycast providers remain unavailable:
-candidate world-coordinate and path fields are emitted as explicit JSON `null` values rather than
-inferred from screen geometry. When an operator explicitly loads a US-055 artifact, the player
-NavMesh polygon ID is populated only from finite live GPS; it remains `null` for minimap fallback
-or no matching mesh. A verified kill cycle carries
-actual combat duration, but its decision and navigation components are not yet instrumented, so the
-required four-part kill-to-kill decomposition remains open. Session header fields for client hash,
-bot version, loaded NavMesh version, and spawn-zone metadata also await their producers; candidate
-lockout status likewise awaits a lockout-list integration. The full
-automated repository gate passed at 758 passed, 2 skipped, and 92.15% coverage; the two Windows
-live-client/manual export walkthroughs remain outstanding and are not implied by those checks.
+At session start, `FarmingOrchestrator` supplies configured vector spawn-zone metadata and the CLI
+supplies the readable client digest, bot version, model paths, and optional NavMesh artifact digest.
+The recorder emits one snapshot for each newly observed live frame. It derives player polygon and
+slope only from finite live GPS plus a loaded NavMesh; it preserves `null` otherwise. The active
+pathing lifecycle now opens/replans terrain-route episodes, adds only live-GPS samples, records
+stalls and confirmed evasions, and finalizes an outcome on arrival, target selection, or close.
+The combat controller supplies the active lockout decision and dispatch-confirmed attack actions;
+verified kills emit a reset-at-kill four-part decision/navigation/combat/idle timing decomposition.
+Their target-decision timestamp deterministically joins each verified cycle's reward and kill flag
+to the exported target-decision rows.
+
+For a target decision, `TelemetryRecorder` projects each detection's bottom centre with the measured
+`CameraState` and raycasts it against the optional loaded NavMesh. A successful hit produces the
+candidate's world coordinate, relative distance/elevation, polygon, and mesh path distance; no
+camera, GPS, mesh, or intersection remains explicit JSON `null`. This makes missing geometry
+observable rather than fabricated while keeping the projection read-only. The full automated
+repository gate passed on 2026-08-20 at 800 passed, 2 skipped, and 91.30% coverage. The Windows
+live-client farming and direct Parquet-load walkthroughs remain outstanding and are not implied by
+the automated result.
 
 ## Fingerprinted camera state and projection reads (US-056, completed)
 
