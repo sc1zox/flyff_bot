@@ -696,3 +696,16 @@ navigation/stall episode instrumentation and the complete four-part kill-cycle t
 remain open; session metadata producers and candidate-lockout integration are also incomplete. The
 two Windows manual checks for an actual farming session and direct Parquet loading remain
 outstanding, so US-054 stays in progress and was not moved to completed stories.
+
+## [2026-08-20] synthesis | GPS-only vector navigation and configurable client profiles (US-053)
+
+Recorded US-053 in the architecture and glossary: operator-editable, SHA-256-fingerprinted client
+position profiles with embedded defaults only when the profile file is absent; explicit invalid-
+profile and unknown-build diagnostics; and the GPS-only precondition that blocks and clears all
+vector-route movement when no finite live XYZ sample is available. The retained minimap-fallback
+source marker is not a vector-navigation fallback. Documented direct client-world-unit routing and
+the World Data dialog's `QSettings` persistence of stable region, map, zone, and quota identities.
+
+No raw source or live measurement was ingested; these claims are derived from the implementation and
+regression tests. The automated repository gate passed. The Windows `neuz.exe` walkthrough for live
+GPS, focus loss, and dialog persistence remains outstanding. Moved US-053 to completed user stories.

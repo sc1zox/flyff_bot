@@ -1,9 +1,9 @@
 ---
 id: US-053
 title: Pure 3D GPS navigation, dynamic client profile configuration, and minimap fallback retirement
-status: draft
+status: completed
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-08-20
 ---
 
 # US-053: Pure 3D GPS navigation, dynamic client profile configuration, and minimap fallback retirement
@@ -18,8 +18,8 @@ so that **movement is always drift-free and aligned with true terrain geometry, 
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
 - Builds upon:
-  - [US-045](completed/US-045-vector-world-terrain-extraction-and-goal-navigation.md): Vector world terrain extraction, spawn zones, and visibility-graph A* pathing.
-  - [US-048](completed/US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md): 3D world navigation with live coordinate memory reading (`ReadProcessMemory`).
+  - [US-045](US-045-vector-world-terrain-extraction-and-goal-navigation.md): Vector world terrain extraction, spawn zones, and visibility-graph A* pathing.
+  - [US-048](US-048-3d-world-navigation-teleport-dispatch-and-terrain-aware-pathing.md): 3D world navigation with live coordinate memory reading (`ReadProcessMemory`).
 - **Retirement of Minimap Odometry Fallback for Vector Navigation:**
   - Minimap dead-reckoning (`MovementTracker` / `MinimapOdometer`) suffers from pixel drift, scale ambiguities, and lack of vertical ($Y$) awareness.
   - Relying on dead-reckoning as a silent fallback causes misleading pathing loops and misaligned routes against true terrain.
@@ -38,23 +38,23 @@ so that **movement is always drift-free and aligned with true terrain geometry, 
 
 ## Acceptance criteria
 
-- [ ] **Dynamic Client Profile JSON Configuration:**
+- [x] **Dynamic Client Profile JSON Configuration:**
   - Client position profiles are loaded from `data/navigation/client_profiles.json` (falling back to embedded defaults if the file is missing).
   - Each profile entry defines `sha256`, `player_pointer_rva`, `pointer_size_bytes`, and optional `position_offset`.
   - When an unsupported client build is detected, the error diagnostic explicitly reports the detected SHA-256 hash and path.
-- [ ] **Pure GPS Navigation & Explicit Pause:**
+- [x] **Pure GPS Navigation & Explicit Pause:**
   - `VectorZoneNavigator` and `PathingNavigator` require `PositionSource.LIVE` for vector route planning and traversal.
   - If `LivePositionReader` reports `MINIMAP_FALLBACK` or error (window not focused, process not found, unsupported build, player pointer null), navigation halts movement inputs and transitions to `PathingMode.BLOCKED` / `IDLE`.
   - The status bar and map inspector clearly indicate the GPS unavailability reason (e.g. "GPS offline / Client not focused").
-- [ ] **UI Streamlining & Removal of Scale Calibration:**
+- [x] **UI Streamlining & Removal of Scale Calibration:**
   - The obsolete "Minimap-Pixel je Welteinheit" (`_scale_spin`) spinbox and associated tooltip are removed from `WorldDataDialog`.
   - Vector navigation requests and routing operate natively in client world units.
-- [ ] **World Data Dialog State Persistence:**
+- [x] **World Data Dialog State Persistence:**
   - `WorldDataDialog` preserves and restores the selected client region, extracted map, active spawn zone, and kill quota across dialog open/close cycles and app sessions.
   - Calling `refresh()` updates available file lists without resetting active user selections to index 0.
-- [ ] **Failure and Cancellation Behavior:**
+- [x] **Failure and Cancellation Behavior:**
   - Immediate emergency stop on `Escape` or `END` cleanly releases the process memory handle and aborts movement.
-- [ ] **Localization:**
+- [x] **Localization:**
   - All new status chips, error diagnostics, and dialog labels are synchronized in German (`de.json`) and English (`en.json`).
 
 ## Out of scope
@@ -74,3 +74,6 @@ so that **movement is always drift-free and aligned with true terrain geometry, 
   - Start bot with game client focused: verify GPS status is green, coordinates match live character position, and terrain route aligns accurately.
   - Defocus game client: verify navigation halts and status indicates game window not in foreground.
   - Open and close `Weltdaten & Karten` dialog: verify selected map, zone, and quotas are preserved without resetting to index 0.
+
+The automated repository gate passed on 2026-08-20. The Windows/live-client checks above remain
+outstanding; automated tests are not evidence of in-client GPS or interaction behavior.

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
+import json
 import logging
 import math
 import struct
@@ -20,6 +21,8 @@ from enum import StrEnum
 from pathlib import Path
 from threading import RLock
 from typing import Protocol
+
+from flyff_bot.constants import DEFAULT_CLIENT_POSITION_PROFILES_PATH
 
 DEFAULT_POSITION_POLL_HERTZ = 10.0
 POSITION_FLOAT_COUNT = 3
@@ -63,11 +66,13 @@ class PositionReadErrorCode(StrEnum):
     """Why a live coordinate read could not produce a position."""
 
     UNSUPPORTED_PLATFORM = "unsupported_platform"
+    WINDOW_NOT_FOREGROUND = "window_not_foreground"
     PROCESS_UNAVAILABLE = "process_unavailable"
     WRONG_PROCESS = "wrong_process"
     UNSUPPORTED_BUILD = "unsupported_build"
     HANDLE_LOST = "handle_lost"
     MALFORMED_READ = "malformed_read"
+    INVALID_PROFILE_CONFIGURATION = "invalid_profile_configuration"
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +129,62 @@ ENTROPIA_POSITION_PROFILES: Mapping[str, ClientPositionProfile] = {
         )
     ),
 }
+
+DEFAULT_CLIENT_POSITION_PROFILES_FILE = Path(DEFAULT_CLIENT_POSITION_PROFILES_PATH)
+
+
+def load_client_position_profiles(path: Path) -> Mapping[str, ClientPositionProfile]:
+    """Load validated operator-maintained client profiles from one JSON document.
+
+    The document is a JSON list of profile objects.  A malformed operator file is rejected
+    explicitly: silently substituting offsets would defeat the fingerprint safety boundary.
+    """
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"Client profile configuration {path} is invalid: {error}") from error
+    if not isinstance(payload, list):
+        raise ValueError(f"Client profile configuration {path} must contain a JSON list.")
+
+    profiles: dict[str, ClientPositionProfile] = {}
+    for index, item in enumerate(payload):
+        if not isinstance(item, dict):
+            raise ValueError(f"Client profile entry {index} must be an object.")
+        required = {"sha256", "player_pointer_rva", "pointer_size_bytes"}
+        if missing := required.difference(item):
+            raise ValueError(
+                f"Client profile entry {index} is missing {', '.join(sorted(missing))}."
+            )
+        if not all(
+            isinstance(item[key], int) and not isinstance(item[key], bool)
+            for key in ("player_pointer_rva", "pointer_size_bytes")
+        ):
+            raise ValueError(
+                f"Client profile entry {index} has non-integer offsets or pointer size."
+            )
+        position_offset = item.get("position_offset", PLAYER_POSITION_OFFSET)
+        if not isinstance(position_offset, int) or isinstance(position_offset, bool):
+            raise ValueError(f"Client profile entry {index} has a non-integer position offset.")
+        sha256 = item["sha256"]
+        if not isinstance(sha256, str):
+            raise ValueError(f"Client profile entry {index} has a non-string SHA-256 digest.")
+        normalized_sha256 = sha256.lower()
+        if any(character not in "0123456789abcdef" for character in normalized_sha256):
+            raise ValueError(f"Client profile entry {index} has an invalid SHA-256 digest.")
+        try:
+            profile = ClientPositionProfile(
+                normalized_sha256,
+                player_pointer_rva=item["player_pointer_rva"],
+                pointer_size_bytes=item["pointer_size_bytes"],
+                position_offset=position_offset,
+            )
+        except ValueError as error:
+            raise ValueError(f"Client profile entry {index} is invalid: {error}") from error
+        if normalized_sha256 in profiles:
+            raise ValueError(f"Client profile configuration repeats SHA-256 {normalized_sha256}.")
+        profiles[normalized_sha256] = profile
+    return profiles
 
 
 class ProcessMemoryApi(Protocol):
@@ -269,7 +330,8 @@ class LivePositionReader:
         window_handle: int,
         *,
         api: ProcessMemoryApi | None = None,
-        profiles: Mapping[str, ClientPositionProfile] = ENTROPIA_POSITION_PROFILES,
+        profiles: Mapping[str, ClientPositionProfile] | None = None,
+        profiles_path: Path = DEFAULT_CLIENT_POSITION_PROFILES_FILE,
         poll_hertz: float = DEFAULT_POSITION_POLL_HERTZ,
         event_sink: Callable[[PositionReadError], None] | None = None,
     ) -> None:
@@ -277,7 +339,20 @@ class LivePositionReader:
             raise ValueError("Live position poll rate must be positive.")
         self._window_handle = window_handle
         self._api = api
-        self._profiles = profiles
+        self._profiles: Mapping[str, ClientPositionProfile] = (
+            ENTROPIA_POSITION_PROFILES if profiles is None else profiles
+        )
+        self._profiles_path = profiles_path
+        self._profile_configuration_error: str | None = None
+        if profiles is None:
+            if profiles_path.is_file():
+                try:
+                    self._profiles = load_client_position_profiles(profiles_path)
+                except ValueError as error:
+                    self._profiles = {}
+                    self._profile_configuration_error = str(error)
+            else:
+                self._profiles = ENTROPIA_POSITION_PROFILES
         self._poll_interval_seconds = 1.0 / poll_hertz
         self._event_sink = event_sink
         self._handle: int | None = None
@@ -308,6 +383,11 @@ class LivePositionReader:
                 return self._last_reading
             self._polled_at_seconds = at_seconds
             try:
+                if self._profile_configuration_error is not None:
+                    raise _PositionOpenError(
+                        PositionReadErrorCode.INVALID_PROFILE_CONFIGURATION,
+                        self._profile_configuration_error,
+                    )
                 self._ensure_open()
                 assert self._handle is not None
                 assert self._module_base is not None
@@ -392,7 +472,8 @@ class LivePositionReader:
             if profile is None:
                 raise _PositionOpenError(
                     PositionReadErrorCode.UNSUPPORTED_BUILD,
-                    f"No coordinate profile exists for client build {digest}.",
+                    "No coordinate profile exists for client build "
+                    f"SHA-256 {digest} at {executable}.",
                 )
             module_base = api.main_module_base(process_id)
         except (OSError, _PositionOpenError) as error:

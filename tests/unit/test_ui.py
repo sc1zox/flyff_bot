@@ -771,8 +771,11 @@ def test_main_window_shows_live_gps_and_world_coordinates() -> None:
     window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE, navigation=fallback))
     application.processEvents()
 
-    assert window.gps_label.text() == translator.text(Message.UI_GPS_FALLBACK)
-    assert window.gps_label.property("gps") == "fallback"
+    assert window.gps_label.text() == translator.text(
+        Message.UI_GPS_OFFLINE,
+        reason=translator.text(Message.UI_GPS_ERROR_UNSUPPORTED_BUILD),
+    )
+    assert window.gps_label.property("gps") == "offline"
     assert "not fingerprinted" in window.gps_label.toolTip()
 
 

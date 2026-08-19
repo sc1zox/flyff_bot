@@ -56,9 +56,8 @@ from flyff_bot.features.navigation.tracking import (
 )
 from flyff_bot.features.navigation.vector_navigation import (
     VectorZoneNavigator,
-    WorldRegistration,
 )
-from flyff_bot.features.navigation.world_extractor import VectorSpawnZone
+from flyff_bot.features.navigation.world_extractor import VectorSpawnZone, WorldCoordinate
 from flyff_bot.features.vision.minimap import (
     MINIMAP_SURFACE_RADIUS_PIXELS,
     MinimapOdometer,
@@ -271,6 +270,12 @@ class PathingController:
         return self._position_source
 
     @property
+    def position_error_code(self) -> PositionReadErrorCode | None:
+        """Return the current reason live GPS is unavailable, if any."""
+
+        return self._position_error_code
+
+    @property
     def live_position(self) -> WorldPosition | None:
         """Return the newest drift-free client coordinate, when available."""
 
@@ -281,6 +286,22 @@ class PathingController:
         """Return when the newest live coordinate was actually sampled."""
 
         return self._live_sampled_at_seconds
+
+    @property
+    def world_waypoints(self) -> tuple[WorldPosition, ...]:
+        """Return the remaining authoritative terrain-A* waypoints, if a live route exists."""
+
+        return self._world_waypoints[self._waypoint_index :]
+
+    @property
+    def terrain_slope(self) -> float | None:
+        """Return the US-052 heightfield gradient at the latest live coordinate."""
+
+        navigator = self._vector_navigator
+        position = self._live_position
+        if navigator is None or position is None:
+            return None
+        return navigator.world_map.terrain.gradient_at(WorldCoordinate(position.x, position.z))
 
     @property
     def has_pending_evasion(self) -> bool:
@@ -376,6 +397,12 @@ class PathingController:
 
         return self._vector_navigator is not None and self._vector_navigator.is_active
 
+    @property
+    def vector_navigation_gps_unavailable(self) -> bool:
+        """Return whether active vector navigation is blocked solely by missing live GPS."""
+
+        return self._vector_navigation_requires_gps()
+
     def attach_vector_navigator(self, navigator: VectorZoneNavigator | None) -> None:
         """Adopt or drop the extracted-map navigator and force a replan on the next step."""
 
@@ -425,9 +452,7 @@ class PathingController:
         )
         zone = self._vector_zone
         vector_zone = (
-            None
-            if zone is None or self._vector_navigator is None
-            else _zone_snapshot(zone, self._vector_navigator.registration)
+            None if zone is None or self._vector_navigator is None else _zone_snapshot(zone)
         )
         spawn = None if self._spawn_point is None else (self._spawn_point.x, self._spawn_point.y)
         return NavigationSnapshot(
@@ -636,6 +661,10 @@ class PathingController:
     def step(self, at_seconds: float) -> PathingDecision:
         """Return the next interruptible movement request without dispatching input."""
 
+        self._poll_live_position(at_seconds)
+        if self._vector_navigation_requires_gps():
+            self._block_vector_navigation()
+            return PathingDecision(PathingMode.BLOCKED)
         if self._pending_decision is not None:
             decision = self._pending_decision
             self._pending_decision = None
@@ -651,8 +680,8 @@ class PathingController:
             self._pending_decision = None
             return decision
         if not self._waypoints:
-            if self._mode is PathingMode.TELEPORTING:
-                return PathingDecision(PathingMode.TELEPORTING)
+            if self._mode in {PathingMode.TELEPORTING, PathingMode.BLOCKED}:
+                return PathingDecision(self._mode)
             self._mode = PathingMode.IDLE
             return PathingDecision(PathingMode.IDLE)
         return self._follow_route(at_seconds)
@@ -918,14 +947,44 @@ class PathingController:
         self._position_error_code = None if reading.error is None else reading.error.code
         self._live_position = reading.position
         self._live_sampled_at_seconds = reading.sampled_at_seconds
-        if reading.position is not None and self._vector_navigator is not None:
-            self._vector_navigator.update_registration(self._tracker.position, reading.position)
         if had_live_position and reading.position is None and self._route_uses_live_position:
             self._waypoints = ()
             self._world_waypoints = ()
             self._waypoint_index = 0
             self._planned_at_seconds = None
             self._route_uses_live_position = False
+        if self._vector_navigation_requires_gps():
+            self._block_vector_navigation()
+
+    def mark_gps_offline(self, error_code: PositionReadErrorCode) -> None:
+        """Expose a foreground-loss GPS failure without retaining a stale live position."""
+
+        if self._position_reader is not None:
+            self._position_reader.close()
+        self._position_source = PositionSource.MINIMAP_FALLBACK
+        self._position_error_code = error_code
+        self._live_position = None
+        self._live_sampled_at_seconds = None
+        if self.vector_navigation_active:
+            self._block_vector_navigation()
+
+    def _vector_navigation_requires_gps(self) -> bool:
+        return self.vector_navigation_active and (
+            self._position_source is not PositionSource.LIVE or self._live_position is None
+        )
+
+    def _block_vector_navigation(self) -> None:
+        """Clear every vector action so unavailable GPS can never dispatch movement."""
+
+        self._waypoints = ()
+        self._world_waypoints = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds = None
+        self._pending_decision = None
+        self._evasion_steps.clear()
+        self._movement_commanded = False
+        self._route_uses_live_position = False
+        self._mode = PathingMode.BLOCKED
 
     def _retreat(self, at_seconds: float) -> PathingDecision:
         target = self._safe_waypoint
@@ -997,60 +1056,53 @@ class PathingController:
         self._world_waypoints = ()
 
     def _plan_vector_route(self, at_seconds: float) -> bool:
-        """Plan over the extracted world map, or report that it has nothing to offer.
-
-        An authoritative map replaces route *generation* only. Everything the session
-        measures or defends itself with — odometry, stall detection, retreat to the last
-        safe waypoint — keeps running underneath, and a query the visibility graph cannot
-        answer falls through to the learned heatmap rather than stopping the session
-        (US-045).
-        """
+        """Plan over the extracted map only when an authoritative GPS coordinate exists."""
 
         navigator = self._vector_navigator
         if navigator is None or not navigator.is_active:
             self._vector_zone = None
             return False
         live = self._live_position
-        if live is not None:
-            selection = navigator.select_world_zone(live)
-            if selection is None:
-                return False
-            target = WorldPosition(
-                selection.zone.center_x,
-                selection.zone.center_y,
-                selection.zone.center_z,
+        if self._position_source is not PositionSource.LIVE or live is None:
+            self._block_vector_navigation()
+            return True
+        selection = navigator.select_world_zone(live)
+        if selection is None:
+            self._block_vector_navigation()
+            return True
+        target = WorldPosition(
+            selection.zone.center_x,
+            selection.zone.center_y,
+            selection.zone.center_z,
+        )
+        dispatch = self._teleport.update(live, target, at_seconds)
+        if dispatch is not None:
+            self._pending_decision = PathingDecision(
+                PathingMode.TELEPORTING,
+                dispatch.virtual_key,
+                dispatch.duration_seconds,
             )
-            dispatch = self._teleport.update(live, target, at_seconds)
-            if dispatch is not None:
-                self._pending_decision = PathingDecision(
-                    PathingMode.TELEPORTING,
-                    dispatch.virtual_key,
-                    dispatch.duration_seconds,
-                )
-                self._mode = PathingMode.TELEPORTING
-                self._vector_zone = selection.zone
-                return True
-            if self._teleport.status is TeleportStatus.WAITING_FOR_POSITION:
-                self._mode = PathingMode.TELEPORTING
-                self._vector_zone = selection.zone
-                return True
-            self._temporary_blocks = [
-                item for item in self._temporary_blocks if item[1] > at_seconds
-            ]
-            plan = navigator.plan_live_route(
-                live,
-                temporary_blocks=(
-                    tuple(item[0] for item in self._temporary_blocks)
-                    + (() if self._tangent_block is None else (self._tangent_block,))
-                ),
-            )
-            self._tangent_block = None
-        else:
-            plan = navigator.plan_route(self._tracker.position)
+            self._mode = PathingMode.TELEPORTING
+            self._vector_zone = selection.zone
+            return True
+        if self._teleport.status is TeleportStatus.WAITING_FOR_POSITION:
+            self._mode = PathingMode.TELEPORTING
+            self._vector_zone = selection.zone
+            return True
+        self._temporary_blocks = [item for item in self._temporary_blocks if item[1] > at_seconds]
+        plan = navigator.plan_live_route(
+            live,
+            temporary_blocks=(
+                tuple(item[0] for item in self._temporary_blocks)
+                + (() if self._tangent_block is None else (self._tangent_block,))
+            ),
+        )
+        self._tangent_block = None
         self._vector_zone = plan.zone
         if plan.is_empty:
-            return False
-        self._waypoints = plan.points
+            self._block_vector_navigation()
+            return True
+        self._waypoints = tuple(WorldPoint(point.x, point.z) for point in plan.points)
         self._world_waypoints = tuple(item.position for item in plan.world_waypoints)
         self._route_uses_live_position = live is not None
         self._waypoint_index = 0
@@ -1072,15 +1124,14 @@ class PathingController:
         return self._map.config.cell_size_pixels * ARRIVAL_RADIUS_CELL_FRACTION
 
 
-def _zone_snapshot(zone: VectorSpawnZone, registration: WorldRegistration) -> VectorZoneSnapshot:
-    """Return one bound spawn zone drawn in the session's own minimap-pixel frame."""
+def _zone_snapshot(zone: VectorSpawnZone) -> VectorZoneSnapshot:
+    """Return one bound spawn zone drawn in client world units."""
 
-    center = registration.to_session(zone.anchor)
     return VectorZoneSnapshot(
         monster_name=zone.monster_name or str(zone.monster_id),
-        center_x=center.x,
-        center_y=center.y,
-        half_width_pixels=registration.to_session_distance((zone.maximum_x - zone.minimum_x) / 2.0),
-        half_depth_pixels=registration.to_session_distance((zone.maximum_z - zone.minimum_z) / 2.0),
+        center_x=zone.center_x,
+        center_y=zone.center_z,
+        half_width_pixels=(zone.maximum_x - zone.minimum_x) / 2.0,
+        half_depth_pixels=(zone.maximum_z - zone.minimum_z) / 2.0,
         capacity=zone.capacity,
     )

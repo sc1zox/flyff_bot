@@ -299,6 +299,12 @@ class CombatController:
 
         return self._damage_dealt
 
+    def is_position_locked_out(self, x: int, y: int, observed_at_seconds: float) -> bool:
+        """Return the current selection lockout for one client-space candidate centre."""
+
+        self._purge_lockouts(observed_at_seconds)
+        return self._is_locked_out(Position(x, y))
+
     def update_config(self, config: CombatConfig) -> None:
         """Apply a new configuration without resetting the in-progress engagement."""
 

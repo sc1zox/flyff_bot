@@ -10,6 +10,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 from world_fixtures import (
     flat_heights,
@@ -59,12 +60,18 @@ def client_root(tmp_path: Path) -> Path:
     return root
 
 
-def _dialog(client_root: Path, tmp_path: Path) -> WorldDataDialog:
+def _dialog(
+    client_root: Path, tmp_path: Path, *, settings: QSettings | None = None
+) -> WorldDataDialog:
+    resolved_settings = settings or QSettings(
+        str(tmp_path / "world_data_dialog.ini"), QSettings.Format.IniFormat
+    )
     return WorldDataDialog(
         Translator(Language.ENGLISH),
         client_root,
         tmp_path / "worlds",
         monster_names_path=MONSTER_IDS_PATH,
+        settings=resolved_settings,
     )
 
 
@@ -150,7 +157,6 @@ def test_activation_requests_a_navigator_anchored_at_the_selected_zone(
 ) -> None:
     dialog = _dialog(client_root, tmp_path)
     _extract(dialog, tmp_path / "worlds")
-    dialog.scale_spin.setValue(1.5)
     dialog.quota_spin.setValue(7)
     requests: list[object] = []
     dialog.vector_navigation_requested.connect(requests.append)
@@ -162,9 +168,40 @@ def test_activation_requests_a_navigator_anchored_at_the_selected_zone(
     request = requests[0]
     assert isinstance(request, VectorNavigationRequest)
     assert request.anchor_zone.monster_name == "Rapra"
-    assert request.pixels_per_world_unit == pytest.approx(1.5)
     assert request.goals == (ZoneGoal("Flame", 7), ZoneGoal("Rapra", 7))
     assert "Rapra" in dialog.status_label.text()
+
+
+def test_refresh_and_reopened_dialog_restore_region_map_zone_and_quota(
+    client_root: Path, tmp_path: Path
+) -> None:
+    write_world_directory(
+        client_root,
+        "wdother",
+        region_records=[respawn_record(1453, (10.0, 92.0, 20.0), (0, 0, 20, 40), 1, 30)],
+        blocks=[],
+    )
+    settings = QSettings(str(tmp_path / "world_data_dialog.ini"), QSettings.Format.IniFormat)
+    dialog = _dialog(client_root, tmp_path, settings=settings)
+    dialog.region_selector.setCurrentText("wdtest")
+    _extract(dialog, tmp_path / "worlds")
+    dialog.region_selector.setCurrentText("wdother")
+    dialog.zone_selector.setCurrentIndex(1)
+    dialog.quota_spin.setValue(17)
+
+    dialog.refresh()
+
+    assert dialog.region_selector.currentText() == "wdother"
+    assert dialog.map_selector.currentText() == "wdtest"
+    assert dialog.zone_selector.currentIndex() == 1
+    assert dialog.quota_spin.value() == 17
+
+    reopened = _dialog(client_root, tmp_path, settings=settings)
+
+    assert reopened.region_selector.currentText() == "wdother"
+    assert reopened.map_selector.currentText() == "wdtest"
+    assert reopened.zone_selector.currentIndex() == 1
+    assert reopened.quota_spin.value() == 17
 
 
 def test_a_selected_monster_narrows_the_goals_to_that_class(

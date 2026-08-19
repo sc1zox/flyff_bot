@@ -18,7 +18,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from flyff_bot.features.navigation.live_position import PositionSource
+from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
 from flyff_bot.features.navigation.tracking import TrackingQuality
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import NavigationSnapshot
@@ -634,6 +634,14 @@ class PathInspectorWidget(QWidget):
                     LEASH_NOTICE_COLOR,
                 )
             )
+        if snapshot.position_source is not PositionSource.LIVE:
+            error = snapshot.position_error_code
+            reason = self._translator.text(
+                Message.UI_GPS_UNAVAILABLE if error is None else _gps_error_message(error)
+            )
+            rows.append(
+                (self._translator.text(Message.UI_GPS_OFFLINE, reason=reason), LEASH_NOTICE_COLOR)
+            )
 
         hud_rect = QRectF(10, 8, hud_w, HUD_ROW_HEIGHT_PIXELS * len(rows))
         painter.setPen(QPen(HUD_BORDER_COLOR, 1))
@@ -685,6 +693,21 @@ def _tracking_quality_message(quality: TrackingQuality) -> Message:
         TrackingQuality.PREDICTED: Message.UI_TRACKING_PREDICTED,
         TrackingQuality.DEGRADED: Message.UI_TRACKING_DEGRADED,
     }[quality]
+
+
+def _gps_error_message(code: PositionReadErrorCode) -> Message:
+    return {
+        PositionReadErrorCode.UNSUPPORTED_PLATFORM: Message.UI_GPS_ERROR_UNSUPPORTED_PLATFORM,
+        PositionReadErrorCode.WINDOW_NOT_FOREGROUND: Message.UI_GPS_ERROR_WINDOW_NOT_FOREGROUND,
+        PositionReadErrorCode.PROCESS_UNAVAILABLE: Message.UI_GPS_ERROR_PROCESS_UNAVAILABLE,
+        PositionReadErrorCode.WRONG_PROCESS: Message.UI_GPS_ERROR_WRONG_PROCESS,
+        PositionReadErrorCode.UNSUPPORTED_BUILD: Message.UI_GPS_ERROR_UNSUPPORTED_BUILD,
+        PositionReadErrorCode.HANDLE_LOST: Message.UI_GPS_ERROR_HANDLE_LOST,
+        PositionReadErrorCode.MALFORMED_READ: Message.UI_GPS_ERROR_MALFORMED_READ,
+        PositionReadErrorCode.INVALID_PROFILE_CONFIGURATION: (
+            Message.UI_GPS_ERROR_INVALID_PROFILE_CONFIGURATION
+        ),
+    }[code]
 
 
 def _heading_to_compass(heading: float) -> str:

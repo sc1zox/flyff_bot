@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import sys
 import time
 from collections.abc import Sequence
@@ -85,6 +86,7 @@ from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import FarmingGoal
 
 COUNTDOWN_POLL_SECONDS = 0.05
+BOT_VERSION = "0.1.0"
 
 
 class FarmingConfigurationError(ValueError):
@@ -623,20 +625,28 @@ def _farming_orchestrator(
                 movement_step_duration_seconds=args.search_movement_duration,
             ),
         ),
-        telemetry=_telemetry_recorder(args, model_path, labels_path),
+        telemetry=_telemetry_recorder(args, model_path, labels_path, controller, window_handle),
     )
 
 
 def _telemetry_recorder(
-    args: argparse.Namespace, model_path: str, labels_path: str
+    args: argparse.Namespace,
+    model_path: str,
+    labels_path: str,
+    controller: WindowsInputController,
+    window_handle: int,
 ) -> TelemetryRecorder:
-    """Build the optional-storage recorder without adding any client-process access."""
+    """Build telemetry metadata from the already-discovered, query-only client identity."""
 
     store = SqliteTelemetryStore(Path(args.telemetry_database))
     root = Path(args.telemetry_root)
+    executable = controller.process_image_path(window_handle)
+    client_sha256 = _sha256(Path(executable)) if executable is not None else None
     return TelemetryRecorder(
         TelemetrySessionMetadata(
             area_id=args.telemetry_area,
+            client_sha256=client_sha256,
+            bot_version=BOT_VERSION,
             active_models=(model_path, labels_path),
             navmesh_version=None,
             active_spawn_zone=None,
@@ -645,6 +655,16 @@ def _telemetry_recorder(
             session_id, area_id, root=root, store=store
         ),
     )
+
+
+def _sha256(path: Path) -> str | None:
+    """Return the executable digest, retaining nullable metadata when it cannot be read."""
+
+    try:
+        with path.open("rb") as stream:
+            return hashlib.file_digest(stream, "sha256").hexdigest()
+    except OSError:
+        return None
 
 
 def _load_template(path: str) -> npt.NDArray[np.uint8]:

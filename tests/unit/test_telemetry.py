@@ -97,3 +97,71 @@ def test_recorder_derives_live_velocity(tmp_path: Path) -> None:
         .splitlines()
     ]
     assert records[2]["payload"]["player_velocity"] == {"x": 1.0, "y": 0.0, "z": 0.0}
+
+
+def test_recorder_persists_only_live_terrain_route_trajectory_and_stalls(tmp_path: Path) -> None:
+    timestamps = iter((1, 2, 3, 4, 5, 6, 7))
+    recorder = TelemetryRecorder(
+        TelemetrySessionMetadata(area_id="area", session_id="route"),
+        lambda session_id, area_id: JsonlTelemetryWorker(session_id, area_id, root=tmp_path),
+        clock_ns=lambda: next(timestamps) * 1_000_000_000,
+        utc_now=lambda: datetime(2026, 8, 19, tzinfo=UTC),
+    )
+    recorder.start()
+    recorder.begin_navigation(
+        WorldPosition(1.0, 2.0, 3.0),
+        (WorldPosition(1.0, 2.0, 3.0), WorldPosition(4.0, 2.0, 3.0)),
+    )
+    recorder.record_snapshot(
+        _state(),
+        "searching",
+        live_position=WorldPosition(1.0, 2.0, 3.0),
+        position_source=PositionSource.LIVE,
+    )
+    recorder.record_navigation_stall(stalled=True)
+    recorder.record_navigation_evasion()
+    recorder.record_navigation_stall(stalled=False)
+    recorder.finish_navigation("reached_target")
+    recorder.close()
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "area" / "2026-08-19" / "session_route.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    episode = next(
+        record["payload"] for record in records if record["event_kind"] == "navigation_episode"
+    )
+    assert episode["trajectory"] == [[4_000_000_000, {"x": 1.0, "y": 2.0, "z": 3.0}, None]]
+    assert episode["planned_length"] == 3.0
+    assert episode["stall_events"] == 1
+    assert episode["stall_duration_seconds"] == 1.0
+    assert episode["collision_evasions"] == 1
+
+
+def test_target_selection_keeps_live_position_and_controller_lockout(tmp_path: Path) -> None:
+    timestamps = iter((100, 200, 300))
+    recorder = TelemetryRecorder(
+        TelemetrySessionMetadata(area_id="area", session_id="locked"),
+        lambda session_id, area_id: JsonlTelemetryWorker(session_id, area_id, root=tmp_path),
+        clock_ns=lambda: next(timestamps),
+        utc_now=lambda: datetime(2026, 8, 19, tzinfo=UTC),
+    )
+    recorder.start()
+    recorder.record_target_selection(
+        _state(),
+        50,
+        40,
+        reason="nearest",
+        player_position=WorldPosition(9.0, 8.0, 7.0),
+        is_locked_out=lambda _x, _y: True,
+    )
+    recorder.close()
+    payload = json.loads(
+        (tmp_path / "area" / "2026-08-19" / "session_locked.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[1]
+    )["payload"]
+    assert payload["player_position"] == {"x": 9.0, "y": 8.0, "z": 7.0}
+    assert payload["candidates"][0]["is_locked_out"] is True

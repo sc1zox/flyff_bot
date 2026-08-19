@@ -1,17 +1,4 @@
-"""Goal-driven navigation over an extracted world vector map.
-
-The extracted map speaks client world units; every position the session measures is a
-minimap pixel relative to wherever it started (US-035). :class:`WorldRegistration` is the one
-place those two frames meet. It carries no rotation, because the minimap is north-up and the
-client's ground plane is axis-aligned, and it recovers its translation from a single stated
-correspondence: the operator names the spawn zone the character is standing in, and the
-position measured at that moment becomes that zone's anchor.
-
-What the registration cannot measure is its scale. Deriving minimap pixels per world unit
-would need a run speed the client does not display, exactly as US-035 records for every other
-world-unit conversion, so the scale is a named provisional constant the operator can correct
-rather than a fitted quantity presented as one.
-"""
+"""GPS-only goal-driven navigation over an extracted world vector map."""
 
 from __future__ import annotations
 
@@ -20,15 +7,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
 from flyff_bot.features.navigation.live_position import WorldPosition
-from flyff_bot.features.navigation.spatial import WorldPoint
 from flyff_bot.features.navigation.terrain_routing import (
     TerrainRouteConfig,
     TerrainRoutePlanner,
     TerrainWaypoint,
-)
-from flyff_bot.features.navigation.vector_routing import (
-    VectorRouteConfig,
-    VectorRoutePlanner,
 )
 from flyff_bot.features.navigation.world_extractor import (
     VectorSpawnZone,
@@ -37,74 +19,12 @@ from flyff_bot.features.navigation.world_extractor import (
     nearest_zone,
 )
 
-# Minimap pixels covered by one client world unit. This is an operator-correctable estimate,
-# not a measurement: no recorded quantity relates the two units, so it is named here rather
-# than buried as a literal, exactly like the provisional spawn-distance constants.
-PROVISIONAL_MINIMAP_PIXELS_PER_WORLD_UNIT = 1.0
-
-# The minimap is drawn north-up and the client's z axis grows northwards, so one world z
-# increase and one session y increase point the same way (US-035 defines session +y as north).
-WORLD_NORTH_AXIS_SIGN = 1.0
-
 # Patrol stations are pulled this far in from the zone's bounding rectangle, as a fraction of
 # its half-extent, so a sweep of the zone never rides its outer edge.
 ZONE_PATROL_INSET_FRACTION = 0.6
 # A zone smaller than this in world units is swept from its anchor alone; ringing it would
 # only produce waypoints inside each other's arrival radius.
 MINIMUM_PATROL_RING_EXTENT_UNITS = 8.0
-
-
-@dataclass(frozen=True, slots=True)
-class WorldRegistration:
-    """The affine map between client world coordinates and session minimap pixels."""
-
-    origin: WorldCoordinate
-    pixels_per_world_unit: float = PROVISIONAL_MINIMAP_PIXELS_PER_WORLD_UNIT
-
-    def __post_init__(self) -> None:
-        if self.pixels_per_world_unit <= 0.0:
-            raise ValueError("Minimap pixels per world unit must be positive.")
-
-    @classmethod
-    def anchored(
-        cls,
-        session_position: WorldPoint,
-        world_position: WorldCoordinate,
-        pixels_per_world_unit: float = PROVISIONAL_MINIMAP_PIXELS_PER_WORLD_UNIT,
-    ) -> WorldRegistration:
-        """Return the registration that puts one measured position at one world position."""
-
-        if pixels_per_world_unit <= 0.0:
-            raise ValueError("Minimap pixels per world unit must be positive.")
-        return cls(
-            WorldCoordinate(
-                world_position.x - session_position.x / pixels_per_world_unit,
-                world_position.z
-                - session_position.y / (pixels_per_world_unit * WORLD_NORTH_AXIS_SIGN),
-            ),
-            pixels_per_world_unit,
-        )
-
-    def to_session(self, point: WorldCoordinate) -> WorldPoint:
-        """Return one world position expressed in this session's minimap-pixel frame."""
-
-        return WorldPoint(
-            (point.x - self.origin.x) * self.pixels_per_world_unit,
-            (point.z - self.origin.z) * self.pixels_per_world_unit * WORLD_NORTH_AXIS_SIGN,
-        )
-
-    def to_world(self, point: WorldPoint) -> WorldCoordinate:
-        """Return one measured session position expressed in client world coordinates."""
-
-        return WorldCoordinate(
-            self.origin.x + point.x / self.pixels_per_world_unit,
-            self.origin.z + point.y / (self.pixels_per_world_unit * WORLD_NORTH_AXIS_SIGN),
-        )
-
-    def to_session_distance(self, units: float) -> float:
-        """Return one world-unit distance expressed in minimap pixels."""
-
-        return units * self.pixels_per_world_unit
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,11 +45,11 @@ class ZoneGoal:
 class VectorNavigationPlan:
     """One planned vector route with the goal and zone it was planned for."""
 
-    points: tuple[WorldPoint, ...] = ()
+    points: tuple[WorldCoordinate, ...] = ()
     goal: ZoneGoal | None = None
     zone: VectorSpawnZone | None = None
-    # True when every remaining leg was obstructed, so the caller falls back to learned
-    # pathing rather than steering into terrain the visibility graph could not route around.
+    # True when every remaining leg was obstructed, so the caller blocks rather than steering
+    # into terrain the planner could not route around.
     blocked: bool = False
     world_waypoints: tuple[TerrainWaypoint, ...] = ()
 
@@ -172,45 +92,31 @@ class VectorZoneNavigator:
 
     The navigator owns three decisions: which goal is still unfinished, which of that
     monster's zones the session should be in, and what obstacle-free polyline leads there.
-    It measures nothing and dispatches nothing; positions are handed to it and routes are
-    handed back in the session's own minimap-pixel frame.
+    It measures nothing and dispatches nothing; live client GPS positions are handed to it and
+    routes are returned in that same client world-coordinate frame.
     """
 
     def __init__(
         self,
         world_map: WorldVectorMap,
-        registration: WorldRegistration,
         *,
         goals: Iterable[ZoneGoal] = (),
-        route_config: VectorRouteConfig | None = None,
+        preferred_zone: VectorSpawnZone | None = None,
         terrain_config: TerrainRouteConfig | None = None,
     ) -> None:
         self._map = world_map
-        self._registration = registration
-        self._planner = VectorRoutePlanner(world_map.obstacles, route_config)
         self._terrain_planner = TerrainRoutePlanner(world_map, terrain_config)
         self._terrain_samples = world_map.terrain.samples()
         self._goals: tuple[ZoneGoal, ...] = tuple(goals)
         self._progress = _GoalProgress()
         self._selection: ZoneSelection | None = None
+        self._preferred_zone = preferred_zone
 
     @property
     def world_map(self) -> WorldVectorMap:
         """Return the extracted map this navigator routes over."""
 
         return self._map
-
-    @property
-    def registration(self) -> WorldRegistration:
-        """Return the world-to-session frame registration in force."""
-
-        return self._registration
-
-    @property
-    def route_planner(self) -> VectorRoutePlanner:
-        """Return the visibility-graph planner backing every route."""
-
-        return self._planner
 
     @property
     def terrain_samples(self) -> tuple[tuple[float, float, float], ...]:
@@ -280,27 +186,6 @@ class VectorZoneNavigator:
             return True
         return False
 
-    def select_zone(self, position: WorldPoint) -> ZoneSelection | None:
-        """Bind the session to the active goal's zone nearest one measured position.
-
-        The selection is sticky: once bound, the session keeps working that zone until its
-        goal completes or the goals change, so a route in progress is never abandoned merely
-        because the character drifted closer to a neighbouring zone.
-        """
-
-        goal = self.active_goal
-        if goal is None:
-            return None
-        selection = self._selection
-        if selection is not None and selection.goal == goal:
-            return selection
-        zones = self._map.zones_for(goal.monster_name)
-        chosen = nearest_zone(zones, self._registration.to_world(position))
-        if chosen is None:
-            return None
-        self._selection = ZoneSelection(goal, chosen)
-        return self._selection
-
     def select_world_zone(self, position: WorldPosition) -> ZoneSelection | None:
         """Bind to the active goal's nearest zone using authoritative world coordinates."""
 
@@ -311,42 +196,16 @@ class VectorZoneNavigator:
         if selection is not None and selection.goal == goal:
             return selection
         zones = self._map.zones_for(goal.monster_name)
-        chosen = nearest_zone(zones, WorldCoordinate(position.x, position.z))
+        preferred = self._preferred_zone
+        chosen: VectorSpawnZone | None
+        if preferred is not None and preferred in zones:
+            chosen = preferred
+        else:
+            chosen = nearest_zone(zones, WorldCoordinate(position.x, position.z))
         if chosen is None:
             return None
         self._selection = ZoneSelection(goal, chosen)
         return self._selection
-
-    def update_registration(self, session: WorldPoint, world: WorldPosition) -> None:
-        """Re-anchor minimap fallback at the latest drift-free live correspondence."""
-
-        self._registration = WorldRegistration.anchored(
-            session,
-            WorldCoordinate(world.x, world.z),
-            self._registration.pixels_per_world_unit,
-        )
-
-    def plan_route(self, position: WorldPoint) -> VectorNavigationPlan:
-        """Return the obstacle-free route the active goal wants walked from here."""
-
-        selection = self.select_zone(position)
-        if selection is None:
-            return VectorNavigationPlan()
-        origin = self._registration.to_world(position)
-        stations = self._stations(selection.zone, origin)
-        points: list[WorldPoint] = []
-        blocked = False
-        current = origin
-        for station in stations:
-            leg = self._planner.plan(current, station)
-            if leg.blocked or leg.is_empty:
-                blocked = blocked or leg.blocked
-                continue
-            points.extend(self._registration.to_session(point) for point in leg.waypoints)
-            current = station
-        return VectorNavigationPlan(
-            tuple(points), selection.goal, selection.zone, blocked and not points
-        )
 
     def plan_live_route(
         self,
@@ -382,7 +241,7 @@ class VectorZoneNavigator:
             else:
                 waypoints.extend(leg.waypoints)
             current = destination
-        points = tuple(WorldPoint(item.position.x, item.position.z) for item in waypoints)
+        points = tuple(WorldCoordinate(item.position.x, item.position.z) for item in waypoints)
         return VectorNavigationPlan(
             points=points,
             goal=selection.goal,
@@ -396,14 +255,6 @@ class VectorZoneNavigator:
 
         zone = self.active_zone
         return zone is not None and zone.contains(WorldCoordinate(position.x, position.z))
-
-    def zone_contains(self, position: WorldPoint) -> bool:
-        """Return whether a measured position lies inside the bound zone's rectangle."""
-
-        zone = self.active_zone
-        if zone is None:
-            return False
-        return zone.contains(self._registration.to_world(position))
 
     def _stations(
         self, zone: VectorSpawnZone, origin: WorldCoordinate
@@ -448,28 +299,21 @@ def _patrol_ring(zone: VectorSpawnZone) -> tuple[WorldCoordinate, ...]:
 class VectorNavigationRequest:
     """Everything an operator states before an extracted map may steer a session.
 
-    The one thing it deliberately does not carry is where the character is: the frame
-    registration is only valid against a position measured at the moment it is applied, so
-    the caller supplies that when it turns this request into a navigator.
+    The selected zone is an operator preference for the first patrol; the navigator still
+    receives authoritative live GPS before it can plan or dispatch movement.
     """
 
     world_map: WorldVectorMap
     anchor_zone: VectorSpawnZone
     goals: tuple[ZoneGoal, ...] = ()
-    pixels_per_world_unit: float = PROVISIONAL_MINIMAP_PIXELS_PER_WORLD_UNIT
-    route_config: VectorRouteConfig | None = None
 
-    def navigator(self, session_position: WorldPoint) -> VectorZoneNavigator:
-        """Return the navigator this request describes, registered at one live position."""
+    def navigator(self) -> VectorZoneNavigator:
+        """Return a navigator that plans entirely in client world units."""
 
-        registration = WorldRegistration.anchored(
-            session_position, self.anchor_zone.anchor, self.pixels_per_world_unit
-        )
         return VectorZoneNavigator(
             self.world_map,
-            registration,
             goals=self.goals,
-            route_config=self.route_config,
+            preferred_zone=self.anchor_zone,
         )
 
 

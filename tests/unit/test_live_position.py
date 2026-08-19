@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import struct
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
     PositionSource,
     WorldPosition,
+    load_client_position_profiles,
 )
 
 WINDOW_HANDLE = 42
@@ -184,6 +186,7 @@ def test_nonfinite_coordinate_is_rejected(
 def test_unknown_build_falls_back_without_reading_memory(tmp_path: Path) -> None:
     executable = tmp_path / "neuz.exe"
     executable.write_bytes(b"unknown")
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
     dummy = ClientPositionProfile("0" * 64, PLAYER_POINTER_RVA, 8)
     api = FakeProcessMemoryApi(executable, dummy)
 
@@ -194,6 +197,60 @@ def test_unknown_build_falls_back_without_reading_memory(tmp_path: Path) -> None
     assert reading.error.code is PositionReadErrorCode.UNSUPPORTED_BUILD
     assert api.reads == []
     assert api.closed == [PROCESS_HANDLE]
+    assert digest in reading.error.detail
+    assert str(executable) in reading.error.detail
+
+
+def test_external_client_profile_file_is_loaded_with_an_optional_position_offset(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "neuz.exe"
+    executable.write_bytes(b"profile-configured-build")
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    profiles_path = tmp_path / "client_profiles.json"
+    profiles_path.write_text(
+        json.dumps(
+            [
+                {
+                    "sha256": digest.upper(),
+                    "player_pointer_rva": PLAYER_POINTER_RVA,
+                    "pointer_size_bytes": 8,
+                    "position_offset": POSITION_OFFSET,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profile = ClientPositionProfile(digest, PLAYER_POINTER_RVA, 8, POSITION_OFFSET)
+    api = FakeProcessMemoryApi(executable, profile)
+
+    reading = LivePositionReader(WINDOW_HANDLE, api=api, profiles_path=profiles_path).poll(0.0)
+
+    assert load_client_position_profiles(profiles_path)[digest].position_offset == POSITION_OFFSET
+    assert reading.source is PositionSource.LIVE
+    assert reading.position == api.position
+
+
+def test_missing_profile_file_uses_embedded_defaults(tmp_path: Path) -> None:
+    reader = LivePositionReader(WINDOW_HANDLE, profiles_path=tmp_path / "missing.json")
+
+    assert reader._profiles is ENTROPIA_POSITION_PROFILES
+
+
+def test_invalid_profile_file_is_an_explicit_gps_error(tmp_path: Path) -> None:
+    profiles_path = tmp_path / "client_profiles.json"
+    profiles_path.write_text("{}", encoding="utf-8")
+    executable = tmp_path / "neuz.exe"
+    executable.write_bytes(b"invalid-config")
+    profile = ClientPositionProfile("0" * 64, PLAYER_POINTER_RVA, 8)
+    api = FakeProcessMemoryApi(executable, profile)
+
+    reading = LivePositionReader(WINDOW_HANDLE, api=api, profiles_path=profiles_path).poll(0.0)
+
+    assert reading.source is PositionSource.MINIMAP_FALLBACK
+    assert reading.error is not None
+    assert reading.error.code is PositionReadErrorCode.INVALID_PROFILE_CONFIGURATION
+    assert api.open_count == 0
 
 
 def test_explicit_close_is_idempotent(

@@ -175,7 +175,9 @@ class WindowsInputController:
         ]
         self._user32.PostMessageW.restype = wintypes.BOOL
 
-    def _process_name(self, window_handle: int) -> str:
+    def process_image_path(self, window_handle: int) -> str | None:
+        """Return the target executable path through documented query-only Win32 APIs."""
+
         process_id = wintypes.DWORD()
         self._user32.GetWindowThreadProcessId(window_handle, ctypes.byref(process_id))
         process_handle = self._kernel32.OpenProcess(
@@ -184,7 +186,7 @@ class WindowsInputController:
             process_id.value,
         )
         if not process_handle:
-            return ""
+            return None
         try:
             size = wintypes.DWORD(MAXIMUM_PROCESS_PATH_LENGTH)
             path = ctypes.create_unicode_buffer(size.value)
@@ -194,10 +196,14 @@ class WindowsInputController:
                 path,
                 ctypes.byref(size),
             ):
-                return os.path.basename(path.value)
-            return ""
+                return path.value
+            return None
         finally:
             self._kernel32.CloseHandle(process_handle)
+
+    def _process_name(self, window_handle: int) -> str:
+        path = self.process_image_path(window_handle)
+        return "" if path is None else os.path.basename(path)
 
     def find_windows(self, process_name: str) -> list[WindowRef]:
         """Find visible top-level windows owned by a named executable."""

@@ -1764,13 +1764,18 @@ class MainWindow(QMainWindow):
 
     def _render_gps(self) -> None:
         live = self._position_source is PositionSource.LIVE
-        self._gps_label.setText(
-            self._translator.text(Message.UI_GPS_LIVE if live else Message.UI_GPS_FALLBACK)
-        )
-        self._gps_label.setProperty("gps", "live" if live else "fallback")
         navigation = self._latest_update.navigation if self._latest_update is not None else None
         position = navigation.world_position if navigation is not None else None
         error_code = navigation.position_error_code if navigation is not None else None
+        reason = self._translator.text(
+            Message.UI_GPS_UNAVAILABLE if error_code is None else _gps_error_message(error_code)
+        )
+        self._gps_label.setText(
+            self._translator.text(Message.UI_GPS_LIVE)
+            if live
+            else self._translator.text(Message.UI_GPS_OFFLINE, reason=reason)
+        )
+        self._gps_label.setProperty("gps", "live" if live else "offline")
         self._gps_label.setToolTip(
             self._translator.text(
                 Message.UI_GPS_COORDINATES,
@@ -1779,14 +1784,7 @@ class MainWindow(QMainWindow):
                 z=f"{position.z:.2f}",
             )
             if position is not None
-            else (
-                ""
-                if error_code is None
-                else self._translator.text(
-                    Message.UI_GPS_ERROR,
-                    reason=self._translator.text(_gps_error_message(error_code)),
-                )
-            )
+            else self._translator.text(Message.UI_GPS_OFFLINE, reason=reason)
         )
         style = self._gps_label.style()
         if style is not None:
@@ -2048,11 +2046,15 @@ def _tracking_quality_message(quality: TrackingQuality) -> Message:
 def _gps_error_message(code: PositionReadErrorCode) -> Message:
     return {
         PositionReadErrorCode.UNSUPPORTED_PLATFORM: Message.UI_GPS_ERROR_UNSUPPORTED_PLATFORM,
+        PositionReadErrorCode.WINDOW_NOT_FOREGROUND: Message.UI_GPS_ERROR_WINDOW_NOT_FOREGROUND,
         PositionReadErrorCode.PROCESS_UNAVAILABLE: Message.UI_GPS_ERROR_PROCESS_UNAVAILABLE,
         PositionReadErrorCode.WRONG_PROCESS: Message.UI_GPS_ERROR_WRONG_PROCESS,
         PositionReadErrorCode.UNSUPPORTED_BUILD: Message.UI_GPS_ERROR_UNSUPPORTED_BUILD,
         PositionReadErrorCode.HANDLE_LOST: Message.UI_GPS_ERROR_HANDLE_LOST,
         PositionReadErrorCode.MALFORMED_READ: Message.UI_GPS_ERROR_MALFORMED_READ,
+        PositionReadErrorCode.INVALID_PROFILE_CONFIGURATION: (
+            Message.UI_GPS_ERROR_INVALID_PROFILE_CONFIGURATION
+        ),
     }[code]
 
 

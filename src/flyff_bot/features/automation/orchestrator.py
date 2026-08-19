@@ -51,7 +51,7 @@ from flyff_bot.features.automation.vitals_controller import (
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control import ForegroundWindowInfo
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
-from flyff_bot.features.navigation.live_position import PositionSource
+from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector, TrackingQuality
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.telemetry import CombatVerificationSource, TelemetryRecorder
@@ -553,6 +553,8 @@ class FarmingOrchestrator:
         if not self._input_adapter.is_foreground(self._window_handle):
             lookup_foreground = self._foreground_window_info
             foreground = lookup_foreground() if lookup_foreground is not None else None
+            if self._pathing is not None:
+                self._pathing.mark_gps_offline(PositionReadErrorCode.WINDOW_NOT_FOREGROUND)
             self.pause(kind=SessionEventKind.FOCUS_LOST, reason="focus_lost", foreground=foreground)
             return self._publish(False)
         if not self._observe():
@@ -571,6 +573,8 @@ class FarmingOrchestrator:
         if self._pathing is not None:
             self._pathing.observe(self._state, self._last_frame)
             self._state = replace(self._state, is_stuck=self._pathing.is_stalled)
+            if self._telemetry is not None:
+                self._telemetry.record_navigation_stall(stalled=self._pathing.is_stalled)
             elapsed = self._state.observed_at_seconds - self._last_persist_at_seconds
             if elapsed >= NAVIGATION_PERSIST_INTERVAL_SECONDS:
                 self._persist_navigation()
@@ -668,7 +672,14 @@ class FarmingOrchestrator:
                         combat.position.x,
                         combat.position.y,
                         reason="nearest_to_viewport_center",
+                        player_position=(
+                            self._pathing.live_position if self._pathing is not None else None
+                        ),
+                        is_locked_out=lambda x, y: self._combat.is_position_locked_out(
+                            x, y, self._state.observed_at_seconds
+                        ),
                     )
+                    self._telemetry.finish_navigation("reached_target")
                 self._set_mode(FarmingMode.TARGETING, reason="mob_detected")
                 self._engagement_break = None
                 self._approach_stalls.reset()
@@ -929,7 +940,22 @@ class FarmingOrchestrator:
 
         if self._pathing is None:
             return False
+        # Kept local to preserve the existing navigation -> automation import boundary.
+        from flyff_bot.features.navigation.pathing import PathingMode
+
         decision = self._pathing.step(self._state.observed_at_seconds)
+        if decision.mode is PathingMode.BLOCKED and self._pathing.vector_navigation_gps_unavailable:
+            self.pause(reason="gps_unavailable")
+            return False
+        if self._telemetry is not None:
+            live_position = self._pathing.live_position
+            waypoints = self._pathing.world_waypoints
+            if decision.mode is PathingMode.TRAVELING and live_position is not None and waypoints:
+                self._telemetry.begin_navigation(live_position, waypoints)
+            if decision.mode is PathingMode.EVADING:
+                self._telemetry.record_navigation_evasion()
+            if decision.mode is PathingMode.IDLE:
+                self._telemetry.finish_navigation("reached_target")
         if not self._pathing_dispatcher.dispatch(decision):
             self._pathing.reject(decision)
             return False
@@ -1025,6 +1051,9 @@ class FarmingOrchestrator:
                 self._pathing.position_source
                 if self._pathing is not None
                 else PositionSource.MINIMAP_FALLBACK
+            ),
+            player_terrain_slope=(
+                self._pathing.terrain_slope if self._pathing is not None else None
             ),
         )
 

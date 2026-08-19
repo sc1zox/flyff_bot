@@ -11,6 +11,7 @@ DEFAULT_MOB_MODEL_PATH = "models/mob_detector.onnx"
 DEFAULT_MOB_LABELS_PATH = "models/labels.txt"
 DEFAULT_TRAINING_EPOCHS = 100
 DEFAULT_NAVIGATION_MAP_PATH = "data/navigation/spatial_map.json"
+DEFAULT_CLIENT_POSITION_PROFILES_PATH = "data/navigation/client_profiles.json"
 DEFAULT_TELEMETRY_ROOT = "data/telemetry"
 DEFAULT_TELEMETRY_DATABASE_PATH = "data/telemetry.sqlite3"
 DEFAULT_TELEMETRY_DATASET_PATH = "data/datasets/rl"

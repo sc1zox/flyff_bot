@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from math import hypot
+from math import dist, hypot
 from time import monotonic_ns
 
 from flyff_bot.features.automation.models import WorldState
@@ -24,6 +25,22 @@ from flyff_bot.features.telemetry.models import (
     primitive,
 )
 from flyff_bot.features.telemetry.storage import JsonlTelemetryWorker
+
+
+@dataclass(slots=True)
+class _ActiveNavigation:
+    """Mutable in-memory evidence for one live GPS terrain-route episode."""
+
+    started_at_ns: int
+    start_position: TelemetryPosition
+    target_position: TelemetryPosition
+    planned_route: tuple[TelemetryPosition, ...]
+    trajectory: list[tuple[int, TelemetryPosition, float | None]] = field(default_factory=list)
+    replans_count: int = 0
+    stall_events: int = 0
+    stall_started_at_ns: int | None = None
+    stall_duration_seconds: float = 0.0
+    collision_evasions: int = 0
 
 
 class TelemetryRecorder:
@@ -46,6 +63,11 @@ class TelemetryRecorder:
         self._combat_started_at: tuple[int, str | None, float, float | None] | None = None
         self._attack_actions: list[AttackAction] = []
         self._last_verified_kill_at_ns: int | None = None
+        self._cycle_started_at_ns: int | None = None
+        self._decision_seconds = 0.0
+        self._navigation_seconds = 0.0
+        self._stall_seconds = 0.0
+        self._navigation: _ActiveNavigation | None = None
 
     @property
     def session_id(self) -> str:
@@ -61,6 +83,7 @@ class TelemetryRecorder:
         self._started = True
         self._submit(TelemetryEventKind.SESSION_HEADER, primitive(self._metadata))
         self._selection_started_at_ns = self._clock_ns()
+        self._cycle_started_at_ns = self._selection_started_at_ns
 
     def record_snapshot(
         self,
@@ -70,6 +93,7 @@ class TelemetryRecorder:
         live_position: WorldPosition | None,
         position_source: PositionSource = PositionSource.MINIMAP_FALLBACK,
         buff_cooldowns: dict[str, float] | None = None,
+        player_terrain_slope: float | None = None,
     ) -> None:
         """Queue one compact numerical snapshot; absent GPS remains explicit ``null``."""
 
@@ -85,7 +109,7 @@ class TelemetryRecorder:
             player_speed=None if velocity is None else velocity.speed,
             position_source=position_source.value,
             player_navmesh_polygon_id=None,
-            player_terrain_slope=None,
+            player_terrain_slope=player_terrain_slope,
             hp_percentage=state.player_vitals.hp_percentage,
             mp_percentage=state.player_vitals.mp_percentage,
             fp_percentage=state.player_vitals.fp_percentage,
@@ -94,9 +118,25 @@ class TelemetryRecorder:
             visible_mob_count=len(state.visible_mobs),
         )
         self._submit(TelemetryEventKind.WORLD_SNAPSHOT, primitive(snapshot), timestamp_ns)
+        navigation = self._navigation
+        if (
+            navigation is not None
+            and position is not None
+            and position_source is PositionSource.LIVE
+        ):
+            navigation.trajectory.append(
+                (timestamp_ns, position, None if velocity is None else velocity.speed)
+            )
 
     def record_target_selection(
-        self, state: WorldState, selected_x: int, selected_y: int, *, reason: str
+        self,
+        state: WorldState,
+        selected_x: int,
+        selected_y: int,
+        *,
+        reason: str,
+        player_position: WorldPosition | None = None,
+        is_locked_out: Callable[[int, int], bool] | None = None,
     ) -> None:
         """Persist all visible alternatives in perception order at the actual click boundary."""
 
@@ -135,25 +175,134 @@ class TelemetryRecorder:
                     None,
                     None,
                     None,
-                    False,
+                    False if is_locked_out is None else is_locked_out(int(center_x), int(center_y)),
                 )
             )
         if selected_index < 0:
             return
         payload = {
             "timestamp_ns": timestamp_ns,
-            "player_position": None,
+            "player_position": primitive(_position(player_position)),
             "selected_candidate_index": selected_index,
             "decision_reason": reason,
             "decision_latency_ms": (timestamp_ns - self._selection_started_at_ns) / 1_000_000,
             "candidates": primitive(tuple(candidates)),
         }
         self._submit(TelemetryEventKind.TARGET_SELECTED, payload, timestamp_ns)
+        self._decision_seconds += (timestamp_ns - self._selection_started_at_ns) / 1_000_000_000
         self._selection_started_at_ns = timestamp_ns
+
+    def begin_navigation(
+        self,
+        start_position: WorldPosition,
+        planned_route: tuple[WorldPosition, ...],
+    ) -> None:
+        """Begin or replan a route based solely on US-052 live terrain waypoints."""
+
+        if not self._started or not planned_route:
+            return
+        timestamp_ns = self._clock_ns()
+        route = tuple(_position(point) for point in planned_route)
+        assert all(point is not None for point in route)
+        resolved_route = tuple(point for point in route if point is not None)
+        navigation = self._navigation
+        if navigation is not None:
+            if navigation.planned_route != resolved_route:
+                navigation.planned_route = resolved_route
+                navigation.target_position = resolved_route[-1]
+                navigation.replans_count += 1
+            return
+        start = _position(start_position)
+        assert start is not None
+        self._navigation = _ActiveNavigation(
+            timestamp_ns, start, resolved_route[-1], resolved_route
+        )
+
+    def record_navigation_stall(self, *, stalled: bool) -> None:
+        """Accumulate a live terrain-route stall and emit a durable edge event."""
+
+        navigation = self._navigation
+        if navigation is None:
+            return
+        timestamp_ns = self._clock_ns()
+        if stalled and navigation.stall_started_at_ns is None:
+            navigation.stall_started_at_ns = timestamp_ns
+            navigation.stall_events += 1
+            self._submit(
+                TelemetryEventKind.STALL_EVENT,
+                {"navigation_started_at_ns": navigation.started_at_ns},
+                timestamp_ns,
+            )
+        elif not stalled and navigation.stall_started_at_ns is not None:
+            duration = (timestamp_ns - navigation.stall_started_at_ns) / 1_000_000_000
+            navigation.stall_duration_seconds += duration
+            self._stall_seconds += duration
+            navigation.stall_started_at_ns = None
+
+    def record_navigation_evasion(self) -> None:
+        """Count a confirmed bounded Q/S recovery action in the active route."""
+
+        if self._navigation is not None:
+            self._navigation.collision_evasions += 1
+
+    def finish_navigation(self, outcome: str) -> None:
+        """Persist the active live-GPS episode without ever deriving minimap trajectories."""
+
+        navigation = self._navigation
+        if navigation is None:
+            return
+        ended_at_ns = self._clock_ns()
+        if navigation.stall_started_at_ns is not None:
+            duration = (ended_at_ns - navigation.stall_started_at_ns) / 1_000_000_000
+            navigation.stall_duration_seconds += duration
+            self._stall_seconds += duration
+        actual_distance = sum(
+            dist(
+                (previous.x, previous.y, previous.z),
+                (current.x, current.y, current.z),
+            )
+            for (
+                _previous_time,
+                previous,
+                _previous_speed,
+            ), (
+                _current_time,
+                current,
+                _current_speed,
+            ) in zip(navigation.trajectory, navigation.trajectory[1:], strict=False)
+        )
+        planned_length = sum(
+            dist(
+                (previous.x, previous.y, previous.z),
+                (current.x, current.y, current.z),
+            )
+            for previous, current in zip(
+                navigation.planned_route, navigation.planned_route[1:], strict=False
+            )
+        )
+        episode = NavigationEpisode(
+            navigation.started_at_ns,
+            ended_at_ns,
+            navigation.start_position,
+            navigation.target_position,
+            navigation.planned_route,
+            planned_length,
+            actual_distance,
+            tuple(navigation.trajectory),
+            navigation.replans_count,
+            navigation.stall_events,
+            navigation.stall_duration_seconds,
+            navigation.collision_evasions,
+            outcome,
+        )
+        self.record_navigation_episode(episode)
+        self._navigation_seconds += (ended_at_ns - navigation.started_at_ns) / 1_000_000_000
+        self._navigation = None
 
     def close(self) -> None:
         """Close the worker idempotently; telemetry failure never affects client control."""
 
+        self.finish_navigation("session_closed")
         self._worker.close()
 
     def record_navigation_episode(self, episode: NavigationEpisode) -> None:
@@ -214,23 +363,33 @@ class TelemetryRecorder:
         )
         self.record_combat_episode(episode)
         if verification_source is not None:
-            prior = self._last_verified_kill_at_ns or started[0]
+            prior = self._cycle_started_at_ns or self._last_verified_kill_at_ns or started[0]
             total_seconds = (ended_at_ns - prior) / 1_000_000_000
             combat_seconds = (ended_at_ns - started[0]) / 1_000_000_000
             self.record_kill_cycle(
                 KillCycle(
                     timestamp_ns=ended_at_ns,
-                    decision_seconds=0.0,
-                    navigation_seconds=0.0,
+                    decision_seconds=self._decision_seconds,
+                    navigation_seconds=self._navigation_seconds,
                     combat_seconds=combat_seconds,
-                    idle_seconds=max(0.0, total_seconds - combat_seconds),
+                    idle_seconds=max(
+                        0.0,
+                        total_seconds
+                        - self._decision_seconds
+                        - self._navigation_seconds
+                        - combat_seconds,
+                    ),
                     damage_taken=max(0.0, started[2] - state.player_vitals.hp_percentage),
-                    stall_seconds=0.0,
+                    stall_seconds=self._stall_seconds,
                     verified_kill=True,
                     reward=-total_seconds + 1.0,
                 )
             )
             self._last_verified_kill_at_ns = ended_at_ns
+            self._cycle_started_at_ns = ended_at_ns
+            self._decision_seconds = 0.0
+            self._navigation_seconds = 0.0
+            self._stall_seconds = 0.0
         self._combat_started_at = None
         self._attack_actions = []
 

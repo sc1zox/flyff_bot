@@ -20,6 +20,8 @@ from flyff_bot.features.automation.models import (
 from flyff_bot.features.automation.orchestrator import FarmingMode, FarmingOrchestrator
 from flyff_bot.features.navigation.live_position import (
     LivePositionReader,
+    PositionReadError,
+    PositionReadErrorCode,
     PositionReading,
     PositionSource,
     WorldPosition,
@@ -43,15 +45,12 @@ from flyff_bot.features.navigation.teleport import TeleportAnchor, TeleportConfi
 from flyff_bot.features.navigation.tracking import MovementModel, StallConfig
 from flyff_bot.features.navigation.vector_navigation import (
     VectorZoneNavigator,
-    WorldRegistration,
     ZoneGoal,
 )
-from flyff_bot.features.navigation.vector_routing import VectorRouteConfig
 from flyff_bot.features.navigation.world_extractor import (
     LAND_BLOCK_VERTICES_PER_SIDE,
     LandBlock,
     VectorSpawnZone,
-    WorldCoordinate,
     WorldDimensions,
     WorldVectorMap,
 )
@@ -115,6 +114,21 @@ class _LiveReader:
         self.closed += 1
 
 
+class _LossReader(_LiveReader):
+    def __init__(self) -> None:
+        super().__init__([WorldPosition(100.0, 100.0, 100.0)])
+        self._polls = 0
+
+    def poll(self, at_seconds: float) -> PositionReading:
+        self._polls += 1
+        if self._polls == 1:
+            return super().poll(at_seconds)
+        return PositionReading(
+            PositionSource.MINIMAP_FALLBACK,
+            error=PositionReadError(PositionReadErrorCode.WINDOW_NOT_FOREGROUND),
+        )
+
+
 def _state(seconds: float, mobs: tuple[VisibleMob, ...] = ()) -> WorldState:
     return WorldState(
         observed_at_seconds=seconds,
@@ -130,13 +144,9 @@ def _state(seconds: float, mobs: tuple[VisibleMob, ...] = ()) -> WorldState:
 
 
 def _navigator(goals: tuple[ZoneGoal, ...]) -> VectorZoneNavigator:
-    # The session origin is registered onto the Flame zone anchor, so the extracted map and
-    # the measured position share an origin and the arithmetic in the assertions stays plain.
     return VectorZoneNavigator(
-        WORLD_MAP,
-        WorldRegistration.anchored(WorldPoint(0.0, 0.0), FLAME_ZONE.anchor),
+        TERRAIN_WORLD_MAP,
         goals=goals,
-        route_config=VectorRouteConfig(clearance_units=0.0),
     )
 
 
@@ -148,6 +158,11 @@ def _controller(
         config=PATHING_CONFIG,
         odometer=MirrorOdometer(PATHING_CONFIG.movement),
         vector_navigator=navigator,
+        position_reader=(
+            cast("LivePositionReader", _LiveReader([WorldPosition(100.0, 100.0, 100.0)]))
+            if navigator is not None
+            else None
+        ),
     )
 
 
@@ -171,10 +186,9 @@ def test_an_extracted_map_supplies_the_route_instead_of_the_learned_heatmap() ->
 
     assert controller.vector_navigation_active
     assert decision.mode is PathingMode.TRAVELING
-    # The zone's inset ring is 60 % of its 30-unit half extent, so the sweep stays inside
-    # +-18 px of the registered origin - nowhere near the learned hotspot at y = 25.
+    # The route remains in the extracted map's native client world units.
     assert controller.waypoints
-    assert all(abs(point.x) <= 18.0 and abs(point.y) <= 18.0 for point in controller.waypoints)
+    assert any(point.x >= 182.0 and point.y >= 182.0 for point in controller.waypoints)
 
 
 def test_a_session_without_an_extracted_map_still_plans_over_what_it_learned() -> None:
@@ -259,8 +273,7 @@ def test_a_completed_quota_replans_into_the_next_monsters_zone_without_a_restart
 
     assert decision.mode is PathingMode.TRAVELING
     assert navigator.active_zone is RAPRA_ZONE
-    # Rapra's zone sits 120 world units east of the registered origin.
-    assert all(point.x >= 100.0 for point in controller.waypoints)
+    assert any(point.x >= 302.0 for point in controller.waypoints)
 
 
 def test_a_kill_without_an_extracted_map_is_simply_not_attributed() -> None:
@@ -279,7 +292,7 @@ def test_the_bound_zone_is_published_for_the_dashboard() -> None:
     assert zone is not None
     assert zone.monster_name == "Flame"
     assert zone.capacity == 10
-    assert (zone.center_x, zone.center_y) == (0.0, 0.0)
+    assert (zone.center_x, zone.center_y) == (200.0, 200.0)
     assert zone.half_width_pixels == pytest.approx(30.0)
     assert zone.half_depth_pixels == pytest.approx(30.0)
 
@@ -291,28 +304,40 @@ def test_a_session_without_an_extracted_map_publishes_no_zone() -> None:
     assert controller.snapshot(0.0).vector_zone is None
 
 
-def test_the_route_is_planned_in_world_units_and_delivered_in_minimap_pixels() -> None:
-    """The registration scale is the only thing between the two frames."""
-
-    navigator = VectorZoneNavigator(
-        WORLD_MAP,
-        WorldRegistration.anchored(WorldPoint(0.0, 0.0), FLAME_ZONE.anchor, 2.0),
-        goals=(ZoneGoal("Flame"),),
-        route_config=VectorRouteConfig(clearance_units=0.0),
+def test_vector_navigation_without_a_live_position_is_blocked_without_a_minimap_route() -> None:
+    controller = PathingController(
+        SpatialMap(MAP_CONFIG),
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
     )
-    controller = _controller(navigator)
 
-    controller.step(0.0)
+    decision = controller.step(0.0)
 
-    # At two pixels per world unit the same +-18 unit ring is drawn at +-36 px.
-    assert max(abs(point.x) for point in controller.waypoints) == pytest.approx(36.0)
+    assert decision == PathingDecision(PathingMode.BLOCKED)
+    assert controller.waypoints == ()
+    assert controller.vector_navigation_gps_unavailable
+
+
+def test_losing_live_gps_clears_an_active_vector_route_before_another_input() -> None:
+    reader = _LossReader()
+    controller = PathingController(
+        SpatialMap(MAP_CONFIG),
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        position_reader=cast("LivePositionReader", reader),
+    )
+
+    assert controller.step(0.0).mode is PathingMode.TRAVELING
+
+    assert controller.step(1.0) == PathingDecision(PathingMode.BLOCKED)
+    assert controller.waypoints == ()
+    assert controller.position_error_code is PositionReadErrorCode.WINDOW_NOT_FOREGROUND
 
 
 def test_live_xyz_drives_terrain_route_snapshot_and_emergency_handle_release() -> None:
     reader = _LiveReader([WorldPosition(100.0, 100.0, 100.0)])
     navigator = VectorZoneNavigator(
         TERRAIN_WORLD_MAP,
-        WorldRegistration(WorldCoordinate(0.0, 0.0)),
         goals=(ZoneGoal("Flame"),),
     )
     controller = PathingController(
@@ -342,7 +367,6 @@ def test_long_range_live_goal_requests_its_configured_teleport_hotkey_once() -> 
     reader = _LiveReader([WorldPosition(0.0, 100.0, 0.0)])
     navigator = VectorZoneNavigator(
         TERRAIN_WORLD_MAP,
-        WorldRegistration(WorldCoordinate(0.0, 0.0)),
         goals=(ZoneGoal("Flame"),),
     )
     controller = PathingController(
@@ -371,7 +395,6 @@ def test_live_stall_runs_strafe_backstep_tangent_replan_and_repeated_block() -> 
     reader = _LiveReader([stalled_at])
     navigator = VectorZoneNavigator(
         TERRAIN_WORLD_MAP,
-        WorldRegistration(WorldCoordinate(0.0, 0.0)),
         goals=(ZoneGoal("Flame"),),
     )
     controller = PathingController(
@@ -424,20 +447,6 @@ def test_an_external_live_combat_obstacle_uses_the_same_evasion_and_blocking() -
     assert controller.temporary_world_blocks == (stalled_at,)
 
 
-def test_the_registered_frame_maps_the_zone_anchor_onto_the_live_position() -> None:
-    navigator = VectorZoneNavigator(
-        WORLD_MAP,
-        WorldRegistration.anchored(WorldPoint(15.0, -25.0), FLAME_ZONE.anchor),
-        goals=(ZoneGoal("Flame"),),
-        route_config=VectorRouteConfig(clearance_units=0.0),
-    )
-
-    assert navigator.registration.to_session(FLAME_ZONE.anchor) == WorldPoint(15.0, -25.0)
-    assert navigator.registration.to_world(WorldPoint(15.0, -25.0)) == WorldCoordinate(
-        FLAME_ZONE.anchor.x, FLAME_ZONE.anchor.z
-    )
-
-
 class _Adapter:
     """A guarded-input adapter that records every dispatch instead of sending it."""
 
@@ -474,6 +483,27 @@ class _Pipeline:
 
     def tick(self, _window_handle: int, _previous: WorldState) -> PerceptionTick:
         return PerceptionTick(next(self._states), (), frozenset())
+
+
+def test_orchestrator_pauses_instead_of_searching_when_vector_gps_is_offline() -> None:
+    controller = PathingController(
+        SpatialMap(MAP_CONFIG),
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+    )
+    adapter = _Adapter()
+    orchestrator = FarmingOrchestrator(
+        cast("PerceptionPipeline", _Pipeline([_state(1.0)])),
+        adapter,
+        WINDOW_HANDLE,
+        pathing=controller,
+    )
+    orchestrator.start()
+
+    tick = orchestrator.tick()
+
+    assert tick.mode is FarmingMode.PAUSED
+    assert adapter.keys == []
 
 
 def _engagement_states() -> list[WorldState]:

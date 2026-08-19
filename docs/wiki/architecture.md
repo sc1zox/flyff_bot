@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-19
+updated: 2026-08-20
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -63,6 +63,7 @@ related:
   - ../user-stories/completed/US-049-session-event-log-and-transition-diagnostics.md
   - ../user-stories/completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md
   - ../user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md
+  - ../user-stories/completed/US-053-pure-gps-navigation-and-client-profile-configuration.md
 ---
 
 # Architecture
@@ -1133,13 +1134,13 @@ position it was applied at.
 ## Closed-loop 3D world navigation (US-048)
 
 US-048 makes live client XYZ the primary position signal without widening the process-memory
-boundary. `navigation.live_position.LivePositionReader` accepts only one of two complete SHA-256
-client fingerprints documented by
+boundary. Its two SHA-256 client fingerprints documented by
 [the static extraction](../sources/2026-08-19-entropia-client-navigation-data-extraction.md), opens
 `neuz.exe` with query and read rights, resolves one module-relative player global, reads the pointer
 width, and then reads exactly the 12-byte float32 XYZ struct at player offset `0x188`. It does not
 scan memory or read game state around the coordinate. An unknown build, lost handle, short read, or
-non-finite coordinate closes the handle and publishes minimap fallback; a later poll may recover.
+non-finite coordinate closes the handle and reports an unavailable coordinate; a later poll may
+recover.
 
 The world-map schema now retains decoded `.lnd` height blocks rather than only their derived steep
 rectangles. `navigation.terrain_routing.TerrainRoutePlanner` samples that field into 3D route nodes,
@@ -1177,10 +1178,10 @@ worlds, coordinates, costs, requirements, or cooldowns, so those anchor semantic
 operator configuration rather than extracted authority.
 
 The dashboard exposes the position-source boundary instead of hiding it: green GPS means a finite
-XYZ sample from a hash-supported client, while amber means minimap fallback. The Navigation
-Inspector draws that world point, height-derived topographic samples, 3D route markers, trajectory
-vectors, and a remaining-route elevation strip. Green GPS does not mean that collision, teleport,
-terrain, or server state is complete.
+XYZ sample from a hash-supported client, while an unavailable GPS state displays its typed reason.
+The Navigation Inspector draws that world point, height-derived topographic samples, 3D route
+markers, trajectory vectors, and a remaining-route elevation strip. Green GPS does not mean that
+collision, teleport, terrain, or server state is complete.
 
 The source inventory is materially incomplete: only 153 of 3,861 declared terrain blocks have a
 matching loose `.lnd`, placed-object formats vary, collision mappings and packed indices are
@@ -1189,6 +1190,31 @@ closed-loop controller with live confirmation, fallback, bounded recovery, and e
 does not and cannot establish a literal guarantee of 100% fault-free autonomous navigation. The
 automated suite covers the adapter and control decisions; the Windows live-client walkthrough in
 US-048 remains outstanding field validation.
+
+## GPS-only vector navigation and configurable client profiles (US-053)
+
+US-053 makes the read-only GPS contract a hard precondition for vector-world movement. The optional
+`data/navigation/client_profiles.json` is an operator-maintained JSON list of complete client
+profiles: each profile supplies a SHA-256 executable digest, player-pointer RVA, pointer width, and
+an optional coordinate offset. When that file is absent, the two embedded profiles remain the safe
+defaults; when it is present but invalid, it is an explicit GPS configuration error rather than a
+reason to guess an offset. An unsupported build diagnostic names both the detected digest and the
+executable path, allowing an operator to add a profile without expanding the allowed memory reads.
+
+`PathingController` may plan or follow an extracted `VectorZoneNavigator` route only with
+`PositionSource.LIVE` and a finite live position. Any unavailable reading—including the retained
+`MINIMAP_FALLBACK` source marker—clears queued waypoints, pending decisions, evasion steps, and
+movement state before entering `PathingMode.BLOCKED`; it therefore cannot dispatch a vector movement
+key. The status bar and inspector retain the typed unavailability reason. This restriction applies
+to vector navigation; it does not silently convert an unavailable GPS coordinate into a world-space
+route based on minimap odometry.
+
+The World Data dialog now operates directly in client world units: its obsolete minimap-pixels-per-
+world-unit calibration control is gone. It persists region, extracted-map filename, zone identity,
+and quota through `QSettings`, restoring a matching stable identity after refresh or on a later
+application start rather than persisting fragile list indexes. Escape/END emergency paths continue
+to close the read-only process handle and abort movement. These details are implementation-derived;
+the automated repository gate passed, while the Windows `neuz.exe` walkthrough remains outstanding.
 
 ## Session event log and transition diagnostics (US-049)
 

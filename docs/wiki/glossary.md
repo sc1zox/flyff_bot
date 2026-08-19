@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-19
+updated: 2026-08-20
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -265,7 +265,15 @@ related:
   pointer read followed by one exact 12-byte XYZ read, with query/read process rights only. Memory
   scanning, neighbouring state reads, writes, injection, and hooks remain forbidden.
 - **GPS state** - The dashboard's source indicator: green means the latest position came from a
-  supported live-coordinate read; amber means navigation is using minimap odometry fallback.
+  supported live-coordinate read; otherwise it shows the typed reason GPS is unavailable. A
+  `MINIMAP_FALLBACK` source marker never authorizes vector-world route planning or movement.
+- **Client position profile** - One operator-maintained, fingerprinted JSON record describing a
+  supported `neuz.exe`: SHA-256 digest, player-pointer RVA, pointer width, and optional coordinate
+  offset. A missing profile file uses the embedded safe defaults; an invalid file or unknown digest
+  is an explicit GPS error, never a guessed memory offset.
+- **Stable dialog selection** - A World Data dialog setting stored by durable identity rather than
+  list index: client region name, extracted-map filename, spawn-zone key, or kill quota. It can be
+  restored after a refresh reorders available items or after a later application launch.
 - **Terrain field** - The decoded 129 by 129 float32 height vertices of one `.lnd` block, read
   either from a loose patch file or out of the region's packed archive, and persisted beside the
   world map as a 66,576-byte height field. It is partial only where the client itself ships no

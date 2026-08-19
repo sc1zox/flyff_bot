@@ -10,12 +10,11 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, QSettings, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
-    QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -26,7 +25,6 @@ from PySide6.QtWidgets import (
 )
 
 from flyff_bot.features.navigation.vector_navigation import (
-    PROVISIONAL_MINIMAP_PIXELS_PER_WORLD_UNIT,
     VectorNavigationRequest,
     ZoneGoal,
 )
@@ -44,12 +42,6 @@ from flyff_bot.features.navigation.world_extractor import (
 )
 from flyff_bot.i18n import Message, Translator
 
-# The scale is an operator calibration rather than a measurement, so the spin box spans a
-# generous range around the provisional default instead of pretending to a tight tolerance.
-MINIMUM_PIXELS_PER_WORLD_UNIT = 0.05
-MAXIMUM_PIXELS_PER_WORLD_UNIT = 20.0
-PIXELS_PER_WORLD_UNIT_STEP = 0.05
-PIXELS_PER_WORLD_UNIT_DECIMALS = 2
 # A quota of zero is the unlimited case, which is what a session without quest goals wants.
 UNLIMITED_KILL_QUOTA = 0
 MAXIMUM_KILL_QUOTA = 9999
@@ -57,6 +49,12 @@ MAXIMUM_KILL_QUOTA = 9999
 ALL_TARGET_MOBS = ""
 
 _EXTRACTION_THREAD_NAME = "flyff-bot-world-extraction"
+_SETTINGS_ORGANIZATION = "FlyffBot"
+_SETTINGS_APPLICATION = "WorldDataDialog"
+_REGION_SETTING = "selected_region"
+_MAP_SETTING = "selected_map"
+_ZONE_SETTING = "selected_zone"
+_QUOTA_SETTING = "kill_quota"
 
 
 class WorldExtractionWorker(QObject):
@@ -133,6 +131,7 @@ class WorldDataDialog(QDialog):
         *,
         monster_names_path: Path | None = None,
         parent: QWidget | None = None,
+        settings: QSettings | None = None,
     ) -> None:
         super().__init__(parent)
         self._translator = translator
@@ -140,6 +139,7 @@ class WorldDataDialog(QDialog):
         self._world_map_directory = world_map_directory
         self._loaded_map: WorldVectorMap | None = None
         self._target_mob = ALL_TARGET_MOBS
+        self._settings = settings or QSettings(_SETTINGS_ORGANIZATION, _SETTINGS_APPLICATION)
 
         self._region_selector = QComboBox()
         self._extract_button = QPushButton()
@@ -147,13 +147,9 @@ class WorldDataDialog(QDialog):
         self._status_label.setWordWrap(True)
         self._map_selector = QComboBox()
         self._zone_selector = QComboBox()
-        self._scale_spin = QDoubleSpinBox()
-        self._scale_spin.setRange(MINIMUM_PIXELS_PER_WORLD_UNIT, MAXIMUM_PIXELS_PER_WORLD_UNIT)
-        self._scale_spin.setSingleStep(PIXELS_PER_WORLD_UNIT_STEP)
-        self._scale_spin.setDecimals(PIXELS_PER_WORLD_UNIT_DECIMALS)
-        self._scale_spin.setValue(PROVISIONAL_MINIMAP_PIXELS_PER_WORLD_UNIT)
         self._quota_spin = QSpinBox()
         self._quota_spin.setRange(UNLIMITED_KILL_QUOTA, MAXIMUM_KILL_QUOTA)
+        self._quota_spin.setValue(self._saved_quota())
         self._activate_button = QPushButton()
         self._deactivate_button = QPushButton()
         self._close_button = QPushButton()
@@ -161,7 +157,6 @@ class WorldDataDialog(QDialog):
         self._region_label = QLabel()
         self._map_label = QLabel()
         self._zone_label = QLabel()
-        self._scale_label = QLabel()
         self._quota_label = QLabel()
 
         self._worker = WorldExtractionWorker(world_map_directory, monster_names_path, self)
@@ -210,12 +205,6 @@ class WorldDataDialog(QDialog):
         return self._deactivate_button
 
     @property
-    def scale_spin(self) -> QDoubleSpinBox:
-        """Expose the minimap-scale calibration input for testing."""
-
-        return self._scale_spin
-
-    @property
     def quota_spin(self) -> QSpinBox:
         """Expose the per-monster kill quota input for testing."""
 
@@ -250,10 +239,12 @@ class WorldDataDialog(QDialog):
 
         self._refresh_regions()
         self._refresh_maps()
+        self._persist_state()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Wait for a running extraction so no worker outlives the dialog."""
 
+        self._persist_state()
         self._worker.join()
         super().closeEvent(event)
 
@@ -266,10 +257,8 @@ class WorldDataDialog(QDialog):
         grid.addWidget(self._map_selector, 1, 1, 1, 2)
         grid.addWidget(self._zone_label, 2, 0)
         grid.addWidget(self._zone_selector, 2, 1, 1, 2)
-        grid.addWidget(self._scale_label, 3, 0)
-        grid.addWidget(self._scale_spin, 3, 1, 1, 2)
-        grid.addWidget(self._quota_label, 4, 0)
-        grid.addWidget(self._quota_spin, 4, 1, 1, 2)
+        grid.addWidget(self._quota_label, 3, 0)
+        grid.addWidget(self._quota_spin, 3, 1, 1, 2)
 
         actions = QHBoxLayout()
         actions.addWidget(self._activate_button)
@@ -286,15 +275,23 @@ class WorldDataDialog(QDialog):
     def _connect_controls(self) -> None:
         self._extract_button.clicked.connect(self._on_extract_clicked)
         self._map_selector.currentIndexChanged.connect(self._on_map_selected)
+        self._region_selector.currentIndexChanged.connect(self._persist_state)
+        self._map_selector.currentIndexChanged.connect(self._persist_state)
+        self._zone_selector.currentIndexChanged.connect(self._persist_state)
+        self._quota_spin.valueChanged.connect(self._persist_state)
         self._activate_button.clicked.connect(self._on_activate_clicked)
         self._deactivate_button.clicked.connect(self._on_deactivate_clicked)
         self._close_button.clicked.connect(self.close)
 
     def _refresh_regions(self) -> None:
+        selected = self._region_selector.currentText() or self._saved_text(_REGION_SETTING)
         self._region_selector.blockSignals(True)
         self._region_selector.clear()
         for directory in discover_world_directories(self._client_world_root):
             self._region_selector.addItem(directory.name, directory)
+        index = self._region_selector.findText(selected)
+        if index >= 0:
+            self._region_selector.setCurrentIndex(index)
         self._region_selector.blockSignals(False)
         has_regions = self._region_selector.count() > 0
         self._extract_button.setEnabled(has_regions)
@@ -307,11 +304,22 @@ class WorldDataDialog(QDialog):
 
     def _refresh_maps(self) -> None:
         current = self._map_selector.currentData()
+        selected_name = (
+            current.name if isinstance(current, Path) else self._saved_text(_MAP_SETTING)
+        )
         self._map_selector.blockSignals(True)
         self._map_selector.clear()
         for path in _extracted_map_paths(self._world_map_directory):
             self._map_selector.addItem(path.stem, path)
-        selected = self._map_selector.findData(current)
+        selected = next(
+            (
+                index
+                for index in range(self._map_selector.count())
+                if isinstance(self._map_selector.itemData(index), Path)
+                and self._map_selector.itemData(index).name == selected_name
+            ),
+            -1,
+        )
         if selected >= 0:
             self._map_selector.setCurrentIndex(selected)
         self._map_selector.blockSignals(False)
@@ -375,12 +383,25 @@ class WorldDataDialog(QDialog):
         self._refresh_zones()
 
     def _refresh_zones(self) -> None:
+        selected = self._zone_key(self._zone_selector.currentData()) or self._saved_text(
+            _ZONE_SETTING
+        )
         self._zone_selector.blockSignals(True)
         self._zone_selector.clear()
         world_map = self._loaded_map
         if world_map is not None:
             for zone in world_map.zones:
                 self._zone_selector.addItem(self._zone_text(zone), zone)
+        selected_index = next(
+            (
+                index
+                for index in range(self._zone_selector.count())
+                if self._zone_key(self._zone_selector.itemData(index)) == selected
+            ),
+            -1,
+        )
+        if selected_index >= 0:
+            self._zone_selector.setCurrentIndex(selected_index)
         self._zone_selector.blockSignals(False)
         self._activate_button.setEnabled(self._zone_selector.count() > 0)
 
@@ -403,7 +424,6 @@ class WorldDataDialog(QDialog):
             world_map=world_map,
             anchor_zone=zone,
             goals=self._goals(world_map),
-            pixels_per_world_unit=self._scale_spin.value(),
         )
         self.vector_navigation_requested.emit(request)
         self._status_label.setText(
@@ -438,14 +458,50 @@ class WorldDataDialog(QDialog):
         self._region_label.setText(self._translator.text(Message.UI_WORLD_DATA_REGION))
         self._map_label.setText(self._translator.text(Message.UI_WORLD_DATA_MAP))
         self._zone_label.setText(self._translator.text(Message.UI_WORLD_DATA_ZONE))
-        self._scale_label.setText(self._translator.text(Message.UI_WORLD_DATA_SCALE))
-        self._scale_spin.setToolTip(self._translator.text(Message.UI_WORLD_DATA_SCALE_TOOLTIP))
         self._quota_label.setText(self._translator.text(Message.UI_WORLD_DATA_QUOTA))
         self._quota_spin.setToolTip(self._translator.text(Message.UI_WORLD_DATA_QUOTA_TOOLTIP))
         self._extract_button.setText(self._translator.text(Message.UI_WORLD_DATA_EXTRACT))
         self._activate_button.setText(self._translator.text(Message.UI_WORLD_DATA_ACTIVATE))
         self._deactivate_button.setText(self._translator.text(Message.UI_WORLD_DATA_DEACTIVATE))
         self._close_button.setText(self._translator.text(Message.UI_WORLD_DATA_CLOSE))
+
+    def _saved_text(self, key: str) -> str:
+        value = self._settings.value(key, "")
+        return value if isinstance(value, str) else ""
+
+    def _saved_quota(self) -> int:
+        value = self._settings.value(_QUOTA_SETTING, UNLIMITED_KILL_QUOTA)
+        return value if isinstance(value, int) else UNLIMITED_KILL_QUOTA
+
+    def _persist_state(self, *_args: object) -> None:
+        """Persist only stable selection identities, never a list index."""
+
+        region = self._region_selector.currentText()
+        map_path = self._map_selector.currentData()
+        zone = self._zone_selector.currentData()
+        self._settings.setValue(_REGION_SETTING, region)
+        self._settings.setValue(_MAP_SETTING, map_path.name if isinstance(map_path, Path) else "")
+        self._settings.setValue(_ZONE_SETTING, self._zone_key(zone))
+        self._settings.setValue(_QUOTA_SETTING, self._quota_spin.value())
+        self._settings.sync()
+
+    @staticmethod
+    def _zone_key(value: object) -> str:
+        if not isinstance(value, VectorSpawnZone):
+            return ""
+        return ":".join(
+            str(part)
+            for part in (
+                value.monster_id,
+                value.center_x,
+                value.center_y,
+                value.center_z,
+                value.minimum_x,
+                value.minimum_z,
+                value.maximum_x,
+                value.maximum_z,
+            )
+        )
 
 
 def _extracted_map_paths(directory: Path) -> tuple[Path, ...]:
