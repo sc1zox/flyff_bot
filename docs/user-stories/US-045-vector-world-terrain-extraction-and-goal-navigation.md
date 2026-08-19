@@ -10,7 +10,7 @@ updated: 2026-08-19
 
 ## Story
 
-As a **bot operator setting up multi-mob quest farming goals**, I want **the application to extract vector spawn zones, terrain elevation, and impassable slope meshes from client world files (`.rgn`, `.wld`, `.lnd`, `.dyo`) starting with Eden (`WdEden`), provide a UI extraction trigger, and automatically plan global obstacle-free vector paths via a lightweight Visibility-Graph A* solver before farming begins**, so that **the bot navigates directly to target mob clusters without getting stuck in concave cliffs, cul-de-sacs, or obstacles, while preserving all proven core components and simplifying only obsolete trial-and-error exploration**.
+As a **bot operator setting up multi-mob quest farming goals**, I want **the application to extract vector spawn zones, terrain elevation, and impassable slope meshes from client world files (`.rgn`, `.wld`, `.lnd`, `.dyo`) starting with Eden (`WdEden`), provide a UI extraction trigger, and automatically plan global obstacle-free vector paths via a lightweight Visibility-Graph A* solver before farming begins**, so that **the bot navigates directly to target mob clusters with guaranteed obstacle avoidance, minimizing stuck risk through authoritative terrain data while preserving all proven core components**.
 
 ## Context and assumptions
 
@@ -24,9 +24,9 @@ As a **bot operator setting up multi-mob quest farming goals**, I want **the app
 - The 6 monster IDs in `WdEden.rgn` (1453, 1454, 1455, 1456, 1457, 1458) map directly to the 6 Eden labels in `models/labels.txt` (`Flame`, `LadyBlum`, `MiniMush`, `NightMist`, `Oldrut`, `Rapra`).
 - Slopes with a gradient $\nabla Z / \Delta d > 1.0$ ($> 45^\circ$) represent impassable cliffs in the Flyff physics engine.
 - [US-035](US-035-multi-target-selection-and-per-mob-kill-quotas.md) establishes multi-mob selection and kill quotas for quest goals.
-- **Routing methodology (Vector Visibility-Graph A\*):**
-  - Rather than running heavy A* over a massive pixel grid, the pathfinder builds a **lightweight Vector Visibility Graph** connecting zone centroids and convex vertices of impassable terrain/cliff polygons.
-  - A* operates over this compact graph (20–50 vertices in Eden), determining the globally optimal, shortest path around concave valleys, cul-de-sacs, and mountain ranges in $< 1\,\text{ms}$ with zero risk of local minima traps.
+- **Authoritative passability & routing (Visibility-Graph A\*):**
+  - Extracting the static terrain mesh and steep slope boundaries ensures path planning uses ground-truth geometry rather than blind exploration.
+  - The pathfinder constructs a **lightweight Vector Visibility Graph** connecting zone centroids and obstacle polygon vertices, running an A* search in $< 1\,\text{ms}$ to guarantee shortest, obstacle-free paths around cliffs, rocks, and impassable terrain.
 - **Selective simplification principle:** Legacy logic is only superseded or bypassed where it provides no added value. Proven core components are strictly preserved:
   - `MovementTracker` and `MinimapOdometer` ([US-035](completed/US-035-measured-minimap-odometry-and-tracking-quality.md)) remain the continuous, live position & heading sensor.
   - `StallDetector` ([BUG-009](../bugs/fixed/BUG-009-movement-tracking-wasd-and-obstacle-stall-detection.md), [US-039](completed/US-039-combat-obstacle-stall-detection-and-re-navigation.md)) remains active as the dynamic safety net for unmapped obstacles (other players, dynamic entities).
@@ -48,7 +48,7 @@ As a **bot operator setting up multi-mob quest farming goals**, I want **the app
   - Extracted map includes bounding polygons and cluster centroids for `Flame`, `LadyBlum`, `MiniMush`, `NightMist`, `Oldrut`, and `Rapra`.
 - [ ] **Visibility-Graph A\* Path Planner:**
   - A dedicated `VectorRoutePlanner` constructs a visibility graph over obstacle polygon vertices and spawn zone anchors.
-  - Runs an A* search over the visibility graph to guarantee global shortest paths around concave obstacles, valleys, and cliffs without entering local minima or dead ends.
+  - Runs an A* search over the visibility graph to guarantee global shortest, obstacle-free paths around impassable cliffs and terrain boundaries.
 - [ ] **UI Extraction & Region Manager Trigger:**
   - The dashboard provides a "World Data & Maps" manager action/dialog where operators can view available client regions and trigger extraction on demand.
   - Progress and results of the extraction (number of zones, passability cells, detected monster classes) are shown in the UI.
@@ -77,7 +77,7 @@ As a **bot operator setting up multi-mob quest farming goals**, I want **the app
 - Automated:
   - Unit tests for `.wld`, `.rgn`, `.lnd`, and `.dyo` parsing and coordinate transformations.
   - Unit tests for slope calculation and passability polygon generation.
-  - Unit tests for Visibility-Graph A* path planning (verifying deterministic avoidance of U-shaped concave obstacles).
+  - Unit tests for Visibility-Graph A* path planning verifying deterministic obstacle avoidance.
   - Unit tests for goal-driven zone switching and vector path planning.
   - `./scripts/check.ps1` runs clean with no type or lint errors.
 - Manual (Windows):
