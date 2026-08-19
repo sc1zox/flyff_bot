@@ -31,6 +31,7 @@ from flyff_bot.features.navigation.live_position import (
     PositionSource,
     WorldPosition,
 )
+from flyff_bot.features.navigation.navmesh import BakedNavMesh
 from flyff_bot.features.navigation.persistence import (
     NavigationProfile,
     load_profile,
@@ -43,6 +44,7 @@ from flyff_bot.features.navigation.planning import (
     RoutePlanner,
 )
 from flyff_bot.features.navigation.spatial import GridCell, SpatialMap, WorldPoint
+from flyff_bot.features.navigation.targeting import enrich_visible_mobs, mob_world_position
 from flyff_bot.features.navigation.teleport import (
     TeleportConfig,
     TeleportController,
@@ -74,6 +76,7 @@ from flyff_bot.ui.dashboard import (
     CellSnapshot,
     EdgeSnapshot,
     NavigationSnapshot,
+    NavMeshMobSnapshot,
     VectorZoneSnapshot,
 )
 
@@ -84,6 +87,9 @@ DEFAULT_PATHING_STEP_DURATION_SECONDS = 0.6
 DEFAULT_PATHING_TURN_DURATION_SECONDS = 0.08
 DEFAULT_HEADING_TOLERANCE_DEGREES = 25.0
 DEFAULT_REPLAN_INTERVAL_SECONDS = 20.0
+DEFAULT_NAVMESH_LEASH_RADIUS_UNITS = 100.0
+DEFAULT_NAVMESH_WAYPOINT_ARRIVAL_UNITS = 1.5
+DEFAULT_NAVMESH_ENGAGEMENT_DISTANCE_UNITS = 3.0
 # The leash became an enforced planning bound in US-037, so its previous value of 50 was
 # re-derived rather than carried over. The camp is defined as the terrain the operator can
 # see around the anchor on the minimap, which is the measured usable minimap surface
@@ -159,6 +165,9 @@ class PathingConfig:
     turn_duration_seconds: float = DEFAULT_PATHING_TURN_DURATION_SECONDS
     heading_tolerance_degrees: float = DEFAULT_HEADING_TOLERANCE_DEGREES
     replan_interval_seconds: float = DEFAULT_REPLAN_INTERVAL_SECONDS
+    navmesh_leash_radius_units: float = DEFAULT_NAVMESH_LEASH_RADIUS_UNITS
+    navmesh_waypoint_arrival_units: float = DEFAULT_NAVMESH_WAYPOINT_ARRIVAL_UNITS
+    navmesh_engagement_distance_units: float = DEFAULT_NAVMESH_ENGAGEMENT_DISTANCE_UNITS
     leash_radius_pixels: float = DEFAULT_LEASH_RADIUS_PIXELS
     movement: MovementModel = field(default_factory=MovementModel)
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
@@ -172,6 +181,12 @@ class PathingConfig:
             raise ValueError("Pathing heading tolerance must be between 0 and 180 degrees.")
         if self.replan_interval_seconds <= 0.0:
             raise ValueError("Pathing replan interval must be positive.")
+        if self.navmesh_leash_radius_units <= 0.0:
+            raise ValueError("NavMesh leash radius must be positive.")
+        if self.navmesh_waypoint_arrival_units <= 0.0:
+            raise ValueError("NavMesh waypoint arrival tolerance must be positive.")
+        if self.navmesh_engagement_distance_units <= 0.0:
+            raise ValueError("NavMesh engagement distance must be positive.")
         if self.leash_radius_pixels <= 0.0:
             raise ValueError("Pathing leash radius must be positive.")
 
@@ -189,6 +204,7 @@ class PathingController:
         vector_navigator: VectorZoneNavigator | None = None,
         position_reader: LivePositionReader | None = None,
         camera_reader: LiveCameraReader | None = None,
+        navmesh: BakedNavMesh | None = None,
         teleport_config: TeleportConfig | None = None,
         spawn_point: WorldPoint | None = None,
     ) -> None:
@@ -202,6 +218,11 @@ class PathingController:
         self._vector_navigator = vector_navigator
         self._position_reader = position_reader
         self._camera_reader = camera_reader
+        self._navmesh = navmesh
+        self._navmesh_anchor: WorldPosition | None = None
+        self._navmesh_target: WorldPosition | None = None
+        self._navmesh_mobs: tuple[NavMeshMobSnapshot, ...] = ()
+        self._navigation_trajectory: list[WorldPosition] = []
         self._position_source = PositionSource.MINIMAP_FALLBACK
         self._position_error_code: PositionReadErrorCode | None = None
         self._live_position: WorldPosition | None = None
@@ -295,6 +316,24 @@ class PathingController:
         """Return the latest exact-profile camera state without polling it again."""
 
         return self._camera_state
+
+    @property
+    def navmesh(self) -> BakedNavMesh | None:
+        """Return the optional offline mesh used for active target navigation."""
+
+        return self._navmesh
+
+    @property
+    def navmesh_anchor(self) -> WorldPosition | None:
+        """Return the measured start-of-session leash anchor, when GPS was available."""
+
+        return self._navmesh_anchor
+
+    @property
+    def navmesh_target(self) -> WorldPosition | None:
+        """Return the selected measured target while a Funnel approach is active."""
+
+        return self._navmesh_target
 
     @property
     def active_spawn_zone_metadata(self) -> dict[str, object] | None:
@@ -434,6 +473,7 @@ class PathingController:
         self._waypoints = ()
         self._world_waypoints = ()
         self._route_uses_live_position = False
+        self._navmesh_target = None
         self._waypoint_index = 0
         self._planned_at_seconds = None
 
@@ -503,6 +543,8 @@ class PathingController:
                 () if self._vector_navigator is None else self._vector_navigator.terrain_samples
             ),
             spawn_point=spawn,
+            navmesh_mobs=self._navmesh_mobs,
+            navigation_trajectory=tuple(self._navigation_trajectory),
         )
 
     def track(self, state: WorldState, frame: CapturedFrame | None = None) -> TrackingQuality:
@@ -517,6 +559,10 @@ class PathingController:
         self._measured_speed_pixels_per_second = update.measured_speed_pixels_per_second
         self._poll_live_position(state.observed_at_seconds)
         self._poll_live_camera(state.observed_at_seconds)
+        if self._navmesh_anchor is None and self._live_position is not None:
+            self._navmesh_anchor = self._live_position
+        if self._navmesh_target is not None and self._live_position is not None:
+            self._navigation_trajectory.append(self._live_position)
         if reading is not None and update.quality is TrackingQuality.MEASURED:
             # The freshest confidently measured disk is both what a save stores as the
             # profile's landmark and what a load matches a stored landmark against, so
@@ -525,6 +571,85 @@ class PathingController:
                 reading, self._tracker.position, self._tracker.heading_degrees
             )
         return update.quality
+
+    def enrich_visible_mobs(self, state: WorldState) -> tuple[VisibleMob, ...]:
+        """Attach one shared authoritative candidate matrix for targeting and telemetry."""
+
+        mobs = enrich_visible_mobs(
+            state.visible_mobs,
+            viewport=state.viewport,
+            player_position=self._live_position,
+            camera_state=self._camera_state,
+            navmesh=self._navmesh,
+            anchor_position=self._navmesh_anchor,
+            leash_radius_units=self._config.navmesh_leash_radius_units,
+        )
+        self._navmesh_mobs = tuple(
+            NavMeshMobSnapshot(
+                mob.world_x,
+                mob.world_z,
+                mob.navmesh_reachable,
+                selected=(
+                    self._navmesh_target is not None
+                    and mob.world_x == self._navmesh_target.x
+                    and mob.world_z == self._navmesh_target.z
+                ),
+            )
+            for mob in mobs
+            if mob.world_x is not None and mob.world_z is not None
+        )
+        return mobs
+
+    def begin_target_approach(self, mob: VisibleMob, at_seconds: float) -> bool:
+        """Start a Funnel route to one selected measured mob, without clicking it yet."""
+
+        target = mob_world_position(mob)
+        start = self._live_position
+        if (
+            target is None
+            or start is None
+            or self._camera_state is None
+            or self._navmesh is None
+            or mob.navmesh_reachable is not True
+            or mob.navmesh_within_leash is not True
+        ):
+            return False
+        route = self._navmesh.find_path(start, target)
+        if not route:
+            return False
+        self._navmesh_target = target
+        self._navigation_trajectory = [start]
+        self._world_waypoints = route
+        self._waypoints = tuple(WorldPoint(point.x, point.z) for point in route)
+        self._waypoint_index = 0
+        self._planned_at_seconds = at_seconds
+        self._route_uses_live_position = True
+        self._mode = PathingMode.TRAVELING
+        return True
+
+    def cancel_target_approach(self) -> None:
+        """Discard a selected-target route without altering learned navigation state."""
+
+        self._navmesh_target = None
+        self._navigation_trajectory = []
+        self._world_waypoints = ()
+        self._waypoints = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds = None
+        self._route_uses_live_position = False
+        self._mode = PathingMode.IDLE
+
+    def target_in_engagement_range(self) -> bool:
+        """Report whether live GPS is close enough to hand the target to combat."""
+
+        target = self._navmesh_target
+        position = self._live_position
+        if target is None or position is None:
+            return False
+        return (
+            math.dist((position.x, position.y, position.z), (target.x, target.y, target.z))
+            <= self._config.navmesh_engagement_distance_units
+        )
 
     def observe(self, state: WorldState, frame: CapturedFrame | None = None) -> None:
         """Record visit history, spawn sightings, and stall evidence for one tick."""
@@ -743,6 +868,8 @@ class PathingController:
         self._temporary_blocks.clear()
         self._movement_commanded = False
         self._route_uses_live_position = False
+        self._navmesh_target = None
+        self._navigation_trajectory = []
         self._last_live_stall = None
         self._stalls.reset()
         self._teleport.reset()
@@ -869,6 +996,7 @@ class PathingController:
         self._waypoints = ()
         self._world_waypoints = ()
         self._route_uses_live_position = False
+        self._navmesh_target = None
         self._waypoint_index = 0
         self._planned_at_seconds = None
         self._safe_waypoint = None
@@ -1042,7 +1170,12 @@ class PathingController:
     def _follow_route(self, at_seconds: float) -> PathingDecision:
         while self._waypoint_index < len(self._waypoints):
             target = self._waypoints[self._waypoint_index]
-            if distance_pixels(self._navigation_position, target) > self._arrival_radius:
+            arrival_radius = (
+                self._config.navmesh_waypoint_arrival_units
+                if self._navmesh_target is not None
+                else self._arrival_radius
+            )
+            if distance_pixels(self._navigation_position, target) > arrival_radius:
                 return self._steer(PathingMode.TRAVELING, target)
             self._waypoint_index += 1
         self._waypoints = ()
@@ -1069,6 +1202,8 @@ class PathingController:
         return at_seconds - self._planned_at_seconds >= self._config.replan_interval_seconds
 
     def _plan(self, at_seconds: float) -> None:
+        if self._plan_navmesh_target_route(at_seconds):
+            return
         if self._plan_vector_route(at_seconds):
             return
         start = self._map.cell_of(self._tracker.position)
@@ -1093,6 +1228,29 @@ class PathingController:
         self._mode = PathingMode.TRAVELING if self._waypoints else PathingMode.IDLE
         self._route_uses_live_position = False
         self._world_waypoints = ()
+
+    def _plan_navmesh_target_route(self, at_seconds: float) -> bool:
+        """Replan a Funnel corridor after a live stall without switching to click-to-move."""
+
+        target = self._navmesh_target
+        start = self._live_position
+        mesh = self._navmesh
+        if target is None:
+            return False
+        if start is None or mesh is None:
+            self.cancel_target_approach()
+            return True
+        route = mesh.find_path(start, target)
+        if not route:
+            self.cancel_target_approach()
+            return True
+        self._world_waypoints = route
+        self._waypoints = tuple(WorldPoint(point.x, point.z) for point in route)
+        self._waypoint_index = 0
+        self._planned_at_seconds = at_seconds
+        self._route_uses_live_position = True
+        self._mode = PathingMode.TRAVELING
+        return True
 
     def _plan_vector_route(self, at_seconds: float) -> bool:
         """Plan over the extracted map only when an authoritative GPS coordinate exists."""

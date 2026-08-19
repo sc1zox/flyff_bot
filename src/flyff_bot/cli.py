@@ -50,7 +50,7 @@ from flyff_bot.features.input_control import (
 )
 from flyff_bot.features.navigation.live_camera import LiveCameraReader
 from flyff_bot.features.navigation.live_position import LivePositionReader
-from flyff_bot.features.navigation.navmesh import NavMeshBaker
+from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshBaker
 from flyff_bot.features.navigation.navmesh_persistence import (
     load_baked_navmesh,
     save_baked_navmesh,
@@ -635,6 +635,7 @@ def _farming_orchestrator(
     )
     navigation_map_path = Path(args.navigation_map)
     navigation_profile = load_profile(navigation_map_path)
+    navmesh_artifact = load_baked_navmesh(Path(args.navmesh_map)) if args.navmesh_map else None
     return FarmingOrchestrator(
         pipeline,
         controller,
@@ -645,6 +646,7 @@ def _farming_orchestrator(
             spawn_point=navigation_profile.spawn_point,
             position_reader=LivePositionReader(window_handle),
             camera_reader=LiveCameraReader(window_handle),
+            navmesh=None if navmesh_artifact is None else navmesh_artifact.mesh,
         ),
         config=FarmingConfig(
             combat=CombatConfig(
@@ -662,7 +664,15 @@ def _farming_orchestrator(
                 movement_step_duration_seconds=args.search_movement_duration,
             ),
         ),
-        telemetry=_telemetry_recorder(args, model_path, labels_path, controller, window_handle),
+        telemetry=_telemetry_recorder(
+            args,
+            model_path,
+            labels_path,
+            controller,
+            window_handle,
+            navmesh=None if navmesh_artifact is None else navmesh_artifact.mesh,
+            navmesh_version=None if navmesh_artifact is None else navmesh_artifact.content_digest,
+        ),
     )
 
 
@@ -672,6 +682,9 @@ def _telemetry_recorder(
     labels_path: str,
     controller: WindowsInputController,
     window_handle: int,
+    *,
+    navmesh: BakedNavMesh | None = None,
+    navmesh_version: str | None = None,
 ) -> TelemetryRecorder:
     """Build telemetry metadata from the already-discovered, query-only client identity."""
 
@@ -679,20 +692,23 @@ def _telemetry_recorder(
     root = Path(args.telemetry_root)
     executable = controller.process_image_path(window_handle)
     client_sha256 = _sha256(Path(executable)) if executable is not None else None
-    navmesh = load_baked_navmesh(Path(args.navmesh_map)) if args.navmesh_map else None
+    if navmesh is None and args.navmesh_map:
+        artifact = load_baked_navmesh(Path(args.navmesh_map))
+        navmesh = artifact.mesh
+        navmesh_version = artifact.content_digest
     return TelemetryRecorder(
         TelemetrySessionMetadata(
             area_id=args.telemetry_area,
             client_sha256=client_sha256,
             bot_version=BOT_VERSION,
             active_models=(model_path, labels_path),
-            navmesh_version=navmesh.content_digest if navmesh is not None else None,
+            navmesh_version=navmesh_version,
             active_spawn_zone=None,
         ),
         lambda session_id, area_id: JsonlTelemetryWorker(
             session_id, area_id, root=root, store=store
         ),
-        navmesh=navmesh.mesh if navmesh is not None else None,
+        navmesh=navmesh,
     )
 
 

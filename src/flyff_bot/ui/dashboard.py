@@ -35,6 +35,7 @@ class BotStatus(StrEnum):
     SEARCH_ROTATING = "search_rotating"
     SEARCH_ROAMING = "search_roaming"
     REPOSITIONING = "repositioning"
+    APPROACHING = "approaching"
     ALIGNING = "aligning"
     ALIGNMENT_FAILED = "alignment_failed"
     # The last-resort teleport out of un-walkable geometry is running (US-040).
@@ -105,6 +106,17 @@ class VectorZoneSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class NavMeshMobSnapshot:
+    """Read-only 3D candidate diagnostic projected onto the inspector's X/Z plane."""
+
+    world_x: float
+    world_z: float
+    reachable: bool | None
+    locked_out: bool = False
+    selected: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class NavigationSnapshot:
     """Immutable view of the learned spatial map, dead reckoning, and active route."""
 
@@ -143,6 +155,8 @@ class NavigationSnapshot:
     # The mapped town or respawn anchor an emergency teleport arrives at, when the
     # operator marked one for this profile (US-040).
     spawn_point: tuple[float, float] | None = None
+    navmesh_mobs: tuple[NavMeshMobSnapshot, ...] = ()
+    navigation_trajectory: tuple[WorldPosition, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

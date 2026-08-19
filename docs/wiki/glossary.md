@@ -364,3 +364,15 @@ related:
   mesh path distance; player polygon and slope come from the same mesh. No mesh, live GPS, camera,
   or ray hit leaves the corresponding field `null`; telemetry must not invent a screen-space
   estimate.
+- **Shared NavMesh enrichment** — Read-only candidate geometry computed from camera, GPS, and NavMesh
+  state and consumed by both target selection and telemetry. Missing prerequisites remain explicit.
+- **Session leash anchor** — The first finite live GPS position in a farming session, used as that
+  run's target-selection distance origin and distinct from the teleport spawn anchor.
+- **Active Funnel approach** — NavMesh movement along `BakedNavMesh.find_path()` 3D waypoints with
+  heading correction and foreground/emergency-stop-guarded forward pulses, plus stall recovery.
+- **NavMesh approach fallback** — When NavMesh or camera state is unavailable, 2D selection/leash
+  heuristics and direct client-relative click-to-move remain active without fabricated world data.
+- **Telemetry direct field** — A measured numerical geometry, trajectory, or timing value written to
+  JSONL/SQLite and exported to Parquet; unavailable measurements remain `null`.
+- **Navigation Inspector overlay** — Optional `PathInspectorWidget` rendering of color-coded candidate
+  markers, the active Funnel path, and the current episode GPS trajectory, decoupled from control.

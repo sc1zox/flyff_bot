@@ -2055,6 +2055,7 @@ def _status_message(status: BotStatus) -> Message:
         BotStatus.SEARCH_ROTATING: Message.UI_STATUS_SEARCH_ROTATING,
         BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
         BotStatus.REPOSITIONING: Message.UI_STATUS_REPOSITIONING,
+        BotStatus.APPROACHING: Message.UI_STATUS_APPROACHING,
         BotStatus.ALIGNING: Message.UI_STATUS_ALIGNING,
         BotStatus.ALIGNMENT_FAILED: Message.UI_STATUS_ALIGNMENT_FAILED,
         BotStatus.EMERGENCY_TELEPORT: Message.UI_STATUS_EMERGENCY_TELEPORT,

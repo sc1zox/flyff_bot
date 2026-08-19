@@ -68,6 +68,7 @@ related:
   - ../user-stories/completed/US-053-pure-gps-navigation-and-client-profile-configuration.md
   - ../user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md
   - ../user-stories/completed/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
+  - ../user-stories/completed/US-058-navmesh-aware-targeting-and-telemetry-integration.md
 ---
 
 # Architecture
@@ -1483,6 +1484,32 @@ observable rather than fabricated while keeping the projection read-only. The fu
 repository gate passed on 2026-08-20 at 800 passed, 2 skipped, and 91.30% coverage. The Windows
 live-client farming and direct Parquet-load walkthroughs remain outstanding and are not implied by
 the automated result.
+
+## NavMesh-aware targeting, active Funnel approach, and telemetry integration (US-058, completed)
+
+US-058 makes the baked NavMesh a shared, read-only enrichment provider for targeting and telemetry.
+Targeting filters candidates by reachability, path-distance leash, and lockout state, then ranks valid
+candidates by shortest path distance before using viewport distance as a lower-priority tie-breaker.
+A raycast miss remains an explicitly unprojected candidate and uses the existing 2D selection fallback.
+
+The first finite live GPS sample establishes the session leash anchor. This runtime anchor is distinct
+from the operator-configured teleport spawn anchor: the latter serves recovery/reset destinations,
+while the former bounds target selection for the current run. With mesh and camera state available,
+the controller follows 3D Funnel waypoints; heading and forward pulses use the existing foreground-
+and emergency-stop-guarded dispatcher. Missing NavMesh or camera state preserves 2D leash/selection
+and direct client click-to-move with stall recovery.
+
+The telemetry sidecar consumes the same measured candidate enrichment and records direct numerical
+world coordinates, relative distance/elevation, polygon IDs, path distance, lockout state, planned
+Funnel waypoints, live GPS trajectories, path metrics, stalls/evasions, and decomposed kill timings.
+JSONL and SQLite retain these fields, while `--export-telemetry` exposes them in target-decision,
+navigation-trajectory, and kill-cycle Parquet tables. `PathInspectorWidget` renders candidate markers,
+the active Funnel polyline, and the episode GPS trail as an optional diagnostic view decoupled from
+control. Missing measurements remain explicit `null`.
+
+The automated repository gate passed on 2026-08-20 at 806 tests passed, 2 skipped, and 90.60% coverage.
+The foregrounded Windows/client walkthrough for reachability, Funnel traversal, telemetry files, and
+inspector rendering remains unrun and is not implied by the automated result.
 
 ## Fingerprinted camera state and projection reads (US-056, completed)
 

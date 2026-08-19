@@ -775,3 +775,19 @@ hit. Every unavailable prerequisite or miss remains explicit `null`; no screen-s
 is stored as client-world data. The full automated repository gate passed on 2026-08-20 at 800
 passed, 2 skipped, and 91.30% coverage. The manual Windows farming-session and direct Parquet-load
 walkthroughs remain outstanding. Moved US-054 to completed user stories.
+
+## [2026-08-20] synthesis | NavMesh-aware targeting and telemetry integration (US-058)
+
+Updated the US-058 architecture and glossary synthesis from the implementation and regression
+tests. Candidate enrichment now shares camera/GPS/NavMesh measurements between selection,
+telemetry, and the diagnostic inspector: unreachable and outside-leash candidates are rejected,
+valid 3D candidates rank by Funnel path distance, and unprojected candidates retain the existing
+2D fallback. The first finite live-GPS sample is the session leash anchor, distinct from the
+emergency-teleport spawn point.
+
+Active approaches follow the baked Funnel route using the existing foreground- and emergency-stop-
+guarded pathing dispatcher before issuing the target click. JSONL/SQLite and Parquet now carry the
+measured geometry, route, trajectory, and timing fields directly. The full automated gate passed
+on 2026-08-20 at 806 passed, 2 skipped, and 90.60% coverage. Windows/client validation of actual
+reachability marking, Funnel traversal, and exported live telemetry remains unrun. Moved US-058 to
+completed user stories.

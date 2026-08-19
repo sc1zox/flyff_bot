@@ -1,7 +1,7 @@
 ---
 id: US-058
 title: NavMesh-aware targeting, autonomous funnel approach, and live telemetry integration
-status: draft
+status: completed
 created: 2026-08-20
 updated: 2026-08-20
 ---
@@ -121,17 +121,17 @@ All nullable geometry and trajectory fields in `TelemetryRecorder` are populated
 
 ## Acceptance criteria
 
-- [ ] **Reachability Rejection:** Given a visible mob detection whose raycast lands on a disconnected NavMesh region (`is_reachable == False`), when target selection evaluates candidates, then the unreachable candidate is excluded and never clicked.
-- [ ] **Shortest Path Prioritization:** Given multiple reachable mob candidates within leash bounds, when target selection runs, then the candidate with the shortest NavMesh path distance $d_{\text{path}}$ is selected.
-- [ ] **Unprojected Fallback:** Given a mob candidate whose raycast misses the NavMesh (`world_position is None`), when no shorter reachable candidates exist, then the candidate remains selectable via 2D viewport proximity with lower priority than valid 3D candidates.
-- [ ] **NavMesh Leash Enforcement:** Given a mob candidate whose 3D position is reachable but whose NavMesh path distance from the spawn anchor exceeds the leash radius, when target selection runs, then the candidate is rejected.
-- [ ] **Autonomous Funnel Navigation:** Given a selected target mob, when the bot initiates approach, then it follows 3D Funnel waypoints from `find_path()` using heading adjustments and forward movement pulses until within engagement distance.
-- [ ] **Graceful Degradation:** Given a session running without a loaded NavMesh or without camera state, when farming runs, then target selection, leash checking, and approach movement function using 2D heuristics and direct click-to-move without raising uncaught exceptions.
-- [ ] **Complete Telemetry Stream:** Given a farming session with active NavMesh and camera state, when world snapshots, target decisions, navigation episodes, and kill cycles are recorded, then all geometry and trajectory fields are populated with exact numerical values in both JSONL and SQLite storage.
-- [ ] **Parquet Export Verification:** When `--export-telemetry` is executed, then `target_decisions.parquet`, `navigation_trajectories.parquet`, and `kill_cycles.parquet` contain non-null 3D coordinates, polygon IDs, and decomposed cycle timings.
-- [ ] **Safety Boundaries Preserved:** Process memory access remains strictly read-only (`PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION`); all key/mouse inputs remain guarded by foreground focus and the `END`/`Escape` emergency stops.
-- [ ] **Quality Gate:** `./scripts/check.ps1` passes cleanly (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
-- [ ] **Localization:** All user-visible diagnostic strings, inspector tooltips, and log messages are synchronized across German (`de.json`) and English (`en.json`).
+- [x] **Reachability Rejection:** Given a visible mob detection whose raycast lands on a disconnected NavMesh region (`is_reachable == False`), when target selection evaluates candidates, then the unreachable candidate is excluded and never clicked.
+- [x] **Shortest Path Prioritization:** Given multiple reachable mob candidates within leash bounds, when target selection runs, then the candidate with the shortest NavMesh path distance $d_{\text{path}}$ is selected.
+- [x] **Unprojected Fallback:** Given a mob candidate whose raycast misses the NavMesh (`world_position is None`), when no shorter reachable candidates exist, then the candidate remains selectable via 2D viewport proximity with lower priority than valid 3D candidates.
+- [x] **NavMesh Leash Enforcement:** Given a mob candidate whose 3D position is reachable but whose NavMesh path distance from the spawn anchor exceeds the leash radius, when target selection runs, then the candidate is rejected.
+- [x] **Autonomous Funnel Navigation:** Given a selected target mob, when the bot initiates approach, then it follows 3D Funnel waypoints from `find_path()` using heading adjustments and forward movement pulses until within engagement distance.
+- [x] **Graceful Degradation:** Given a session running without a loaded NavMesh or without camera state, when farming runs, then target selection, leash checking, and approach movement function using 2D heuristics and direct click-to-move without raising uncaught exceptions.
+- [x] **Complete Telemetry Stream:** Given a farming session with active NavMesh and camera state, when world snapshots, target decisions, navigation episodes, and kill cycles are recorded, then all geometry and trajectory fields are populated with exact numerical values in both JSONL and SQLite storage.
+- [x] **Parquet Export Verification:** When `--export-telemetry` is executed, then `target_decisions.parquet`, `navigation_trajectories.parquet`, and `kill_cycles.parquet` contain non-null 3D coordinates, polygon IDs, and decomposed cycle timings.
+- [x] **Safety Boundaries Preserved:** Process memory access remains strictly read-only (`PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION`); all key/mouse inputs remain guarded by foreground focus and the `END`/`Escape` emergency stops.
+- [x] **Quality Gate:** `./scripts/check.ps1` passes cleanly (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- [x] **Localization:** All user-visible diagnostic strings, inspector tooltips, and log messages are synchronized across German (`de.json`) and English (`en.json`).
 
 ## Out of scope
 
@@ -147,7 +147,7 @@ All nullable geometry and trajectory fields in `TelemetryRecorder` are populated
 - Automated:
   - Unit tests in `tests/unit/test_navmesh_targeting.py` verifying reachable candidate ranking, unreachable filtering, unprojected fallback, and leash enforcement.
   - Unit tests in `tests/unit/test_funnel_approach.py` verifying active waypoint following, arrival thresholds, heading correction, and transition to combat range.
-  - Unit tests in `tests/unit/test_telemetry_integration.py` verifying complete snapshot population, candidate matrix serialization, trajectory recording, and kill cycle decomposition.
+  - Unit tests in `tests/unit/test_telemetry_geometry.py`, `tests/unit/test_telemetry_sqlite.py`, and `tests/unit/test_telemetry_parquet.py` verifying measured geometry, persisted payloads, and exported fields.
   - Check suite pass: `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 - Manual (Windows):
   - Run a live session in Entropia Flyff in an area with multi-level terrain or obstacle geometry (e.g. Madrigal or Eden).

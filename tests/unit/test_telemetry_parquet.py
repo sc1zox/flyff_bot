@@ -31,6 +31,12 @@ def test_exporter_writes_dataframe_compatible_parquet_tables(tmp_path: Path) -> 
                         "y": 2,
                         "width": 3,
                         "height": 4,
+                        "world_position": {"x": 11.0, "y": 12.0, "z": 13.0},
+                        "target_navmesh_polygon_id": "9",
+                        "relative_distance": 4.0,
+                        "relative_elevation": 2.0,
+                        "path_distance": 5.0,
+                        "is_locked_out": False,
                     }
                 ],
             },
@@ -47,6 +53,11 @@ def test_exporter_writes_dataframe_compatible_parquet_tables(tmp_path: Path) -> 
                 "actual_travel_distance": 4.0,
                 "outcome": "reached_target",
                 "trajectory": [[3, {"x": 1.0, "y": 2.0, "z": 3.0}, 1.0]],
+                "start_position": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "target_position": {"x": 5.0, "y": 0.0, "z": 5.0},
+                "planned_route": [{"x": 0.0, "y": 0.0, "z": 0.0}],
+                "stall_events": 1,
+                "collision_evasions": 1,
             },
         }
     )
@@ -74,6 +85,12 @@ def test_exporter_writes_dataframe_compatible_parquet_tables(tmp_path: Path) -> 
         "navigation_trajectories.parquet",
         "kill_cycles.parquet",
     ]
-    assert pq.read_table(target).to_pylist()[0]["selected"] is True
-    assert pq.read_table(navigation).to_pylist()[0]["path_efficiency"] == 0.5
+    target_row = pq.read_table(target).to_pylist()[0]
+    assert target_row["selected"] is True
+    assert target_row["world_x"] == 11.0
+    assert target_row["target_navmesh_polygon_id"] == "9"
+    navigation_row = pq.read_table(navigation).to_pylist()[0]
+    assert navigation_row["path_efficiency"] == 0.5
+    assert navigation_row["target_z"] == 5.0
+    assert navigation_row["planned_route_json"]
     assert pq.read_table(cycles).to_pylist()[0]["reward"] == 1.0

@@ -45,6 +45,7 @@ _MODE_MESSAGES: dict[str, Message] = {
     "aligning": Message.UI_EVENT_MODE_ALIGNING,
     "searching": Message.UI_EVENT_MODE_SEARCHING,
     "repositioning": Message.UI_EVENT_MODE_REPOSITIONING,
+    "approaching": Message.UI_EVENT_MODE_APPROACHING,
     "targeting": Message.UI_EVENT_MODE_TARGETING,
     "combat": Message.UI_EVENT_MODE_COMBAT,
     "reconciling": Message.UI_EVENT_MODE_RECONCILING,

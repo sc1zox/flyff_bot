@@ -58,6 +58,10 @@ EDGE_STALL_COLOR = QColor(255, 77, 79, 220)
 NODE_COLOR = QColor(64, 169, 255)
 MARKER_OUTLINE_COLOR = QColor(15, 23, 42)
 ROUTE_COLOR = QColor(179, 127, 235, 240)
+NAVMESH_REACHABLE_COLOR = QColor(82, 196, 26)
+NAVMESH_UNREACHABLE_COLOR = QColor(255, 77, 79)
+NAVMESH_LOCKED_COLOR = QColor(148, 163, 184)
+NAVIGATION_TRAJECTORY_COLOR = QColor(250, 204, 21, 220)
 SAFE_NODE_COLOR = QColor(82, 196, 26)
 SAFE_NODE_FILL_ALPHA = 160
 SAFE_NODE_FILL_COLOR = _with_alpha(SAFE_NODE_COLOR, SAFE_NODE_FILL_ALPHA)
@@ -114,6 +118,9 @@ LEGEND_ITEMS: tuple[tuple[str, QColor, Message], ...] = (
     ("⛝", STALL_MARKER_COLOR, Message.UI_NAV_LEGEND_OBSTACLE),
     ("━", ROUTE_COLOR, Message.UI_NAV_LEGEND_ROUTE),
     ("◆", SAFE_NODE_COLOR, Message.UI_NAV_LEGEND_SAFE),
+    ("●", NAVMESH_REACHABLE_COLOR, Message.UI_NAV_LEGEND_NAVMESH_TARGET),
+    ("●", NAVMESH_UNREACHABLE_COLOR, Message.UI_NAV_LEGEND_NAVMESH_UNREACHABLE),
+    ("┄", NAVIGATION_TRAJECTORY_COLOR, Message.UI_NAV_LEGEND_GPS_TRAJECTORY),
     ("✚", SPAWN_POINT_COLOR, Message.UI_NAV_LEGEND_SPAWN_POINT),
 )
 
@@ -198,6 +205,8 @@ class PathInspectorWidget(QWidget):
         self._draw_heatmap_cells(painter, to_screen, scale)
         self._draw_graph_edges(painter, to_screen)
         self._draw_active_route(painter, to_screen)
+        self._draw_navigation_trajectory(painter, to_screen)
+        self._draw_navmesh_mobs(painter, to_screen)
         self._draw_safe_waypoint(painter, to_screen)
         self._draw_spawn_point(painter, to_screen)
         self._draw_player_marker(painter, to_screen, scale)
@@ -243,6 +252,13 @@ class PathInspectorWidget(QWidget):
         if snapshot.spawn_point is not None:
             xs.append(snapshot.spawn_point[0])
             ys.append(snapshot.spawn_point[1])
+
+        for mob in snapshot.navmesh_mobs:
+            xs.append(mob.world_x)
+            ys.append(mob.world_z)
+        for point in snapshot.navigation_trajectory:
+            xs.append(point.x)
+            ys.append(point.z)
 
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
@@ -474,6 +490,44 @@ class PathInspectorWidget(QWidget):
         painter.setBrush(QBrush(ROUTE_COLOR))
         for waypoint in snapshot.world_waypoints:
             painter.drawEllipse(to_screen(waypoint.x, waypoint.z), 4.0, 4.0)
+
+    def _draw_navigation_trajectory(
+        self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
+    ) -> None:
+        """Draw only measured GPS points collected during the active Funnel approach."""
+
+        snapshot = self._snapshot
+        assert snapshot is not None
+        if len(snapshot.navigation_trajectory) < 2:
+            return
+        path = QPainterPath(
+            to_screen(snapshot.navigation_trajectory[0].x, snapshot.navigation_trajectory[0].z)
+        )
+        for point in snapshot.navigation_trajectory[1:]:
+            path.lineTo(to_screen(point.x, point.z))
+        painter.setPen(QPen(NAVIGATION_TRAJECTORY_COLOR, 1.5, Qt.PenStyle.DashLine))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+
+    def _draw_navmesh_mobs(
+        self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
+    ) -> None:
+        """Render candidate topology without feeding the diagnostic view back into control."""
+
+        snapshot = self._snapshot
+        assert snapshot is not None
+        for mob in snapshot.navmesh_mobs:
+            color = (
+                NAVMESH_LOCKED_COLOR
+                if mob.locked_out
+                else NAVMESH_REACHABLE_COLOR
+                if mob.reachable
+                else NAVMESH_UNREACHABLE_COLOR
+            )
+            point = to_screen(mob.world_x, mob.world_z)
+            painter.setPen(QPen(color, 2 if mob.selected else 1.25))
+            painter.setBrush(QBrush(_with_alpha(color, 90)))
+            painter.drawEllipse(point, 5.0 if mob.selected else 3.5, 5.0 if mob.selected else 3.5)
 
     def _draw_elevation_profile(self, painter: QPainter, width: int, height: int) -> None:
         snapshot = self._snapshot

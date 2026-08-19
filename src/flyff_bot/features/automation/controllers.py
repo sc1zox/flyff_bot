@@ -240,6 +240,9 @@ class CombatDecision:
     # The class of the mob this engagement selected, so a confirmed kill can be counted
     # against that monster's quota (US-035).
     engaged_class_name: str | None = None
+    # The exact detection selected by the scoring pass.  Navigation and telemetry consume
+    # this instead of matching a later candidate by rounded screen coordinates.
+    selected_mob: VisibleMob | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +313,12 @@ class CombatController:
 
         self._config = config
 
+    def begin_target_acquisition(self, observed_at_seconds: float) -> None:
+        """Start the visual target-header grace period when a deferred click is sent."""
+
+        if self._mode is CombatMode.TARGETING:
+            self._targeting_started_at_seconds = observed_at_seconds
+
     def step(self, state: WorldState, *, approach_stalled: bool = False) -> CombatDecision:
         """Advance one state-machine tick without dispatching platform input.
 
@@ -337,6 +346,7 @@ class CombatController:
                 CombatInputKind.CLICK,
                 self._engaged_position,
                 engaged_class_name=self._engaged_class_name,
+                selected_mob=candidate,
             )
 
         if self._mode is CombatMode.TARGETING:
@@ -399,16 +409,25 @@ class CombatController:
     def _best_candidate(self, state: WorldState) -> VisibleMob | None:
         self._purge_lockouts(state.observed_at_seconds)
         candidates = [
-            mob for mob in self._allowed_mobs(state) if not self._is_locked_out(_mob_center(mob))
+            mob
+            for mob in self._allowed_mobs(state)
+            if not self._is_locked_out(_mob_center(mob))
+            and mob.navmesh_reachable is not False
+            and mob.navmesh_within_leash is not False
         ]
         if not candidates:
             return None
         if not state.viewport.has_size:
-            return max(candidates, key=lambda mob: (mob.confidence, -mob.class_id, mob.class_name))
+            if not any(mob.navmesh_path_distance is not None for mob in candidates):
+                return max(
+                    candidates, key=lambda mob: (mob.confidence, -mob.class_id, mob.class_name)
+                )
+            return min(candidates, key=_navmesh_candidate_key)
         center = Position(state.viewport.width // 2, state.viewport.height // 2)
         return min(
             candidates,
             key=lambda mob: (
+                *_navmesh_candidate_key(mob),
                 _distance_squared(_mob_center(mob), center),
                 mob.class_id,
                 mob.class_name,
@@ -605,6 +624,14 @@ class CombatController:
         self._engaged_position = None
         self._engaged_class_name = None
         self._last_progress_at_seconds = None
+
+
+def _navmesh_candidate_key(mob: VisibleMob) -> tuple[int, float]:
+    """Sort measured reachable routes ahead of unprojected viewport-only candidates."""
+
+    if mob.navmesh_path_distance is not None:
+        return (0, mob.navmesh_path_distance)
+    return (1, float("inf"))
 
 
 def _mob_center(mob: VisibleMob) -> Position:

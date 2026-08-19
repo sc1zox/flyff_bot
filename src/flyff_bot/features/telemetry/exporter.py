@@ -62,6 +62,14 @@ class TelemetryDatasetExporter:
                         "class_id": candidate["class_id"],
                         "class_name": candidate["class_name"],
                         "confidence": candidate["confidence"],
+                        "world_x": _coordinate(candidate.get("world_position"), "x"),
+                        "world_y": _coordinate(candidate.get("world_position"), "y"),
+                        "world_z": _coordinate(candidate.get("world_position"), "z"),
+                        "target_navmesh_polygon_id": candidate.get("target_navmesh_polygon_id"),
+                        "relative_distance": candidate.get("relative_distance"),
+                        "relative_elevation": candidate.get("relative_elevation"),
+                        "path_distance": candidate.get("path_distance"),
+                        "is_locked_out": candidate.get("is_locked_out"),
                         "bbox_json": json.dumps(
                             {key: candidate[key] for key in ("x", "y", "width", "height")},
                             sort_keys=True,
@@ -89,6 +97,19 @@ class TelemetryDatasetExporter:
                         "speed": speed,
                         "outcome": payload["outcome"],
                         "path_efficiency": _path_efficiency(payload),
+                        "start_x": _coordinate(payload.get("start_position"), "x"),
+                        "start_y": _coordinate(payload.get("start_position"), "y"),
+                        "start_z": _coordinate(payload.get("start_position"), "z"),
+                        "target_x": _coordinate(payload.get("target_position"), "x"),
+                        "target_y": _coordinate(payload.get("target_position"), "y"),
+                        "target_z": _coordinate(payload.get("target_position"), "z"),
+                        "planned_route_json": json.dumps(
+                            payload.get("planned_route", []), sort_keys=True
+                        ),
+                        "planned_length": payload.get("planned_length"),
+                        "actual_travel_distance": payload.get("actual_travel_distance"),
+                        "stall_events": payload.get("stall_events"),
+                        "collision_evasions": payload.get("collision_evasions"),
                     }
                 )
         return rows
@@ -112,3 +133,12 @@ def _path_efficiency(payload: dict[str, Any]) -> float | None:
     if planned is None or not isinstance(actual, int | float) or actual <= 0.0:
         return None
     return float(planned) / float(actual)
+
+
+def _coordinate(payload: object, axis: str) -> float | None:
+    """Read an optional serialized world coordinate without making missing data zero."""
+
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get(axis)
+    return float(value) if isinstance(value, int | float) else None

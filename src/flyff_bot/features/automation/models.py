@@ -78,7 +78,11 @@ class InventoryEntry:
 
 @dataclass(frozen=True, slots=True)
 class VisibleMob:
-    """A mob located in client-space by the perception pipeline."""
+    """A mob located in client space, optionally enriched with measured NavMesh data.
+
+    The optional world fields are deliberately nullable: screen detections do not become
+    world positions until a camera ray actually intersects the loaded NavMesh.
+    """
 
     class_id: int
     class_name: str
@@ -87,6 +91,13 @@ class VisibleMob:
     y: int
     width: int
     height: int
+    world_x: float | None = None
+    world_y: float | None = None
+    world_z: float | None = None
+    navmesh_polygon_id: int | None = None
+    navmesh_path_distance: float | None = None
+    navmesh_reachable: bool | None = None
+    navmesh_within_leash: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)

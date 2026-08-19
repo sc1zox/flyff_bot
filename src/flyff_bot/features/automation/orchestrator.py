@@ -18,6 +18,7 @@ from flyff_bot.features.automation.combat_execution import CombatInputAdapter, C
 from flyff_bot.features.automation.controllers import (
     CombatConfig,
     CombatController,
+    CombatDecision,
     CombatMode,
     EngagementBreakReason,
     KeyBinding,
@@ -105,6 +106,7 @@ class FarmingMode(StrEnum):
     SEARCHING = "searching"
     REPOSITIONING = "repositioning"
     TARGETING = "targeting"
+    APPROACHING = "approaching"
     COMBAT = "combat"
     TELEPORTING = "teleporting"
     RECONCILING = "reconciling"
@@ -263,6 +265,7 @@ class FarmingOrchestrator:
         self._emergency_teleport_unavailable = False
         self._telemetry = telemetry
         self._telemetry_observed_at_seconds: float | None = None
+        self._pending_target_click: CombatDecision | None = None
 
     @property
     def mode(self) -> FarmingMode:
@@ -576,7 +579,11 @@ class FarmingOrchestrator:
 
         if self._pathing is not None:
             self._pathing.observe(self._state, self._last_frame)
-            self._state = replace(self._state, is_stuck=self._pathing.is_stalled)
+            self._state = replace(
+                self._state,
+                is_stuck=self._pathing.is_stalled,
+                visible_mobs=self._pathing.enrich_visible_mobs(self._state),
+            )
             if self._telemetry is not None:
                 self._telemetry.record_navigation_stall(stalled=self._pathing.is_stalled)
             elapsed = self._state.observed_at_seconds - self._last_persist_at_seconds
@@ -675,7 +682,12 @@ class FarmingOrchestrator:
                         self._state,
                         combat.position.x,
                         combat.position.y,
-                        reason="nearest_to_viewport_center",
+                        reason=(
+                            "shortest_navmesh_path"
+                            if combat.selected_mob is not None
+                            and combat.selected_mob.navmesh_path_distance is not None
+                            else "nearest_to_viewport_center"
+                        ),
                         player_position=(
                             self._pathing.live_position if self._pathing is not None else None
                         ),
@@ -686,7 +698,21 @@ class FarmingOrchestrator:
                             x, y, self._state.observed_at_seconds
                         ),
                     )
-                    self._telemetry.finish_navigation("reached_target")
+                if (
+                    self._pathing is not None
+                    and combat.selected_mob is not None
+                    and self._pathing.begin_target_approach(
+                        combat.selected_mob, self._state.observed_at_seconds
+                    )
+                ):
+                    self._pending_target_click = combat
+                    if self._telemetry is not None:
+                        route = self._pathing.world_waypoints
+                        start = self._pathing.live_position
+                        if start is not None and route:
+                            self._telemetry.begin_navigation(start, route)
+                    self._set_mode(FarmingMode.APPROACHING, reason="navmesh_target_selected")
+                    return False
                 self._set_mode(FarmingMode.TARGETING, reason="mob_detected")
                 self._engagement_break = None
                 self._approach_stalls.reset()
@@ -705,6 +731,9 @@ class FarmingOrchestrator:
                     search_decision.virtual_key, search_decision.key_press_duration_seconds
                 )
             return dispatched
+
+        if self._mode is FarmingMode.APPROACHING:
+            return self._advance_navmesh_approach()
 
         if self._mode is FarmingMode.REPOSITIONING:
             return self._advance_repositioning()
@@ -782,6 +811,39 @@ class FarmingOrchestrator:
             return False
 
         return False
+
+    def _advance_navmesh_approach(self) -> bool:
+        """Follow an active Funnel corridor before the existing guarded target click."""
+
+        pathing = self._pathing
+        pending = self._pending_target_click
+        from flyff_bot.features.navigation.pathing import PathingMode
+
+        if pathing is None or pending is None:
+            self._set_mode(FarmingMode.SEARCHING, reason="approach_unavailable")
+            return False
+        if pathing.target_in_engagement_range():
+            pathing.cancel_target_approach()
+            self._pending_target_click = None
+            if self._telemetry is not None:
+                self._telemetry.finish_navigation("reached_target")
+            self._set_mode(FarmingMode.TARGETING, reason="engagement_range")
+            self._combat.begin_target_acquisition(self._state.observed_at_seconds)
+            return self._combat_dispatcher.dispatch(pending)
+        decision = pathing.step(self._state.observed_at_seconds)
+        if decision.mode is PathingMode.IDLE and pathing.navmesh_target is None:
+            self._pending_target_click = None
+            if self._telemetry is not None:
+                self._telemetry.finish_navigation("route_unavailable")
+            self._set_mode(FarmingMode.SEARCHING, reason="route_unavailable")
+            return False
+        if self._telemetry is not None and decision.mode is PathingMode.EVADING:
+            self._telemetry.record_navigation_evasion()
+        if not self._pathing_dispatcher.dispatch(decision):
+            pathing.reject(decision)
+            return False
+        pathing.confirm(decision)
+        return True
 
     def _approach_stalled(self) -> bool:
         """Return whether the client-driven walk towards the engaged mob is blocked.
@@ -1091,6 +1153,8 @@ def _dashboard_status(
         return BotStatus.STANDBY if live_preview else BotStatus.PAUSED
     if mode is FarmingMode.REPOSITIONING:
         return BotStatus.REPOSITIONING
+    if mode is FarmingMode.APPROACHING:
+        return BotStatus.APPROACHING
     if mode is FarmingMode.SEARCHING:
         return {
             SearchMode.ROTATE: BotStatus.SEARCH_ROTATING,

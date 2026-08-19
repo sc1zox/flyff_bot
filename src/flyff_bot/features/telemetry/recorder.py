@@ -12,7 +12,11 @@ from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
-from flyff_bot.features.telemetry.geometry import navmesh_slope, project_candidate
+from flyff_bot.features.telemetry.geometry import (
+    ProjectedCandidate,
+    navmesh_slope,
+    project_candidate,
+)
 from flyff_bot.features.telemetry.kinematics import KinematicsDeriver
 from flyff_bot.features.telemetry.models import (
     AttackAction,
@@ -174,14 +178,23 @@ class TelemetryRecorder:
             )
             if int(center_x) == selected_x and int(center_y) == selected_y:
                 selected_index = index
-            geometry = project_candidate(
-                camera=camera_state,
-                navmesh=self._navmesh,
-                player_position=player_position,
-                viewport_width=viewport.width,
-                viewport_height=viewport.height,
-                screen_x=center_x,
-                screen_bottom_y=mob.y + mob.height,
+            geometry = (
+                None
+                if mob.world_x is None or mob.world_y is None or mob.world_z is None
+                else TelemetryPosition(mob.world_x, mob.world_y, mob.world_z)
+            )
+            projected = (
+                None
+                if geometry is not None
+                else project_candidate(
+                    camera=camera_state,
+                    navmesh=self._navmesh,
+                    player_position=player_position,
+                    viewport_width=viewport.width,
+                    viewport_height=viewport.height,
+                    screen_x=center_x,
+                    screen_bottom_y=mob.y + mob.height,
+                )
             )
             candidates.append(
                 CandidateFeatures(
@@ -197,11 +210,23 @@ class TelemetryRecorder:
                     center_y,
                     distance,
                     mob.width * mob.height,
-                    None if geometry is None else _position(geometry.position),
-                    None if geometry is None else geometry.relative_distance,
-                    None if geometry is None else geometry.relative_elevation,
-                    None if geometry is None else str(geometry.polygon_id),
-                    None if geometry is None else geometry.path_distance,
+                    geometry if geometry is not None else _projected_position(projected),
+                    _relative_distance(geometry, player_position, projected),
+                    _relative_elevation(geometry, player_position, projected),
+                    (
+                        str(mob.navmesh_polygon_id)
+                        if mob.navmesh_polygon_id is not None
+                        else None
+                        if projected is None
+                        else str(projected.polygon_id)
+                    ),
+                    (
+                        mob.navmesh_path_distance
+                        if geometry is not None
+                        else None
+                        if projected is None
+                        else projected.path_distance
+                    ),
                     False if is_locked_out is None else is_locked_out(int(center_x), int(center_y)),
                 )
             )
@@ -453,6 +478,35 @@ def _position(position: WorldPosition | None) -> TelemetryPosition | None:
     if position is None:
         return None
     return TelemetryPosition(position.x, position.y, position.z)
+
+
+def _projected_position(projected: ProjectedCandidate | None) -> TelemetryPosition | None:
+    """Convert the legacy raycast result without asserting it always exists."""
+
+    if projected is None:
+        return None
+    position = projected.position
+    return TelemetryPosition(position.x, position.y, position.z)
+
+
+def _relative_distance(
+    position: TelemetryPosition | None,
+    player: WorldPosition | None,
+    projected: ProjectedCandidate | None,
+) -> float | None:
+    if position is not None and player is not None:
+        return dist((position.x, position.y, position.z), (player.x, player.y, player.z))
+    return None if projected is None else projected.relative_distance
+
+
+def _relative_elevation(
+    position: TelemetryPosition | None,
+    player: WorldPosition | None,
+    projected: ProjectedCandidate | None,
+) -> float | None:
+    if position is not None and player is not None:
+        return position.y - player.y
+    return None if projected is None else projected.relative_elevation
 
 
 def _navmesh_polygon_id(
