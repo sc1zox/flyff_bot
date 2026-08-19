@@ -24,6 +24,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flyff_bot.constants import (
+    DEFAULT_CLIENT_WORLD_ROOT,
+    DEFAULT_WORLD_MAP_DIRECTORY,
+    DEFAULT_WORLD_MONSTER_IDS_PATH,
+)
 from flyff_bot.features.automation.camera_alignment import DEFAULT_AUTO_ALIGN_CAMERA
 from flyff_bot.features.automation.controllers import CombatConfig, EngagementBreakReason
 from flyff_bot.features.automation.models import (
@@ -73,6 +78,7 @@ from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
 from flyff_bot.ui.powerup_panel import PowerUpPanel
 from flyff_bot.ui.theme import apply_theme
+from flyff_bot.ui.world_data_dialog import WorldDataDialog
 
 # Item data of the target-monster entry that imposes no class restriction at all.
 ALL_TARGET_MOBS = ""
@@ -126,6 +132,8 @@ class MainWindow(QMainWindow):
     save_profile_requested = Signal(Path)
     load_profile_requested = Signal(Path)
     reset_navigation_requested = Signal()
+    vector_navigation_requested = Signal(object)
+    vector_navigation_cleared = Signal()
 
     def __init__(
         self,
@@ -134,10 +142,17 @@ class MainWindow(QMainWindow):
         navigation_dir: Path | None = None,
         vitals_config_path: Path | None = None,
         powerup_config_path: Path | None = None,
+        client_world_root: Path | None = None,
+        world_map_dir: Path | None = None,
+        monster_names_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._translator = translator
         self._navigation_dir = navigation_dir or DEFAULT_NAVIGATION_DIR
+        self._client_world_root = client_world_root or Path(DEFAULT_CLIENT_WORLD_ROOT)
+        self._world_map_dir = world_map_dir or Path(DEFAULT_WORLD_MAP_DIRECTORY)
+        self._monster_names_path = monster_names_path or Path(DEFAULT_WORLD_MONSTER_IDS_PATH)
+        self._world_data_dialog: WorldDataDialog | None = None
         self._vitals_config_path = vitals_config_path or DEFAULT_VITALS_CONFIG_PATH
         self._powerup_config_path = powerup_config_path or DEFAULT_POWERUP_CONFIG_PATH
         self._latest_update: DashboardUpdate | None = None
@@ -199,6 +214,7 @@ class MainWindow(QMainWindow):
         self._load_profile_button = QPushButton()
         self._reset_map_button = QPushButton()
         self._reset_map_button.setObjectName("ActionDanger")
+        self._world_data_button = QPushButton()
         self._profile_anchor_label = QLabel()
         self._profile_anchor_label.setObjectName("StatChip")
         self._profile_anchor_state = ProfileAnchorState.SESSION
@@ -1174,6 +1190,7 @@ class MainWindow(QMainWindow):
         profile_layout.addWidget(self._save_profile_button)
         profile_layout.addWidget(self._load_profile_button)
         profile_layout.addWidget(self._reset_map_button)
+        profile_layout.addWidget(self._world_data_button)
         profile_layout.addWidget(self._profile_anchor_label)
         self._profile_card.setLayout(profile_layout)
 
@@ -1229,6 +1246,7 @@ class MainWindow(QMainWindow):
         self._save_profile_button.clicked.connect(self._on_save_profile_clicked)
         self._load_profile_button.clicked.connect(self._on_load_profile_clicked)
         self._reset_map_button.clicked.connect(self._on_reset_map_clicked)
+        self._world_data_button.clicked.connect(self._on_world_data_clicked)
 
         for check in (self._hp_enabled, self._mp_enabled, self._fp_enabled):
             check.toggled.connect(self._on_vitals_inputs_changed)
@@ -1336,6 +1354,40 @@ class MainWindow(QMainWindow):
         return box.clickedButton() is read_only
 
     @property
+    def world_data_button(self) -> QPushButton:
+        """Expose the world data manager trigger for testing."""
+
+        return self._world_data_button
+
+    @property
+    def world_data_dialog(self) -> WorldDataDialog | None:
+        """Return the world data dialog once the operator has opened it."""
+
+        return self._world_data_dialog
+
+    @Slot()
+    def _on_world_data_clicked(self) -> None:
+        """Open the world data manager, creating it on first use."""
+
+        dialog = self._world_data_dialog
+        if dialog is None:
+            dialog = WorldDataDialog(
+                self._translator,
+                self._client_world_root,
+                self._world_map_dir,
+                monster_names_path=self._monster_names_path,
+                parent=self,
+            )
+            dialog.vector_navigation_requested.connect(self.vector_navigation_requested)
+            dialog.vector_navigation_cleared.connect(self.vector_navigation_cleared)
+            self.target_mob_changed.connect(dialog.set_target_mob)
+            self._world_data_dialog = dialog
+        dialog.set_target_mob(self.selected_target_mob)
+        dialog.refresh()
+        dialog.show()
+        dialog.raise_()
+
+    @property
     def profile_anchor_label(self) -> QLabel:
         """Expose the profile anchor-state chip for testing."""
 
@@ -1438,6 +1490,10 @@ class MainWindow(QMainWindow):
         self._save_profile_button.setText(self._translator.text(Message.UI_PROFILE_SAVE))
         self._load_profile_button.setText(self._translator.text(Message.UI_PROFILE_LOAD))
         self._reset_map_button.setText(self._translator.text(Message.UI_PROFILE_RESET))
+        self._world_data_button.setText(self._translator.text(Message.UI_WORLD_DATA))
+        self._world_data_button.setToolTip(self._translator.text(Message.UI_WORLD_DATA_TOOLTIP))
+        if self._world_data_dialog is not None:
+            self._world_data_dialog.set_translator(self._translator)
         self._profile_name_input.setPlaceholderText(
             self._translator.text(Message.UI_PROFILE_NAME_PLACEHOLDER)
         )
@@ -1676,6 +1732,8 @@ class MainWindow(QMainWindow):
             teardown()
         if self._map_window is not None:
             self._map_window.close()
+        if self._world_data_dialog is not None:
+            self._world_data_dialog.close()
         self._placement_overlay.stop()
         super().closeEvent(event)
 

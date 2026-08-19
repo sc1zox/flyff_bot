@@ -1720,3 +1720,38 @@ def test_target_mob_selection_propagates_to_detection_verification_and_combat() 
     assert detector.allowed_class_names[-1] == frozenset()
     assert combat.allowed_class_names[-1] == frozenset()
     assert list(verifier.allowed_names) == ["Flame", "Rapra"]
+
+
+def test_the_world_data_manager_opens_and_reuses_one_dialog(tmp_path: Path) -> None:
+    """The dialog is created on first use and kept, so its extraction survives reopening."""
+
+    application = QApplication.instance() or QApplication([])
+    assert application is not None
+    window = MainWindow(
+        Translator(Language.ENGLISH),
+        client_world_root=tmp_path / "client",
+        world_map_dir=tmp_path / "worlds",
+    )
+    requests: list[object] = []
+    window.vector_navigation_requested.connect(requests.append)
+
+    assert window.world_data_dialog is None
+    window.world_data_button.click()
+    dialog = window.world_data_dialog
+    window.world_data_button.click()
+
+    assert dialog is not None
+    assert window.world_data_dialog is dialog
+    # The dialog's request signal is re-emitted by the window, which is what `run_desktop`
+    # connects the session's vector navigation to.
+    dialog.vector_navigation_requested.emit("request")
+    assert requests == ["request"]
+    window.close()
+
+
+def test_the_world_data_button_is_localized() -> None:
+    application = QApplication.instance() or QApplication([])
+    assert application is not None
+    window = MainWindow(Translator(Language.GERMAN))
+
+    assert window.world_data_button.text() == "Weltdaten & Karten"
