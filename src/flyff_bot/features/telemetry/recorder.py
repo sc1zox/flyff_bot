@@ -10,6 +10,7 @@ from time import monotonic_ns
 
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
+from flyff_bot.features.navigation.navmesh import BakedNavMesh
 from flyff_bot.features.telemetry.kinematics import KinematicsDeriver
 from flyff_bot.features.telemetry.models import (
     AttackAction,
@@ -53,6 +54,7 @@ class TelemetryRecorder:
         *,
         clock_ns: Callable[[], int] = monotonic_ns,
         utc_now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        navmesh: BakedNavMesh | None = None,
     ) -> None:
         self._metadata = metadata.with_generated_identity(session_start_utc=utc_now().isoformat())
         self._worker = worker_factory(self._metadata.session_id, self._metadata.area_id)
@@ -68,6 +70,7 @@ class TelemetryRecorder:
         self._navigation_seconds = 0.0
         self._stall_seconds = 0.0
         self._navigation: _ActiveNavigation | None = None
+        self._navmesh = navmesh
 
     @property
     def session_id(self) -> str:
@@ -108,7 +111,9 @@ class TelemetryRecorder:
             player_velocity=velocity,
             player_speed=None if velocity is None else velocity.speed,
             position_source=position_source.value,
-            player_navmesh_polygon_id=None,
+            player_navmesh_polygon_id=_navmesh_polygon_id(
+                self._navmesh, live_position, position_source
+            ),
             player_terrain_slope=player_terrain_slope,
             hp_percentage=state.player_vitals.hp_percentage,
             mp_percentage=state.player_vitals.mp_percentage,
@@ -423,3 +428,16 @@ def _position(position: WorldPosition | None) -> TelemetryPosition | None:
     if position is None:
         return None
     return TelemetryPosition(position.x, position.y, position.z)
+
+
+def _navmesh_polygon_id(
+    navmesh: BakedNavMesh | None,
+    position: WorldPosition | None,
+    position_source: PositionSource,
+) -> str | None:
+    """Return a stable ID only for an explicitly loaded mesh and measured live GPS."""
+
+    if navmesh is None or position is None or position_source is not PositionSource.LIVE:
+        return None
+    polygon_id = navmesh.polygon_or_region_id(position)
+    return None if polygon_id is None else str(polygon_id)

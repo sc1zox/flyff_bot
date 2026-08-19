@@ -31,6 +31,13 @@ from flyff_bot.features.navigation.navmesh import (
     NavMeshPolygon,
     SurfaceSpan,
 )
+from flyff_bot.features.navigation.navmesh_persistence import (
+    NavMeshArtifact,
+    NavMeshPersistenceError,
+    load_baked_navmesh,
+    save_baked_navmesh,
+    world_navmesh_path,
+)
 from flyff_bot.features.navigation.o3d_extractor import (
     CollisionMesh,
     ModelBounds,
@@ -147,6 +154,8 @@ __all__ = [
     "ModelBounds",
     "ModelVertex",
     "NavMeshBaker",
+    "NavMeshArtifact",
+    "NavMeshPersistenceError",
     "NavMeshPolygon",
     "NavigationProfile",
     "NavigationProfileSummary",
@@ -212,17 +221,20 @@ __all__ = [
     "fuse_world_geometry",
     "list_navigation_profiles",
     "load_monster_names",
+    "load_baked_navmesh",
     "load_profile",
     "load_world_map",
     "parse_dynamic_placements",
     "sanitize_profile_name",
     "save_profile",
+    "save_baked_navmesh",
     "save_world_map",
     "summarize",
     "terrain_triangles",
     "transform_collision_mesh",
     "unproject_screen_ray",
     "world_map_path",
+    "world_navmesh_path",
     "world_terrain_directory",
     "zone_goals_from_selection",
 ]

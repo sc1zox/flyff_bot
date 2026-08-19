@@ -77,6 +77,14 @@ class SurfaceSpan:
     polygon_ids: tuple[int, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _Portal:
+    """The ordered shared edge between two successive corridor polygons."""
+
+    left: WorldPosition
+    right: WorldPosition
+
+
 class BakedNavMesh:
     """A queryable multi-layer navmesh with deterministic polygon and region IDs."""
 
@@ -104,6 +112,12 @@ class BakedNavMesh:
         """Return the multi-layer X/Z index without flattening vertical surfaces."""
 
         return self._spans
+
+    @property
+    def adjacency(self) -> dict[int, tuple[int, ...]]:
+        """Return the stable polygon graph without exposing its mutable backing mapping."""
+
+        return dict(self._adjacency)
 
     def nearest_walkable_position(self, position: WorldPosition) -> WorldPosition | None:
         """Project to the nearest valid surface; ties use the stable polygon ID."""
@@ -143,11 +157,16 @@ class BakedNavMesh:
         )
         if not polygon_path:
             return ()
-        waypoints = [projected_start]
-        for polygon_id in polygon_path[1:-1]:
-            waypoints.append(self._by_id[polygon_id].centroid)
-        waypoints.append(projected_goal)
-        return _remove_repeated(waypoints)
+        portals = tuple(
+            portal
+            for current, following in pairwise(polygon_path)
+            for portal in (_portal_between(self._by_id[current], self._by_id[following]),)
+        )
+        if len(portals) != len(polygon_path) - 1:
+            # A corridor edge must be a shared triangle edge. Retain the prior deterministic
+            # centroid route rather than turning an unexpected malformed mesh into a shortcut.
+            return _centroid_waypoints(self._by_id, polygon_path, projected_start, projected_goal)
+        return _string_pull(projected_start, portals, projected_goal)
 
     def path_distance(self, start: WorldPosition, goal: WorldPosition) -> float | None:
         """Return the exact sum of the returned 3D path segments, or ``None`` if blocked."""
@@ -300,6 +319,93 @@ def _has_vertical_clearance(
     return True
 
 
+def _centroid_waypoints(
+    polygons: dict[int, NavMeshPolygon],
+    polygon_path: tuple[int, ...],
+    start: WorldPosition,
+    goal: WorldPosition,
+) -> tuple[WorldPosition, ...]:
+    """Return the conservative pre-funnel route for an invalid persisted corridor."""
+
+    return _remove_repeated([start, *(polygons[polygon_id].centroid for polygon_id in polygon_path[1:-1]), goal])
+
+
+def _portal_between(first: NavMeshPolygon, second: NavMeshPolygon) -> _Portal | None:
+    """Return a consistently left/right oriented shared edge for two adjacent triangles."""
+
+    first_vertices = (first.triangle.first, first.triangle.second, first.triangle.third)
+    second_keys = {
+        _vertex_key(vertex)
+        for vertex in (second.triangle.first, second.triangle.second, second.triangle.third)
+    }
+    shared = tuple(vertex for vertex in first_vertices if _vertex_key(vertex) in second_keys)
+    if len(shared) != 2:
+        return None
+    first_point, second_point = (WorldPosition(*_vertex_tuple(vertex)) for vertex in shared)
+    direction_start = first.centroid
+    direction_end = second.centroid
+    orientation = _triarea2(direction_start, direction_end, first_point)
+    if orientation > 0.0:
+        return _Portal(first_point, second_point)
+    if orientation < 0.0:
+        return _Portal(second_point, first_point)
+    # Coplanar/collinear centroids are unusual but deterministic ordering still gives the
+    # funnel a valid portal instead of silently changing its route between equal bakes.
+    if _point_key(first_point) <= _point_key(second_point):
+        return _Portal(first_point, second_point)
+    return _Portal(second_point, first_point)
+
+
+def _string_pull(
+    start: WorldPosition, portals: tuple[_Portal, ...], goal: WorldPosition
+) -> tuple[WorldPosition, ...]:
+    """Smooth a triangle corridor with the classic X/Z-plane funnel algorithm.
+
+    The returned corners are actual portal vertices, preserving the mesh's authored 3D
+    elevation rather than replacing a ramp with centroid-derived free-space waypoints.
+    """
+
+    if not portals:
+        return _remove_repeated([start, goal])
+    route: list[WorldPosition] = [start]
+    apex = start
+    left = portals[0].left
+    right = portals[0].right
+    left_index = right_index = 0
+    portal_index = 1
+    all_portals = (*portals, _Portal(goal, goal))
+    while portal_index < len(all_portals):
+        next_portal = all_portals[portal_index]
+        next_left, next_right = next_portal.left, next_portal.right
+        if _triarea2(apex, right, next_right) <= 0.0:
+            if _same_xz(apex, right) or _triarea2(apex, left, next_right) > 0.0:
+                right = next_right
+                right_index = portal_index
+            else:
+                route.append(left)
+                apex = left
+                portal_index = left_index + 1
+                left = apex
+                right = apex
+                left_index = right_index = portal_index - 1
+                continue
+        if _triarea2(apex, left, next_left) >= 0.0:
+            if _same_xz(apex, left) or _triarea2(apex, right, next_left) < 0.0:
+                left = next_left
+                left_index = portal_index
+            else:
+                route.append(right)
+                apex = right
+                portal_index = right_index + 1
+                left = apex
+                right = apex
+                left_index = right_index = portal_index - 1
+                continue
+        portal_index += 1
+    route.append(goal)
+    return _remove_repeated(route)
+
+
 def _a_star(
     adjacency: dict[int, tuple[int, ...]],
     polygons: dict[int, NavMeshPolygon],
@@ -443,6 +549,22 @@ def _vertex_tuple(vertex: WorldVertex) -> tuple[float, float, float]:
 
 def _point_tuple(point: WorldPosition) -> tuple[float, float, float]:
     return point.x, point.y, point.z
+
+
+def _point_key(point: WorldPosition) -> tuple[float, float, float]:
+    return tuple(round(value, _EDGE_PRECISION) for value in _point_tuple(point))  # type: ignore[return-value]
+
+
+def _same_xz(first: WorldPosition, second: WorldPosition) -> bool:
+    return first.x == second.x and first.z == second.z
+
+
+def _triarea2(first: WorldPosition, second: WorldPosition, third: WorldPosition) -> float:
+    """Return the signed doubled X/Z area used by the two-dimensional funnel."""
+
+    return (second.x - first.x) * (third.z - first.z) - (third.x - first.x) * (
+        second.z - first.z
+    )
 
 
 def _subtract(

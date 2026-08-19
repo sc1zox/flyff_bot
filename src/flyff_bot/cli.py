@@ -50,8 +50,15 @@ from flyff_bot.features.input_control import (
 )
 from flyff_bot.features.navigation.live_camera import LiveCameraReader
 from flyff_bot.features.navigation.live_position import LivePositionReader
+from flyff_bot.features.navigation.navmesh import NavMeshBaker
+from flyff_bot.features.navigation.navmesh_persistence import (
+    load_baked_navmesh,
+    save_baked_navmesh,
+    world_navmesh_path,
+)
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.persistence import load_profile
+from flyff_bot.features.navigation.world_geometry import terrain_triangles
 from flyff_bot.features.navigation.world_extractor import (
     ExtractionDiagnostic,
     ExtractionWarning,
@@ -209,6 +216,15 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         "--world-map-directory",
         default=DEFAULT_WORLD_MAP_DIRECTORY,
         help=translator.text(Message.HELP_WORLD_MAP_DIRECTORY, default=DEFAULT_WORLD_MAP_DIRECTORY),
+    )
+    parser.add_argument(
+        "--bake-navmesh",
+        action="store_true",
+        help=translator.text(Message.HELP_BAKE_NAVMESH),
+    )
+    parser.add_argument(
+        "--navmesh-map",
+        help=translator.text(Message.HELP_NAVMESH_MAP),
     )
     parser.add_argument(
         "--world",
@@ -523,6 +539,16 @@ def _extract_worlds(args: argparse.Namespace, translator: Translator) -> int:
         try:
             world_map = extract_world(region, monster_names=monster_names, diagnostics=diagnostics)
             summary = summarize(world_map, save_world_map(world_map, output_directory), diagnostics)
+            artifact = (
+                save_baked_navmesh(
+                    NavMeshBaker().bake(
+                        terrain_triangles(world_map.terrain_blocks, world_map.dimensions)
+                    ),
+                    world_navmesh_path(output_directory, world_map.world_name),
+                )
+                if args.bake_navmesh
+                else None
+            )
         except (OSError, WorldExtractionError) as error:
             print(
                 translator.text(Message.WORLD_EXTRACTION_FAILED, world=region.name, reason=error),
@@ -550,6 +576,15 @@ def _extract_worlds(args: argparse.Namespace, translator: Translator) -> int:
                 path=summary.output_path,
             )
         )
+        if artifact is not None:
+            print(
+                translator.text(
+                    Message.NAVMESH_BAKED,
+                    world=summary.world_name,
+                    polygons=len(artifact.mesh.polygons),
+                    path=artifact.path,
+                )
+            )
     print(
         translator.text(
             Message.WORLD_EXTRACTION_COMPLETE,
@@ -644,18 +679,20 @@ def _telemetry_recorder(
     root = Path(args.telemetry_root)
     executable = controller.process_image_path(window_handle)
     client_sha256 = _sha256(Path(executable)) if executable is not None else None
+    navmesh = load_baked_navmesh(Path(args.navmesh_map)) if args.navmesh_map else None
     return TelemetryRecorder(
         TelemetrySessionMetadata(
             area_id=args.telemetry_area,
             client_sha256=client_sha256,
             bot_version=BOT_VERSION,
             active_models=(model_path, labels_path),
-            navmesh_version=None,
+            navmesh_version=navmesh.content_digest if navmesh is not None else None,
             active_spawn_zone=None,
         ),
         lambda session_id, area_id: JsonlTelemetryWorker(
             session_id, area_id, root=root, store=store
         ),
+        navmesh=navmesh.mesh if navmesh is not None else None,
     )
 
 
