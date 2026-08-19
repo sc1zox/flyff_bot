@@ -11,6 +11,12 @@ DEFAULT_MOB_MODEL_PATH = "models/mob_detector.onnx"
 DEFAULT_MOB_LABELS_PATH = "models/labels.txt"
 DEFAULT_TRAINING_EPOCHS = 100
 DEFAULT_NAVIGATION_MAP_PATH = "data/navigation/spatial_map.json"
+# Extracted client world geometry (US-045). The client tree is the operator's own game
+# installation and is never part of this repository, so the default only states where an
+# unmodified Entropia install keeps its regions relative to the working directory.
+DEFAULT_CLIENT_WORLD_ROOT = "Entropia/Entropia/Data/World"
+DEFAULT_WORLD_MAP_DIRECTORY = "data/navigation/worlds"
+DEFAULT_WORLD_MONSTER_IDS_PATH = "data/assets/world/monster_ids.json"
 # Reference screenshot of the in-game session stats window; its header line is the template
 # that locates the same window in a live frame.
 DEFAULT_MONSTER_STATS_PANEL_PATH = "data/assets/stats/monster_stats.png"

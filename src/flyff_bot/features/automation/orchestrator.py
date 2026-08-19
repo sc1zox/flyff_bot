@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     # Only needed as an annotation; importing it eagerly would close the pre-existing
     # navigation -> automation -> navigation package cycle at module load time.
     from flyff_bot.features.navigation.pathing import PathingController, ProfileLoadResult
+    from flyff_bot.features.navigation.vector_navigation import VectorZoneNavigator
 
 
 DEFAULT_TICK_INTERVAL_SECONDS = 0.1
@@ -218,6 +219,10 @@ class FarmingOrchestrator:
         self._window_status = WindowStatus.NOT_FOREGROUND
         self._has_live_frame = False
         self._engagement_break: EngagementBreakReason | None = None
+        # The class of the mob currently being fought, remembered while the target header
+        # still names it: at the moment a kill confirms, the header is already gone, so the
+        # kill could otherwise not be attributed to a monster (US-045).
+        self._engaged_monster_name: str | None = None
         self._camera_aligner = camera_aligner
         self._alignment_failure: CameraAlignmentStatus | None = None
         self._mode_after_alignment = FarmingMode.SEARCHING
@@ -390,6 +395,18 @@ class FarmingOrchestrator:
         self._publish(False)
         return result
 
+    def configure_vector_navigation(self, navigator: VectorZoneNavigator | None) -> None:
+        """Adopt or drop the extracted world map that steers this session (US-045).
+
+        Passing ``None`` returns the session to learned heatmap pathing, which is also what
+        an unmapped region gets: the extracted map replaces route generation, never the
+        odometry or the stall safety net underneath it.
+        """
+
+        if self._pathing is not None:
+            self._pathing.attach_vector_navigator(navigator)
+            self._publish(False)
+
     def reset_navigation_map(self) -> None:
         """Reset the active spatial map and tracking origin."""
 
@@ -539,6 +556,7 @@ class FarmingOrchestrator:
                     self._register_navigation_obstacle()
             if combat.mode in {CombatMode.IDLE, CombatMode.TARGET_LOST}:
                 self._approach_stalls.reset()
+                self._engaged_monster_name = None
                 if combat.reposition_requested:
                     self._begin_repositioning()
                     return False
@@ -548,9 +566,11 @@ class FarmingOrchestrator:
                 self._approach_stalls.reset()
                 self._state = replace(self._state, progress_marker=self._state.progress_marker + 1)
                 self._record_kill(combat.engaged_class_name)
+                self._attribute_kill()
                 self._mode = FarmingMode.RECONCILING
                 return False
             if combat.mode in {CombatMode.ENGAGING, CombatMode.FIGHTING}:
+                self._remember_engaged_monster()
                 # Only a verified engagement restarts the idle timeout. A click that never
                 # confirmed is not progress, so repeated lockout retries cannot keep
                 # postponing camera search recovery (BUG-010).
@@ -625,6 +645,22 @@ class FarmingOrchestrator:
 
         if self._pathing is not None:
             self._pathing.register_obstacle(self._state.observed_at_seconds)
+
+    def _remember_engaged_monster(self) -> None:
+        """Keep the verified name of the mob under attack for later kill attribution."""
+
+        name = self._state.selected_target.name
+        if name:
+            self._engaged_monster_name = name
+
+    def _attribute_kill(self) -> None:
+        """Credit one confirmed kill to the vector farming goals, if any are configured."""
+
+        name = self._engaged_monster_name
+        self._engaged_monster_name = None
+        if name is None or self._pathing is None:
+            return
+        self._pathing.record_kill(name)
 
     def _advance_pathing(self) -> bool:
         """Steer one learned-route step, or defer to the staged search stages."""

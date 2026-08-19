@@ -133,6 +133,12 @@ def _state(
     )
 
 
+def _waypoint_cells(controller: PathingController) -> tuple[GridCell, ...]:
+    """Return the grid cells the controller's continuous route still passes through."""
+
+    return tuple(controller.spatial_map.cell_of(point) for point in controller.waypoints)
+
+
 def _corridor_map() -> SpatialMap:
     """Return a map with a short blocked-prone corridor and a longer detour."""
 
@@ -352,8 +358,8 @@ def test_a_stall_retreats_to_the_last_safe_waypoint_and_bypasses_the_blocked_cel
             break
 
     assert recovered is PathingMode.TRAVELING
-    assert GridCell(1, 0) not in controller.waypoints
-    assert GridCell(2, 0) in controller.waypoints
+    assert GridCell(1, 0) not in _waypoint_cells(controller)
+    assert GridCell(2, 0) in _waypoint_cells(controller)
 
 
 def test_a_registered_stall_marks_the_obstacle_cell_without_latching_the_stuck_verdict() -> None:
@@ -658,7 +664,7 @@ def test_the_controller_walks_back_instead_of_idling_when_pushed_out_of_the_leas
 
     assert decision.mode is PathingMode.TRAVELING
     assert controller.waypoints
-    assert controller.waypoints[-1] == GridCell(0, 1)
+    assert _waypoint_cells(controller)[-1] == GridCell(0, 1)
 
 
 def test_a_leash_change_applies_at_the_next_replan_without_restarting_the_session() -> None:
@@ -670,7 +676,7 @@ def test_a_leash_change_applies_at_the_next_replan_without_restarting_the_sessio
     decision = controller.step(1.0)
 
     assert decision.mode is PathingMode.TRAVELING
-    assert GridCell(0, 2) in controller.waypoints
+    assert GridCell(0, 2) in _waypoint_cells(controller)
 
 
 def test_the_drawn_leash_and_the_enforced_leash_are_the_same_value() -> None:
@@ -688,7 +694,7 @@ def test_the_drawn_leash_and_the_enforced_leash_are_the_same_value() -> None:
     assert narrow.leash_radius_pixels == pytest.approx(LEASH_RADIUS_PIXELS)
     assert wide.leash_radius_pixels == pytest.approx(WIDE_LEASH_RADIUS_PIXELS)
     assert controller.leash_radius_pixels == pytest.approx(wide.leash_radius_pixels)
-    assert GridCell(0, 2) in controller.waypoints
+    assert GridCell(0, 2) in _waypoint_cells(controller)
 
 
 def test_hotspots_skipped_by_the_leash_are_reported_to_the_dashboard() -> None:
@@ -758,7 +764,7 @@ def test_an_externally_detected_obstacle_penalizes_the_blocked_cell_and_retreats
 
     assert spatial_map.stall_count(blocked) == 1
     assert controller.mode is PathingMode.RETREATING
-    assert blocked not in controller.waypoints
+    assert blocked not in _waypoint_cells(controller)
 
 
 def test_an_unknown_position_learns_nothing_from_an_external_obstacle() -> None:

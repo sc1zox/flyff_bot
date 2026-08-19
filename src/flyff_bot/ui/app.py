@@ -40,6 +40,11 @@ from flyff_bot.features.navigation.pathing import (
     ProfileLoadResult,
 )
 from flyff_bot.features.navigation.persistence import load_profile
+from flyff_bot.features.navigation.spatial import WorldPoint
+from flyff_bot.features.navigation.vector_navigation import (
+    VectorNavigationRequest,
+    VectorZoneNavigator,
+)
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision import (
     DetectionConfig,
@@ -98,6 +103,19 @@ class FarmingControls(Protocol):
     def request_camera_alignment(self) -> None: ...
 
     def configure_auto_align(self, enabled: bool) -> None: ...
+
+
+class VectorNavigationControls(Protocol):
+    """The session-side surface that adopts or drops an extracted world map."""
+
+    def configure_vector_navigation(self, navigator: VectorZoneNavigator | None) -> None: ...
+
+
+class SessionPositionSource(Protocol):
+    """The live position the world-to-session frame registration is anchored at."""
+
+    @property
+    def position(self) -> WorldPoint: ...
 
 
 class TargetGoalControls(Protocol):
@@ -178,6 +196,30 @@ def connect_farming_controls(
     window.powerup_config_changed.connect(orchestrator.configure_powerups)
     window.auto_align_changed.connect(orchestrator.configure_auto_align)
     window.align_camera_requested.connect(orchestrator.request_camera_alignment)
+
+
+def connect_vector_navigation(
+    window: MainWindow,
+    session: VectorNavigationControls,
+    positions: SessionPositionSource,
+) -> None:
+    """Arm or disarm extracted-map navigation from the world data manager.
+
+    The registration is only meaningful against the position measured when the operator
+    confirms it, so the navigator is built here, at the moment of the request, rather than
+    inside the dialog that has no access to the live estimate (US-045).
+    """
+
+    def _activate(request: object) -> None:
+        if not isinstance(request, VectorNavigationRequest):
+            return
+        session.configure_vector_navigation(request.navigator(positions.position))
+
+    def _deactivate() -> None:
+        session.configure_vector_navigation(None)
+
+    window.vector_navigation_requested.connect(_activate)
+    window.vector_navigation_cleared.connect(_deactivate)
 
 
 def target_class_applier(
@@ -291,6 +333,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     allowed_names,
                     default_anchor_path=default_anchor_path,
                 )
+                pathing = PathingController(
+                    load_profile(navigation_map_path).spatial_map, map_path=navigation_map_path
+                )
                 orchestrator = FarmingOrchestrator(
                     pipeline,
                     controller,
@@ -306,9 +351,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         auto_align_camera=window.auto_align_toggle.isChecked(),
                     ),
                     dashboard_feed=feed,
-                    pathing=PathingController(
-                        load_profile(navigation_map_path).spatial_map, map_path=navigation_map_path
-                    ),
+                    pathing=pathing,
                     camera_aligner=CameraAligner(
                         controller,
                         window_handle,
@@ -330,6 +373,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     orchestrator,
                     on_start=lambda: start_farming(controller, window_handle, orchestrator),
                 )
+                connect_vector_navigation(window, orchestrator, pathing)
                 # Ticking on a worker thread keeps frame capture and OCR out of the Qt event
                 # loop; results reach the widgets only through the dashboard feed's signal.
                 worker = SessionWorker(orchestrator.tick, STANDBY_TICK_INTERVAL_SECONDS)

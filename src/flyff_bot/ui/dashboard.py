@@ -81,6 +81,18 @@ class EdgeSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class VectorZoneSnapshot:
+    """Immutable view of the extracted spawn zone the session is currently bound to."""
+
+    monster_name: str
+    center_x: float
+    center_y: float
+    half_width_pixels: float
+    half_depth_pixels: float
+    capacity: int
+
+
+@dataclass(frozen=True, slots=True)
 class NavigationSnapshot:
     """Immutable view of the learned spatial map, dead reckoning, and active route."""
 
@@ -104,6 +116,9 @@ class NavigationSnapshot:
     # recorded in, so a read-only or unanchored profile is never mistaken for a learning
     # one (US-036).
     profile_anchor_state: ProfileAnchorState = ProfileAnchorState.SESSION
+    # The extracted spawn zone bounding the current patrol, when an authoritative world
+    # vector map is steering the session instead of the learned heatmap (US-045).
+    vector_zone: VectorZoneSnapshot | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -43,6 +43,11 @@ from flyff_bot.features.navigation.tracking import (
     distance_pixels,
     heading_error_degrees,
 )
+from flyff_bot.features.navigation.vector_navigation import (
+    VectorZoneNavigator,
+    WorldRegistration,
+)
+from flyff_bot.features.navigation.world_extractor import VectorSpawnZone
 from flyff_bot.features.vision.minimap import (
     MINIMAP_SURFACE_RADIUS_PIXELS,
     MinimapOdometer,
@@ -50,7 +55,12 @@ from flyff_bot.features.vision.minimap import (
     MinimapReading,
 )
 from flyff_bot.features.vision.models import CapturedFrame
-from flyff_bot.ui.dashboard import CellSnapshot, EdgeSnapshot, NavigationSnapshot
+from flyff_bot.ui.dashboard import (
+    CellSnapshot,
+    EdgeSnapshot,
+    NavigationSnapshot,
+    VectorZoneSnapshot,
+)
 
 DEFAULT_PATHING_STEP_DURATION_SECONDS = 0.6
 # One turn pulse must stay inside the heading tolerance or steering oscillates around the
@@ -153,6 +163,7 @@ class PathingController:
         config: PathingConfig | None = None,
         map_path: Path | None = None,
         odometer: MinimapOdometryFeed | None = None,
+        vector_navigator: VectorZoneNavigator | None = None,
     ) -> None:
         self._config = config or PathingConfig()
         self._map = spatial_map or SpatialMap()
@@ -161,8 +172,10 @@ class PathingController:
         self._odometer: MinimapOdometryFeed = odometer or MinimapOdometer()
         self._stalls = StallDetector(self._config.stall)
         self._map_path = map_path
+        self._vector_navigator = vector_navigator
+        self._vector_zone: VectorSpawnZone | None = None
         self._mode = PathingMode.IDLE
-        self._waypoints: tuple[GridCell, ...] = ()
+        self._waypoints: tuple[WorldPoint, ...] = ()
         self._waypoint_index = 0
         self._planned_at_seconds: float | None = None
         self._safe_waypoint: WorldPoint | None = None
@@ -253,10 +266,31 @@ class PathingController:
         return self._safe_waypoint
 
     @property
-    def waypoints(self) -> tuple[GridCell, ...]:
-        """Return the cells of the current route that are still to be reached."""
+    def waypoints(self) -> tuple[WorldPoint, ...]:
+        """Return the points of the current route that are still to be reached."""
 
         return self._waypoints[self._waypoint_index :]
+
+    @property
+    def vector_navigator(self) -> VectorZoneNavigator | None:
+        """Return the goal-driven vector navigator, when an extracted map is loaded."""
+
+        return self._vector_navigator
+
+    @property
+    def vector_navigation_active(self) -> bool:
+        """Return whether an extracted world map is steering this session (US-045)."""
+
+        return self._vector_navigator is not None and self._vector_navigator.is_active
+
+    def attach_vector_navigator(self, navigator: VectorZoneNavigator | None) -> None:
+        """Adopt or drop the extracted-map navigator and force a replan on the next step."""
+
+        self._vector_navigator = navigator
+        self._vector_zone = None
+        self._waypoints = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds = None
 
     def snapshot(self, at_seconds: float = 0.0) -> NavigationSnapshot:
         """Return an immutable snapshot of the current navigation and map state."""
@@ -288,14 +322,17 @@ class PathingController:
                             stalls=self._map.edge_stall_count(origin, destination),
                         )
                     )
-        waypoints = tuple(
-            (self._map.center_of(cell).x, self._map.center_of(cell).y)
-            for cell in self._waypoints[self._waypoint_index :]
-        )
+        waypoints = tuple((point.x, point.y) for point in self._waypoints[self._waypoint_index :])
         safe = (
             (self._safe_waypoint.x, self._safe_waypoint.y)
             if self._safe_waypoint is not None
             else None
+        )
+        zone = self._vector_zone
+        vector_zone = (
+            None
+            if zone is None or self._vector_navigator is None
+            else _zone_snapshot(zone, self._vector_navigator.registration)
         )
         return NavigationSnapshot(
             player_x=self._tracker.position.x,
@@ -311,6 +348,7 @@ class PathingController:
             tracking_quality=self._tracker.quality,
             zoom_signature_anchor=self._tracker.zoom_signature_anchor,
             profile_anchor_state=self._anchor_state,
+            vector_zone=vector_zone,
         )
 
     def track(self, state: WorldState, frame: CapturedFrame | None = None) -> TrackingQuality:
@@ -355,13 +393,19 @@ class PathingController:
             self._stalled = stalled
             return
         cell = self._map.record_visit(position, at_seconds)
-        for mob in state.visible_mobs:
-            mob_point = self._estimate_mob_position(
-                position, self._tracker.heading_degrees, mob, state.viewport
-            )
-            if mob_point is None:
-                continue
-            self._map.record_spawn(mob_point, at_seconds)
+        if not self.vector_navigation_active:
+            # The spawn heatmap is the heuristic that decides *where to explore*. An
+            # extracted map already states where the spawns are, so accumulating estimated
+            # sightings on top of it would only compete with authoritative geometry
+            # (US-045). Visit and stall history keep being written either way: they are what
+            # the retreat and the dynamic obstacle safety net read.
+            for mob in state.visible_mobs:
+                mob_point = self._estimate_mob_position(
+                    position, self._tracker.heading_degrees, mob, state.viewport
+                )
+                if mob_point is None:
+                    continue
+                self._map.record_spawn(mob_point, at_seconds)
         if stalled and self._mode not in {PathingMode.RETREATING, PathingMode.BLOCKED}:
             self._register_stall(position, at_seconds)
         elif not stalled and self._map.stall_count(cell) == 0:
@@ -384,6 +428,24 @@ class PathingController:
             return False
         self._register_stall(self._tracker.position, at_seconds)
         self._stalled = True
+        return True
+
+    def record_kill(self, monster_name: str) -> bool:
+        """Attribute one confirmed kill to the vector goals and report a completed quota.
+
+        A completed quota drops the current route so the next step plans into the next
+        unfinished monster's nearest zone without the session being restarted (US-045).
+        """
+
+        navigator = self._vector_navigator
+        if navigator is None or not monster_name:
+            return False
+        if not navigator.record_kill(monster_name):
+            return False
+        self._waypoints = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds = None
+        self._vector_zone = None
         return True
 
     def integrate_movement(self, virtual_key: int, duration_seconds: float) -> None:
@@ -525,6 +587,7 @@ class PathingController:
         self._stalled = False
         self._measured_speed_pixels_per_second = None
         self._anchor_candidate = None
+        self._vector_zone = None
         # The leash radius is operator configuration rather than learned state, so it
         # deliberately survives a map reset or profile load.
         self._hotspots_outside_leash = 0
@@ -605,7 +668,7 @@ class PathingController:
 
     def _follow_route(self, at_seconds: float) -> PathingDecision:
         while self._waypoint_index < len(self._waypoints):
-            target = self._map.center_of(self._waypoints[self._waypoint_index])
+            target = self._waypoints[self._waypoint_index]
             if distance_pixels(self._tracker.position, target) > self._arrival_radius:
                 return self._steer(PathingMode.TRAVELING, target)
             self._waypoint_index += 1
@@ -631,6 +694,8 @@ class PathingController:
         return at_seconds - self._planned_at_seconds >= self._config.replan_interval_seconds
 
     def _plan(self, at_seconds: float) -> None:
+        if self._plan_vector_route(at_seconds):
+            return
         start = self._map.cell_of(self._tracker.position)
         leash = LeashBound(self._leash_radius_pixels)
         self._hotspots_outside_leash = self._planner.hotspots_outside(at_seconds, leash)
@@ -647,11 +712,52 @@ class PathingController:
                 route = self._planner.best_spawn_route(
                     start, at_seconds, avoided=self._avoided, leash=leash
                 )
-        self._waypoints = route.waypoints
+        self._waypoints = tuple(self._map.center_of(cell) for cell in route.waypoints)
         self._waypoint_index = 0
         self._planned_at_seconds = at_seconds
         self._mode = PathingMode.TRAVELING if self._waypoints else PathingMode.IDLE
 
+    def _plan_vector_route(self, at_seconds: float) -> bool:
+        """Plan over the extracted world map, or report that it has nothing to offer.
+
+        An authoritative map replaces route *generation* only. Everything the session
+        measures or defends itself with — odometry, stall detection, retreat to the last
+        safe waypoint — keeps running underneath, and a query the visibility graph cannot
+        answer falls through to the learned heatmap rather than stopping the session
+        (US-045).
+        """
+
+        navigator = self._vector_navigator
+        if navigator is None or not navigator.is_active:
+            self._vector_zone = None
+            return False
+        plan = navigator.plan_route(self._tracker.position)
+        self._vector_zone = plan.zone
+        if plan.is_empty:
+            return False
+        self._waypoints = plan.points
+        self._waypoint_index = 0
+        self._planned_at_seconds = at_seconds
+        self._mode = PathingMode.TRAVELING
+        # The leash bounds the heuristic planner around the session anchor; under vector
+        # navigation the bound is the spawn zone itself, so nothing is being excluded by it.
+        self._hotspots_outside_leash = 0
+        return True
+
     @property
     def _arrival_radius(self) -> float:
         return self._map.config.cell_size_pixels * ARRIVAL_RADIUS_CELL_FRACTION
+
+
+def _zone_snapshot(zone: VectorSpawnZone, registration: WorldRegistration) -> VectorZoneSnapshot:
+    """Return one bound spawn zone drawn in the session's own minimap-pixel frame."""
+
+    center = registration.to_session(zone.anchor)
+    return VectorZoneSnapshot(
+        monster_name=zone.monster_name or str(zone.monster_id),
+        center_x=center.x,
+        center_y=center.y,
+        half_width_pixels=registration.to_session_distance((zone.maximum_x - zone.minimum_x) / 2.0),
+        half_depth_pixels=registration.to_session_distance((zone.maximum_z - zone.minimum_z) / 2.0),
+        capacity=zone.capacity,
+    )

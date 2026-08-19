@@ -50,6 +50,15 @@ def test_each_language_contains_every_message() -> None:
                 text="x",
                 stored="0.0",
                 live="0.0",
+                region="x",
+                world="x",
+                zones=0,
+                obstacles=0,
+                blocks=0,
+                monsters="x",
+                monster="x",
+                capacity=0,
+                z=0,
             )
 
 
