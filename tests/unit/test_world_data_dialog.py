@@ -10,7 +10,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication
 from world_fixtures import (
     flat_heights,
@@ -73,6 +73,16 @@ def _dialog(
         monster_names_path=MONSTER_IDS_PATH,
         settings=resolved_settings,
     )
+
+
+def _set_checked(dialog: WorldDataDialog, row: int, checked: bool) -> None:
+    state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+    dialog.zone_list.item(row).setCheckState(state)
+
+
+def _check_only(dialog: WorldDataDialog, row: int) -> None:
+    for index in range(dialog.zone_list.count()):
+        _set_checked(dialog, index, index == row)
 
 
 def _extract(dialog: WorldDataDialog, output_directory: Path) -> None:
@@ -147,8 +157,8 @@ def test_an_extracted_map_offers_its_zones_as_the_standing_position(
     _extract(dialog, tmp_path / "worlds")
 
     assert dialog.loaded_map is not None
-    assert dialog.zone_selector.count() == 2
-    assert dialog.zone_selector.itemText(0) == "Flame — 26 mobs at (100, 200)"
+    assert dialog.zone_list.count() == 2
+    assert dialog.zone_list.item(0).text() == "Flame — 26 mobs at (100, 200)"
     assert dialog.activate_button.isEnabled()
 
 
@@ -161,15 +171,49 @@ def test_activation_requests_a_navigator_anchored_at_the_selected_zone(
     requests: list[object] = []
     dialog.vector_navigation_requested.connect(requests.append)
 
-    dialog.zone_selector.setCurrentIndex(1)
+    _check_only(dialog, 1)
     dialog._on_activate_clicked()
 
     request = requests[0]
     assert isinstance(request, VectorNavigationRequest)
     assert request.anchor_zone is not None
     assert request.anchor_zone.monster_name == "Rapra"
+    assert [zone.monster_name for zone in request.active_zones] == ["Rapra"]
     assert request.goals == (ZoneGoal("Flame", 7), ZoneGoal("Rapra", 7))
     assert "Rapra" in dialog.status_label.text()
+
+
+def test_several_checked_zones_are_all_armed_for_sequential_farming(
+    client_root: Path, tmp_path: Path
+) -> None:
+    dialog = _dialog(client_root, tmp_path)
+    _extract(dialog, tmp_path / "worlds")
+    requests: list[object] = []
+    dialog.vector_navigation_requested.connect(requests.append)
+
+    _set_checked(dialog, 0, True)
+    _set_checked(dialog, 1, True)
+    dialog._on_activate_clicked()
+
+    request = requests[0]
+    assert isinstance(request, VectorNavigationRequest)
+    assert [zone.monster_name for zone in request.active_zones] == ["Flame", "Rapra"]
+    assert request.anchor_zone is not None
+    assert request.anchor_zone.monster_name == "Flame"
+    assert "2" in dialog.status_label.text()
+
+
+def test_activation_is_refused_while_no_zone_is_checked(client_root: Path, tmp_path: Path) -> None:
+    dialog = _dialog(client_root, tmp_path)
+    _extract(dialog, tmp_path / "worlds")
+    requests: list[object] = []
+    dialog.vector_navigation_requested.connect(requests.append)
+
+    _set_checked(dialog, 0, False)
+    dialog._on_activate_clicked()
+
+    assert not dialog.activate_button.isEnabled()
+    assert requests == []
 
 
 def test_refresh_and_reopened_dialog_restore_region_map_zone_and_quota(
@@ -186,21 +230,21 @@ def test_refresh_and_reopened_dialog_restore_region_map_zone_and_quota(
     dialog.region_selector.setCurrentText("wdtest")
     _extract(dialog, tmp_path / "worlds")
     dialog.region_selector.setCurrentText("wdother")
-    dialog.zone_selector.setCurrentIndex(1)
+    _check_only(dialog, 1)
     dialog.quota_spin.setValue(17)
 
     dialog.refresh()
 
     assert dialog.region_selector.currentText() == "wdother"
     assert dialog.map_selector.currentText() == "wdtest"
-    assert dialog.zone_selector.currentIndex() == 1
+    assert [zone.monster_name for zone in dialog.active_zones] == ["Rapra"]
     assert dialog.quota_spin.value() == 17
 
     reopened = _dialog(client_root, tmp_path, settings=settings)
 
     assert reopened.region_selector.currentText() == "wdother"
     assert reopened.map_selector.currentText() == "wdtest"
-    assert reopened.zone_selector.currentIndex() == 1
+    assert [zone.monster_name for zone in reopened.active_zones] == ["Rapra"]
     assert reopened.quota_spin.value() == 17
 
 
@@ -237,9 +281,7 @@ def test_an_unrestricted_selection_farms_every_extracted_class_in_turn(
     assert all(goal.kill_quota is None for goal in request.goals)
 
 
-def test_deactivation_hands_the_session_back_to_learned_pathing(
-    client_root: Path, tmp_path: Path
-) -> None:
+def test_deactivation_stops_dispatching_any_route(client_root: Path, tmp_path: Path) -> None:
     dialog = _dialog(client_root, tmp_path)
     cleared: list[bool] = []
     dialog.vector_navigation_cleared.connect(lambda: cleared.append(True))
@@ -247,7 +289,7 @@ def test_deactivation_hands_the_session_back_to_learned_pathing(
     dialog._on_deactivate_clicked()
 
     assert cleared == [True]
-    assert "learned map" in dialog.status_label.text()
+    assert "no route" in dialog.status_label.text()
 
 
 def test_switching_language_retranslates_every_label(client_root: Path, tmp_path: Path) -> None:

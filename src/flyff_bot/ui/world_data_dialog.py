@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSettings, Signal, Slot
+from PySide6.QtCore import QObject, QSettings, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -54,7 +56,10 @@ _SETTINGS_APPLICATION = "WorldDataDialog"
 _REGION_SETTING = "selected_region"
 _MAP_SETTING = "selected_map"
 _ZONE_SETTING = "selected_zone"
+_ZONES_SETTING = "selected_zones"
 _QUOTA_SETTING = "kill_quota"
+# Four camps fit without scrolling while a long monster list still stays inside the dialog.
+_ZONE_LIST_VISIBLE_ROWS = 4
 
 
 class WorldExtractionWorker(QObject):
@@ -146,7 +151,8 @@ class WorldDataDialog(QDialog):
         self._status_label = QLabel()
         self._status_label.setWordWrap(True)
         self._map_selector = QComboBox()
-        self._zone_selector = QComboBox()
+        self._zone_list = QListWidget()
+        self._zone_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         self._quota_spin = QSpinBox()
         self._quota_spin.setRange(UNLIMITED_KILL_QUOTA, MAXIMUM_KILL_QUOTA)
         self._quota_spin.setValue(self._saved_quota())
@@ -181,10 +187,22 @@ class WorldDataDialog(QDialog):
         return self._map_selector
 
     @property
-    def zone_selector(self) -> QComboBox:
-        """Expose the standing-zone selector for testing."""
+    def zone_list(self) -> QListWidget:
+        """Expose the checkable spawn-zone list for testing."""
 
-        return self._zone_selector
+        return self._zone_list
+
+    @property
+    def active_zones(self) -> tuple[VectorSpawnZone, ...]:
+        """Return every spawn zone the operator checked, in the order they are listed."""
+
+        zones = []
+        for index in range(self._zone_list.count()):
+            item = self._zone_list.item(index)
+            zone = item.data(Qt.ItemDataRole.UserRole)
+            if item.checkState() is Qt.CheckState.Checked and isinstance(zone, VectorSpawnZone):
+                zones.append(zone)
+        return tuple(zones)
 
     @property
     def extract_button(self) -> QPushButton:
@@ -256,7 +274,7 @@ class WorldDataDialog(QDialog):
         grid.addWidget(self._map_label, 1, 0)
         grid.addWidget(self._map_selector, 1, 1, 1, 2)
         grid.addWidget(self._zone_label, 2, 0)
-        grid.addWidget(self._zone_selector, 2, 1, 1, 2)
+        grid.addWidget(self._zone_list, 2, 1, 1, 2)
         grid.addWidget(self._quota_label, 3, 0)
         grid.addWidget(self._quota_spin, 3, 1, 1, 2)
 
@@ -277,7 +295,7 @@ class WorldDataDialog(QDialog):
         self._map_selector.currentIndexChanged.connect(self._on_map_selected)
         self._region_selector.currentIndexChanged.connect(self._persist_state)
         self._map_selector.currentIndexChanged.connect(self._persist_state)
-        self._zone_selector.currentIndexChanged.connect(self._persist_state)
+        self._zone_list.itemChanged.connect(self._on_zone_checked)
         self._quota_spin.valueChanged.connect(self._persist_state)
         self._activate_button.clicked.connect(self._on_activate_clicked)
         self._deactivate_button.clicked.connect(self._on_deactivate_clicked)
@@ -383,27 +401,44 @@ class WorldDataDialog(QDialog):
         self._refresh_zones()
 
     def _refresh_zones(self) -> None:
-        selected = self._zone_key(self._zone_selector.currentData()) or self._saved_text(
-            _ZONE_SETTING
-        )
-        self._zone_selector.blockSignals(True)
-        self._zone_selector.clear()
+        checked = {self._zone_key(zone) for zone in self.active_zones} or self._saved_zone_keys()
+        self._zone_list.blockSignals(True)
+        self._zone_list.clear()
         world_map = self._loaded_map
         if world_map is not None:
             for zone in world_map.zones:
-                self._zone_selector.addItem(self._zone_text(zone), zone)
-        selected_index = next(
-            (
-                index
-                for index in range(self._zone_selector.count())
-                if self._zone_key(self._zone_selector.itemData(index)) == selected
-            ),
-            -1,
-        )
-        if selected_index >= 0:
-            self._zone_selector.setCurrentIndex(selected_index)
-        self._zone_selector.blockSignals(False)
-        self._activate_button.setEnabled(self._zone_selector.count() > 0)
+                item = QListWidgetItem(self._zone_text(zone))
+                item.setData(Qt.ItemDataRole.UserRole, zone)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(
+                    Qt.CheckState.Checked
+                    if self._zone_key(zone) in checked
+                    else Qt.CheckState.Unchecked
+                )
+                self._zone_list.addItem(item)
+            self._check_first_zone_when_nothing_is_selected()
+        self._zone_list.blockSignals(False)
+        self._zone_list.setMaximumHeight(self._zone_list_height())
+        self._update_activation_enabled()
+
+    def _check_first_zone_when_nothing_is_selected(self) -> None:
+        """Arm the first camp so a freshly extracted map stays one click from activation."""
+
+        if self._zone_list.count() == 0 or self.active_zones:
+            return
+        self._zone_list.item(0).setCheckState(Qt.CheckState.Checked)
+
+    def _zone_list_height(self) -> int:
+        rows = min(max(self._zone_list.count(), 1), _ZONE_LIST_VISIBLE_ROWS)
+        return rows * self._zone_list.sizeHintForRow(0) + 2 * self._zone_list.frameWidth()
+
+    def _update_activation_enabled(self) -> None:
+        self._activate_button.setEnabled(bool(self.active_zones))
+
+    @Slot()
+    def _on_zone_checked(self, *_args: object) -> None:
+        self._update_activation_enabled()
+        self._persist_state()
 
     def _zone_text(self, zone: VectorSpawnZone) -> str:
         return self._translator.text(
@@ -417,23 +452,35 @@ class WorldDataDialog(QDialog):
     @Slot()
     def _on_activate_clicked(self) -> None:
         world_map = self._loaded_map
-        zone = self._zone_selector.currentData()
-        if world_map is None or not isinstance(zone, VectorSpawnZone):
+        active_zones = self.active_zones
+        if world_map is None or not active_zones:
             return
-        active_zones = (zone,)
+        # The first checked camp is where the session starts; the navigator walks the rest
+        # of the selection in list order as each quota completes (US-059).
+        anchor = active_zones[0]
         request = VectorNavigationRequest(
             world_map=world_map,
-            anchor_zone=zone,
+            anchor_zone=anchor,
             active_zones=active_zones,
             goals=self._goals(world_map),
         )
         self.vector_navigation_requested.emit(request)
-        self._status_label.setText(
-            self._translator.text(
+        self._status_label.setText(self._activation_text(world_map, active_zones))
+
+    def _activation_text(
+        self, world_map: WorldVectorMap, active_zones: tuple[VectorSpawnZone, ...]
+    ) -> str:
+        if len(active_zones) == 1:
+            zone = active_zones[0]
+            return self._translator.text(
                 Message.UI_WORLD_DATA_ACTIVE,
                 world=world_map.world_name,
                 monster=zone.monster_name or str(zone.monster_id),
             )
+        return self._translator.text(
+            Message.UI_WORLD_DATA_ACTIVE_ZONES,
+            world=world_map.world_name,
+            count=len(active_zones),
         )
 
     @Slot()
@@ -466,6 +513,19 @@ class WorldDataDialog(QDialog):
         value = self._settings.value(key, "")
         return value if isinstance(value, str) else ""
 
+    def _saved_zone_keys(self) -> set[str]:
+        """Return the stored zone identities, accepting the single-zone key of older runs."""
+
+        stored = self._settings.value(_ZONES_SETTING, [])
+        if isinstance(stored, list):
+            keys = {value for value in stored if isinstance(value, str) and value}
+            if keys:
+                return keys
+        if isinstance(stored, str) and stored:
+            return {stored}
+        single = self._saved_text(_ZONE_SETTING)
+        return {single} if single else set()
+
     def _saved_quota(self) -> int:
         value = self._settings.value(_QUOTA_SETTING, UNLIMITED_KILL_QUOTA)
         return value if isinstance(value, int) else UNLIMITED_KILL_QUOTA
@@ -475,10 +535,9 @@ class WorldDataDialog(QDialog):
 
         region = self._region_selector.currentText()
         map_path = self._map_selector.currentData()
-        zone = self._zone_selector.currentData()
         self._settings.setValue(_REGION_SETTING, region)
         self._settings.setValue(_MAP_SETTING, map_path.name if isinstance(map_path, Path) else "")
-        self._settings.setValue(_ZONE_SETTING, self._zone_key(zone))
+        self._settings.setValue(_ZONES_SETTING, [self._zone_key(z) for z in self.active_zones])
         self._settings.setValue(_QUOTA_SETTING, self._quota_spin.value())
         self._settings.sync()
 

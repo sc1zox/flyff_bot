@@ -555,7 +555,7 @@ def test_main_window_shows_live_gps_and_world_coordinates() -> None:
 
     fallback = replace(
         snapshot,
-        position_source=PositionSource.MINIMAP_FALLBACK,
+        position_source=PositionSource.UNAVAILABLE,
         position_error_code=PositionReadErrorCode.UNSUPPORTED_BUILD,
         world_position=None,
     )

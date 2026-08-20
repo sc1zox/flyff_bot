@@ -103,7 +103,7 @@ class TelemetryRecorder:
         mode: str,
         *,
         live_position: WorldPosition | None,
-        position_source: PositionSource = PositionSource.MINIMAP_FALLBACK,
+        position_source: PositionSource = PositionSource.UNAVAILABLE,
         buff_cooldowns: dict[str, float] | None = None,
         player_terrain_slope: float | None = None,
     ) -> None:

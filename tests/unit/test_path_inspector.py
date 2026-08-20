@@ -158,4 +158,3 @@ def test_widget_renders_multiple_zones_without_clutter() -> None:
     image = QImage(640, 480, QImage.Format.Format_RGB32)
     widget.render(image)
     assert not image.isNull()
-

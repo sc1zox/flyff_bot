@@ -129,7 +129,7 @@ def test_recorder_wires_loaded_navmesh_polygon_for_live_gps_only(tmp_path: Path)
         _state(),
         "searching",
         live_position=WorldPosition(1.0, 0.0, 1.0),
-        position_source=PositionSource.MINIMAP_FALLBACK,
+        position_source=PositionSource.UNAVAILABLE,
     )
     recorder.close()
     records = [

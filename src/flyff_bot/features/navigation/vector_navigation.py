@@ -174,7 +174,11 @@ class VectorZoneNavigator:
 
     @property
     def is_active(self) -> bool:
-        """Return whether an unfinished goal has at least one extracted zone to work in."""
+        """Return whether the session still has somewhere to farm.
+
+        An operator-selected camp keeps the extracted map steering even once every quota is
+        satisfied, which is what an unlimited (quota-free) selection means.
+        """
 
         goal = self.active_goal
         if goal is not None and bool(self._map.zones_for(goal.monster_name)):
@@ -195,9 +199,13 @@ class VectorZoneNavigator:
         self._selection = None
 
     def advance_to_next_zone(self) -> VectorSpawnZone | None:
-        """Cycle to the next selected spawn zone and drop the current selection."""
+        """Cycle to the next selected spawn zone, or report that there is no other one.
 
-        if not self._preferred_zones:
+        A selection of one camp has nowhere to advance to, so it stays bound instead of
+        re-binding to itself and restarting the route it is already following.
+        """
+
+        if len(self._preferred_zones) < 2:
             return None
         self._active_zone_index = (self._active_zone_index + 1) % len(self._preferred_zones)
         self._selection = None

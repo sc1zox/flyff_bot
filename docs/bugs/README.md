@@ -14,7 +14,7 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-- [ ] [**BUG-017: Spawn distance walk-in tracker target loss and edge mob misacquisition**](BUG-017-spawn-distance-walk-in-tracker-target-loss-and-edge-misacquisition.md)
+_No open defects._
 
 
 ## Fixed Defects
@@ -35,5 +35,10 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-014: Camera alignment uses inverted wheel direction and non-functional pitch keys**](fixed/BUG-014-camera-alignment-inverted-zoom-and-wrong-pitch-keys.md)
 - [x] [**BUG-015: Camera alignment mouse wheel zoom-out has no observable effect on game viewport**](fixed/BUG-015-camera-alignment-zoom-out-has-no-effect.md)
 - [x] [**BUG-016: Camera alignment dispatches forward mouse wheel notches zooming in instead of zooming out**](fixed/BUG-016-camera-alignment-inverted-mouse-wheel-zoom-direction.md)
+- [x] [**BUG-017: Invisible wall collision stall detection and recovery pathfinding**](fixed/BUG-017-invisible-wall-collision-stall-detection-and-recovery-pathfinding.md)
+- [x] [**BUG-018: Win32 ModuleEntry32W structure bad length error in LivePositionReader**](fixed/BUG-018-win32-module-entry-structure-bad-length-error.md)
+- [x] [**BUG-019: Live camera poll suppressed by the GPS sample guard freezes the steering heading**](fixed/BUG-019-live-camera-poll-suppressed-by-gps-sample-guard.md)
+- [x] [**BUG-020: Emergency recovery measures world-unit GPS movement against a minimap pixel threshold**](fixed/BUG-020-emergency-recovery-progress-threshold-in-minimap-pixels.md)
+- [x] [**BUG-021: Vector navigation offers no multi-zone selection and renders debug values unlocalized**](fixed/BUG-021-multi-zone-selection-and-localized-debug-values-missing.md)
 
 

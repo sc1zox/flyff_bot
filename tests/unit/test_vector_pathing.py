@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import math
 from typing import cast
+
+import pytest
 
 from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_A,
     VIRTUAL_KEY_S,
     VIRTUAL_KEY_W,
+    SearchConfig,
 )
 from flyff_bot.features.automation.models import (
     Position,
@@ -18,9 +22,15 @@ from flyff_bot.features.automation.models import (
     WorldState,
 )
 from flyff_bot.features.automation.orchestrator import (
+    FarmingConfig,
     FarmingInputAdapter,
     FarmingMode,
     FarmingOrchestrator,
+)
+from flyff_bot.features.navigation.live_camera import (
+    CameraReading,
+    CameraState,
+    LiveCameraReader,
 )
 from flyff_bot.features.navigation.live_position import (
     LivePositionReader,
@@ -104,6 +114,45 @@ class _LiveReader:
         self.closed += 1
 
 
+class _CameraReader:
+    """Yield one distinct yaw per poll so a suppressed poll is observable."""
+
+    def __init__(self, yaw_radians: list[float]) -> None:
+        self._yaw_radians = iter(yaw_radians)
+        self._last = 0.0
+        self.polls = 0
+
+    def poll(self, at_seconds: float) -> CameraReading:
+        self.polls += 1
+        self._last = next(self._yaw_radians, self._last)
+        return CameraReading(CameraState(yaw_radians=self._last), sampled_at_seconds=at_seconds)
+
+    def close(self) -> None:
+        return None
+
+
+class _WaypointWalker:
+    """Report the character as standing on the route's next station on every poll.
+
+    A camp patrol is only exhausted once its stations are actually reached, so the walk has
+    to be modelled: a fixed position would keep the first leg pending forever.
+    """
+
+    def __init__(self, start: WorldPosition) -> None:
+        self.controller: PathingController | None = None
+        self._position = start
+
+    def poll(self, at_seconds: float) -> PositionReading:
+        controller = self.controller
+        if controller is not None and controller.waypoints:
+            station = controller.waypoints[0]
+            self._position = WorldPosition(station.x, self._position.y, station.z)
+        return PositionReading(PositionSource.LIVE, self._position, sampled_at_seconds=at_seconds)
+
+    def close(self) -> None:
+        return None
+
+
 class _LossReader(_LiveReader):
     def __init__(self) -> None:
         super().__init__([WorldPosition(100.0, 100.0, 100.0)])
@@ -114,7 +163,7 @@ class _LossReader(_LiveReader):
         if self._polls == 1:
             return super().poll(at_seconds)
         return PositionReading(
-            PositionSource.MINIMAP_FALLBACK,
+            PositionSource.UNAVAILABLE,
             error=PositionReadError(PositionReadErrorCode.WINDOW_NOT_FOREGROUND),
         )
 
@@ -226,6 +275,20 @@ def test_multi_zone_cycling_when_multiple_zones_present() -> None:
     assert navigator.active_zone is RAPRA_ZONE
 
 
+def test_a_single_selected_zone_has_nowhere_to_advance_to() -> None:
+    navigator = VectorZoneNavigator(
+        TERRAIN_WORLD_MAP,
+        preferred_zones=(FLAME_ZONE,),
+        goals=(ZoneGoal("Flame"),),
+    )
+    controller = _controller(navigator)
+    controller.observe(_state(0.0))
+    controller.step(0.0)
+
+    assert controller.advance_to_next_zone() is None
+    assert navigator.active_zone is FLAME_ZONE
+
+
 def test_live_stall_triggers_evasion_backstep() -> None:
     stalled_at = WorldPosition(100.0, 100.0, 100.0)
     reader = _LiveReader([stalled_at])
@@ -330,7 +393,7 @@ def test_orchestrator_auto_resumes_when_gps_recovers() -> None:
 
     valid_reading = PositionReading(PositionSource.LIVE, WorldPosition(100.0, 100.0, 100.0))
     error_reading = PositionReading(
-        PositionSource.MINIMAP_FALLBACK,
+        PositionSource.UNAVAILABLE,
         error=PositionReadError(PositionReadErrorCode.HANDLE_LOST),
     )
 
@@ -383,7 +446,6 @@ def test_orchestrator_auto_resumes_when_gps_recovers() -> None:
 
 
 def test_orchestrator_manual_pause_does_not_auto_resume_even_with_gps() -> None:
-    valid_reading = PositionReading(PositionSource.LIVE, WorldPosition(100.0, 100.0, 100.0))
     reader = _LiveReader([WorldPosition(100.0, 100.0, 100.0)])
     controller = PathingController(
         config=PATHING_CONFIG,
@@ -398,14 +460,87 @@ def test_orchestrator_manual_pause_does_not_auto_resume_even_with_gps() -> None:
         pathing=controller,
     )
     orchestrator.start()
-    orchestrator.tick()
-    assert orchestrator.mode is FarmingMode.SEARCHING
+    started = orchestrator.tick()
+    assert started.mode is FarmingMode.SEARCHING
 
-    # Operator explicitly clicks Pause
     orchestrator.pause()
-    assert orchestrator.mode is FarmingMode.PAUSED
 
-    # Next tick: even with valid GPS, manual pause persists
-    tick = orchestrator.tick()
-    assert tick.mode is FarmingMode.PAUSED
+    # Even with valid GPS the operator's own pause stays latched.
+    resumed = orchestrator.tick()
+    assert resumed.mode is FarmingMode.PAUSED
 
+
+def test_live_camera_is_polled_on_every_tick_while_gps_is_live() -> None:
+    # Regression for BUG-019: the camera guard compared against the GPS sample time, so
+    # every poll after the first was suppressed and the heading froze.
+    camera = _CameraReader([0.0, math.radians(90.0)])
+    controller = PathingController(
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        position_reader=cast(
+            "LivePositionReader", _LiveReader([WorldPosition(100.0, 100.0, 100.0)])
+        ),
+        camera_reader=cast("LiveCameraReader", camera),
+    )
+
+    controller.step(0.0)
+    first_heading = controller.heading_degrees
+    controller.step(1.0)
+
+    assert camera.polls == 2
+    assert first_heading == pytest.approx(0.0)
+    assert controller.heading_degrees == pytest.approx(90.0)
+
+
+def test_live_camera_is_polled_once_per_tick() -> None:
+    camera = _CameraReader([0.0])
+    controller = PathingController(
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        position_reader=cast(
+            "LivePositionReader", _LiveReader([WorldPosition(100.0, 100.0, 100.0)])
+        ),
+        camera_reader=cast("LiveCameraReader", camera),
+    )
+
+    controller.observe(_state(0.0))
+    controller.step(0.0)
+
+    assert camera.polls == 1
+
+
+def test_an_exhausted_camp_hands_the_session_to_the_next_selected_zone() -> None:
+    navigator = VectorZoneNavigator(
+        TERRAIN_WORLD_MAP,
+        preferred_zones=(FLAME_ZONE, RAPRA_ZONE),
+        goals=(ZoneGoal("Flame"), ZoneGoal("Rapra")),
+    )
+    inside_flame_camp = WorldPosition(FLAME_ZONE.center_x, 100.0, FLAME_ZONE.center_z)
+    walker = _WaypointWalker(inside_flame_camp)
+    controller = PathingController(
+        config=PATHING_CONFIG,
+        vector_navigator=navigator,
+        position_reader=cast("LivePositionReader", walker),
+    )
+    walker.controller = controller
+    search = SearchConfig(
+        idle_timeout_seconds=0.0,
+        rotation_steps=1,
+        roam_steps=1,
+    )
+    states = [_state(float(tick)) for tick in range(12)]
+    orchestrator = FarmingOrchestrator(
+        cast("PerceptionPipeline", _Pipeline(states)),
+        cast("FarmingInputAdapter", _Adapter()),
+        WINDOW_HANDLE,
+        config=FarmingConfig(search=search, auto_align_camera=False),
+        pathing=controller,
+    )
+    orchestrator.start()
+
+    for _ in range(len(states)):
+        orchestrator.tick()
+        if navigator.active_zone is RAPRA_ZONE:
+            break
+
+    assert navigator.active_zone is RAPRA_ZONE

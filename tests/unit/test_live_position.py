@@ -150,10 +150,10 @@ def test_lost_handle_emits_one_error_transition_and_falls_back(
     first = reader.poll(1.1)
     second = reader.poll(1.21)
 
-    assert first.source is PositionSource.MINIMAP_FALLBACK
+    assert first.source is PositionSource.UNAVAILABLE
     assert first.error is not None
     assert first.error.code is PositionReadErrorCode.HANDLE_LOST
-    assert second.source is PositionSource.MINIMAP_FALLBACK
+    assert second.source is PositionSource.UNAVAILABLE
     assert [event.code for event in events] == [PositionReadErrorCode.HANDLE_LOST]
     assert api.closed == [PROCESS_HANDLE, PROCESS_HANDLE]
 
@@ -166,7 +166,7 @@ def test_short_coordinate_read_is_malformed_and_closes_handle(
 
     reading = reader.poll(0.0)
 
-    assert reading.source is PositionSource.MINIMAP_FALLBACK
+    assert reading.source is PositionSource.UNAVAILABLE
     assert events[0].code is PositionReadErrorCode.MALFORMED_READ
     assert api.closed == [PROCESS_HANDLE]
 
@@ -179,7 +179,7 @@ def test_nonfinite_coordinate_is_rejected(
 
     reading = reader.poll(0.0)
 
-    assert reading.source is PositionSource.MINIMAP_FALLBACK
+    assert reading.source is PositionSource.UNAVAILABLE
     assert events[0].code is PositionReadErrorCode.MALFORMED_READ
 
 
@@ -192,7 +192,7 @@ def test_unknown_build_falls_back_without_reading_memory(tmp_path: Path) -> None
 
     reading = LivePositionReader(WINDOW_HANDLE, api=api, profiles={}).poll(0.0)
 
-    assert reading.source is PositionSource.MINIMAP_FALLBACK
+    assert reading.source is PositionSource.UNAVAILABLE
     assert reading.error is not None
     assert reading.error.code is PositionReadErrorCode.UNSUPPORTED_BUILD
     assert api.reads == []
@@ -247,7 +247,7 @@ def test_invalid_profile_file_is_an_explicit_gps_error(tmp_path: Path) -> None:
 
     reading = LivePositionReader(WINDOW_HANDLE, api=api, profiles_path=profiles_path).poll(0.0)
 
-    assert reading.source is PositionSource.MINIMAP_FALLBACK
+    assert reading.source is PositionSource.UNAVAILABLE
     assert reading.error is not None
     assert reading.error.code is PositionReadErrorCode.INVALID_PROFILE_CONFIGURATION
     assert api.open_count == 0
@@ -270,7 +270,7 @@ def test_reader_recovers_on_a_later_successful_poll(
 ) -> None:
     reader, api, events = configured_reader
     api.fail_read = True
-    assert reader.poll(0.0).source is PositionSource.MINIMAP_FALLBACK
+    assert reader.poll(0.0).source is PositionSource.UNAVAILABLE
 
     api.fail_read = False
     recovered = reader.poll(0.1)

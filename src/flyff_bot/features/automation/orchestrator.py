@@ -79,6 +79,9 @@ DEFAULT_REPOSITION_IDLE_TIMEOUT_SECONDS = 0.0
 DEFAULT_REPOSITION_ROTATION_STEPS = 4
 DEFAULT_REPOSITION_ROAM_STEPS = 2
 REPOSITION_SWEEP_CYCLES = 1
+# One full patrol lap of a camp without a confirmed kill is what exhausts it: the next
+# selected spawn zone is worth walking to rather than sweeping the empty one again.
+PATROL_SWEEPS_BEFORE_ZONE_CHANGE = 1
 
 
 def _default_reposition_config() -> SearchConfig:
@@ -623,6 +626,8 @@ class FarmingOrchestrator:
                 self._engagement_break = None
                 self._approach_stalls.reset()
                 return self._combat_dispatcher.dispatch(combat)
+            if self._exhausted_zone_handed_over():
+                return False
             if self._advance_pathing():
                 return True
             search_decision = self._search.step(self._state.observed_at_seconds)
@@ -798,6 +803,23 @@ class FarmingOrchestrator:
             )
         return dispatched
 
+    def _exhausted_zone_handed_over(self) -> bool:
+        """Route to the next selected spawn zone once this camp searched out empty.
+
+        Returns whether the session switched camps, in which case this tick dispatches no
+        search input and the next one plans the route to the new zone (US-059).
+        """
+
+        if (
+            self._pathing is None
+            or self._pathing.completed_zone_sweeps < PATROL_SWEEPS_BEFORE_ZONE_CHANGE
+        ):
+            return False
+        if self._pathing.advance_to_next_zone() is None:
+            return False
+        self._search.reset()
+        return True
+
     def _advance_emergency_recovery(self) -> bool:
         """Escape geometry when wedged."""
 
@@ -807,7 +829,7 @@ class FarmingOrchestrator:
         decision = self._emergency.observe(
             self._state.observed_at_seconds,
             position_x=live.x if live is not None else None,
-            position_y=live.z if live is not None else None,
+            position_z=live.z if live is not None else None,
             engaged=self._engagement_progressed(),
         )
         if decision.action is EmergencyRecoveryAction.UNAVAILABLE:
@@ -960,7 +982,7 @@ class FarmingOrchestrator:
             position_source=(
                 self._pathing.position_source
                 if self._pathing is not None
-                else PositionSource.MINIMAP_FALLBACK
+                else PositionSource.UNAVAILABLE
             ),
             player_terrain_slope=(
                 self._pathing.terrain_slope if self._pathing is not None else None

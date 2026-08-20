@@ -18,10 +18,11 @@ MAXIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS = 300.0
 # The client needs a moment to finish the teleport transition and redraw the destination
 # before any perception reading or movement command means anything again.
 DEFAULT_TELEPORT_SETTLE_SECONDS = 2.0
-# Below one navigation cell (15 minimap pixels), so a character that genuinely walked to a
-# neighbouring cell always counts as progress while measurement jitter around a wedged
-# character does not.
-DEFAULT_PROGRESS_DISTANCE_PIXELS = 10.0
+# Live GPS reports client world units, so progress is measured in the same units the
+# navigation stack plans in. This mirrors `REPEATED_STALL_RADIUS_UNITS`, the radius two
+# stalls count as the same spot within: a character that actually walked out of that radius
+# made progress, while GPS jitter around a wedged character stays below it.
+DEFAULT_PROGRESS_DISTANCE_UNITS = 3.0
 DEFAULT_EMERGENCY_TELEPORT_VIRTUAL_KEY = VIRTUAL_KEY_F4
 
 
@@ -45,7 +46,7 @@ class EmergencyRecoveryConfig:
     teleport_virtual_key: int | None = DEFAULT_EMERGENCY_TELEPORT_VIRTUAL_KEY
     stuck_timeout_seconds: float = DEFAULT_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS
     settle_delay_seconds: float = DEFAULT_TELEPORT_SETTLE_SECONDS
-    progress_distance_pixels: float = DEFAULT_PROGRESS_DISTANCE_PIXELS
+    progress_distance_units: float = DEFAULT_PROGRESS_DISTANCE_UNITS
     key_press_duration_seconds: float = DEFAULT_KEY_PRESS_DURATION_SECONDS
 
     def __post_init__(self) -> None:
@@ -61,7 +62,7 @@ class EmergencyRecoveryConfig:
             )
         if self.settle_delay_seconds < 0.0:
             raise ValueError("Emergency teleport settle delay must not be negative.")
-        if self.progress_distance_pixels <= 0.0:
+        if self.progress_distance_units <= 0.0:
             raise ValueError("Emergency recovery progress distance must be positive.")
         if self.key_press_duration_seconds <= 0.0:
             raise ValueError("Emergency teleport key press duration must be positive.")
@@ -107,7 +108,7 @@ class EmergencyRecoveryMonitor:
         self._stuck_seconds = 0.0
         self._last_step_at_seconds: float | None = None
         self._reference_x: float | None = None
-        self._reference_y: float | None = None
+        self._reference_z: float | None = None
 
     @property
     def config(self) -> EmergencyRecoveryConfig:
@@ -137,26 +138,27 @@ class EmergencyRecoveryMonitor:
         self._stuck_seconds = 0.0
         self._last_step_at_seconds = None
         self._reference_x = None
-        self._reference_y = None
+        self._reference_z = None
 
     def observe(
         self,
         at_seconds: float,
         *,
         position_x: float | None = None,
-        position_y: float | None = None,
+        position_z: float | None = None,
         engaged: bool = False,
     ) -> EmergencyRecoveryDecision:
         """Fold one tick into the timer and report whether recovery is now due.
 
-        ``position_x``/``position_y`` are the session's own estimate; passing ``None``
-        means the position is currently unknown, which is no evidence of progress and no
-        evidence against it either, so only the reference point is left untouched.
+        ``position_x``/``position_z`` are the live GPS coordinates of the horizontal
+        world plane in client world units; passing ``None`` means the position is currently
+        unknown, which is no evidence of progress and no evidence against it either, so only
+        the reference point is left untouched.
         """
 
         previous_step_at = self._last_step_at_seconds
         self._last_step_at_seconds = at_seconds
-        if self._made_progress(position_x, position_y, engaged=engaged):
+        if self._made_progress(position_x, position_z, engaged=engaged):
             self._stuck_seconds = 0.0
             return EmergencyRecoveryDecision()
         if previous_step_at is None:
@@ -176,27 +178,27 @@ class EmergencyRecoveryMonitor:
         )
 
     def _made_progress(
-        self, position_x: float | None, position_y: float | None, *, engaged: bool
+        self, position_x: float | None, position_z: float | None, *, engaged: bool
     ) -> bool:
         """Report whether this tick carries evidence that the session is not wedged."""
 
         if engaged:
             self._reference_x = position_x
-            self._reference_y = position_y
+            self._reference_z = position_z
             return True
-        if position_x is None or position_y is None:
+        if position_x is None or position_z is None:
             return False
-        if self._reference_x is None or self._reference_y is None:
+        if self._reference_x is None or self._reference_z is None:
             # The first known position is the reference every later one is compared to; it
             # is not itself displacement, so it does not clear an accumulated span.
             self._reference_x = position_x
-            self._reference_y = position_y
+            self._reference_z = position_z
             return False
-        moved = math.hypot(position_x - self._reference_x, position_y - self._reference_y)
-        if moved < self._config.progress_distance_pixels:
+        moved = math.hypot(position_x - self._reference_x, position_z - self._reference_z)
+        if moved < self._config.progress_distance_units:
             return False
         self._reference_x = position_x
-        self._reference_y = position_y
+        self._reference_z = position_z
         return True
 
 

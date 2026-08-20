@@ -97,7 +97,7 @@ class NavigationSnapshot:
     waypoints: tuple[tuple[float, float], ...] = ()
     vector_zone: VectorZoneSnapshot | None = None
     vector_zones: tuple[VectorZoneSnapshot, ...] = ()
-    position_source: PositionSource = PositionSource.MINIMAP_FALLBACK
+    position_source: PositionSource = PositionSource.UNAVAILABLE
     position_error_code: PositionReadErrorCode | None = None
     world_position: WorldPosition | None = None
     camera_state: CameraState | None = None

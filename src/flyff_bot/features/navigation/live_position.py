@@ -57,10 +57,14 @@ class WorldPosition:
 
 
 class PositionSource(StrEnum):
-    """The source currently anchoring navigation."""
+    """Whether navigation is currently anchored by an authoritative coordinate.
+
+    There is no second source: without a live client read the session has no position at
+    all, which is what blocks navigation instead of falling back to an estimate (US-059).
+    """
 
     LIVE = "live"
-    MINIMAP_FALLBACK = "minimap_fallback"
+    UNAVAILABLE = "unavailable"
 
 
 class PositionReadErrorCode(StrEnum):
@@ -78,7 +82,7 @@ class PositionReadErrorCode(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class PositionReadError:
-    """Typed diagnostic emitted when GPS falls back to minimap odometry."""
+    """Typed diagnostic naming why one live coordinate read produced no position."""
 
     code: PositionReadErrorCode
     detail: str = ""
@@ -86,7 +90,7 @@ class PositionReadError:
 
 @dataclass(frozen=True, slots=True)
 class PositionReading:
-    """The result of one poll, including fallback state and diagnostics."""
+    """The result of one poll, including its source and diagnostics."""
 
     source: PositionSource
     position: WorldPosition | None = None
@@ -367,7 +371,7 @@ class LivePositionReader:
         self._module_base: int | None = None
         self._profile: ClientPositionProfile | None = None
         self._polled_at_seconds: float | None = None
-        self._last_reading = PositionReading(PositionSource.MINIMAP_FALLBACK)
+        self._last_reading = PositionReading(PositionSource.UNAVAILABLE)
         self._last_error_code: PositionReadErrorCode | None = None
         self._lock = RLock()
         self._logger = logging.getLogger(__name__)
@@ -498,7 +502,7 @@ class LivePositionReader:
     def _fail(self, code: PositionReadErrorCode, detail: str) -> None:
         self.close()
         error = PositionReadError(code, detail)
-        self._last_reading = PositionReading(PositionSource.MINIMAP_FALLBACK, error=error)
+        self._last_reading = PositionReading(PositionSource.UNAVAILABLE, error=error)
         if code is self._last_error_code:
             return
         self._last_error_code = code

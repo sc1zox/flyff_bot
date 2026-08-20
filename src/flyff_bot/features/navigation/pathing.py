@@ -147,11 +147,12 @@ class PathingController:
         self._navmesh_target: WorldPosition | None = None
         self._navmesh_mobs: tuple[NavMeshMobSnapshot, ...] = ()
         self._navigation_trajectory: list[WorldPosition] = []
-        self._position_source = PositionSource.MINIMAP_FALLBACK
+        self._position_source = PositionSource.UNAVAILABLE
         self._position_error_code: PositionReadErrorCode | None = None
         self._live_position: WorldPosition | None = None
         self._live_sampled_at_seconds: float | None = None
         self._camera_state: CameraState | None = None
+        self._camera_sampled_at_seconds: float | None = None
         self._camera_error_code: CameraReadErrorCode | None = None
         self._world_waypoints: tuple[WorldPosition, ...] = ()
         self._teleport = TeleportController(teleport_config)
@@ -167,6 +168,7 @@ class PathingController:
         self._movement_commanded = False
         self._stalled = False
         self._heading_degrees: float = 0.0
+        self._completed_zone_sweeps = 0
 
     @property
     def is_gps_available(self) -> bool:
@@ -182,7 +184,7 @@ class PathingController:
 
     @property
     def position_source(self) -> PositionSource:
-        """Return whether pathing is anchored by live GPS or offline."""
+        """Return whether pathing is anchored by live GPS or has no position at all."""
 
         return self._position_source
 
@@ -291,6 +293,16 @@ class PathingController:
         return self._stalled
 
     @property
+    def completed_zone_sweeps(self) -> int:
+        """Return how many full patrol laps of the active camp produced no confirmed kill.
+
+        A camp that is swept end to end without a kill is exhausted, which is what hands a
+        multi-zone selection to its next spawn zone (US-059).
+        """
+
+        return self._completed_zone_sweeps
+
+    @property
     def vector_navigator(self) -> VectorZoneNavigator | None:
         """Return the goal-driven vector navigator, when an extracted map is loaded."""
 
@@ -317,6 +329,7 @@ class PathingController:
         self._navmesh_target = None
         self._waypoint_index = 0
         self._planned_at_seconds = None
+        self._completed_zone_sweeps = 0
 
     def snapshot(self, at_seconds: float = 0.0) -> NavigationSnapshot:
         """Return an immutable snapshot of authoritative 3D GPS, NavMesh, and active route."""
@@ -480,6 +493,7 @@ class PathingController:
         navigator = self._vector_navigator
         if navigator is None or not monster_name:
             return False
+        self._completed_zone_sweeps = 0
         if not navigator.record_kill(monster_name):
             return False
         self._waypoint_index = 0
@@ -495,6 +509,9 @@ class PathingController:
         if navigator is None:
             return None
         zone = navigator.advance_to_next_zone()
+        if zone is None:
+            return None
+        self._completed_zone_sweeps = 0
         self._waypoint_index = 0
         self._planned_at_seconds = None
         self._vector_zone = None
@@ -582,8 +599,9 @@ class PathingController:
         self._live_position = None
         self._live_sampled_at_seconds = None
         self._camera_state = None
+        self._camera_sampled_at_seconds = None
         self._camera_error_code = None
-        self._position_source = PositionSource.MINIMAP_FALLBACK
+        self._position_source = PositionSource.UNAVAILABLE
         self._position_error_code = None
 
     def close(self) -> None:
@@ -596,7 +614,7 @@ class PathingController:
 
         if self._position_reader is not None:
             self._position_reader.close()
-        self._position_source = PositionSource.MINIMAP_FALLBACK
+        self._position_source = PositionSource.UNAVAILABLE
         self._position_error_code = error_code
         self._live_position = None
         self._live_sampled_at_seconds = None
@@ -655,9 +673,13 @@ class PathingController:
         reader = self._camera_reader
         if reader is None:
             return
-        if self._camera_state is not None and self._live_sampled_at_seconds == at_seconds:
+        # Guarded against this tick's own camera sample, never against the GPS sample: the
+        # position is polled first, so comparing against it would suppress every camera read
+        # after the first one and freeze the heading (BUG-019).
+        if self._camera_state is not None and self._camera_sampled_at_seconds == at_seconds:
             return
         reading = reader.poll(at_seconds)
+        self._camera_sampled_at_seconds = at_seconds
         self._camera_state = reading.state
         self._camera_error_code = None if reading.error is None else reading.error.code
         if reading.state is not None:
@@ -679,6 +701,8 @@ class PathingController:
             if dist > arrival_radius:
                 return self._steer(PathingMode.TRAVELING, target.x, target.z)
             self._waypoint_index += 1
+        if self._world_waypoints and self._navmesh_target is None and self._vector_zone is not None:
+            self._completed_zone_sweeps += 1
         self._world_waypoints = ()
         self._waypoint_index = 0
         self._planned_at_seconds = None

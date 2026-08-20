@@ -206,7 +206,7 @@ class MainWindow(QMainWindow):
         self._gps_label.setObjectName("StatChip")
         self._camera_label = QLabel()
         self._camera_label.setObjectName("StatChip")
-        self._position_source = PositionSource.MINIMAP_FALLBACK
+        self._position_source = PositionSource.UNAVAILABLE
         self._mob_label = QLabel()
         self._mob_label.setObjectName("StatChip")
         self._target_label = QLabel()
@@ -1081,7 +1081,7 @@ class MainWindow(QMainWindow):
         self._position_source = (
             update.navigation.position_source
             if update.navigation is not None
-            else PositionSource.MINIMAP_FALLBACK
+            else PositionSource.UNAVAILABLE
         )
         self._render_gps()
         self._render_camera()
@@ -1146,32 +1146,32 @@ class MainWindow(QMainWindow):
         self, target: SelectedTarget, break_reason: EngagementBreakReason | None
     ) -> None:
         metrics = target.metrics
-        if metrics.anchor_score > 0.0 or metrics.anchor_threshold > 0.0:
-            verdict = _pass_fail_text(self._translator, metrics.anchor_passed)
-            self._target_anchor_val.setText(
-                f"{verdict} {metrics.anchor_score:.2f} / {metrics.anchor_threshold:.2f}"
+        self._target_anchor_val.setText(
+            self._translator.text(
+                Message.UI_TARGET_DEBUG_ANCHOR_VALUE,
+                status=_pass_fail_text(self._translator, metrics.anchor_passed),
+                score=f"{metrics.anchor_score:.2f}",
+                threshold=f"{metrics.anchor_threshold:.2f}",
             )
-        else:
-            self._target_anchor_val.setText(
-                _pass_fail_text(self._translator, metrics.anchor_passed)
+        )
+        self._target_hp_val.setText(
+            self._translator.text(
+                Message.UI_TARGET_DEBUG_HP_VALUE,
+                status=_pass_fail_text(self._translator, metrics.hp_passed),
+                pixels=metrics.hp_pixel_count,
+                percentage=f"{metrics.hp_percentage:.1f}",
             )
-
-        if metrics.hp_pixel_count > 0 or metrics.hp_percentage > 0.0:
-            hp_verdict = _pass_fail_text(self._translator, metrics.hp_passed)
-            self._target_hp_val.setText(
-                f"{hp_verdict} {metrics.hp_pixel_count} px ({metrics.hp_percentage:.1f}%)"
+        )
+        self._target_name_val.setText(
+            self._translator.text(Message.UI_TARGET_DEBUG_NAME_NOT_EVALUATED)
+            if metrics.name_status is TargetNameStatus.NOT_EVALUATED
+            else self._translator.text(
+                Message.UI_TARGET_DEBUG_NAME_VALUE,
+                status=_pass_fail_text(self._translator, metrics.name_passed),
+                text=metrics.name_text,
+                name=metrics.name_candidate or self._translator.text(Message.UI_NO_TARGET_NAME),
             )
-        else:
-            self._target_hp_val.setText(_pass_fail_text(self._translator, metrics.hp_passed))
-
-        if metrics.name_text:
-            name_verdict = _pass_fail_text(self._translator, metrics.name_passed)
-            cand = metrics.name_candidate if metrics.name_candidate else "none"
-            self._target_name_val.setText(f"{name_verdict} '{metrics.name_text}' \u2192 {cand}")
-        else:
-            self._target_name_val.setText(
-                self._translator.text(Message.UI_TARGET_DEBUG_NAME_NOT_EVALUATED)
-            )
+        )
 
         self._target_state_val.setText(self._translator.text(_target_state_message(target.state)))
         self._target_reason_val.setText(
@@ -1185,12 +1185,22 @@ class MainWindow(QMainWindow):
         if not metrics.anchor_configured:
             anchor_text = self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ANCHOR_FIXED_REGION)
         else:
-            verdict = _pass_fail_text(self._translator, metrics.anchor_passed)
-            anchor_text = f"{verdict} {metrics.anchor_score:.2f} / {metrics.anchor_threshold:.2f}"
+            anchor_text = self._translator.text(
+                Message.UI_MONSTER_STATS_DEBUG_ANCHOR_VALUE,
+                status=_pass_fail_text(self._translator, metrics.anchor_passed),
+                score=f"{metrics.anchor_score:.2f}",
+                threshold=f"{metrics.anchor_threshold:.2f}",
+            )
         self._monster_anchor_val.setText(anchor_text)
 
         if metrics.roi_width > 0 and metrics.roi_height > 0:
-            self._monster_roi_val.setText(f"{metrics.roi_width} x {metrics.roi_height} px")
+            self._monster_roi_val.setText(
+                self._translator.text(
+                    Message.UI_MONSTER_STATS_DEBUG_ROI_VALUE,
+                    width=metrics.roi_width,
+                    height=metrics.roi_height,
+                )
+            )
         else:
             self._monster_roi_val.setText(
                 self._translator.text(Message.UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE)
@@ -1375,7 +1385,9 @@ class MainWindow(QMainWindow):
             try:
                 vk = parse_virtual_key(combo.currentText().strip())
             except ValueError:
-                vk = 0x70
+                # An unreadable hotkey is an unusable rule rather than a silently
+                # re-assigned one, so the entry is dropped instead of guessed.
+                continue
             rules.append(
                 VitalTriggerRule(
                     vital_type=vital_type,
