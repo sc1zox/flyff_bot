@@ -69,6 +69,7 @@ related:
   - ../user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md
   - ../user-stories/completed/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
   - ../user-stories/completed/US-058-navmesh-aware-targeting-and-telemetry-integration.md
+  - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
 ---
 
 # Architecture
@@ -1484,6 +1485,36 @@ observable rather than fabricated while keeping the projection read-only. The fu
 repository gate passed on 2026-08-20 at 800 passed, 2 skipped, and 91.30% coverage. The Windows
 live-client farming and direct Parquet-load walkthroughs remain outstanding and are not implied by
 the automated result.
+
+## Perception-side mob world positioning and chunked NavMesh raycasting (US-057, completed)
+
+US-057 makes one measured estimate of where a detection stands the shared input of targeting,
+telemetry, and the inspector. `perception.mob_world_position` takes each detection's bottom-centre
+ground contact point — never the box centre, whose parallax places a mob behind or below its actual
+position — unprojects it through the US-056 `CameraState`, and intersects the resulting world ray
+with the baked NavMesh. An `EstimatedMobWorldPosition` carries the surface point, polygon ID,
+distance to the player, ray distance, class name, and confidence; a missing camera, GPS, mesh, or
+ray hit yields `None` rather than a fabricated coordinate.
+
+`navigation.raycast` owns the project's single Moller-Trumbore implementation together with a
+horizontal chunk index built from each walkable triangle's X/Z coverage. `BakedNavMesh.raycast()`
+builds that index once per mesh and walks only the cells a ray actually crosses (Amanatides and
+Woo), returning as soon as the nearest hit found so far precedes the next cell boundary. That
+ordering is what makes a bridge deck win over the terrain it occludes, and it keeps a batch of
+twenty detections against a 512-polygon mesh at roughly 0.5-0.7 ms instead of a full-mesh scan.
+
+`PerceptionPipeline.attach_world_geometry` binds the pathing controller — which owns the polled
+camera, live GPS, and loaded mesh — so one tick publishes `WorldState.visible_mobs` already carrying
+world coordinates and polygon IDs. The composition roots (`cli` and the desktop app) perform that
+wiring; without a feed the pipeline keeps reporting purely client-space detections. `PathingController`
+then reuses the measurement for reachability, path distance, and leash instead of casting a second
+ray, and US-058 telemetry projects only the candidates the pipeline could not resolve. Exported
+`target_decisions.parquet` names this geometry `estimated_mob_x`, `estimated_mob_y`,
+`estimated_mob_z`, and `estimated_mob_polygon_id`; the raw JSONL event schema is unchanged.
+
+The automated repository gate passed on 2026-08-20 at 823 tests passed, 3 skipped, and 90.77%
+coverage. The foregrounded Windows walkthrough against a live client on open ground and on bridges
+remains unrun and is not implied by the automated result.
 
 ## NavMesh-aware targeting, active Funnel approach, and telemetry integration (US-058, completed)
 

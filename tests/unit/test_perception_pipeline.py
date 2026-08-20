@@ -15,6 +15,10 @@ from flyff_bot.features.automation.models import (
     TargetState,
     WorldState,
 )
+from flyff_bot.features.navigation.live_camera import CameraState
+from flyff_bot.features.navigation.live_position import WorldPosition
+from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshBaker
+from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
 from flyff_bot.features.perception import (
     PerceptionEventKind,
     PerceptionFailure,
@@ -36,6 +40,13 @@ from flyff_bot.features.vision import (
 WINDOW_HANDLE = 42
 OBSERVED_AT_SECONDS = 12.5
 FRAME = CapturedFrame(np.zeros((4, 4, 3), dtype=np.uint8), ClientSize(4, 4))
+CLIENT_WIDTH = 200
+CLIENT_HEIGHT = 100
+CLIENT_FRAME = CapturedFrame(
+    np.zeros((CLIENT_HEIGHT, CLIENT_WIDTH, 3), dtype=np.uint8),
+    ClientSize(CLIENT_WIDTH, CLIENT_HEIGHT),
+)
+GROUND_ELEVATION = -1.0
 
 
 class _FrameSource:
@@ -350,3 +361,98 @@ def test_tick_isolates_vitals_reading_failure() -> None:
     tick = pipeline.tick(WINDOW_HANDLE, previous)
     assert PerceptionFailure.VITALS_READING in tick.failures
     assert tick.state.player_vitals == previous.player_vitals
+
+
+def test_attached_world_geometry_measures_detections_and_degrades_when_it_is_lost() -> None:
+    detector = _Detector([Detection(BoundingBox(90, 80, 20, 20), 0.9, 7, "Aibatt")])
+    pipeline = PerceptionPipeline(
+        _ClientFrameSource(),
+        detector,
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+    geometry = _GeometryFeed(_camera(), WorldPosition(0.0, GROUND_ELEVATION, 0.0), _ground_mesh())
+    pipeline.attach_world_geometry(geometry)
+
+    measured = pipeline.tick(WINDOW_HANDLE, _previous_state()).state.visible_mobs[0]
+    geometry.navmesh = None
+    without_mesh = pipeline.tick(WINDOW_HANDLE, _previous_state()).state.visible_mobs[0]
+    geometry.navmesh = _ground_mesh()
+    geometry.camera_state = None
+    without_camera = pipeline.tick(WINDOW_HANDLE, _previous_state()).state.visible_mobs[0]
+
+    assert (measured.world_x, measured.world_y, measured.world_z) == (0.0, GROUND_ELEVATION, 1.0)
+    assert measured.navmesh_polygon_id == 1
+    assert (without_mesh.world_x, without_mesh.navmesh_polygon_id) == (None, None)
+    assert (without_camera.world_x, without_camera.navmesh_polygon_id) == (None, None)
+
+
+def test_detections_stay_client_space_without_an_attached_geometry_feed() -> None:
+    tick = PerceptionPipeline(
+        _ClientFrameSource(),
+        _Detector([Detection(BoundingBox(90, 80, 20, 20), 0.9, 7, "Aibatt")]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    ).tick(WINDOW_HANDLE, _previous_state())
+
+    mob = tick.state.visible_mobs[0]
+    assert (mob.world_x, mob.world_y, mob.world_z, mob.navmesh_polygon_id) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+
+class _ClientFrameSource:
+    """Capture a frame large enough for a bottom-centre anchor to be unprojected."""
+
+    def capture(self, _window_handle: int) -> CapturedFrame:
+        return CLIENT_FRAME
+
+
+class _GeometryFeed:
+    """A mutable stand-in for the pathing controller's read-only geometry properties."""
+
+    def __init__(
+        self,
+        camera_state: CameraState | None,
+        position: WorldPosition | None,
+        mesh: BakedNavMesh | None,
+    ) -> None:
+        self.camera_state = camera_state
+        self.live_position = position
+        self.navmesh = mesh
+
+
+def _ground_mesh() -> BakedNavMesh:
+    return NavMeshBaker().bake(
+        (
+            WorldTriangle(
+                WorldVertex(-4.0, GROUND_ELEVATION, 0.0),
+                WorldVertex(4.0, GROUND_ELEVATION, 4.0),
+                WorldVertex(4.0, GROUND_ELEVATION, 0.0),
+                "fixture",
+            ),
+        )
+    )
+
+
+def _camera() -> CameraState:
+    identity = (
+        (1.0, 0.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+    return CameraState(
+        position=WorldPosition(0.0, 0.0, 0.0),
+        pitch_radians=0.0,
+        yaw_radians=0.0,
+        zoom_distance=0.0,
+        vertical_fov_radians=1.0,
+        view_matrix=identity,
+        projection_matrix=identity,
+        view_projection_matrix=identity,
+        inverse_view_projection_matrix=identity,
+    )

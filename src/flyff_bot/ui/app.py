@@ -348,6 +348,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     position_reader=LivePositionReader(window_handle),
                     camera_reader=LiveCameraReader(window_handle),
                 )
+                # The pathing controller polls the camera and owns the baked mesh, so it is
+                # what lets a perception tick unproject its own detections (US-057).
+                pipeline.attach_world_geometry(pathing)
                 orchestrator = FarmingOrchestrator(
                     pipeline,
                     controller,

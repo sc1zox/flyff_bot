@@ -376,3 +376,12 @@ related:
   JSONL/SQLite and exported to Parquet; unavailable measurements remain `null`.
 - **Navigation Inspector overlay** — Optional `PathInspectorWidget` rendering of color-coded candidate
   markers, the active Funnel path, and the current episode GPS trajectory, decoupled from control.
+- **Ground contact anchor** — A detection's bounding-box bottom centre `((x1 + x2) / 2, y2)`, the pixel
+  where an entity meets walkable ground and the only screen anchor unprojected into a world ray. The
+  box centre lies in the torso or head and would place the mob behind or below its actual position.
+- **Estimated mob world position** — `EstimatedMobWorldPosition`, the measured surface point, polygon
+  ID, player distance, ray distance, class name, and confidence produced by unprojecting one ground
+  contact anchor onto the baked NavMesh. A missing camera, GPS, mesh, or ray hit stays `None`.
+- **NavMesh ray index** — The horizontal chunk index over walkable triangles that `BakedNavMesh.raycast()`
+  builds once per mesh. A cast walks only the cells its ray crosses and stops at the first hit, so an
+  elevated deck occludes the ground beneath it and a batch of detections avoids a full-mesh scan.
