@@ -1,12 +1,12 @@
 ---
-id: US-059
+id: US-064
 title: Continuous human-like movement, held-key pathing, and smooth heading control
 status: draft
 created: 2026-08-20
 updated: 2026-08-20
 ---
 
-# US-059: Continuous Human-Like Movement, Held-Key Pathing, and Smooth Heading Control
+# US-064: Continuous Human-Like Movement, Held-Key Pathing, and Smooth Heading Control
 
 ## Story
 

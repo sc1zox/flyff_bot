@@ -36,6 +36,22 @@ As a **bot operator**, I want **the navigation system to rely exclusively on aut
 - [x] Given search when no mobs are visible in the active zone, when staged search executes, then the bot steers exclusively along the extracted NavMesh zone patrol ring and camera rotations without blind WASD roaming.
 - [x] All user-visible text, error diagnostics, and dialog strings are synchronized in English and German (`en.json`, `de.json`).
 
+## Post-completion corrections
+
+A review of the implementing commit found three criteria that were marked done but not met, all
+fixed and regression-tested afterwards:
+
+- [BUG-019](../../bugs/fixed/BUG-019-live-camera-poll-suppressed-by-gps-sample-guard.md): the live
+  camera was polled once per session, freezing the steering heading.
+- [BUG-020](../../bugs/fixed/BUG-020-emergency-recovery-progress-threshold-in-minimap-pixels.md):
+  emergency recovery compared world-unit GPS movement against the removed minimap pixel threshold.
+- [BUG-021](../../bugs/fixed/BUG-021-multi-zone-selection-and-localized-debug-values-missing.md):
+  the dialog armed a single zone only, the zone hand-over had no production caller, and the target
+  and monster debug panels rendered unlocalized value strings.
+
+The one-way GPS pause shipped by the same commit was corrected in `35e21bf`, which resumes farming
+once GPS recovers and keeps a manual pause latched.
+
 ## Out of scope
 
 - Memory writes or client code injection (strictly read-only memory per ADR-006).

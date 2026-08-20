@@ -817,3 +817,27 @@ and authoritative 3D NavMesh extraction (`BakedNavMesh`), enforcing the strict i
 Implemented multi-zone selection and sequential camp quota progression in `VectorZoneNavigator` and
 `WorldDataDialog`. The full automated repository gate passed on 2026-08-20 at 608 passed, 2 skipped, and
 88.77% coverage. Moved US-059 to completed user stories.
+
+## [2026-08-20] synthesis | US-059 review remediation (BUG-019, BUG-020, BUG-021)
+
+Reviewed the implementing commit `4a81b34` against the repository rules and corrected what it
+claimed but did not deliver. `_poll_live_camera` guarded its freshness check against the *position*
+sample timestamp, and since both call sites poll the position first, the camera reader was called
+exactly once per session and `heading_degrees` froze at the first frame's yaw (BUG-019). The
+emergency stuck monitor kept the removed minimap-pixel threshold while the orchestrator started
+feeding it live GPS world units (BUG-020). Multi-zone selection existed only in the navigator API:
+`WorldDataDialog` armed a single zone and no production caller reached `advance_to_next_zone`, and
+the target/monster debug panels rendered their values from hardcoded f-strings instead of the
+locale templates (BUG-021).
+
+`WorldDataDialog` now lists camps as checkable entries, `PathingController.completed_zone_sweeps`
+counts patrol laps without a confirmed kill, and the orchestrator hands the session to the next
+selected camp after `PATROL_SWEEPS_BEFORE_ZONE_CHANGE` laps. `PositionSource.MINIMAP_FALLBACK` was
+renamed to `UNAVAILABLE` because no fallback source exists any more, and 37 orphaned `Message`
+members plus their `en.json` / `de.json` entries, the unused `tests/unit/minimap_fixtures.py`
+loader, and a magic `0x70` hotkey fallback were removed. The duplicate `US-059` id on the draft
+"continuous human-like movement" story was renumbered to `US-064`; the shipped minimap stills under
+`data/assets/fixtures/minimap/` are kept as the measurement evidence the wiki cites. The gate
+`35e21bf` left red (one ruff `F841` and one mypy `comparison-overlap` in the GPS-resume tests) is
+green again. Full automated gate on 2026-08-20: 623 passed, 2 skipped, 89.09% coverage. The Windows
+walkthrough of live camera tracking, multi-camp transit, and the teleport threshold remains unrun.

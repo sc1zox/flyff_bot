@@ -799,6 +799,13 @@ before any input is dispatched, which the orchestrator treats like any other fai
 minimap runs first so the pointer ends over the client centre, where the camera's wheel notches have
 to land. An aligner constructed without a locator skips the step and runs the camera sequence alone.
 
+> **Superseded by US-059.** The minimap step, `minimap_zoom_out_button`, `frame_minimap_locator`,
+> `MinimapLocator`, and `CameraAlignmentStatus.MINIMAP_NOT_FOUND` were removed together with the
+> minimap odometry they calibrated. `CameraAligner.align()` now runs the two camera steps only
+> (zoom-out notches, pitch ceiling plus calibrated down pulse). The paragraphs above describe the
+> US-042/US-043 state and are kept as the record of why the camera steps exist; the stills under
+> `data/assets/fixtures/minimap/` remain as the measurement evidence they were read from.
+
 `CameraAligner` re-checks the emergency stop and foreground focus before every step — including
 before each of the ten minimap clicks — and once more after the last one, returning
 `CameraAlignmentStatus.ABORTED` or `FOCUS_LOST` instead of dispatching the remainder. The wheel itself goes through the new
@@ -1579,7 +1586,16 @@ The navigation subsystem operates strictly on:
 
 **Invariant**: If live GPS is unavailable, unverified, or returns a read error, navigation transitions
 immediately to `PathingMode.BLOCKED` / `FarmingMode.PAUSED` without dispatching movement commands.
-Multi-zone selection allows operators to choose multiple spawn zones in `WorldDataDialog`, seamlessly
-routing across camp waypoints upon quota completion.
+`PositionSource` therefore names only `LIVE` and `UNAVAILABLE`; there is no second source to fall
+back to. A GPS pause is not latched: `FarmingOrchestrator` resumes searching once the coordinate
+read recovers, while an operator's manual pause stays latched.
+
+**Multi-zone selection.** `WorldDataDialog` lists a map's spawn camps as checkable entries and arms
+every checked one as `VectorNavigationRequest.active_zones`, with the first as the anchor. The
+navigator hands the session on in two ways: `record_kill` advances the zone index when a monster's
+quota completes, and `PathingController.completed_zone_sweeps` counts full patrol laps of the active
+camp that produced no confirmed kill, which the orchestrator turns into a hand-over after
+`PATROL_SWEEPS_BEFORE_ZONE_CHANGE` laps. A selection of a single camp has nowhere to advance to and
+stays bound rather than re-planning the route it is already following.
 
 The automated test gate passed on 2026-08-20 with 608 passed tests, 2 skipped, and 88.77% coverage.
