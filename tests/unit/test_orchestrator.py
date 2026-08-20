@@ -246,11 +246,24 @@ def test_navigation_pathing_continues_uninterrupted_across_a_kill_transition() -
         _state(4.0, target=SelectedTarget(TargetState.NONE, None, 0)),
         _state(5.0),
     ]
+    live_reader = cast(
+        "LivePositionReader",
+        type(
+            "_Reader",
+            (),
+            {
+                "poll": lambda self, at: PositionReading(
+                    PositionSource.LIVE, WorldPosition(10.0, 10.0, 10.0), sampled_at_seconds=at
+                ),
+                "close": lambda self: None,
+            },
+        )(),
+    )
     orchestrator = FarmingOrchestrator(
         cast(PerceptionPipeline, _Pipeline(states)),
         adapter,
         WINDOW_HANDLE,
-        pathing=PathingController(),
+        pathing=PathingController(position_reader=live_reader),
         dashboard_feed=feed,
     )
     orchestrator.start()
@@ -969,16 +982,29 @@ def test_a_blocked_approach_registers_the_obstacle_in_the_learned_map() -> None:
     from flyff_bot.features.navigation.pathing import PathingController
 
     class _SpyPathing(PathingController):
-        def __init__(self) -> None:
-            super().__init__()
+        def __init__(self, **kwargs: object) -> None:
+            super().__init__(**kwargs)  # type: ignore[arg-type]
             self.obstacles: list[float] = []
 
         def register_obstacle(self, at_seconds: float) -> bool:
             self.obstacles.append(at_seconds)
             return super().register_obstacle(at_seconds)
 
+    live_reader = cast(
+        "LivePositionReader",
+        type(
+            "_Reader",
+            (),
+            {
+                "poll": lambda self, at: PositionReading(
+                    PositionSource.LIVE, WorldPosition(10.0, 10.0, 10.0), sampled_at_seconds=at
+                ),
+                "close": lambda self: None,
+            },
+        )(),
+    )
+    pathing = _SpyPathing(position_reader=live_reader)
     adapter = _InputAdapter()
-    pathing = _SpyPathing()
     states = _blocked_approach_states(30)
     orchestrator = FarmingOrchestrator(
         cast(PerceptionPipeline, _Pipeline(states, frame=FROZEN_FRAME)),

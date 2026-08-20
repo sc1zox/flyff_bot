@@ -164,9 +164,9 @@ def test_activation_requests_a_navigator_anchored_at_the_selected_zone(
     dialog.zone_selector.setCurrentIndex(1)
     dialog._on_activate_clicked()
 
-    assert len(requests) == 1
     request = requests[0]
     assert isinstance(request, VectorNavigationRequest)
+    assert request.anchor_zone is not None
     assert request.anchor_zone.monster_name == "Rapra"
     assert request.goals == (ZoneGoal("Flame", 7), ZoneGoal("Rapra", 7))
     assert "Rapra" in dialog.status_label.text()

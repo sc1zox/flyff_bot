@@ -1,9 +1,5 @@
-"""Internal spatial memory, spawn heatmap, and route planning for farming sessions."""
+"""Authoritative 3D vector navigation, NavMesh routing, and closed-loop control."""
 
-from flyff_bot.features.navigation.anchoring import (
-    MapAnchor,
-    ProfileAnchorState,
-)
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
 from flyff_bot.features.navigation.live_camera import (
     CameraReadError,
@@ -53,28 +49,8 @@ from flyff_bot.features.navigation.pathing import (
     PathingController,
     PathingDecision,
     PathingMode,
-    ProfileLoadOutcome,
-    ProfileLoadResult,
-)
-from flyff_bot.features.navigation.persistence import (
-    NavigationProfile,
-    NavigationProfileSummary,
-    list_navigation_profiles,
-    load_profile,
-    sanitize_profile_name,
-    save_profile,
-)
-from flyff_bot.features.navigation.planning import (
-    LeashBound,
-    Route,
-    RouteConfig,
-    RoutePlanner,
-)
-from flyff_bot.features.navigation.spatial import (
-    GridCell,
-    SpatialMap,
-    SpatialMapConfig,
-    WorldPoint,
+    bearing_degrees,
+    heading_error_degrees,
 )
 from flyff_bot.features.navigation.teleport import (
     TeleportAnchor,
@@ -88,6 +64,10 @@ from flyff_bot.features.navigation.terrain_routing import (
     TerrainRouteConfig,
     TerrainRoutePlanner,
     TerrainWaypoint,
+)
+from flyff_bot.features.navigation.tracking import (
+    StallConfig,
+    StallDetector,
 )
 from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationPlan,
@@ -146,19 +126,14 @@ __all__ = [
     "DynamicObjectPlacement",
     "ExtractionDiagnostic",
     "ExtractionWarning",
-    "GridCell",
-    "LeashBound",
     "LiveCameraReader",
     "LivePositionReader",
-    "MapAnchor",
     "ModelBounds",
     "ModelVertex",
     "NavMeshArtifact",
     "NavMeshBaker",
     "NavMeshPersistenceError",
     "NavMeshPolygon",
-    "NavigationProfile",
-    "NavigationProfileSummary",
     "O3DExtractionError",
     "O3DGeometry",
     "ObstacleKind",
@@ -173,14 +148,8 @@ __all__ = [
     "PositionReadErrorCode",
     "PositionReading",
     "PositionSource",
-    "ProfileAnchorState",
-    "ProfileLoadOutcome",
-    "ProfileLoadResult",
-    "Route",
-    "RouteConfig",
-    "RoutePlanner",
-    "SpatialMap",
-    "SpatialMapConfig",
+    "StallConfig",
+    "StallDetector",
     "SurfaceSpan",
     "TeleportAnchor",
     "TeleportConfig",
@@ -205,7 +174,6 @@ __all__ = [
     "WorldExtractionSummary",
     "WorldGeometry",
     "WorldGeometryError",
-    "WorldPoint",
     "WorldPosition",
     "WorldRay3D",
     "WorldTriangle",
@@ -213,21 +181,19 @@ __all__ = [
     "WorldVertex",
     "ZoneGoal",
     "ZoneSelection",
+    "bearing_degrees",
     "discover_world_directories",
     "extract_o3d_file",
     "extract_o3d_geometry",
     "extract_packed_o3d",
     "extract_world",
     "fuse_world_geometry",
-    "list_navigation_profiles",
+    "heading_error_degrees",
     "load_baked_navmesh",
     "load_monster_names",
-    "load_profile",
     "load_world_map",
     "parse_dynamic_placements",
-    "sanitize_profile_name",
     "save_baked_navmesh",
-    "save_profile",
     "save_world_map",
     "summarize",
     "terrain_triangles",

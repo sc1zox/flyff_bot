@@ -16,14 +16,10 @@ from flyff_bot.constants import (
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
     DEFAULT_MONSTER_STATS_PANEL_PATH,
-    DEFAULT_NAVIGATION_MAP_PATH,
     DEFAULT_PROCESS_NAME,
     DEFAULT_TARGET_ANCHOR_PATH,
 )
-from flyff_bot.features.automation.camera_alignment import (
-    CameraAligner,
-    frame_minimap_locator,
-)
+from flyff_bot.features.automation.camera_alignment import CameraAligner
 from flyff_bot.features.automation.controllers import CombatConfig, KeyBinding
 from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import KillGoalConfig, KillGoalTracker
@@ -38,12 +34,7 @@ from flyff_bot.features.diagnostics import DEFAULT_SESSION_LOG_DIRECTORY, Sessio
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
 from flyff_bot.features.navigation.live_camera import LiveCameraReader
 from flyff_bot.features.navigation.live_position import LivePositionReader
-from flyff_bot.features.navigation.pathing import (
-    PathingController,
-    ProfileLoadOutcome,
-    ProfileLoadResult,
-)
-from flyff_bot.features.navigation.persistence import load_profile
+from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationRequest,
     VectorZoneNavigator,
@@ -52,7 +43,6 @@ from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision import (
     DetectionConfig,
     OpenCVDnnYoloDetector,
-    TargetVerificationConfig,
     TargetVerifier,
     TesseractTextRecognizer,
     WindowsFrameSource,
@@ -65,21 +55,12 @@ from flyff_bot.features.vision.monster_stats import (
 )
 from flyff_bot.features.vision.ocr import TESSERACT_LANGUAGE_ENGLISH
 from flyff_bot.i18n import Message, Translator
-from flyff_bot.ui.dashboard import DashboardFeed, WindowStatus
+from flyff_bot.ui.dashboard import DashboardFeed
 from flyff_bot.ui.main_window import MainWindow
 from flyff_bot.ui.session_worker import SessionWorker
 from flyff_bot.ui.theme import apply_theme
 
 STANDBY_TICK_INTERVAL_SECONDS = 0.1
-# Shown in place of a minimap scale that is not known. It is deliberately not a word, so the
-# refusal message stays one localized sentence rather than an assembled one.
-UNKNOWN_SCALE_TEXT = "?"
-
-
-def _scale_text(zoom_signature: float | None) -> str:
-    """Return one minimap scale as it appears inside an operator-facing sentence."""
-
-    return UNKNOWN_SCALE_TEXT if zoom_signature is None else f"{zoom_signature:.1f}"
 
 
 class FarmingControls(Protocol):
@@ -91,21 +72,11 @@ class FarmingControls(Protocol):
 
     def emergency_stop(self) -> None: ...
 
-    def save_navigation_profile(self, path: Path) -> None: ...
-
-    def load_navigation_profile(
-        self, path: Path, *, accept_unmatched: bool = False
-    ) -> ProfileLoadResult | None: ...
-
-    def reset_navigation_map(self) -> None: ...
-
     def configure_vitals(self, config: VitalsTriggerConfig) -> None: ...
 
     def configure_powerups(self, config: PowerUpConfig) -> None: ...
 
     def configure_emergency_recovery(self, config: EmergencyRecoveryConfig) -> None: ...
-
-    def mark_spawn_point(self) -> tuple[float, float] | None: ...
 
     def request_camera_alignment(self) -> None: ...
 
@@ -150,59 +121,14 @@ def connect_farming_controls(
     *,
     on_start: Callable[[], None] | None = None,
 ) -> None:
-    """Connect dashboard intent signals to the small orchestration control surface."""
+    """Connect dashboard intent signals to orchestration controls."""
 
     window.start_requested.connect(on_start or orchestrator.start)
     window.pause_requested.connect(orchestrator.pause)
-    # Escape in either window and the global END path converge on this signal;
-    # emergency handling is intentionally independent of the selected dashboard tab.
     window.emergency_stop_requested.connect(orchestrator.emergency_stop)
-
-    def _safe_load_profile(path: Path) -> None:
-        try:
-            result = orchestrator.load_navigation_profile(path)
-        except Exception as exc:
-            window.show_error_dialog(
-                window._translator.text(Message.UI_PROFILE_LOAD_ERROR_TITLE),
-                window._translator.text(Message.UI_PROFILE_LOAD_ERROR_PROMPT, reason=str(exc)),
-            )
-            return
-        if result is None:
-            return
-        if result.outcome is ProfileLoadOutcome.SCALE_MISMATCH:
-            window.show_error_dialog(
-                window._translator.text(Message.UI_PROFILE_SCALE_MISMATCH_TITLE),
-                window._translator.text(
-                    Message.UI_PROFILE_SCALE_MISMATCH_PROMPT,
-                    stored=_scale_text(result.stored_zoom_signature),
-                    live=_scale_text(result.live_zoom_signature),
-                ),
-            )
-            return
-        if result.outcome is ProfileLoadOutcome.UNMATCHED and window.confirm_read_only_profile():
-            _safe_load_profile_read_only(path)
-
-    def _safe_load_profile_read_only(path: Path) -> None:
-        try:
-            orchestrator.load_navigation_profile(path, accept_unmatched=True)
-        except Exception as exc:
-            window.show_error_dialog(
-                window._translator.text(Message.UI_PROFILE_LOAD_ERROR_TITLE),
-                window._translator.text(Message.UI_PROFILE_LOAD_ERROR_PROMPT, reason=str(exc)),
-            )
-
-    window.save_profile_requested.connect(orchestrator.save_navigation_profile)
-    window.load_profile_requested.connect(_safe_load_profile)
-    window.reset_navigation_requested.connect(orchestrator.reset_navigation_map)
-
-    def _mark_spawn_point() -> None:
-        if orchestrator.mark_spawn_point() is None:
-            window.show_spawn_point_refused()
-
     window.vitals_config_changed.connect(orchestrator.configure_vitals)
     window.powerup_config_changed.connect(orchestrator.configure_powerups)
     window.emergency_config_changed.connect(orchestrator.configure_emergency_recovery)
-    window.set_spawn_point_requested.connect(_mark_spawn_point)
     window.auto_align_changed.connect(orchestrator.configure_auto_align)
     window.align_camera_requested.connect(orchestrator.request_camera_alignment)
 
@@ -211,11 +137,7 @@ def connect_vector_navigation(
     window: MainWindow,
     session: VectorNavigationControls,
 ) -> None:
-    """Arm or disarm extracted-map navigation from the world data manager.
-
-    Vector navigation starts blocked until the session receives a fingerprinted live GPS
-    coordinate. No minimap estimate is used to calibrate or steer an extracted world map.
-    """
+    """Arm or disarm extracted-map navigation from the world data manager."""
 
     def _activate(request: object) -> None:
         if not isinstance(request, VectorNavigationRequest):
@@ -229,112 +151,112 @@ def connect_vector_navigation(
     window.vector_navigation_cleared.connect(_deactivate)
 
 
+def connect_target_selection(
+    window: MainWindow,
+    session: TargetGoalControls,
+) -> None:
+    """Push the monster selection into the session's quota tracker."""
+
+    def _apply(config: object) -> None:
+        if isinstance(config, KillGoalConfig):
+            session.configure_kill_goals(config)
+
+    window.target_selection_changed.connect(_apply)
+
+
 def target_class_applier(
     detector: ClassFilterableDetector,
     verifier: TargetVerifier,
-    class_names: Sequence[str],
+    all_names: Sequence[str],
     *,
     default_anchor_path: Path | None = None,
 ) -> Callable[[frozenset[str]], None]:
-    """Return the callback that narrows detection and verification to a class set.
+    """Return a callback that updates YOLO classes and reloads verification templates."""
 
-    Filtering at the detector is what keeps a non-target monster out of
-    :class:`WorldState` entirely, so no candidate selection or template match is ever
-    spent on it; the verifier only has to agree with that same choice. An empty set
-    restores every known class, which is what an unrestricted selection means.
-    """
-
-    def _apply_classes(allowed: frozenset[str]) -> None:
-        selected = tuple(class_names) if not allowed else tuple(sorted(allowed))
+    def apply(allowed: frozenset[str]) -> None:
         detector.update_allowed_class_names(allowed)
-        verifier.update_allowed_names(
-            selected,
-            load_mob_anchor_templates(selected, default_anchor_path=default_anchor_path) or None,
-        )
+        names = tuple(allowed) if allowed else tuple(all_names)
+        anchors = load_mob_anchor_templates(names, default_anchor_path=default_anchor_path)
+        verifier.update_allowed_names(names, header_anchor_templates=anchors)
 
-    return _apply_classes
-
-
-def connect_target_selection(window: MainWindow, controls: TargetGoalControls) -> None:
-    """Route the operator's monster selection and kill quotas into the session.
-
-    The session owns the resulting class filter: a quota that completes mid-run has to
-    narrow targeting exactly the way an operator's edit does (US-035).
-    """
-
-    window.target_selection_changed.connect(controls.configure_kill_goals)
+    return apply
 
 
 def start_farming(
-    controller: WindowFocusControls, window_handle: int, orchestrator: StartableControls
+    controller: WindowFocusControls,
+    window_handle: int,
+    session: StartableControls,
 ) -> None:
-    """Return focus to the game before allowing guarded farming ticks to resume."""
+    """Bring the game client foregrounded before the session can dispatch inputs."""
 
     try:
         controller.focus_window(window_handle)
     except InputControlError:
-        orchestrator.pause()
+        session.pause()
         return
-    orchestrator.start()
+    session.start()
 
 
 def run_desktop(arguments: Sequence[str] | None = None) -> int:
-    """Launch the native desktop window and return Qt's exit code."""
+    """Launch the localized PySide6 dashboard."""
 
-    application = QApplication(list(arguments or sys.argv))
-    apply_theme(application)
-    window = MainWindow(Translator.from_environment())
-    feed = DashboardFeed(window)
+    app = QApplication.instance()
+    owns_app = False
+    if app is None:
+        app = QApplication(list(arguments or sys.argv))
+        owns_app = True
+    assert isinstance(app, QApplication)
+
+    translator = Translator.from_environment()
+    window = MainWindow(translator)
+    feed = DashboardFeed()
     feed.update_available.connect(window.update_dashboard)
 
     controller = WindowsInputController()
     windows = controller.find_windows(DEFAULT_PROCESS_NAME)
+    frame_source = WindowsFrameSource()
+
     if windows:
-        window.set_window_status(WindowStatus.NOT_FOREGROUND)
         window_handle = windows[0].handle
         window.attach_placement_target(controller, window_handle)
         model_path = Path(DEFAULT_MOB_MODEL_PATH)
         labels_path = Path(DEFAULT_MOB_LABELS_PATH)
-        anchor_path = Path(DEFAULT_TARGET_ANCHOR_PATH)
-
         if model_path.is_file() and labels_path.is_file():
             allowed_names = load_class_names(labels_path)
-            window.set_target_mob_options(allowed_names)
-            default_anchor_path = anchor_path if anchor_path.is_file() else None
+            window.target_selection_panel.set_class_names(allowed_names)
+            default_anchor_path = (
+                Path(DEFAULT_TARGET_ANCHOR_PATH)
+                if Path(DEFAULT_TARGET_ANCHOR_PATH).is_file()
+                else None
+            )
             anchors = load_mob_anchor_templates(
-                allowed_names,
-                default_anchor_path=default_anchor_path,
+                allowed_names, default_anchor_path=default_anchor_path
             )
             if anchors:
-                target_verifier = TargetVerifier(
-                    allowed_names,
-                    anchors,
-                    TesseractTextRecognizer(),
-                    TargetVerificationConfig(
-                        anchor_match_threshold=window.anchor_threshold_spin.value(),
-                    ),
-                )
-                frame_source = WindowsFrameSource(require_foreground=False)
                 detector = OpenCVDnnYoloDetector.from_files(
                     model_path,
                     labels_path,
-                    DetectionConfig(confidence_threshold=0.3),
+                    DetectionConfig(
+                        confidence_threshold=0.5,
+                        allowed_class_names=frozenset(allowed_names),
+                    ),
+                )
+                target_verifier = TargetVerifier(
+                    allowed_names,
+                    anchors,
+                    TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
                 )
                 pipeline = PerceptionPipeline(
                     frame_source,
                     detector,
                     target_verifier,
                     monster_stats_reader=MonsterStatsReader(
-                        # The stats HUD is English in every client locale, so requiring the
-                        # German language pack here would only add a way for it to fail.
                         TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
                         header_anchor_template=load_header_anchor_template(
                             Path(DEFAULT_MONSTER_STATS_PANEL_PATH)
                         ),
                     ),
                 )
-                navigation_map_path = Path(DEFAULT_NAVIGATION_MAP_PATH)
-                navigation_profile = load_profile(navigation_map_path)
                 apply_target_classes = target_class_applier(
                     detector,
                     target_verifier,
@@ -342,9 +264,6 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     default_anchor_path=default_anchor_path,
                 )
                 pathing = PathingController(
-                    navigation_profile.spatial_map,
-                    map_path=navigation_map_path,
-                    spawn_point=navigation_profile.spawn_point,
                     position_reader=LivePositionReader(window_handle),
                     camera_reader=LiveCameraReader(window_handle),
                 )
@@ -368,7 +287,6 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     camera_aligner=CameraAligner(
                         controller,
                         window_handle,
-                        locate_minimap_geometry=frame_minimap_locator(frame_source, window_handle),
                     ),
                     kill_goals=KillGoalTracker(
                         window.target_selection,
@@ -389,23 +307,27 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     on_start=lambda: start_farming(controller, window_handle, orchestrator),
                 )
                 connect_vector_navigation(window, orchestrator)
-                # Ticking on a worker thread keeps frame capture and OCR out of the Qt event
-                # loop; results reach the widgets only through the dashboard feed's signal.
                 worker = SessionWorker(orchestrator.tick, STANDBY_TICK_INTERVAL_SECONDS)
-                window.register_teardown(worker.stop)
-                window.register_teardown(orchestrator.close)
+                window._teardowns.append(worker.stop)
                 worker.start()
     else:
-        window.set_window_status(WindowStatus.NOT_FOUND)
+        window.window_label.setText(
+            translator.text(Message.UI_WINDOW_NOT_FOUND, process=DEFAULT_PROCESS_NAME)
+        )
 
+    apply_theme(window)
     window.show()
-    return application.exec()
+
+    if owns_app:
+        exit_code = app.exec()
+        for teardown in window._teardowns:
+            teardown()
+        return exit_code
+    return 0
 
 
-def _read_template(path: Path) -> npt.NDArray[np.uint8] | None:
-    """Read one BGR UI template when its image data is valid."""
-
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+def _load_template(path: str) -> npt.NDArray[np.uint8]:
+    image = cv2.imread(path, cv2.IMREAD_COLOR)
     if image is None:
-        return None
+        raise ValueError(f"Template image not readable: {path}")
     return cast("npt.NDArray[np.uint8]", image)

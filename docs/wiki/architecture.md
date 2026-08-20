@@ -65,10 +65,10 @@ related:
   - ../user-stories/completed/US-049-session-event-log-and-transition-diagnostics.md
   - ../user-stories/completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md
   - ../user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md
-  - ../user-stories/completed/US-053-pure-gps-navigation-and-client-profile-configuration.md
   - ../user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md
   - ../user-stories/completed/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
   - ../user-stories/completed/US-058-navmesh-aware-targeting-and-telemetry-integration.md
+  - ../user-stories/completed/US-059-authoritative-vector-navigation-legacy-removal-and-multi-zone-selection.md
 ---
 
 # Architecture
@@ -1532,3 +1532,23 @@ Static analysis does not establish live `ReadProcessMemory` latency or client be
 Windows walkthrough remains open for camera rotation, zoom, viewport resize, pitch/yaw sign and
 matrix tracking, latency, and recovery after restart or minimize. Those checks must not be inferred
 from the automated gate.
+
+## Pure Authoritative Navigation, Legacy Removal, and Multi-Zone Selection (US-059, completed)
+
+All legacy navigation fallbacks—including heuristic minimap odometry (`MinimapOdometer`), dead reckoning
+key tracking (`MovementTracker`), 2D heatmap cell tracking (`SpatialMap`, `RoutePlanner`), and legacy
+minimap JSON profiles—have been completely purged from the codebase.
+
+The navigation subsystem operates strictly on:
+1. Exact client archive extraction (`flyff_bot.features.navigation.world_extractor` / `BakedNavMesh`)
+2. Read-only live GPS pointer reads (`LivePositionReader`)
+3. Read-only live camera matrix reads (`LiveCameraReader`)
+4. Authoritative 3D Funnel pathfinding (`PathingController`)
+5. Multi-zone sequencing and preferred camp routing (`VectorZoneNavigator`)
+
+**Invariant**: If live GPS is unavailable, unverified, or returns a read error, navigation transitions
+immediately to `PathingMode.BLOCKED` / `FarmingMode.PAUSED` without dispatching movement commands.
+Multi-zone selection allows operators to choose multiple spawn zones in `WorldDataDialog`, seamlessly
+routing across camp waypoints upon quota completion.
+
+The automated test gate passed on 2026-08-20 with 608 passed tests, 2 skipped, and 88.77% coverage.

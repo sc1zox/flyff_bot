@@ -1,4 +1,4 @@
-"""Operator dialog for extracting client world data and arming vector navigation (US-045).
+"""Operator dialog for extracting client world data and arming vector navigation (US-045, US-059).
 
 Extraction reads a whole region directory and decodes megabytes of terrain, which is far too
 slow for the Qt event loop, so it runs on a dedicated worker thread and reaches the widgets
@@ -420,9 +420,12 @@ class WorldDataDialog(QDialog):
         zone = self._zone_selector.currentData()
         if world_map is None or not isinstance(zone, VectorSpawnZone):
             return
+        all_zones = world_map.zones
+        active_zones = tuple(all_zones) if len(all_zones) > 0 else (zone,)
         request = VectorNavigationRequest(
             world_map=world_map,
             anchor_zone=zone,
+            active_zones=active_zones,
             goals=self._goals(world_map),
         )
         self.vector_navigation_requested.emit(request)
@@ -440,12 +443,7 @@ class WorldDataDialog(QDialog):
         self._status_label.setText(self._translator.text(Message.UI_WORLD_DATA_INACTIVE))
 
     def _goals(self, world_map: WorldVectorMap) -> tuple[ZoneGoal, ...]:
-        """Return the farming goals implied by the dashboard selection and the quota input.
-
-        The unrestricted "all monsters" selection becomes one goal per extracted class, in
-        the order the map lists them, so a finished quota hands the session to the next
-        monster instead of ending the run (US-045).
-        """
+        """Return the farming goals implied by the dashboard selection and the quota input."""
 
         quota = self._quota_spin.value() or None
         names = (

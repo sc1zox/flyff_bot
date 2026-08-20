@@ -102,6 +102,7 @@ class VectorZoneNavigator:
         *,
         goals: Iterable[ZoneGoal] = (),
         preferred_zone: VectorSpawnZone | None = None,
+        preferred_zones: Iterable[VectorSpawnZone] = (),
         terrain_config: TerrainRouteConfig | None = None,
     ) -> None:
         self._map = world_map
@@ -110,7 +111,11 @@ class VectorZoneNavigator:
         self._goals: tuple[ZoneGoal, ...] = tuple(goals)
         self._progress = _GoalProgress()
         self._selection: ZoneSelection | None = None
-        self._preferred_zone = preferred_zone
+        zones_list = list(preferred_zones)
+        if preferred_zone is not None and preferred_zone not in zones_list:
+            zones_list.insert(0, preferred_zone)
+        self._preferred_zones: tuple[VectorSpawnZone, ...] = tuple(zones_list)
+        self._active_zone_index: int = 0
 
     @property
     def world_map(self) -> WorldVectorMap:
@@ -131,6 +136,12 @@ class VectorZoneNavigator:
         return self._goals
 
     @property
+    def preferred_zones(self) -> tuple[VectorSpawnZone, ...]:
+        """Return all user-selected preferred spawn zones."""
+
+        return self._preferred_zones
+
+    @property
     def active_goal(self) -> ZoneGoal | None:
         """Return the first goal whose quota is not yet satisfied."""
 
@@ -144,26 +155,53 @@ class VectorZoneNavigator:
         """Return the spawn zone the session is currently bound to."""
 
         selection = self._selection
-        return selection.zone if selection is not None else None
+        if selection is not None:
+            return selection.zone
+        if self._preferred_zones:
+            return self._preferred_zones[self._active_zone_index % len(self._preferred_zones)]
+        return None
 
     @property
     def configured_zone(self) -> VectorSpawnZone | None:
         """Return the operator-selected zone before the first GPS route binds it."""
 
-        return self.active_zone or self._preferred_zone
+        if self.active_zone is not None:
+            return self.active_zone
+        if self._preferred_zones:
+            index = min(self._active_zone_index, len(self._preferred_zones) - 1)
+            return self._preferred_zones[index]
+        return None
 
     @property
     def is_active(self) -> bool:
         """Return whether an unfinished goal has at least one extracted zone to work in."""
 
         goal = self.active_goal
-        return goal is not None and bool(self._map.zones_for(goal.monster_name))
+        if goal is not None and bool(self._map.zones_for(goal.monster_name)):
+            return True
+        return bool(self._preferred_zones)
 
     def set_goals(self, goals: Iterable[ZoneGoal]) -> None:
         """Replace the goal list and drop the zone selection made for the previous one."""
 
         self._goals = tuple(goals)
         self._selection = None
+
+    def set_preferred_zones(self, zones: Iterable[VectorSpawnZone]) -> None:
+        """Replace the active preferred zones and reset the active zone index."""
+
+        self._preferred_zones = tuple(zones)
+        self._active_zone_index = 0
+        self._selection = None
+
+    def advance_to_next_zone(self) -> VectorSpawnZone | None:
+        """Cycle to the next selected spawn zone and drop the current selection."""
+
+        if not self._preferred_zones:
+            return None
+        self._active_zone_index = (self._active_zone_index + 1) % len(self._preferred_zones)
+        self._selection = None
+        return self._preferred_zones[self._active_zone_index]
 
     def kills(self, monster_name: str) -> int:
         """Return how many kills have been attributed to one monster class."""
@@ -189,6 +227,8 @@ class VectorZoneNavigator:
         self._progress.record(monster_name)
         if previous is not None and self.is_complete(previous):
             self._selection = None
+            if self._preferred_zones:
+                self._active_zone_index = (self._active_zone_index + 1) % len(self._preferred_zones)
             return True
         return False
 
@@ -196,16 +236,28 @@ class VectorZoneNavigator:
         """Bind to the active goal's nearest zone using authoritative world coordinates."""
 
         goal = self.active_goal
-        if goal is None:
+        if goal is None and not self._preferred_zones:
             return None
+        if goal is None:
+            # When no monster quota goal is active, create a synthetic goal
+            # from the active preferred zone
+            active_pzone = self._preferred_zones[
+                self._active_zone_index % len(self._preferred_zones)
+            ]
+            goal = ZoneGoal(active_pzone.monster_name or str(active_pzone.monster_id))
         selection = self._selection
         if selection is not None and selection.goal == goal:
             return selection
         zones = self._map.zones_for(goal.monster_name)
-        preferred = self._preferred_zone
         chosen: VectorSpawnZone | None
-        if preferred is not None and preferred in zones:
-            chosen = preferred
+        if self._preferred_zones:
+            active_pzone = self._preferred_zones[
+                self._active_zone_index % len(self._preferred_zones)
+            ]
+            if active_pzone in zones or not zones:
+                chosen = active_pzone
+            else:
+                chosen = nearest_zone(zones, WorldCoordinate(position.x, position.z))
         else:
             chosen = nearest_zone(zones, WorldCoordinate(position.x, position.z))
         if chosen is None:
@@ -305,12 +357,13 @@ def _patrol_ring(zone: VectorSpawnZone) -> tuple[WorldCoordinate, ...]:
 class VectorNavigationRequest:
     """Everything an operator states before an extracted map may steer a session.
 
-    The selected zone is an operator preference for the first patrol; the navigator still
+    The selected zones are operator preferences for patrol; the navigator still
     receives authoritative live GPS before it can plan or dispatch movement.
     """
 
     world_map: WorldVectorMap
-    anchor_zone: VectorSpawnZone
+    anchor_zone: VectorSpawnZone | None = None
+    active_zones: tuple[VectorSpawnZone, ...] = ()
     goals: tuple[ZoneGoal, ...] = ()
 
     def navigator(self) -> VectorZoneNavigator:
@@ -320,6 +373,7 @@ class VectorNavigationRequest:
             self.world_map,
             goals=self.goals,
             preferred_zone=self.anchor_zone,
+            preferred_zones=self.active_zones,
         )
 
 

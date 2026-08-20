@@ -50,6 +50,13 @@ class DebugOverlayWidget(QWidget):
         self._pixmap = pixmap
         self.update()
 
+    set_pixmap = setPixmap
+
+    def clear(self) -> None:
+        """Clear the current preview frame."""
+
+        self.setPixmap(None)
+
     def sizeHint(self) -> QSize:
         """Return a sensible default proportional preview dimension."""
 

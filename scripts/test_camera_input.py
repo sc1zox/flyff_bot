@@ -27,11 +27,9 @@ from flyff_bot.constants import DEFAULT_PROCESS_NAME
 from flyff_bot.features.automation.camera_alignment import (
     CameraAligner,
     CameraAlignmentStatus,
-    frame_minimap_locator,
 )
 from flyff_bot.features.automation.controllers import VIRTUAL_KEY_DOWN, VIRTUAL_KEY_UP
 from flyff_bot.features.input_control import WindowsInputController
-from flyff_bot.features.vision.capture import WindowsFrameSource
 
 DEFAULT_COUNTDOWN_SECONDS = 3.0
 FOCUS_SETTLE_SECONDS = 0.3
@@ -70,18 +68,12 @@ def acquire_target_window(
     return window.handle
 
 
-def test_align(controller: WindowsInputController, handle: int, skip_minimap: bool = False) -> None:
+def test_align(controller: WindowsInputController, handle: int) -> None:
     """Run full camera alignment."""
     print("\n--- Running Full Camera Alignment ---")
-    locator = None
-    if not skip_minimap:
-        source = WindowsFrameSource()
-        locator = frame_minimap_locator(source, handle)
-
-    aligner = CameraAligner(controller, handle, locate_minimap_geometry=locator)
-    print("[1/3] Zooming minimap to hard-stop...")
-    print("[2/3] Scrolling wheel forward 20 notches (zoom out to hard-stop)...")
-    print("[3/3] Tilting pitch up to ceiling and pulsing down ~45°...")
+    aligner = CameraAligner(controller, handle)
+    print("[1/2] Scrolling wheel forward 20 notches (zoom out to hard-stop)...")
+    print("[2/2] Tilting pitch up to ceiling and pulsing down ~45°...")
 
     status = aligner.align()
     if status == CameraAlignmentStatus.ALIGNED:
@@ -184,11 +176,6 @@ def main() -> None:
         help="Seconds to pulse Down Arrow in 'pitch' mode (default: 0.55)",
     )
     parser.add_argument(
-        "--skip-minimap",
-        action="store_true",
-        help="Skip minimap zoom-out clicks during 'align' mode",
-    )
-    parser.add_argument(
         "--countdown",
         type=float,
         default=DEFAULT_COUNTDOWN_SECONDS,
@@ -200,7 +187,7 @@ def main() -> None:
     handle = acquire_target_window(controller, args.process_name, countdown=args.countdown)
 
     if args.mode == "align":
-        test_align(controller, handle, skip_minimap=args.skip_minimap)
+        test_align(controller, handle)
     elif args.mode == "scroll":
         test_scroll(controller, handle, args.notches)
     elif args.mode == "pitch":

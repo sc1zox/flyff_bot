@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from flyff_bot.features.automation.camera_alignment import (
@@ -53,7 +52,7 @@ from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control import ForegroundWindowInfo
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
 from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
-from flyff_bot.features.navigation.tracking import StallConfig, StallDetector, TrackingQuality
+from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.telemetry import CombatVerificationSource, TelemetryRecorder
 from flyff_bot.features.vision.models import (
@@ -70,18 +69,12 @@ from flyff_bot.ui.dashboard import (
 )
 
 if TYPE_CHECKING:
-    # Only needed as an annotation; importing it eagerly would close the pre-existing
-    # navigation -> automation -> navigation package cycle at module load time.
-    from flyff_bot.features.navigation.pathing import PathingController, ProfileLoadResult
+    from flyff_bot.features.navigation.pathing import PathingController
     from flyff_bot.features.navigation.vector_navigation import VectorZoneNavigator
 
 
 DEFAULT_TICK_INTERVAL_SECONDS = 0.1
 DEFAULT_SEARCH_RETRY_SECONDS = 0.5
-NAVIGATION_PERSIST_INTERVAL_SECONDS = 30.0
-# Re-positioning after a blocked approach is a short, bounded look-around rather than the
-# open-ended no-mob recovery: it starts immediately and ends after one rotate-then-roam
-# sweep, so a target that is merely awkward to reach is retried without a long detour.
 DEFAULT_REPOSITION_IDLE_TIMEOUT_SECONDS = 0.0
 DEFAULT_REPOSITION_ROTATION_STEPS = 4
 DEFAULT_REPOSITION_ROAM_STEPS = 2
@@ -127,7 +120,7 @@ WINDOW_STATUS_BY_CAPTURE_CODE = {
 
 
 def _break_kind(reason: EngagementBreakReason | None) -> SessionEventKind:
-    """Classify a broken engagement for the diagnostics event log (US-049)."""
+    """Classify a broken engagement for the diagnostics event log."""
 
     if reason is EngagementBreakReason.OBSTACLE_STALL:
         return SessionEventKind.OBSTACLE_STALL
@@ -239,8 +232,6 @@ class FarmingOrchestrator:
         self._powerup_dispatcher = PowerUpInputDispatcher(input_adapter, window_handle)
         self._emergency_dispatcher = EmergencyTeleportDispatcher(input_adapter, window_handle)
         self._pathing = pathing
-        # The pathing controller owns the polled camera, live GPS, and baked mesh, so it is
-        # also what lets one perception tick unproject its own detections (US-057).
         attach_geometry = getattr(self._pipeline, "attach_world_geometry", None)
         if callable(attach_geometry):
             attach_geometry(pathing)
@@ -249,13 +240,9 @@ class FarmingOrchestrator:
         self._mode = FarmingMode.PAUSED
         self._state = _initial_world_state()
         self._last_frame: CapturedFrame | None = None
-        self._last_persist_at_seconds = 0.0
         self._window_status = WindowStatus.NOT_FOREGROUND
         self._has_live_frame = False
         self._engagement_break: EngagementBreakReason | None = None
-        # The class of the mob currently being fought, remembered while the target header
-        # still names it: at the moment a kill confirms, the header is already gone, so the
-        # kill could otherwise not be attributed to a monster (US-045).
         self._engaged_monster_name: str | None = None
         self._camera_aligner = camera_aligner
         self._alignment_failure: CameraAlignmentStatus | None = None
@@ -286,12 +273,6 @@ class FarmingOrchestrator:
         reason: str | None = None,
         foreground: ForegroundWindowInfo | None = None,
     ) -> None:
-        """Apply a mode transition and record it in the diagnostics event log (US-049).
-
-        A no-op when the phase does not actually change, so retrying an already-current
-        mode (e.g. an idempotent ``emergency_stop()``) never spams a duplicate event.
-        """
-
         if new_mode is self._mode:
             return
         previous = self._mode
@@ -322,8 +303,6 @@ class FarmingOrchestrator:
                     self._pathing.active_spawn_zone_metadata if self._pathing is not None else None
                 )
             )
-        # Perception and pathing read distances from a perspective that is only calibrated
-        # at the standardized camera state, so alignment runs before the first farming tick.
         if self._config.auto_align_camera and self._camera_aligner is not None:
             self._mode_after_alignment = FarmingMode.SEARCHING
             self._set_mode(FarmingMode.ALIGNING, reason="session_start")
@@ -357,7 +336,6 @@ class FarmingOrchestrator:
 
         if self._mode is not FarmingMode.EMERGENCY_STOPPED:
             self._set_mode(FarmingMode.PAUSED, kind=kind, reason=reason, foreground=foreground)
-        self._persist_navigation()
 
     def emergency_stop(self, *, reason: str | None = None) -> None:
         """Latch a session-local emergency stop until a new session is created."""
@@ -367,12 +345,10 @@ class FarmingOrchestrator:
         )
         if self._pathing is not None:
             self._pathing.emergency_stop()
-        self._persist_navigation()
 
     def close(self) -> None:
-        """Persist navigation and release external resources during application teardown."""
+        """Release external resources during application teardown."""
 
-        self._persist_navigation()
         if self._pathing is not None:
             self._pathing.close()
         if self._telemetry is not None:
@@ -398,22 +374,14 @@ class FarmingOrchestrator:
         self._combat.update_config(combat)
 
     def configure_target_classes(self, allowed_class_names: frozenset[str]) -> None:
-        """Restrict candidate selection to the operator-selected monster classes.
-
-        An empty set means every detected monster stays eligible, matching the
-        dashboard's "all monsters" selection.
-        """
+        """Restrict candidate selection to the operator-selected monster classes."""
 
         combat = replace(self._config.combat, allowed_class_names=allowed_class_names)
         self._config = replace(self._config, combat=combat)
         self._combat.update_config(combat)
 
     def configure_kill_goals(self, config: KillGoalConfig) -> None:
-        """Apply the operator's monster selection and per-monster kill quotas (US-035).
-
-        The kills already counted survive an edited quota, so raising a satisfied target
-        resumes farming instead of restarting the count.
-        """
+        """Apply the operator's monster selection and per-monster kill quotas."""
 
         self._kill_goals.update_config(config)
         self._client_close_requested = False
@@ -426,13 +394,6 @@ class FarmingOrchestrator:
         return self._kill_goals
 
     def _apply_active_target_classes(self) -> None:
-        """Push the monsters still worth targeting into combat and perception.
-
-        Both boundaries read an empty set as "no restriction", which is exactly what an
-        unconfigured selection means, so completed quotas and the operator's own choice
-        travel the same path.
-        """
-
         allowed = self._kill_goals.active_class_names
         self.configure_target_classes(allowed)
         if self._on_target_classes_changed is not None:
@@ -468,79 +429,17 @@ class FarmingOrchestrator:
         self._powerups.reset()
 
     def configure_emergency_recovery(self, config: EmergencyRecoveryConfig) -> None:
-        """Apply the unrecoverable-stuck timeout and teleport hotkey (US-040).
-
-        The accumulated stuck span survives the edit: an operator who lowers the timeout
-        while the character is already wedged means the recovery to happen sooner, not the
-        wait to start again.
-        """
+        """Apply the unrecoverable-stuck timeout and teleport hotkey."""
 
         self._config = replace(self._config, emergency=config)
         self._emergency.update_config(config)
         self._emergency_teleport_unavailable = False
 
-    def save_navigation_profile(self, path: Path) -> None:
-        """Persist the active spatial map to a specific profile file."""
-
-        if self._mode not in {FarmingMode.PAUSED, FarmingMode.EMERGENCY_STOPPED}:
-            raise RuntimeError("Navigation profiles can only be saved while farming is paused.")
-        if self._pathing is not None:
-            self._pathing.save_map(path)
-            self._publish(False)
-
-    def load_navigation_profile(
-        self, path: Path, *, accept_unmatched: bool = False
-    ) -> ProfileLoadResult | None:
-        """Re-anchor a persisted map profile to the live session, or report the refusal.
-
-        The caller owns the operator decision a refused load needs: nothing is loaded unless
-        the profile re-anchored or `accept_unmatched` was set from a confirmed prompt.
-        Returns ``None`` when this session runs without learned navigation at all.
-        """
-
-        if self._mode not in {FarmingMode.PAUSED, FarmingMode.EMERGENCY_STOPPED}:
-            raise RuntimeError("Navigation profiles can only be loaded while farming is paused.")
-        if self._pathing is None:
-            return None
-        result = self._pathing.load_map(path, accept_unmatched=accept_unmatched)
-        self._publish(False)
-        return result
-
     def configure_vector_navigation(self, navigator: VectorZoneNavigator | None) -> None:
-        """Adopt or drop the extracted world map that steers this session (US-045).
-
-        Passing ``None`` returns the session to learned heatmap pathing, which is also what
-        an unmapped region gets: the extracted map replaces route generation, never the
-        odometry or the stall safety net underneath it.
-        """
+        """Adopt or drop the extracted world map that steers this session."""
 
         if self._pathing is not None:
             self._pathing.attach_vector_navigator(navigator)
-            self._publish(False)
-
-    def mark_spawn_point(self) -> tuple[float, float] | None:
-        """Store the character's current position as this map's spawn anchor (US-040).
-
-        Returns the stored coordinate, or ``None`` when the session runs without learned
-        navigation or the position is currently unmeasured - an unknown position is no
-        place, so nothing is marked rather than an arbitrary one.
-        """
-
-        if self._pathing is None:
-            return None
-        marked = self._pathing.mark_spawn_point_here()
-        if marked is None:
-            return None
-        self._publish(False)
-        return (marked.x, marked.y)
-
-    def reset_navigation_map(self) -> None:
-        """Reset the active spatial map and tracking origin."""
-
-        if self._mode not in {FarmingMode.PAUSED, FarmingMode.EMERGENCY_STOPPED}:
-            raise RuntimeError("Navigation map can only be reset while farming is paused.")
-        if self._pathing is not None:
-            self._pathing.reset()
             self._publish(False)
 
     def tick(self) -> FarmingTick:
@@ -549,14 +448,10 @@ class FarmingOrchestrator:
         if self._mode is FarmingMode.ALIGNING:
             return self._run_alignment()
         if self._mode in STANDBY_MODES:
-            # Every route into standby freezes the power-up countdowns here, so a
-            # paused, completed, or stopped span never expires a timer unobserved.
             self._powerups.halt()
             self._emergency.halt()
             self._observe()
             if self._pathing is not None:
-                # Standby still follows the character: the minimap measures motion the
-                # operator produces by hand, and no input is dispatched on this path.
                 self._pathing.track(self._state, self._last_frame)
             return self._publish(False)
         if self._input_adapter.is_aborted():
@@ -577,9 +472,6 @@ class FarmingOrchestrator:
             return self._publish(False)
 
         if self._mode is FarmingMode.TELEPORTING:
-            # Nothing is observed into the map and no controller steps while the client
-            # finishes the teleport: every estimate measured now is about the place the
-            # character just left (US-040).
             return self._settle_teleport()
 
         if self._pathing is not None:
@@ -589,12 +481,11 @@ class FarmingOrchestrator:
                 is_stuck=self._pathing.is_stalled,
                 visible_mobs=self._pathing.enrich_visible_mobs(self._state),
             )
+            if not self._pathing.is_gps_available:
+                self.pause(reason="gps_unavailable")
+                return self._publish(False)
             if self._telemetry is not None:
                 self._telemetry.record_navigation_stall(stalled=self._pathing.is_stalled)
-            elapsed = self._state.observed_at_seconds - self._last_persist_at_seconds
-            if elapsed >= NAVIGATION_PERSIST_INTERVAL_SECONDS:
-                self._persist_navigation()
-                self._last_persist_at_seconds = self._state.observed_at_seconds
         if self._goal_completed():
             self._complete_session()
             return self._publish(False)
@@ -605,8 +496,6 @@ class FarmingOrchestrator:
             if dispatched:
                 return self._publish(True)
 
-        # Power-ups are evaluated after vitals so an emergency heal always outranks
-        # a buff refresh, and one entry at most is dispatched per tick.
         powerup_decision = self._powerups.step(self._state.observed_at_seconds)
         if powerup_decision.triggered and self._powerup_dispatcher.dispatch(powerup_decision):
             self._powerups.confirm(powerup_decision, self._state.observed_at_seconds)
@@ -615,8 +504,6 @@ class FarmingOrchestrator:
         if self._advance_emergency_recovery():
             return self._publish(True)
         if self._mode in STANDBY_MODES:
-            # The timeout expired with no teleport hotkey configured, so the session paused
-            # and the operator has to free the character by hand.
             return self._publish(False)
 
         dispatched = self._advance()
@@ -636,8 +523,6 @@ class FarmingOrchestrator:
         if self._camera_aligner is None:
             self._set_mode(self._mode_after_alignment, reason="alignment_skipped")
             return self._publish(False)
-        # Publishing first lets the dashboard show the alignment state for the whole
-        # sequence instead of only after the camera stopped moving.
         self._publish(False)
         status = self._camera_aligner.align()
         if status is CameraAlignmentStatus.ALIGNED:
@@ -651,11 +536,7 @@ class FarmingOrchestrator:
         return self._publish(False)
 
     def _observe(self) -> bool:
-        """Refresh read-only perception state and report whether a frame was captured.
-
-        This dispatches no input, so it is also the standby path that keeps vitals,
-        mob counts, target debug metrics, and the debug overlay live while paused.
-        """
+        """Refresh read-only perception state and report whether a frame was captured."""
 
         try:
             perception = self._pipeline.tick(self._window_handle, self._state)
@@ -787,9 +668,6 @@ class FarmingOrchestrator:
                 if self._telemetry is not None:
                     self._telemetry.begin_combat(self._state)
                 self._remember_engaged_monster()
-                # Only a verified engagement restarts the idle timeout. A click that never
-                # confirmed is not progress, so repeated lockout retries cannot keep
-                # postponing camera search recovery (BUG-010).
                 self._search.reset()
             self._set_mode(FarmingMode.COMBAT, reason="engaging")
             dispatched = self._combat_dispatcher.dispatch(combat)
@@ -851,29 +729,17 @@ class FarmingOrchestrator:
         return True
 
     def _approach_stalled(self) -> bool:
-        """Return whether the client-driven walk towards the engaged mob is blocked.
-
-        The game client moves the character after a target click, so this session tick is
-        the only place that knows movement is under way: the combat state machine dispatches
-        no movement key it could report, and `PathingController` samples nothing while it is
-        not steering itself (US-039).
-        """
+        """Return whether the client-driven walk towards the engaged mob is blocked."""
 
         if self._combat.damage_dealt:
-            # In attack range the character stands still by design, so frozen scenery stops
-            # being evidence of anything.
             self._approach_stalls.reset()
             return False
-        measured_speed = (
-            self._pathing.measured_speed_pixels_per_second if self._pathing is not None else None
-        )
         live_position = self._pathing.live_position if self._pathing is not None else None
         live_sampled_at_seconds = (
             self._pathing.live_sampled_at_seconds if self._pathing is not None else None
         )
         return self._approach_stalls.observe(
             self._last_frame,
-            measured_speed_pixels_per_second=measured_speed,
             movement_commanded=True,
             at_seconds=self._state.observed_at_seconds,
             live_position=live_position,
@@ -894,10 +760,6 @@ class FarmingOrchestrator:
         """Steer one re-positioning step, or hand back to searching once the sweep is done."""
 
         if self._pathing is not None and self._pathing.has_pending_evasion:
-            # The collision belongs to live navigation, which already owns a bounded
-            # sideways/backward escape before its tangent replan. Drain only those two
-            # guarded actions here; ordinary route following remains outside this
-            # one-cycle combat repositioning sweep.
             return self._advance_pathing()
         decision = self._reposition.step(self._state.observed_at_seconds)
         if self._reposition.completed_cycles >= REPOSITION_SWEEP_CYCLES:
@@ -917,21 +779,15 @@ class FarmingOrchestrator:
         return dispatched
 
     def _advance_emergency_recovery(self) -> bool:
-        """Escape geometry no unstuck mechanism could free the character from (US-040).
-
-        Only a session with learned navigation runs this: judging spatial progress needs a
-        position estimate, and the recovery itself is a reset of exactly that estimate.
-        Returns whether the teleport hotkey was dispatched.
-        """
+        """Escape geometry when wedged."""
 
         if self._pathing is None:
             return False
-        known_position = self._pathing.tracking_quality is not TrackingQuality.DEGRADED
-        position = self._pathing.position
+        live = self._pathing.live_position
         decision = self._emergency.observe(
             self._state.observed_at_seconds,
-            position_x=position.x if known_position else None,
-            position_y=position.y if known_position else None,
+            position_x=live.x if live is not None else None,
+            position_y=live.z if live is not None else None,
             engaged=self._engagement_progressed(),
         )
         if decision.action is EmergencyRecoveryAction.UNAVAILABLE:
@@ -941,27 +797,14 @@ class FarmingOrchestrator:
         if decision.action is not EmergencyRecoveryAction.TELEPORT:
             return False
         if not self._emergency_dispatcher.dispatch(decision):
-            # Focus was lost or the emergency stop engaged; the timer stays expired, so the
-            # attempt simply repeats on the next tick the guards allow through.
             return False
         self._begin_teleport_recovery()
         return True
 
     def _engagement_progressed(self) -> bool:
-        """Return whether this tick carries evidence that the character is still fighting.
-
-        A click that started an approach is deliberately not enough: running against a tree
-        towards a mob re-targets forever, which is the very situation this recovery exists
-        for (US-039). Landing damage, or the tick a kill is reconciled on, is real progress.
-        """
-
         return self._combat.damage_dealt or self._mode is FarmingMode.RECONCILING
 
     def _begin_teleport_recovery(self) -> None:
-        """Blame the place being escaped and hold the session until the client settles."""
-
-        if self._pathing is not None:
-            self._pathing.begin_teleport_recovery(self._state.observed_at_seconds)
         self._emergency.halt()
         self._teleport_settled_at_seconds = (
             self._state.observed_at_seconds + self._config.emergency.settle_delay_seconds
@@ -969,14 +812,8 @@ class FarmingOrchestrator:
         self._set_mode(FarmingMode.TELEPORTING, reason="emergency_teleport")
 
     def _settle_teleport(self) -> FarmingTick:
-        """Wait out the post-teleport transition, then resume from the spawn anchor."""
-
         if self._state.observed_at_seconds < self._teleport_settled_at_seconds:
             return self._publish(False)
-        if self._pathing is not None:
-            self._pathing.complete_teleport_recovery()
-        # The engagement, the approach evidence, and the search stage all describe a place
-        # the character no longer stands in, so the session restarts them from the anchor.
         self._combat = CombatController(self._config.combat)
         self._engagement_break = None
         self._engaged_monster_name = None
@@ -988,21 +825,15 @@ class FarmingOrchestrator:
         return self._publish(False)
 
     def _register_navigation_obstacle(self) -> None:
-        """Penalize the blocked path in the learned map, if the session is learning one."""
-
         if self._pathing is not None:
             self._pathing.register_obstacle(self._state.observed_at_seconds)
 
     def _remember_engaged_monster(self) -> None:
-        """Keep the verified name of the mob under attack for later kill attribution."""
-
         name = self._state.selected_target.name
         if name:
             self._engaged_monster_name = name
 
     def _attribute_kill(self) -> None:
-        """Credit one confirmed kill to the vector farming goals, if any are configured."""
-
         name = self._engaged_monster_name
         self._engaged_monster_name = None
         if name is None or self._pathing is None:
@@ -1010,15 +841,14 @@ class FarmingOrchestrator:
         self._pathing.record_kill(name)
 
     def _advance_pathing(self) -> bool:
-        """Steer one learned-route step, or defer to the staged search stages."""
+        """Steer one authoritative 3D NavMesh/Vector route step."""
 
         if self._pathing is None:
             return False
-        # Kept local to preserve the existing navigation -> automation import boundary.
         from flyff_bot.features.navigation.pathing import PathingMode
 
         decision = self._pathing.step(self._state.observed_at_seconds)
-        if decision.mode is PathingMode.BLOCKED and self._pathing.vector_navigation_gps_unavailable:
+        if decision.mode is PathingMode.BLOCKED:
             self.pause(reason="gps_unavailable")
             return False
         if self._telemetry is not None:
@@ -1037,17 +867,7 @@ class FarmingOrchestrator:
         self._search.reset()
         return True
 
-    def _persist_navigation(self) -> None:
-        if self._pathing is not None:
-            self._pathing.persist()
-
     def _record_kill(self, class_name: str | None) -> None:
-        """Count a verified kill against its monster class and retire finished quotas.
-
-        The class comes from the candidate this engagement clicked, which is the only
-        place the mob's identity is known: the HUD counts kills without naming them.
-        """
-
         if not self._kill_goals.record_kill(class_name):
             return
         if self._kill_goals.has_quotas:
@@ -1063,11 +883,8 @@ class FarmingOrchestrator:
         return quantities.get(goal.item_name, 0) >= goal.required_quantity
 
     def _complete_session(self) -> None:
-        """End the session, and optionally ask the game client to close itself."""
-
         reason = "kill_quota" if self._kill_goals.is_completed else "item_goal"
         self._set_mode(FarmingMode.COMPLETED, kind=SessionEventKind.GOAL_COMPLETED, reason=reason)
-        self._persist_navigation()
         if self._kill_goals.close_client_on_completion and not self._client_close_requested:
             self._client_close_requested = True
             self._input_adapter.close_window(self._window_handle)
@@ -1109,8 +926,6 @@ class FarmingOrchestrator:
         return tick
 
     def _record_telemetry_snapshot(self) -> None:
-        """Queue at most one numeric telemetry snapshot for each observed client frame."""
-
         if self._telemetry is None or not self._has_live_frame:
             return
         observed_at_seconds = self._state.observed_at_seconds

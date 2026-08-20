@@ -791,3 +791,13 @@ measured geometry, route, trajectory, and timing fields directly. The full autom
 on 2026-08-20 at 806 passed, 2 skipped, and 90.60% coverage. Windows/client validation of actual
 reachability marking, Funnel traversal, and exported live telemetry remains unrun. Moved US-058 to
 completed user stories.
+
+## [2026-08-20] synthesis | Pure authoritative vector navigation and multi-zone selection (US-059)
+
+Recorded the completed US-059 implementation. Purged legacy minimap odometry (`MinimapOdometer`),
+key dead reckoning (`MovementTracker`), 2D spatial heatmap learning (`SpatialMap`, `RoutePlanner`),
+and minimap JSON profiles from production code. Gated navigation strictly on live GPS (`LivePositionReader`)
+and authoritative 3D NavMesh extraction (`BakedNavMesh`), enforcing the strict invariant "no GPS, no bot".
+Implemented multi-zone selection and sequential camp quota progression in `VectorZoneNavigator` and
+`WorldDataDialog`. The full automated repository gate passed on 2026-08-20 at 608 passed, 2 skipped, and
+88.77% coverage. Moved US-059 to completed user stories.

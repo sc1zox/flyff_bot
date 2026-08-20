@@ -11,14 +11,12 @@ from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.kill_goals import MobKillProgress
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.diagnostics import SessionEvent
-from flyff_bot.features.navigation.anchoring import ProfileAnchorState
 from flyff_bot.features.navigation.live_camera import CameraReadErrorCode, CameraState
 from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
     PositionSource,
     WorldPosition,
 )
-from flyff_bot.features.navigation.tracking import TrackingQuality
 from flyff_bot.features.vision.models import CapturedFrame
 
 
@@ -38,10 +36,7 @@ class BotStatus(StrEnum):
     APPROACHING = "approaching"
     ALIGNING = "aligning"
     ALIGNMENT_FAILED = "alignment_failed"
-    # The last-resort teleport out of un-walkable geometry is running (US-040).
     EMERGENCY_TELEPORT = "emergency_teleport"
-    # Every unstuck mechanism failed and no teleport hotkey is configured, so only the
-    # operator can free the character (US-040).
     EMERGENCY_TELEPORT_UNAVAILABLE = "emergency_teleport_unavailable"
 
 
@@ -70,30 +65,6 @@ class FarmingGoal:
 
 
 @dataclass(frozen=True, slots=True)
-class CellSnapshot:
-    """Immutable view of one spatial grid cell."""
-
-    x: int
-    y: int
-    center_x: float
-    center_y: float
-    visits: int
-    stalls: int
-    spawn_weight: float
-
-
-@dataclass(frozen=True, slots=True)
-class EdgeSnapshot:
-    """Immutable view of one navigation graph edge between two cell centers."""
-
-    origin_x: float
-    origin_y: float
-    destination_x: float
-    destination_y: float
-    stalls: int
-
-
-@dataclass(frozen=True, slots=True)
 class VectorZoneSnapshot:
     """Immutable view of the extracted spawn zone the session is currently bound to."""
 
@@ -118,33 +89,14 @@ class NavMeshMobSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class NavigationSnapshot:
-    """Immutable view of the learned spatial map, dead reckoning, and active route."""
+    """Immutable view of authoritative 3D GPS, NavMesh, and active vector route."""
 
     player_x: float
     player_y: float
     heading_degrees: float
-    cells: tuple[CellSnapshot, ...]
-    edges: tuple[EdgeSnapshot, ...]
     waypoints: tuple[tuple[float, float], ...] = ()
-    safe_waypoint: tuple[float, float] | None = None
-    cell_size_pixels: float = 15.0
-    leash_radius_pixels: float = 50.0
-    # How many spawn hotspots the most recent plan discarded for lying outside the leash, so
-    # a silently shrinking patrol is visible rather than mistaken for an empty camp (US-037).
-    hotspots_outside_leash: int = 0
-    tracking_quality: TrackingQuality = TrackingQuality.DEGRADED
-    # Positions are minimap pixels at the zoom level this session was anchored to, so the
-    # anchor travels with them (US-035).
-    zoom_signature_anchor: float | None = None
-    # Whether the active map's coordinates were verified against the frame they were
-    # recorded in, so a read-only or unanchored profile is never mistaken for a learning
-    # one (US-036).
-    profile_anchor_state: ProfileAnchorState = ProfileAnchorState.SESSION
-    # The extracted spawn zone bounding the current patrol, when an authoritative world
-    # vector map is steering the session instead of the learned heatmap (US-045).
     vector_zone: VectorZoneSnapshot | None = None
-    # US-048 world-space GPS and topographic route fields. Defaults preserve snapshots made
-    # by tests and integrations that only know the learned minimap map.
+    vector_zones: tuple[VectorZoneSnapshot, ...] = ()
     position_source: PositionSource = PositionSource.MINIMAP_FALLBACK
     position_error_code: PositionReadErrorCode | None = None
     world_position: WorldPosition | None = None
@@ -152,9 +104,6 @@ class NavigationSnapshot:
     camera_error_code: CameraReadErrorCode | None = None
     world_waypoints: tuple[WorldPosition, ...] = ()
     terrain_samples: tuple[tuple[float, float, float], ...] = ()
-    # The mapped town or respawn anchor an emergency teleport arrives at, when the
-    # operator marked one for this profile (US-040).
-    spawn_point: tuple[float, float] | None = None
     navmesh_mobs: tuple[NavMeshMobSnapshot, ...] = ()
     navigation_trajectory: tuple[WorldPosition, ...] = ()
 
@@ -170,11 +119,7 @@ class DashboardUpdate:
     navigation: NavigationSnapshot | None = None
     window: WindowStatus = WindowStatus.OK
     engagement_break: EngagementBreakReason | None = None
-    # Live per-monster quota progress, empty while no monster selection is configured
-    # (US-035).
     kill_progress: tuple[MobKillProgress, ...] = ()
-    # Recent session diagnostic events, most recent first, empty when no event logger is
-    # attached (US-049).
     events: tuple[SessionEvent, ...] = ()
 
 

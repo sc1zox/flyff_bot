@@ -115,6 +115,10 @@ class PowerUpPanel(QGroupBox):
         self._translator = translator
         self._retranslate()
 
+    @property
+    def config(self) -> PowerUpConfig:
+        return self.get_config()
+
     def get_config(self) -> PowerUpConfig:
         """Return the power-up configuration currently defined by the editor rows."""
 

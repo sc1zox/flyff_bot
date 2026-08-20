@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from flyff_bot.features.automation.models import VisibleMob
 from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import WorldPosition
@@ -27,9 +25,14 @@ def test_target_approach_follows_funnel_route_and_stops_at_engagement_range() ->
             _triangle((10, 0, 0), (10, 0, 10), (0, 0, 10)),
         )
     )
+    from flyff_bot.features.navigation.live_position import PositionSource
+
     pathing = PathingController(navmesh=mesh)
     pathing._live_position = WorldPosition(1.0, 0.0, 1.0)
-    pathing._camera_state = cast(CameraState, object())
+    pathing._position_source = PositionSource.LIVE
+    pathing._camera_state = CameraState(
+        pitch_radians=0.0, yaw_radians=0.0, vertical_fov_radians=1.0
+    )
     target = VisibleMob(
         1,
         "Flame",

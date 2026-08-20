@@ -1,4 +1,4 @@
-"""Tests for obstacle stall detection from captured client frames."""
+"""Tests for obstacle stall detection from live GPS coordinates and frames."""
 
 from __future__ import annotations
 
@@ -16,8 +16,6 @@ from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 FRAME_WIDTH = 160
 FRAME_HEIGHT = 120
 BACKGROUND_VALUE = 40
-# A rectangle well inside the centred region the detector masks out, standing in for the player
-# model whose running animation keeps changing while the character is stuck against an obstacle.
 CHARACTER_TOP = 40
 CHARACTER_BOTTOM = 72
 CHARACTER_LEFT = 60
@@ -48,14 +46,13 @@ def _animation_frame(step: int) -> CapturedFrame:
 
 
 def test_center_character_animation_over_frozen_scenery_reports_a_stall() -> None:
-    """BUG-009: walking into an obstacle keeps the run animation, but the world stops moving."""
+    """Walking into an obstacle keeps the run animation, but the world stops moving."""
 
     detector = StallDetector(STALL_CONFIG)
     seconds = 0.0
 
     detector.observe(
         _animation_frame(0),
-        measured_speed_pixels_per_second=None,
         movement_commanded=True,
         at_seconds=seconds,
     )
@@ -63,7 +60,6 @@ def test_center_character_animation_over_frozen_scenery_reports_a_stall() -> Non
         seconds += SAMPLE_INTERVAL_SECONDS
         assert not detector.observe(
             _animation_frame(step),
-            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=seconds,
         )
@@ -71,7 +67,6 @@ def test_center_character_animation_over_frozen_scenery_reports_a_stall() -> Non
     seconds += SAMPLE_INTERVAL_SECONDS
     assert detector.observe(
         _animation_frame(0),
-        measured_speed_pixels_per_second=None,
         movement_commanded=True,
         at_seconds=seconds,
     )
@@ -94,7 +89,6 @@ def test_without_the_center_mask_the_same_animation_hides_the_stall() -> None:
     for step in range(20):
         detector.observe(
             _animation_frame(step),
-            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=step * SAMPLE_INTERVAL_SECONDS,
         )
@@ -109,7 +103,6 @@ def test_moving_scenery_never_accumulates_stall_time() -> None:
     for step in range(20):
         detector.observe(
             _frame(background=BACKGROUND_VALUE + step * 5),
-            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=step * SAMPLE_INTERVAL_SECONDS,
         )
@@ -119,14 +112,13 @@ def test_moving_scenery_never_accumulates_stall_time() -> None:
 
 
 def test_non_commanded_ticks_hold_the_stall_streak_within_the_movement_grace() -> None:
-    """BUG-009: a turn tick between forward steps must not discard the accumulated streak."""
+    """A turn tick between forward steps must not discard the accumulated streak."""
 
     detector = StallDetector(STALL_CONFIG)
     seconds = 0.0
     for step in range(10):
         detector.observe(
             _animation_frame(step),
-            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=seconds,
         )
@@ -137,7 +129,6 @@ def test_non_commanded_ticks_hold_the_stall_streak_within_the_movement_grace() -
 
     detector.observe(
         _animation_frame(10),
-        measured_speed_pixels_per_second=None,
         movement_commanded=False,
         at_seconds=seconds,
     )
@@ -147,7 +138,6 @@ def test_non_commanded_ticks_hold_the_stall_streak_within_the_movement_grace() -
     seconds += SAMPLE_INTERVAL_SECONDS
     assert detector.observe(
         _animation_frame(11),
-        measured_speed_pixels_per_second=None,
         movement_commanded=True,
         at_seconds=seconds,
     )
@@ -159,7 +149,6 @@ def test_a_movement_pause_beyond_the_grace_clears_the_stall_streak() -> None:
     for step in range(6):
         detector.observe(
             _animation_frame(step),
-            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=seconds,
         )
@@ -170,7 +159,6 @@ def test_a_movement_pause_beyond_the_grace_clears_the_stall_streak() -> None:
     seconds += STALL_CONFIG.movement_grace_seconds + SAMPLE_INTERVAL_SECONDS
     assert not detector.observe(
         _animation_frame(6),
-        measured_speed_pixels_per_second=None,
         movement_commanded=False,
         at_seconds=seconds,
     )
@@ -182,13 +170,11 @@ def test_a_single_delayed_sample_cannot_satisfy_the_stall_timeout() -> None:
 
     detector.observe(
         _animation_frame(0),
-        measured_speed_pixels_per_second=None,
         movement_commanded=True,
         at_seconds=0.0,
     )
     detector.observe(
         _animation_frame(1),
-        measured_speed_pixels_per_second=None,
         movement_commanded=True,
         at_seconds=STALL_TIMEOUT_SECONDS * 10.0,
     )
@@ -203,16 +189,13 @@ def test_missing_frames_keep_the_verdict_and_reset_clears_it() -> None:
     for step in range(11):
         detector.observe(
             _animation_frame(step),
-            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=seconds,
         )
         seconds += SAMPLE_INTERVAL_SECONDS
 
     assert detector.is_stalled
-    assert detector.observe(
-        None, measured_speed_pixels_per_second=None, movement_commanded=True, at_seconds=seconds
-    )
+    assert detector.observe(None, movement_commanded=True, at_seconds=seconds)
 
     detector.reset()
 
@@ -245,7 +228,6 @@ def test_live_world_position_is_the_primary_two_second_stall_signal() -> None:
 
     assert not detector.observe(
         None,
-        measured_speed_pixels_per_second=100.0,
         movement_commanded=True,
         at_seconds=0.0,
         live_position=stationary,
@@ -253,14 +235,12 @@ def test_live_world_position_is_the_primary_two_second_stall_signal() -> None:
     for sample in (0.5, 1.0, 1.5):
         assert not detector.observe(
             None,
-            measured_speed_pixels_per_second=100.0,
             movement_commanded=True,
             at_seconds=sample,
             live_position=stationary,
         )
     assert detector.observe(
         None,
-        measured_speed_pixels_per_second=100.0,
         movement_commanded=True,
         at_seconds=2.0,
         live_position=stationary,
@@ -272,14 +252,12 @@ def test_live_speed_at_the_threshold_is_not_a_stall_and_resets_the_streak() -> N
     start = WorldPosition(0.0, 0.0, 0.0)
     detector.observe(
         None,
-        measured_speed_pixels_per_second=None,
         movement_commanded=True,
         at_seconds=0.0,
         live_position=start,
     )
     detector.observe(
         None,
-        measured_speed_pixels_per_second=None,
         movement_commanded=True,
         at_seconds=0.5,
         live_position=start,
@@ -287,7 +265,6 @@ def test_live_speed_at_the_threshold_is_not_a_stall_and_resets_the_streak() -> N
 
     assert not detector.observe(
         None,
-        measured_speed_pixels_per_second=None,
         movement_commanded=True,
         at_seconds=1.0,
         live_position=WorldPosition(0.25, 0.0, 0.0),
@@ -302,7 +279,6 @@ def test_throttled_duplicate_live_samples_do_not_accumulate_stall_time() -> None
     for tick in (0.0, 0.02, 0.04, 0.06, 0.08):
         assert not detector.observe(
             None,
-            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=tick,
             live_position=position,
@@ -315,12 +291,7 @@ def test_throttled_duplicate_live_samples_do_not_accumulate_stall_time() -> None
 def test_client_driven_combat_approach_is_sampled_and_stalls_before_the_engagement_timeout() -> (
     None
 ):
-    """US-039: the approach is walked by the game client, so the session samples it itself.
-
-    No movement key is ever dispatched during the approach and the minimap measurement is
-    unavailable here, so the peripheral frame difference is the only evidence there is. The
-    verdict has to arrive inside the 10.0 s engagement timeout to be worth anything.
-    """
+    """The approach is walked by the game client, so the session samples it itself."""
 
     engagement_timeout_seconds = 10.0
     tick_interval_seconds = 0.1
@@ -329,11 +300,8 @@ def test_client_driven_combat_approach_is_sampled_and_stalls_before_the_engageme
     stalled_at_seconds: float | None = None
 
     for step in range(int(engagement_timeout_seconds / tick_interval_seconds)):
-        # `movement_commanded` is the session's knowledge that the client is walking the
-        # character towards the clicked mob; the bot itself commands nothing.
         stalled = detector.observe(
             _animation_frame(step),
-            measured_speed_pixels_per_second=None,
             movement_commanded=True,
             at_seconds=seconds,
         )
@@ -347,16 +315,14 @@ def test_client_driven_combat_approach_is_sampled_and_stalls_before_the_engageme
 
 
 def test_a_measured_approach_that_keeps_covering_ground_never_stalls() -> None:
-    """US-039: a reachable mob is walked to, so the measured speed clears the streak."""
+    """A reachable mob is walked to, so the live displacement clears the streak."""
 
     detector = StallDetector(STALL_CONFIG)
 
     for step in range(int(STALL_TIMEOUT_SECONDS / SAMPLE_INTERVAL_SECONDS) * 3):
         assert not detector.observe(
             None,
-            measured_speed_pixels_per_second=(
-                STALL_CONFIG.measured_motion_threshold_pixels_per_second + 1.0
-            ),
+            live_position=WorldPosition(float(step) * 5.0, 0.0, 0.0),
             movement_commanded=True,
             at_seconds=step * SAMPLE_INTERVAL_SECONDS,
         )

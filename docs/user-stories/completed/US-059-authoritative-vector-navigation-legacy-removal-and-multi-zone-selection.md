@@ -1,7 +1,7 @@
 ---
 id: US-059
 title: Authoritative vector navigation, legacy subsystem removal, and multi-zone selection
-status: draft
+status: completed
 created: 2026-08-20
 updated: 2026-08-20
 ---
@@ -29,12 +29,12 @@ As a **bot operator**, I want **the navigation system to rely exclusively on aut
 
 ## Acceptance criteria
 
-- [ ] Given a running bot session, when live GPS (`LivePositionReader`) is unavailable, unverified, or returns a read error, then the bot immediately transitions to `FarmingMode.PAUSED` / `PathingMode.BLOCKED`, records a typed diagnostic event, and dispatches zero movement keys.
-- [ ] Given the navigation subsystem, legacy minimap template-matching odometry (`MinimapOdometer`, `MinimapReading`), key-press dead reckoning (`MovementTracker`), 2D grid heatmap tracking (`SpatialMap`, `GridCell`, `RoutePlanner`, pixel leash calculations), and legacy minimap profiles (`data/navigation/*.json`, `NavigationProfile`, anchor matching) are completely removed from production code and replaced by pure authoritative world-space routing.
-- [ ] Given the desktop UI, the *Navigation & World* tab and header cards remove obsolete minimap profile controls (*Save Profile*, *Load Profile*, *Reset Map*, anchor status chip) and focus exclusively on World Data extraction, region/zone selection, live GPS status, NavMesh candidate telemetry, and 3D path inspection.
-- [ ] Given the vector navigation system (`VectorZoneNavigator` / `WorldDataDialog`), when configuring vector farming goals, then the operator can activate multiple distinct spawn zones and configure per-zone / per-monster quotas, with the navigator automatically pathfinding across the 3D NavMesh to the next active zone upon quota completion or target exhaustion.
-- [ ] Given search when no mobs are visible in the active zone, when staged search executes, then the bot steers exclusively along the extracted NavMesh zone patrol ring and camera rotations without blind WASD roaming.
-- [ ] All user-visible text, error diagnostics, and dialog strings are synchronized in English and German (`en.json`, `de.json`).
+- [x] Given a running bot session, when live GPS (`LivePositionReader`) is unavailable, unverified, or returns a read error, then the bot immediately transitions to `FarmingMode.PAUSED` / `PathingMode.BLOCKED`, records a typed diagnostic event, and dispatches zero movement keys.
+- [x] Given the navigation subsystem, legacy minimap template-matching odometry (`MinimapOdometer`, `MinimapReading`), key-press dead reckoning (`MovementTracker`), 2D grid heatmap tracking (`SpatialMap`, `GridCell`, `RoutePlanner`, pixel leash calculations), and legacy minimap profiles (`data/navigation/*.json`, `NavigationProfile`, anchor matching) are completely removed from production code and replaced by pure authoritative world-space routing.
+- [x] Given the desktop UI, the *Navigation & World* tab and header cards remove obsolete minimap profile controls (*Save Profile*, *Load Profile*, *Reset Map*, anchor status chip) and focus exclusively on World Data extraction, region/zone selection, live GPS status, NavMesh candidate telemetry, and 3D path inspection.
+- [x] Given the vector navigation system (`VectorZoneNavigator` / `WorldDataDialog`), when configuring vector farming goals, then the operator can activate multiple distinct spawn zones and configure per-zone / per-monster quotas, with the navigator automatically pathfinding across the 3D NavMesh to the next active zone upon quota completion or target exhaustion.
+- [x] Given search when no mobs are visible in the active zone, when staged search executes, then the bot steers exclusively along the extracted NavMesh zone patrol ring and camera rotations without blind WASD roaming.
+- [x] All user-visible text, error diagnostics, and dialog strings are synchronized in English and German (`en.json`, `de.json`).
 
 ## Out of scope
 

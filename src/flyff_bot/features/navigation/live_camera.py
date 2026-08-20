@@ -74,19 +74,38 @@ class WorldRay3D:
     direction: Vector3D
 
 
+DEFAULT_IDENTITY_MATRIX: Matrix4x4 = (
+    (1.0, 0.0, 0.0, 0.0),
+    (0.0, 1.0, 0.0, 0.0),
+    (0.0, 0.0, 1.0, 0.0),
+    (0.0, 0.0, 0.0, 1.0),
+)
+
+
+DEFAULT_WORLD_POSITION: WorldPosition = WorldPosition(0.0, 0.0, 0.0)
+
+
 @dataclass(frozen=True, slots=True)
 class CameraState:
     """One coherent D3D9 camera snapshot derived from View and Projection matrices."""
 
-    position: WorldPosition
-    pitch_radians: float
-    yaw_radians: float
-    zoom_distance: float
-    vertical_fov_radians: float
-    view_matrix: Matrix4x4
-    projection_matrix: Matrix4x4
-    view_projection_matrix: Matrix4x4
-    inverse_view_projection_matrix: Matrix4x4
+    position: WorldPosition = DEFAULT_WORLD_POSITION
+    pitch_radians: float = 0.0
+    yaw_radians: float = 0.0
+    zoom_distance: float = 0.0
+    vertical_fov_radians: float = 1.0
+    view_matrix: Matrix4x4 = DEFAULT_IDENTITY_MATRIX
+    projection_matrix: Matrix4x4 = DEFAULT_IDENTITY_MATRIX
+    view_projection_matrix: Matrix4x4 = DEFAULT_IDENTITY_MATRIX
+    inverse_view_projection_matrix: Matrix4x4 = DEFAULT_IDENTITY_MATRIX
+
+    @property
+    def pitch_degrees(self) -> float:
+        return math.degrees(self.pitch_radians)
+
+    @property
+    def yaw_degrees(self) -> float:
+        return math.degrees(self.yaw_radians)
 
 
 class CameraReadErrorCode(StrEnum):

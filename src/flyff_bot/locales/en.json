@@ -282,7 +282,7 @@
   "ui.popout_map": "Pop-out Map",
   "ui.dock_map": "Dock Map",
   "ui.map_window_title": "Navigation Map & Heatmap",
-  "ui.mobs_count": "Mobs: {count}",
+  "ui.mobs_count": "Visible mobs: {count}",
   "ui.window_ok": "Game window: in foreground",
   "ui.window_not_foreground": "Game window: not in foreground",
   "ui.window_minimized": "Game window minimized",

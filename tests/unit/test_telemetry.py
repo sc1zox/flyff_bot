@@ -16,7 +16,6 @@ from flyff_bot.features.telemetry import (
     TelemetrySessionMetadata,
 )
 
-
 TODAY = datetime.now(UTC).date().isoformat()
 
 

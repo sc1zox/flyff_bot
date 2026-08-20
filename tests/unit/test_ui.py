@@ -6,7 +6,6 @@ import json
 import os
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -17,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QMessageBox, QScrollArea
+from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QScrollArea
 
 from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import (
@@ -39,11 +38,6 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
-from flyff_bot.features.automation.orchestrator import (
-    FarmingInputAdapter,
-    FarmingMode,
-    FarmingOrchestrator,
-)
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig, PowerUpEntry
 from flyff_bot.features.automation.powerup_persistence import (
     load_powerup_config,
@@ -60,20 +54,12 @@ from flyff_bot.features.input_control import (
     ScreenRect,
     parse_virtual_key,
 )
-from flyff_bot.features.navigation.anchoring import ProfileAnchorState
 from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
 from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
     PositionSource,
     WorldPosition,
 )
-from flyff_bot.features.navigation.pathing import (
-    PathingController,
-    ProfileLoadOutcome,
-    ProfileLoadResult,
-)
-from flyff_bot.features.navigation.spatial import SpatialMap, WorldPoint
-from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import TargetVerifier
@@ -86,12 +72,11 @@ from flyff_bot.ui.app import (
 )
 from flyff_bot.ui.dashboard import (
     BotStatus,
-    CellSnapshot,
     DashboardFeed,
     DashboardUpdate,
-    EdgeSnapshot,
     FarmingGoal,
     NavigationSnapshot,
+    VectorZoneSnapshot,
     WindowStatus,
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
@@ -232,18 +217,6 @@ def test_farming_controls_connect_dashboard_intent() -> None:
         def emergency_stop(self) -> None:
             self.requests.append("stop")
 
-        def save_navigation_profile(self, path: Path) -> None:
-            self.requests.append(f"save:{path.name}")
-
-        def load_navigation_profile(
-            self, path: Path, *, accept_unmatched: bool = False
-        ) -> ProfileLoadResult:
-            self.requests.append(f"load:{path.name}")
-            return ProfileLoadResult(ProfileLoadOutcome.ANCHORED)
-
-        def reset_navigation_map(self) -> None:
-            self.requests.append("reset")
-
         def configure_vitals(self, config: VitalsTriggerConfig) -> None:
             self.requests.append("vitals")
 
@@ -252,10 +225,6 @@ def test_farming_controls_connect_dashboard_intent() -> None:
 
         def configure_emergency_recovery(self, config: EmergencyRecoveryConfig) -> None:
             self.requests.append("emergency")
-
-        def mark_spawn_point(self) -> tuple[float, float] | None:
-            self.requests.append("spawn_point")
-            return (12.0, -4.0)
 
         def request_camera_alignment(self) -> None:
             self.requests.append("align")
@@ -271,9 +240,6 @@ def test_farming_controls_connect_dashboard_intent() -> None:
     QTest.keyClick(window, Qt.Key.Key_Escape)
     window.align_camera_button.click()
     window.auto_align_toggle.setChecked(False)
-    window.save_profile_requested.emit(Path("spot.json"))
-    window.load_profile_requested.emit(Path("spot.json"))
-    window.reset_navigation_requested.emit()
     application.processEvents()
 
     assert session.requests == [
@@ -282,9 +248,6 @@ def test_farming_controls_connect_dashboard_intent() -> None:
         "stop",
         "align",
         "auto_align:False",
-        "save:spot.json",
-        "load:spot.json",
-        "reset",
     ]
 
 
@@ -381,29 +344,22 @@ def test_path_inspector_widget_renders_cleanly_with_populated_snapshot() -> None
     widget.render(widget)
 
     # Render with populated snapshot
-    cells = (
-        CellSnapshot(x=0, y=0, center_x=20.0, center_y=20.0, visits=5, stalls=0, spawn_weight=2.5),
-        CellSnapshot(x=1, y=0, center_x=60.0, center_y=20.0, visits=2, stalls=1, spawn_weight=0.0),
-        CellSnapshot(x=1, y=1, center_x=60.0, center_y=60.0, visits=1, stalls=0, spawn_weight=5.0),
-    )
-    edges = (
-        EdgeSnapshot(
-            origin_x=20.0, origin_y=20.0, destination_x=60.0, destination_y=20.0, stalls=1
-        ),
-        EdgeSnapshot(
-            origin_x=60.0, origin_y=20.0, destination_x=60.0, destination_y=60.0, stalls=0
-        ),
+    vzone = VectorZoneSnapshot(
+        monster_name="Aibatt",
+        center_x=20.0,
+        center_y=20.0,
+        half_width_pixels=20.0,
+        half_depth_pixels=20.0,
+        capacity=5,
     )
     snapshot = NavigationSnapshot(
         player_x=15.0,
         player_y=25.0,
         heading_degrees=45.0,
-        cells=cells,
-        edges=edges,
-        waypoints=((60.0, 60.0),),
-        safe_waypoint=(20.0, 20.0),
-        cell_size_pixels=40.0,
-        leash_radius_pixels=80.0,
+        position_source=PositionSource.LIVE,
+        world_position=WorldPosition(15.0, 10.0, 25.0),
+        world_waypoints=(WorldPosition(20.0, 10.0, 20.0),),
+        vector_zones=(vzone,),
     )
     widget.set_navigation(snapshot)
     assert widget.snapshot == snapshot
@@ -424,10 +380,8 @@ def test_main_window_path_inspector_stays_current_before_navigation_tab_is_selec
         player_x=0.0,
         player_y=0.0,
         heading_degrees=90.0,
-        cells=(),
-        edges=(),
-        waypoints=(),
-        safe_waypoint=None,
+        position_source=PositionSource.LIVE,
+        world_position=WorldPosition(0.0, 10.0, 0.0),
     )
     feed.publish(
         DashboardUpdate(
@@ -555,10 +509,7 @@ def test_main_window_switching_functional_tabs_does_not_resize_the_window() -> N
         player_x=0.0,
         player_y=0.0,
         heading_degrees=90.0,
-        cells=(),
-        edges=(),
         waypoints=(),
-        safe_waypoint=None,
     )
     window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE, navigation=snapshot))
     window.show()
@@ -571,173 +522,14 @@ def test_main_window_switching_functional_tabs_does_not_resize_the_window() -> N
         assert window.size() == initial_size
 
 
-def test_main_window_profile_bar_in_navigation_tab_and_state_gating(tmp_path: Path) -> None:
+def test_main_window_navigation_tab_controls() -> None:
     application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.ENGLISH), navigation_dir=tmp_path)
+    window = MainWindow(Translator(Language.ENGLISH))
     window.show()
     window.tab_widget.setCurrentIndex(DashboardTab.NAVIGATION_WORLD)
     application.processEvents()
-    assert window.profile_bar.isVisibleTo(window)
-
-    # Active farming status disables profile controls
-    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE))
-    assert not window.profile_selector.isEnabled()
-    assert not window.profile_name_input.isEnabled()
-    assert not window.save_profile_button.isEnabled()
-    assert not window.load_profile_button.isEnabled()
-    assert not window.reset_map_button.isEnabled()
-
-    # Paused status enables profile controls
-    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.PAUSED))
-    assert window.profile_selector.isEnabled()
-    assert window.profile_name_input.isEnabled()
-    assert window.save_profile_button.isEnabled()
-    assert window.load_profile_button.isEnabled()
-    assert window.reset_map_button.isEnabled()
-
-    # Emergency stopped status enables profile controls
-    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.EMERGENCY_STOPPED))
-    assert window.profile_selector.isEnabled()
-    assert window.profile_name_input.isEnabled()
-    assert window.save_profile_button.isEnabled()
-
-
-def test_main_window_profile_save_and_load_signals(tmp_path: Path) -> None:
-    application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.ENGLISH), navigation_dir=tmp_path)
-
-    saved_paths: list[Path] = []
-    loaded_paths: list[Path] = []
-    window.save_profile_requested.connect(saved_paths.append)
-    window.load_profile_requested.connect(loaded_paths.append)
-
-    # Save
-    window.profile_name_input.setText("flame_north")
-    window.save_profile_button.click()
-    application.processEvents()
-
-    assert len(saved_paths) == 1
-    assert saved_paths[0] == tmp_path / "flame_north.json"
-
-    # Create dummy file so it exists for loading
-    saved_paths[0].write_text("{}", encoding="utf-8")
-    window.refresh_profiles(select_path=saved_paths[0])
-
-    # Load
-    window.load_profile_button.click()
-    application.processEvents()
-
-    assert loaded_paths == [saved_paths[0]]
-
-
-class _ProfileSession:
-    """A farming session that only records how a profile load was attempted."""
-
-    def __init__(self, outcome: ProfileLoadOutcome) -> None:
-        self._outcome = outcome
-        self.load_attempts: list[bool] = []
-
-    def start(self) -> None: ...
-
-    def pause(self) -> None: ...
-
-    def emergency_stop(self) -> None: ...
-
-    def save_navigation_profile(self, path: Path) -> None: ...
-
-    def load_navigation_profile(
-        self, path: Path, *, accept_unmatched: bool = False
-    ) -> ProfileLoadResult:
-        self.load_attempts.append(accept_unmatched)
-        return ProfileLoadResult(
-            self._outcome, stored_zoom_signature=110.7, live_zoom_signature=88.5
-        )
-
-    def reset_navigation_map(self) -> None: ...
-
-    def configure_vitals(self, config: VitalsTriggerConfig) -> None: ...
-
-    def configure_powerups(self, config: PowerUpConfig) -> None: ...
-
-    def configure_emergency_recovery(self, config: EmergencyRecoveryConfig) -> None: ...
-
-    def mark_spawn_point(self) -> tuple[float, float] | None:
-        return None
-
-    def request_camera_alignment(self) -> None: ...
-
-    def configure_auto_align(self, enabled: bool) -> None: ...
-
-
-@pytest.mark.parametrize(
-    ("accepted", "expected_attempts"),
-    [(True, [False, True]), (False, [False])],
-)
-def test_refused_anchor_only_loads_read_only_when_the_operator_accepts(
-    monkeypatch: pytest.MonkeyPatch, accepted: bool, expected_attempts: list[bool]
-) -> None:
-    application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.ENGLISH))
-    session = _ProfileSession(ProfileLoadOutcome.UNMATCHED)
-    connect_farming_controls(window, session)
-    monkeypatch.setattr(MainWindow, "confirm_read_only_profile", lambda _self: accepted)
-
-    window.load_profile_requested.emit(Path("spot.json"))
-    application.processEvents()
-
-    assert session.load_attempts == expected_attempts
-
-
-def test_a_scale_mismatch_is_reported_and_never_retried(monkeypatch: pytest.MonkeyPatch) -> None:
-    application = QApplication.instance() or QApplication([])
-    translator = Translator(Language.ENGLISH)
-    window = MainWindow(translator)
-    session = _ProfileSession(ProfileLoadOutcome.SCALE_MISMATCH)
-    connect_farming_controls(window, session)
-    dialogs: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        MainWindow,
-        "show_error_dialog",
-        lambda _self, title, message: dialogs.append((title, message)),
-    )
-
-    window.load_profile_requested.emit(Path("spot.json"))
-    application.processEvents()
-
-    assert session.load_attempts == [False]
-    assert dialogs[0][0] == translator.text(Message.UI_PROFILE_SCALE_MISMATCH_TITLE)
-    assert "110.7" in dialogs[0][1]
-    assert "88.5" in dialogs[0][1]
-
-
-@pytest.mark.parametrize(
-    ("state", "message"),
-    [
-        (ProfileAnchorState.SESSION, Message.UI_PROFILE_ANCHOR_SESSION),
-        (ProfileAnchorState.ANCHORED, Message.UI_PROFILE_ANCHOR_ANCHORED),
-        (ProfileAnchorState.READ_ONLY, Message.UI_PROFILE_ANCHOR_READ_ONLY),
-        (ProfileAnchorState.UNANCHORED, Message.UI_PROFILE_ANCHOR_UNANCHORED),
-    ],
-)
-def test_main_window_shows_the_profile_anchor_state(
-    state: ProfileAnchorState, message: Message
-) -> None:
-    application = QApplication.instance() or QApplication([])
-    translator = Translator(Language.ENGLISH)
-    window = MainWindow(translator)
-    snapshot = NavigationSnapshot(
-        player_x=0.0,
-        player_y=0.0,
-        heading_degrees=90.0,
-        cells=(),
-        edges=(),
-        profile_anchor_state=state,
-    )
-
-    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.PAUSED, navigation=snapshot))
-    application.processEvents()
-
-    assert window.profile_anchor_label.text() == translator.text(message)
+    assert window.world_data_button.isVisibleTo(window)
+    assert window.path_inspector.isVisibleTo(window)
 
 
 def test_main_window_shows_live_gps_and_world_coordinates() -> None:
@@ -748,8 +540,6 @@ def test_main_window_shows_live_gps_and_world_coordinates() -> None:
         player_x=123.0,
         player_y=789.0,
         heading_degrees=90.0,
-        cells=(),
-        edges=(),
         position_source=PositionSource.LIVE,
         world_position=WorldPosition(123.0, 45.0, 789.0),
     )
@@ -799,64 +589,6 @@ def test_main_window_shows_live_gps_and_world_coordinates() -> None:
     assert window.camera_label.property("camera") == "offline"
 
 
-def test_unanchored_profile_prompt_offers_read_only_or_cancel(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _application = QApplication.instance() or QApplication([])
-    translator = Translator(Language.ENGLISH)
-    window = MainWindow(translator)
-    prompts: list[QMessageBox] = []
-
-    def _decline(box: QMessageBox) -> int:
-        prompts.append(box)
-        return 0
-
-    monkeypatch.setattr(QMessageBox, "exec", _decline)
-
-    assert window.confirm_read_only_profile() is False
-
-    prompt = prompts[0]
-    assert len(prompt.buttons()) == 2
-    assert prompt.defaultButton() is not None
-    assert prompt.defaultButton().text() == translator.text(Message.UI_PROFILE_UNMATCHED_CANCEL)
-
-    def _accept(box: QMessageBox) -> int:
-        for button in box.buttons():
-            if box.buttonRole(button) is QMessageBox.ButtonRole.AcceptRole:
-                button.click()
-        return 0
-
-    monkeypatch.setattr(QMessageBox, "exec", _accept)
-
-    assert window.confirm_read_only_profile() is True
-
-
-def test_main_window_reset_map_dialog_confirmation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.ENGLISH), navigation_dir=tmp_path)
-
-    reset_calls: list[bool] = []
-    window.reset_navigation_requested.connect(lambda: reset_calls.append(True))
-
-    # Reject / Cancel
-    monkeypatch.setattr(
-        QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.No
-    )
-    window.reset_map_button.click()
-    application.processEvents()
-    assert reset_calls == []
-
-    # Accept / Confirm
-    monkeypatch.setattr(
-        QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes
-    )
-    window.reset_map_button.click()
-    application.processEvents()
-    assert reset_calls == [True]
-
-
 def test_main_window_close_event_emits_pause_requested() -> None:
     _application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
@@ -867,34 +599,6 @@ def test_main_window_close_event_emits_pause_requested() -> None:
     event = QCloseEvent()
     window.closeEvent(event)
     assert pause_calls == [True]
-
-
-def test_main_window_close_event_pauses_and_persists_the_navigation_map(tmp_path: Path) -> None:
-    """BUG-004: closing the window must not drop map updates learned since the last save."""
-
-    application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.ENGLISH))
-
-    spatial_map = SpatialMap()
-    spatial_map.record_visit(WorldPoint(0.0, 0.0), CLOSE_EVENT_VISIT_TIME_SECONDS)
-    map_path = tmp_path / "spatial_map.json"
-    orchestrator = FarmingOrchestrator(
-        # Neither collaborator is exercised: closing only pauses and flushes the map to disk.
-        cast(PerceptionPipeline, object()),
-        cast(FarmingInputAdapter, object()),
-        CLOSE_EVENT_WINDOW_HANDLE,
-        pathing=PathingController(spatial_map, map_path=map_path),
-    )
-    orchestrator.start()
-    connect_farming_controls(window, orchestrator)
-
-    window.closeEvent(QCloseEvent())
-    application.processEvents()
-
-    assert orchestrator.mode is FarmingMode.PAUSED
-    assert map_path.is_file()
-    persisted = json.loads(map_path.read_text(encoding="utf-8"))
-    assert persisted["cells"]
 
 
 def test_main_window_renders_live_vitals() -> None:
@@ -1385,7 +1089,6 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
 
     assert window.start_button.objectName() == "ActionStart"
     assert window.pause_button.objectName() == "ActionPause"
-    assert window.reset_map_button.objectName() == "ActionDanger"
     assert window.status_label.objectName() == "StatusBadge"
     assert window.goal_label.objectName() == "StatChip"
     assert window.vitals_label.objectName() == "StatChip"
@@ -1395,7 +1098,6 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
 
     assert window.status_card.title() == "Status & Telemetry"
     assert window.controls_card.title() == "Controls"
-    assert window.profile_card.title() == "Navigation & Profiles"
     assert not window.tab_widget.isAncestorOf(window.status_card)
     assert not window.tab_widget.isAncestorOf(window.controls_card)
     assert not hasattr(window, "emergency_stop_button")
@@ -1429,7 +1131,7 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
     assert diagnostics_page is not None
     assert combat_page.isAncestorOf(window.target_panel)
     assert vitals_page.isAncestorOf(window.powerup_panel)
-    assert navigation_page.isAncestorOf(window.profile_card)
+    assert navigation_page.isAncestorOf(window.world_data_button)
     assert diagnostics_page.isAncestorOf(window.event_log_panel)
 
 
@@ -2063,38 +1765,3 @@ def test_an_unassigned_teleport_hotkey_is_stored_and_restored(tmp_path: Path) ->
     assert window.get_emergency_config().teleport_virtual_key is None
     restored = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
     assert restored.get_emergency_config().teleport_virtual_key is None
-
-
-def test_the_spawn_point_button_requests_a_marker_and_the_chip_shows_it() -> None:
-    """US-040: the operator marks the anchor and reads it back from the live snapshot."""
-
-    application = QApplication.instance() or QApplication([])
-    translator = Translator(Language.ENGLISH)
-    window = MainWindow(translator)
-    requests: list[object] = []
-    window.set_spawn_point_requested.connect(lambda: requests.append("marked"))
-
-    assert window.spawn_point_label.text() == translator.text(Message.UI_RECOVERY_SPAWN_POINT_NONE)
-
-    window.spawn_point_button.click()
-    application.processEvents()
-    assert requests == ["marked"]
-
-    window.update_dashboard(
-        DashboardUpdate(
-            _world_state(),
-            BotStatus.STANDBY,
-            navigation=NavigationSnapshot(
-                player_x=0.0,
-                player_y=0.0,
-                heading_degrees=0.0,
-                cells=(),
-                edges=(),
-                spawn_point=(120.0, -45.5),
-            ),
-        )
-    )
-
-    assert window.spawn_point_label.text() == translator.text(
-        Message.UI_RECOVERY_SPAWN_POINT_VALUE, x="120.0", y="-45.5"
-    )

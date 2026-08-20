@@ -10,7 +10,6 @@ DEFAULT_DATASET_MANIFEST_PATH = "data/datasets/mobs/data.yaml"
 DEFAULT_MOB_MODEL_PATH = "models/mob_detector.onnx"
 DEFAULT_MOB_LABELS_PATH = "models/labels.txt"
 DEFAULT_TRAINING_EPOCHS = 100
-DEFAULT_NAVIGATION_MAP_PATH = "data/navigation/spatial_map.json"
 DEFAULT_CLIENT_POSITION_PROFILES_PATH = "data/navigation/client_profiles.json"
 DEFAULT_CLIENT_CAMERA_PROFILES_PATH = "data/config/client_camera_profiles.json"
 DEFAULT_TELEMETRY_ROOT = "data/telemetry"

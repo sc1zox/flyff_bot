@@ -66,5 +66,6 @@ Phase 1 (Bootstrap) -> Phase 2 (Perception) -> Phase 3 (Controllers) -> Phase 4 
 - **US-045 (Completed):** Offline vector spawn, terrain, and obstacle extraction with goal routing.
 - **US-048 (Full automated gate passing; Windows field validation open):** Fingerprinted coordinate-only
   live XYZ, terrain-aware 3D A*, configured long-range teleport dispatch, position-anchored
-  recovery, and an elevation-enriched inspector. Incomplete loose terrain/collision data and
-  runtime server state prevent any 100% fault-free guarantee.
+  recovery, and an elevation-enriched inspector.
+- **US-059 (Completed):** Pure authoritative vector navigation, complete legacy fallback removal,
+  and multi-zone selection across 3D NavMesh spawn camps.

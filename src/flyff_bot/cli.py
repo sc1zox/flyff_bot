@@ -21,7 +21,6 @@ from flyff_bot.constants import (
     DEFAULT_KEY_DURATION_SECONDS,
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
-    DEFAULT_NAVIGATION_MAP_PATH,
     DEFAULT_PROCESS_NAME,
     DEFAULT_START_DELAY_SECONDS,
     DEFAULT_TARGET_ANCHOR_PATH,
@@ -57,7 +56,6 @@ from flyff_bot.features.navigation.navmesh_persistence import (
     world_navmesh_path,
 )
 from flyff_bot.features.navigation.pathing import PathingController
-from flyff_bot.features.navigation.persistence import load_profile
 from flyff_bot.features.navigation.world_extractor import (
     ExtractionDiagnostic,
     ExtractionWarning,
@@ -312,11 +310,6 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         type=float,
         default=1.0,
         help=translator.text(Message.HELP_SEARCH_MOVEMENT_DURATION, default=1.0),
-    )
-    parser.add_argument(
-        "--navigation-map",
-        default=DEFAULT_NAVIGATION_MAP_PATH,
-        help=translator.text(Message.HELP_NAVIGATION_MAP, default=DEFAULT_NAVIGATION_MAP_PATH),
     )
     parser.add_argument("--goal-item", help=translator.text(Message.HELP_GOAL_ITEM))
     parser.add_argument("--goal-count", type=int, help=translator.text(Message.HELP_GOAL_COUNT))
@@ -633,17 +626,12 @@ def _farming_orchestrator(
         ),
         TargetVerifier(allowed_names, anchors, TesseractTextRecognizer()),
     )
-    navigation_map_path = Path(args.navigation_map)
-    navigation_profile = load_profile(navigation_map_path)
     navmesh_artifact = load_baked_navmesh(Path(args.navmesh_map)) if args.navmesh_map else None
     return FarmingOrchestrator(
         pipeline,
         controller,
         window_handle,
         pathing=PathingController(
-            navigation_profile.spatial_map,
-            map_path=navigation_map_path,
-            spawn_point=navigation_profile.spawn_point,
             position_reader=LivePositionReader(window_handle),
             camera_reader=LiveCameraReader(window_handle),
             navmesh=None if navmesh_artifact is None else navmesh_artifact.mesh,
