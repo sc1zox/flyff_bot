@@ -16,6 +16,7 @@ from flyff_bot.features.telemetry import (
     TelemetrySessionMetadata,
 )
 
+
 def _state() -> WorldState:
     return WorldState(
         observed_at_seconds=1.0,

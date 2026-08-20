@@ -258,6 +258,7 @@ class FarmingOrchestrator:
         self._telemetry = telemetry
         self._telemetry_observed_at_seconds: float | None = None
         self._pending_target_click: CombatDecision | None = None
+        self._session_active = False
 
     @property
     def mode(self) -> FarmingMode:
@@ -294,6 +295,7 @@ class FarmingOrchestrator:
 
         if self._mode is FarmingMode.EMERGENCY_STOPPED:
             return
+        self._session_active = True
         self._alignment_failure = None
         self._emergency_teleport_unavailable = False
         self._emergency.reset()
@@ -331,15 +333,19 @@ class FarmingOrchestrator:
         kind: SessionEventKind = SessionEventKind.MODE_TRANSITION,
         reason: str | None = None,
         foreground: ForegroundWindowInfo | None = None,
+        manual: bool = True,
     ) -> None:
         """Pause without sending any compensating input to the client."""
 
+        if manual:
+            self._session_active = False
         if self._mode is not FarmingMode.EMERGENCY_STOPPED:
             self._set_mode(FarmingMode.PAUSED, kind=kind, reason=reason, foreground=foreground)
 
     def emergency_stop(self, *, reason: str | None = None) -> None:
         """Latch a session-local emergency stop until a new session is created."""
 
+        self._session_active = False
         self._set_mode(
             FarmingMode.EMERGENCY_STOPPED, kind=SessionEventKind.EMERGENCY_STOPPED, reason=reason
         )
@@ -883,6 +889,7 @@ class FarmingOrchestrator:
         return quantities.get(goal.item_name, 0) >= goal.required_quantity
 
     def _complete_session(self) -> None:
+        self._session_active = False
         reason = "kill_quota" if self._kill_goals.is_completed else "item_goal"
         self._set_mode(FarmingMode.COMPLETED, kind=SessionEventKind.GOAL_COMPLETED, reason=reason)
         if self._kill_goals.close_client_on_completion and not self._client_close_requested:

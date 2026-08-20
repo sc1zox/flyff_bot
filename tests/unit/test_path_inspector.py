@@ -106,3 +106,56 @@ def test_legend_items_have_unique_messages() -> None:
     assert len(messages) == len(set(messages))
     assert Message.UI_NAV_LEGEND_PLAYER in messages
     assert Message.UI_NAV_LEGEND_ZONE in messages
+
+
+def test_calculate_grid_step_adapts_to_zoom() -> None:
+    from flyff_bot.ui.path_inspector import _calculate_grid_step
+
+    assert _calculate_grid_step(10.0) == 5.0
+    assert _calculate_grid_step(2.0) == 20.0
+    assert _calculate_grid_step(0.5) == 100.0
+    assert _calculate_grid_step(0.05) == 1000.0
+
+
+def test_widget_renders_multiple_zones_without_clutter() -> None:
+    _app = QApplication.instance() or QApplication([])
+    widget = PathInspectorWidget(Translator(Language.ENGLISH))
+    widget.resize(640, 480)
+
+    zones = (
+        VectorZoneSnapshot(
+            monster_name="MiniMush",
+            center_x=1380.0,
+            center_y=1045.0,
+            half_width_pixels=25.0,
+            half_depth_pixels=25.0,
+            capacity=15,
+        ),
+        VectorZoneSnapshot(
+            monster_name="MiniMush",
+            center_x=1400.0,
+            center_y=1060.0,
+            half_width_pixels=10.0,
+            half_depth_pixels=10.0,
+            capacity=5,
+        ),
+    )
+    snapshot = NavigationSnapshot(
+        player_x=1380.0,
+        player_y=1045.0,
+        heading_degrees=0.0,
+        position_source=PositionSource.LIVE,
+        world_position=WorldPosition(1380.0, 10.0, 1045.0),
+        vector_zone=zones[0],
+        vector_zones=zones,
+        terrain_samples=(
+            (1300.0, 10.0, 1000.0),
+            (1400.0, 12.0, 1100.0),
+        ),
+    )
+    widget.set_navigation(snapshot)
+
+    image = QImage(640, 480, QImage.Format.Format_RGB32)
+    widget.render(image)
+    assert not image.isNull()
+

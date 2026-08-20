@@ -378,11 +378,7 @@ class PathInspectorWidget(QWidget):
                 weight = QFont.Weight.Bold if is_active else QFont.Weight.Normal
                 painter.setPen(QPen(pen_color))
                 painter.setFont(QFont("", 8, weight))
-                label = (
-                    zone.monster_name
-                    if is_active
-                    else f"{zone.monster_name} ({zone.capacity})"
-                )
+                label = zone.monster_name if is_active else f"{zone.monster_name} ({zone.capacity})"
                 painter.drawText(rect.topLeft() + QPointF(4, 12), label)
 
     def _draw_active_route(
