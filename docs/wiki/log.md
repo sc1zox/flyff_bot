@@ -792,6 +792,22 @@ on 2026-08-20 at 806 passed, 2 skipped, and 90.60% coverage. Windows/client vali
 reachability marking, Funnel traversal, and exported live telemetry remains unrun. Moved US-058 to
 completed user stories.
 
+## [2026-08-20] synthesis | Perception-side mob world positioning (US-057)
+
+Recorded the US-057 architecture and glossary synthesis from the implementation and its unit tests.
+Detections are now unprojected from their bounding-box bottom-centre ground contact point through the
+US-056 camera state and intersected with the baked NavMesh inside the perception tick, so targeting,
+telemetry, and the inspector share one measured estimate instead of casting separate rays. A missing
+camera, live GPS, mesh, or ray hit stays explicitly unmeasured.
+
+`navigation.raycast` now holds the project's single Moller-Trumbore implementation plus a horizontal
+chunk index; walking only the crossed cells resolves multi-layer geometry to the first visible surface
+and measured 0.49-0.71 ms for twenty detections against a 512-polygon mesh. Exported target-decision
+Parquet columns were renamed to `estimated_mob_x/y/z` and `estimated_mob_polygon_id` per ADR-003. The
+full automated gate passed on 2026-08-20 at 823 passed, 3 skipped, and 90.77% coverage. The Windows
+live-client walkthrough on open ground and bridges remains unrun. Moved US-057 to completed user
+stories.
+
 ## [2026-08-20] synthesis | Pure authoritative vector navigation and multi-zone selection (US-059)
 
 Recorded the completed US-059 implementation. Purged legacy minimap odometry (`MinimapOdometer`),

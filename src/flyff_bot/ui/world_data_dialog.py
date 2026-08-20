@@ -420,8 +420,7 @@ class WorldDataDialog(QDialog):
         zone = self._zone_selector.currentData()
         if world_map is None or not isinstance(zone, VectorSpawnZone):
             return
-        all_zones = world_map.zones
-        active_zones = tuple(all_zones) if len(all_zones) > 0 else (zone,)
+        active_zones = (zone,)
         request = VectorNavigationRequest(
             world_map=world_map,
             anchor_zone=zone,

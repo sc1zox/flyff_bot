@@ -94,6 +94,15 @@ FOV_DEGREES = 60.0
 FOV_DISTANCE_UNITS = 25.0
 
 
+def _calculate_grid_step(scale: float) -> float:
+    """Return a comfortable world-unit grid spacing that avoids dense screen clutter."""
+
+    for step in (5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0):
+        if step * scale >= 40.0:
+            return step
+    return 1000.0
+
+
 class PathInspectorWidget(QWidget):
     """Render 3D authoritative terrain, vector spawn zones, NavMesh route, and player position."""
 
@@ -184,10 +193,6 @@ class PathInspectorWidget(QWidget):
             xs.append(wx)
             ys.append(wy)
 
-        for terrain_x, _h, terrain_z in snapshot.terrain_samples:
-            xs.append(terrain_x)
-            ys.append(terrain_z)
-
         for mob in snapshot.navmesh_mobs:
             xs.append(mob.world_x)
             ys.append(mob.world_z)
@@ -200,10 +205,10 @@ class PathInspectorWidget(QWidget):
             vz = snapshot.vector_zone
             xs.extend([vz.center_x - vz.half_width_pixels, vz.center_x + vz.half_width_pixels])
             ys.extend([vz.center_y - vz.half_depth_pixels, vz.center_y + vz.half_depth_pixels])
-
-        for vz in snapshot.vector_zones:
-            xs.extend([vz.center_x - vz.half_width_pixels, vz.center_x + vz.half_width_pixels])
-            ys.extend([vz.center_y - vz.half_depth_pixels, vz.center_y + vz.half_depth_pixels])
+        elif snapshot.vector_zones:
+            for vz in snapshot.vector_zones[:3]:
+                xs.extend([vz.center_x - vz.half_width_pixels, vz.center_x + vz.half_width_pixels])
+                ys.extend([vz.center_y - vz.half_depth_pixels, vz.center_y + vz.half_depth_pixels])
 
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
@@ -242,10 +247,11 @@ class PathInspectorWidget(QWidget):
         max_y: float,
         scale: float,
     ) -> None:
-        start_x = math.floor(min_x / GRID_STEP_UNITS) * GRID_STEP_UNITS
-        end_x = math.ceil(max_x / GRID_STEP_UNITS) * GRID_STEP_UNITS
-        start_y = math.floor(min_y / GRID_STEP_UNITS) * GRID_STEP_UNITS
-        end_y = math.ceil(max_y / GRID_STEP_UNITS) * GRID_STEP_UNITS
+        grid_step = _calculate_grid_step(scale)
+        start_x = math.floor(min_x / grid_step) * grid_step
+        end_x = math.ceil(max_x / grid_step) * grid_step
+        start_y = math.floor(min_y / grid_step) * grid_step
+        end_y = math.ceil(max_y / grid_step) * grid_step
 
         painter.setFont(QFont("", 7))
 
@@ -259,13 +265,12 @@ class PathInspectorWidget(QWidget):
                     QPointF(pt_top.x(), 0),
                     QPointF(pt_bottom.x(), float(height)),
                 )
-                if scale > 1.2:
-                    painter.setPen(QPen(AXIS_TEXT_COLOR))
-                    painter.drawText(
-                        QPointF(pt_top.x() + 2, float(height) - 30),
-                        f"{gx:+.0f}m",
-                    )
-            gx += GRID_STEP_UNITS
+                painter.setPen(QPen(AXIS_TEXT_COLOR))
+                painter.drawText(
+                    QPointF(pt_top.x() + 2, float(height) - 30),
+                    f"{gx:+.0f}m",
+                )
+            gx += grid_step
 
         gy = start_y
         while gy <= end_y:
@@ -277,21 +282,26 @@ class PathInspectorWidget(QWidget):
                     QPointF(0, pt_left.y()),
                     QPointF(float(width), pt_right.y()),
                 )
-                if scale > 1.2:
-                    painter.setPen(QPen(AXIS_TEXT_COLOR))
-                    painter.drawText(
-                        QPointF(10, pt_left.y() - 2),
-                        f"{gy:+.0f}m",
-                    )
-            gy += GRID_STEP_UNITS
+                painter.setPen(QPen(AXIS_TEXT_COLOR))
+                painter.drawText(
+                    QPointF(10, pt_left.y() - 2),
+                    f"{gy:+.0f}m",
+                )
+            gy += grid_step
 
         origin = to_screen(0.0, 0.0)
-        painter.setPen(QPen(AXIS_COLOR, 1, Qt.PenStyle.SolidLine))
-        painter.drawLine(QPointF(0, origin.y()), QPointF(width, origin.y()))
-        painter.drawLine(QPointF(origin.x(), 0), QPointF(origin.x(), height))
+        if 0 <= origin.y() <= height:
+            painter.setPen(QPen(AXIS_COLOR, 1, Qt.PenStyle.SolidLine))
+            painter.drawLine(QPointF(0, origin.y()), QPointF(width, origin.y()))
+        if 0 <= origin.x() <= width:
+            painter.setPen(QPen(AXIS_COLOR, 1, Qt.PenStyle.SolidLine))
+            painter.drawLine(QPointF(origin.x(), 0), QPointF(origin.x(), height))
 
         painter.setPen(QPen(AXIS_TEXT_COLOR))
-        painter.drawText(QPointF(origin.x() + 4, 18), "N (0°)")
+        painter.setFont(QFont("", 8))
+        painter.drawText(
+            QRectF(float(width) - 65, 12, 55, 18), Qt.AlignmentFlag.AlignRight, "▲ N (0°)"
+        )
 
     def _draw_terrain(
         self,
@@ -309,23 +319,29 @@ class PathInspectorWidget(QWidget):
         height_span = max(1.0, maximum - minimum)
         sample_size = max(2.0, GRID_STEP_UNITS * scale * 0.4)
         painter.setPen(Qt.PenStyle.NoPen)
+        w = float(self.width())
+        h = float(self.height())
         for world_x, height, world_z in samples:
             point = to_screen(world_x, world_z)
-            painter.setBrush(
-                QBrush(
-                    _lerp_color(
-                        TERRAIN_LOW_COLOR, TERRAIN_HIGH_COLOR, (height - minimum) / height_span
+            if (
+                -sample_size <= point.x() <= w + sample_size
+                and -sample_size <= point.y() <= h + sample_size
+            ):
+                painter.setBrush(
+                    QBrush(
+                        _lerp_color(
+                            TERRAIN_LOW_COLOR, TERRAIN_HIGH_COLOR, (height - minimum) / height_span
+                        )
                     )
                 )
-            )
-            painter.drawRect(
-                QRectF(
-                    point.x() - sample_size / 2.0,
-                    point.y() - sample_size / 2.0,
-                    sample_size,
-                    sample_size,
+                painter.drawRect(
+                    QRectF(
+                        point.x() - sample_size / 2.0,
+                        point.y() - sample_size / 2.0,
+                        sample_size,
+                        sample_size,
+                    )
                 )
-            )
 
     def _draw_vector_zones(
         self,
@@ -341,17 +357,33 @@ class PathInspectorWidget(QWidget):
         for z in snapshot.vector_zones:
             if z not in zones:
                 zones.append(z)
+        active_zone = snapshot.vector_zone
         for zone in zones:
+            is_active = active_zone is not None and zone == active_zone
             pt = to_screen(zone.center_x, zone.center_y)
             w_px = zone.half_width_pixels * 2.0 * scale
             h_px = zone.half_depth_pixels * 2.0 * scale
             rect = QRectF(pt.x() - w_px / 2.0, pt.y() - h_px / 2.0, w_px, h_px)
-            painter.setPen(QPen(ZONE_COLOR, 1.5, Qt.PenStyle.DashLine))
-            painter.setBrush(QBrush(ZONE_FILL_COLOR))
+
+            pen_color = ZONE_COLOR if is_active else _with_alpha(ZONE_COLOR, 100)
+            fill_color = ZONE_FILL_COLOR if is_active else _with_alpha(ZONE_COLOR, 15)
+            pen_width = 2.0 if is_active else 1.0
+            pen_style = Qt.PenStyle.SolidLine if is_active else Qt.PenStyle.DashLine
+
+            painter.setPen(QPen(pen_color, pen_width, pen_style))
+            painter.setBrush(QBrush(fill_color))
             painter.drawRect(rect)
-            painter.setPen(QPen(ZONE_COLOR))
-            painter.setFont(QFont("", 8))
-            painter.drawText(rect.topLeft() + QPointF(4, 12), zone.monster_name)
+
+            if is_active or (w_px >= 60.0 and h_px >= 30.0):
+                weight = QFont.Weight.Bold if is_active else QFont.Weight.Normal
+                painter.setPen(QPen(pen_color))
+                painter.setFont(QFont("", 8, weight))
+                label = (
+                    zone.monster_name
+                    if is_active
+                    else f"{zone.monster_name} ({zone.capacity})"
+                )
+                painter.drawText(rect.topLeft() + QPointF(4, 12), label)
 
     def _draw_active_route(
         self, painter: QPainter, to_screen: Callable[[float, float], QPointF]

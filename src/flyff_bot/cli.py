@@ -627,15 +627,19 @@ def _farming_orchestrator(
         TargetVerifier(allowed_names, anchors, TesseractTextRecognizer()),
     )
     navmesh_artifact = load_baked_navmesh(Path(args.navmesh_map)) if args.navmesh_map else None
+    pathing = PathingController(
+        position_reader=LivePositionReader(window_handle),
+        camera_reader=LiveCameraReader(window_handle),
+        navmesh=None if navmesh_artifact is None else navmesh_artifact.mesh,
+    )
+    # The pathing controller polls the camera and owns the baked mesh, so it is what lets a
+    # perception tick unproject its own detections onto walkable ground (US-057).
+    pipeline.attach_world_geometry(pathing)
     return FarmingOrchestrator(
         pipeline,
         controller,
         window_handle,
-        pathing=PathingController(
-            position_reader=LivePositionReader(window_handle),
-            camera_reader=LiveCameraReader(window_handle),
-            navmesh=None if navmesh_artifact is None else navmesh_artifact.mesh,
-        ),
+        pathing=pathing,
         config=FarmingConfig(
             combat=CombatConfig(
                 allowed_class_names=frozenset(args.class_name),

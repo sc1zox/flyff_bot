@@ -16,7 +16,7 @@ so that **mobs have exact, terrain-conforming 3D world coordinates and NavMesh p
 
 ## Scope & Pipeline
 
-This story integrates the camera memory reader ([US-056](completed/US-056-client-camera-state-and-projection-matrix-reader.md)), the authoritative 3D NavMesh ([US-055](US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md)), and YOLO mob detection ([US-003](completed/US-003-mob-detection-yolo.md)):
+This story integrates the camera memory reader ([US-056](US-056-client-camera-state-and-projection-matrix-reader.md)), the authoritative 3D NavMesh ([US-055](US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md)), and YOLO mob detection ([US-003](US-003-mob-detection-yolo.md)):
 
 ```text
 YOLO Bounding Box (x1, y1, x2, y2)
@@ -41,13 +41,13 @@ EstimatedMobWorldPosition
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
 - Relates to:
-  - [`docs/wiki/architecture.md`](../wiki/architecture.md) & [`docs/wiki/glossary.md`](../wiki/glossary.md).
-  - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../decisions/ADR-006-read-only-process-memory-access.md): Read-only process memory access for camera and player state.
-  - [`docs/user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md`](completed/US-056-client-camera-state-and-projection-matrix-reader.md): Live camera memory reader and `unproject_screen_ray()` unprojection.
-  - [`docs/user-stories/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md`](US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md): Authoritative 3D world geometry and multi-layer NavMesh.
-  - [`docs/user-stories/completed/US-003-mob-detection-yolo.md`](completed/US-003-mob-detection-yolo.md): YOLO entity detection pipeline.
-  - [`docs/user-stories/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](US-054-farming-telemetry-and-adaptive-navigation-dataset.md): Farming telemetry and adaptive navigation dataset.
-  - [`docs/user-stories/completed/US-020-visual-navigation-path-and-heatmap-inspector.md`](completed/US-020-visual-navigation-path-and-heatmap-inspector.md): 2D Path and heatmap inspector.
+  - [`docs/wiki/architecture.md`](../../wiki/architecture.md) & [`docs/wiki/glossary.md`](../../wiki/glossary.md).
+  - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../../decisions/ADR-006-read-only-process-memory-access.md): Read-only process memory access for camera and player state.
+  - [`docs/user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md`](US-056-client-camera-state-and-projection-matrix-reader.md): Live camera memory reader and `unproject_screen_ray()` unprojection.
+  - [`docs/user-stories/completed/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md`](US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md): Authoritative 3D world geometry and multi-layer NavMesh.
+  - [`docs/user-stories/completed/US-003-mob-detection-yolo.md`](US-003-mob-detection-yolo.md): YOLO entity detection pipeline.
+  - [`docs/user-stories/completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](US-054-farming-telemetry-and-adaptive-navigation-dataset.md): Farming telemetry and adaptive navigation dataset.
+  - [`docs/user-stories/completed/US-020-visual-navigation-path-and-heatmap-inspector.md`](US-020-visual-navigation-path-and-heatmap-inspector.md): 2D Path and heatmap inspector.
 - **Bottom-Center Ground Contact vs. Bounding Box Center:**
   - The bounding box center $(u_{\text{mid}}, v_{\text{mid}})$ represents a 3D point in the mob's torso or head. Projecting this point into the world creates severe parallax errors and places the mob far behind or below its actual location.
   - The bounding box bottom-center $((x_1 + x_2) / 2, y_2)$ represents the contact point between the entity's feet and the walkable ground surface.
@@ -94,13 +94,13 @@ EstimatedMobWorldPosition
 - Provides a dedicated `MobWorldPositionEstimator` service:
   ```python
   def estimate_mob_world_positions(
-      detections: tuple[DetectedMob, ...],
+      detections: tuple[VisibleMob, ...],
       camera_state: CameraState | None,
       player_position: WorldPosition | None,
       viewport_width: int,
       viewport_height: int,
       navmesh: BakedNavMesh | None,
-  ) -> tuple[EstimatedMobWorldPosition, ...]: ...
+  ) -> tuple[EstimatedMobWorldPosition | None, ...]: ...
   ```
 - Integrates with `PerceptionPipeline` so `WorldState.visible_mobs` (or enriched `DetectedMob`) carries optional estimated 3D coordinates when camera state and NavMesh are active.
 
@@ -120,6 +120,30 @@ EstimatedMobWorldPosition
 - [x] **Safety Boundaries Preserved:** Process memory access remains strictly read-only (`PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION`); no memory writes or DLL injections.
 - [x] **Quality Gate:** `./scripts/check.ps1` passes cleanly (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 - [x] **Localization:** Any user-visible diagnostics, inspector legends, or status indicators are fully synchronized in German (`de.json`) and English (`en.json`).
+
+## Implementation notes
+
+- `DetectedMob` is this repository's `VisibleMob` (`features/automation/models.py`), the model
+  `PerceptionPipeline` already publishes on `WorldState.visible_mobs`.
+- `estimate_mob_world_positions` returns one entry per detection and keeps them index-aligned
+  with the input, so an unresolved ray is an explicit `None` in place rather than a silently
+  dropped detection the caller can no longer match to its bounding box.
+- One Moller-Trumbore implementation now serves the whole project:
+  `features/navigation/raycast.py` owns the intersection and the horizontal chunk index, and
+  `BakedNavMesh.raycast()` builds that index once per mesh.  `project_candidate` (US-058
+  telemetry) and the estimator both cast through it.
+- `PathingController.enrich_visible_mobs` reuses the measurement the perception tick already
+  attached and only projects a detection the pipeline could not resolve, so a tick never casts
+  the same ray twice.
+- Per ADR-003 the exported `target_decisions.parquet` candidate geometry is renamed to
+  `estimated_mob_x`, `estimated_mob_y`, `estimated_mob_z`, and `estimated_mob_polygon_id`
+  instead of adding a second, duplicated set of columns beside `world_x`/`world_y`/`world_z`.
+  The raw JSONL event schema keeps its US-058 field names.
+- The US-020 inspector already renders live mob markers from `NavMeshMobSnapshot` (US-058); it
+  now draws the positions the perception tick measured, so no inspector change was required.
+- Measured batch latency on the developer workstation: 0.49-0.71 ms for 20 detections against a
+  512-polygon mesh (`tests/unit/test_mob_world_position_estimator.py`).
+- No new user-visible text was introduced, so `de.json` and `en.json` stay unchanged and in sync.
 
 ## Out of scope
 

@@ -16,9 +16,6 @@ from flyff_bot.features.telemetry import (
     TelemetrySessionMetadata,
 )
 
-TODAY = datetime.now(UTC).date().isoformat()
-
-
 def _state() -> WorldState:
     return WorldState(
         observed_at_seconds=1.0,
@@ -53,7 +50,7 @@ def test_recorder_writes_versioned_header_snapshots_and_explicit_nulls(tmp_path:
     recorder.record_target_selection(_state(), 50, 40, reason="nearest_to_viewport_center")
     recorder.close()
 
-    path = tmp_path / "Wd_Eden" / TODAY / "session_session-1.jsonl"
+    path = _session_file(tmp_path, "Wd_Eden", "session-1")
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert [record["event_kind"] for record in records] == [
         "session_header",
@@ -96,9 +93,7 @@ def test_recorder_derives_live_velocity(tmp_path: Path) -> None:
     recorder.close()
     records = [
         json.loads(line)
-        for line in (tmp_path / "area" / TODAY / "session_live.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in _session_file(tmp_path, "area", "live").read_text(encoding="utf-8").splitlines()
     ]
     assert records[2]["payload"]["player_velocity"] == {"x": 1.0, "y": 0.0, "z": 0.0}
 
@@ -138,7 +133,7 @@ def test_recorder_wires_loaded_navmesh_polygon_for_live_gps_only(tmp_path: Path)
     recorder.close()
     records = [
         json.loads(line)
-        for line in (tmp_path / "area" / TODAY / "session_navmesh.jsonl")
+        for line in _session_file(tmp_path, "area", "navmesh")
         .read_text(encoding="utf-8")
         .splitlines()
     ]
@@ -174,7 +169,7 @@ def test_recorder_persists_only_live_terrain_route_trajectory_and_stalls(tmp_pat
 
     records = [
         json.loads(line)
-        for line in (tmp_path / "area" / TODAY / "session_route.jsonl")
+        for line in _session_file(tmp_path, "area", "route")
         .read_text(encoding="utf-8")
         .splitlines()
     ]
@@ -207,9 +202,14 @@ def test_target_selection_keeps_live_position_and_controller_lockout(tmp_path: P
     )
     recorder.close()
     payload = json.loads(
-        (tmp_path / "area" / TODAY / "session_locked.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()[1]
+        _session_file(tmp_path, "area", "locked").read_text(encoding="utf-8").splitlines()[1]
     )["payload"]
     assert payload["player_position"] == {"x": 9.0, "y": 8.0, "z": 7.0}
     assert payload["candidates"][0]["is_locked_out"] is True
+
+
+def _session_file(root: Path, area: str, session_id: str) -> Path:
+    """Return the written session log; the worker names its day folder in real UTC time."""
+
+    day = datetime.now(UTC).date().isoformat()
+    return root / area / day / f"session_{session_id}.jsonl"
