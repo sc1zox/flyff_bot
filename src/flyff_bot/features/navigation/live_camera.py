@@ -174,12 +174,12 @@ ENTROPIA_CAMERA_PROFILES: Mapping[str, ClientCameraProfile] = {
     ),
     "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5": ClientCameraProfile(
         sha256="8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5",
-        camera_pointer_rva=0x7AD8E8,
+        camera_pointer_rva=0xBAD8E8,
         pointer_size_bytes=8,
         eye_position_offset=0x8,
         view_matrix_offset=0x14,
         look_at_offset=0x94,
-        projection_matrix_rva=0x976B80,
+        projection_matrix_rva=0xD76B80,
     ),
 }
 

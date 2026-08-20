@@ -9,7 +9,7 @@ started, no client file was modified, and no client binary or asset is included 
 | Client | PE | SHA-256 | Image base | Camera pointer RVA | Pointer | Base eye | View | Inverse view | Look-at | Projection RVA |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `Entropia/Entropia/bin32/neuz.exe` | i386 | `3446FFEB5D104A68D187E9E2ECFA216E1BDB88CE3F9201A046AA900525B6C07E` | `0x00400000` | `0x00967FBC` | 4 | `+0x04` | `+0x10` | `+0x50` | `+0x90` | `0x00B015D0` |
-| `Entropia/Entropia/bin64/neuz.exe` | x86-64 | `8079C88F4C4E35A0B5ACD117995125BEE528C175D5B621E0533D85A4458DADA5` | `0x140000000` | `0x007AD8E8` | 8 | `+0x08` | `+0x14` | `+0x54` | `+0x94` | `0x00976B80` |
+| `Entropia/Entropia/bin64/neuz.exe` | x86-64 | `8079C88F4C4E35A0B5ACD117995125BEE528C175D5B621E0533D85A4458DADA5` | `0x140000000` | `0x00BAD8E8` | 8 | `+0x08` | `+0x14` | `+0x54` | `+0x94` | `0x00D76B80` |
 
 The active viewport projection is a module global in both builds, not a member of the camera
 object. A camera profile must therefore distinguish pointer-relative structure offsets from the

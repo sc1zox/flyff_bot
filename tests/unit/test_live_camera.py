@@ -32,8 +32,8 @@ PROCESS_ID = 1337
 PROCESS_HANDLE = 99
 MODULE_BASE = 0x140000000
 CAMERA_ADDRESS = 0x220000000
-CAMERA_POINTER_RVA = 0x7AD8E8
-PROJECTION_RVA = 0x976B80
+CAMERA_POINTER_RVA = 0xBAD8E8
+PROJECTION_RVA = 0xD76B80
 
 IDENTITY_MATRIX = (
     (1.0, 0.0, 0.0, 0.0),
@@ -166,7 +166,7 @@ def test_embedded_profiles_match_the_staticly_verified_x86_and_x64_layouts() -> 
     )
     assert (x64.pointer_size_bytes, x64.camera_pointer_rva, x64.look_at_offset) == (
         8,
-        0x7AD8E8,
+        0xBAD8E8,
         0x94,
     )
 

@@ -17,6 +17,9 @@ from flyff_bot.features.telemetry import (
 )
 
 
+TODAY = datetime.now(UTC).date().isoformat()
+
+
 def _state() -> WorldState:
     return WorldState(
         observed_at_seconds=1.0,
@@ -51,7 +54,7 @@ def test_recorder_writes_versioned_header_snapshots_and_explicit_nulls(tmp_path:
     recorder.record_target_selection(_state(), 50, 40, reason="nearest_to_viewport_center")
     recorder.close()
 
-    path = tmp_path / "Wd_Eden" / "2026-08-19" / "session_session-1.jsonl"
+    path = tmp_path / "Wd_Eden" / TODAY / "session_session-1.jsonl"
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert [record["event_kind"] for record in records] == [
         "session_header",
@@ -94,7 +97,7 @@ def test_recorder_derives_live_velocity(tmp_path: Path) -> None:
     recorder.close()
     records = [
         json.loads(line)
-        for line in (tmp_path / "area" / "2026-08-19" / "session_live.jsonl")
+        for line in (tmp_path / "area" / TODAY / "session_live.jsonl")
         .read_text(encoding="utf-8")
         .splitlines()
     ]
@@ -136,7 +139,7 @@ def test_recorder_wires_loaded_navmesh_polygon_for_live_gps_only(tmp_path: Path)
     recorder.close()
     records = [
         json.loads(line)
-        for line in (tmp_path / "area" / "2026-08-19" / "session_navmesh.jsonl")
+        for line in (tmp_path / "area" / TODAY / "session_navmesh.jsonl")
         .read_text(encoding="utf-8")
         .splitlines()
     ]
@@ -172,7 +175,7 @@ def test_recorder_persists_only_live_terrain_route_trajectory_and_stalls(tmp_pat
 
     records = [
         json.loads(line)
-        for line in (tmp_path / "area" / "2026-08-19" / "session_route.jsonl")
+        for line in (tmp_path / "area" / TODAY / "session_route.jsonl")
         .read_text(encoding="utf-8")
         .splitlines()
     ]
@@ -205,7 +208,7 @@ def test_target_selection_keeps_live_position_and_controller_lockout(tmp_path: P
     )
     recorder.close()
     payload = json.loads(
-        (tmp_path / "area" / "2026-08-19" / "session_locked.jsonl")
+        (tmp_path / "area" / TODAY / "session_locked.jsonl")
         .read_text(encoding="utf-8")
         .splitlines()[1]
     )["payload"]

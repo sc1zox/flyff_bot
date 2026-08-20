@@ -10,11 +10,11 @@
   },
   {
     "sha256": "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5",
-    "camera_pointer_rva": 8050920,
+    "camera_pointer_rva": 12245224,
     "pointer_size_bytes": 8,
     "eye_position_offset": 8,
     "view_matrix_offset": 20,
     "look_at_offset": 148,
-    "projection_matrix_rva": 9923456
+    "projection_matrix_rva": 14117760
   }
 ]
