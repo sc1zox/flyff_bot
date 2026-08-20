@@ -323,3 +323,89 @@ def test_orchestrator_pauses_when_gps_is_offline() -> None:
 
     assert tick.mode is FarmingMode.PAUSED
     assert adapter.keys == []
+
+
+def test_orchestrator_auto_resumes_when_gps_recovers() -> None:
+    from dataclasses import replace
+
+    valid_reading = PositionReading(PositionSource.LIVE, WorldPosition(100.0, 100.0, 100.0))
+    error_reading = PositionReading(
+        PositionSource.MINIMAP_FALLBACK,
+        error=PositionReadError(PositionReadErrorCode.HANDLE_LOST),
+    )
+
+    class _IntermittentGPSReader:
+        def __init__(self, sequence: list[PositionReading]) -> None:
+            self._sequence = iter(sequence)
+            self._last = sequence[-1]
+
+        def poll(self, at_seconds: float) -> PositionReading:
+            reading = next(self._sequence, self._last)
+            return replace(reading, sampled_at_seconds=at_seconds)
+
+        def close(self) -> None:
+            pass
+
+    reader = _IntermittentGPSReader([valid_reading, error_reading, valid_reading, valid_reading])
+    controller = PathingController(
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        position_reader=cast("LivePositionReader", reader),
+    )
+    adapter = _Adapter()
+    orchestrator = FarmingOrchestrator(
+        cast(
+            "PerceptionPipeline",
+            _Pipeline([_state(0.0), _state(1.0), _state(2.0), _state(3.0)]),
+        ),
+        cast("FarmingInputAdapter", adapter),
+        WINDOW_HANDLE,
+        pathing=controller,
+    )
+    orchestrator.start()
+
+    # Tick 1: GPS online -> actively searching
+    tick1 = orchestrator.tick()
+    assert tick1.mode is FarmingMode.SEARCHING
+
+    # Tick 2: GPS dropped -> automatically paused
+    tick2 = orchestrator.tick()
+    assert tick2.mode is FarmingMode.PAUSED
+    assert adapter.keys == []
+
+    # Tick 3: GPS back online -> automatically resumed to SEARCHING
+    tick3 = orchestrator.tick()
+    assert tick3.mode is FarmingMode.SEARCHING
+
+    # Tick 4: continues active execution
+    tick4 = orchestrator.tick()
+    assert tick4.mode is FarmingMode.SEARCHING
+
+
+def test_orchestrator_manual_pause_does_not_auto_resume_even_with_gps() -> None:
+    valid_reading = PositionReading(PositionSource.LIVE, WorldPosition(100.0, 100.0, 100.0))
+    reader = _LiveReader([WorldPosition(100.0, 100.0, 100.0)])
+    controller = PathingController(
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        position_reader=cast("LivePositionReader", reader),
+    )
+    adapter = _Adapter()
+    orchestrator = FarmingOrchestrator(
+        cast("PerceptionPipeline", _Pipeline([_state(0.0), _state(1.0), _state(2.0)])),
+        cast("FarmingInputAdapter", adapter),
+        WINDOW_HANDLE,
+        pathing=controller,
+    )
+    orchestrator.start()
+    orchestrator.tick()
+    assert orchestrator.mode is FarmingMode.SEARCHING
+
+    # Operator explicitly clicks Pause
+    orchestrator.pause()
+    assert orchestrator.mode is FarmingMode.PAUSED
+
+    # Next tick: even with valid GPS, manual pause persists
+    tick = orchestrator.tick()
+    assert tick.mode is FarmingMode.PAUSED
+

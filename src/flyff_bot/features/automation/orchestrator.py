@@ -459,6 +459,14 @@ class FarmingOrchestrator:
             self._observe()
             if self._pathing is not None:
                 self._pathing.track(self._state, self._last_frame)
+            if (
+                self._session_active
+                and self._mode is FarmingMode.PAUSED
+                and self._has_live_frame
+                and self._input_adapter.is_foreground(self._window_handle)
+                and (self._pathing is None or self._pathing.is_gps_available)
+            ):
+                self._set_mode(FarmingMode.SEARCHING, reason="resumed_auto")
             return self._publish(False)
         if self._input_adapter.is_aborted():
             self.emergency_stop(reason="killswitch")
@@ -468,12 +476,18 @@ class FarmingOrchestrator:
             foreground = lookup_foreground() if lookup_foreground is not None else None
             if self._pathing is not None:
                 self._pathing.mark_gps_offline(PositionReadErrorCode.WINDOW_NOT_FOREGROUND)
-            self.pause(kind=SessionEventKind.FOCUS_LOST, reason="focus_lost", foreground=foreground)
+            self.pause(
+                kind=SessionEventKind.FOCUS_LOST,
+                reason="focus_lost",
+                foreground=foreground,
+                manual=False,
+            )
             return self._publish(False)
         if not self._observe():
             self.pause(
                 kind=SessionEventKind.FRAME_CAPTURE_ERROR,
                 reason=self._last_capture_error.value if self._last_capture_error else None,
+                manual=False,
             )
             return self._publish(False)
 
@@ -488,7 +502,7 @@ class FarmingOrchestrator:
                 visible_mobs=self._pathing.enrich_visible_mobs(self._state),
             )
             if not self._pathing.is_gps_available:
-                self.pause(reason="gps_unavailable")
+                self.pause(reason="gps_unavailable", manual=False)
                 return self._publish(False)
             if self._telemetry is not None:
                 self._telemetry.record_navigation_stall(stalled=self._pathing.is_stalled)
@@ -855,7 +869,7 @@ class FarmingOrchestrator:
 
         decision = self._pathing.step(self._state.observed_at_seconds)
         if decision.mode is PathingMode.BLOCKED:
-            self.pause(reason="gps_unavailable")
+            self.pause(reason="gps_unavailable", manual=False)
             return False
         if self._telemetry is not None:
             live_position = self._pathing.live_position
