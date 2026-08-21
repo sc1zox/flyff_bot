@@ -32,7 +32,11 @@ from flyff_bot.features.automation.emergency_recovery import (
     EmergencyTeleportDispatcher,
     EmergencyTeleportInputAdapter,
 )
-from flyff_bot.features.automation.kill_goals import KillGoalConfig, KillGoalTracker
+from flyff_bot.features.automation.kill_goals import (
+    KillGoalConfig,
+    KillGoalTracker,
+    MobKillQuota,
+)
 from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
 from flyff_bot.features.automation.powerup_controller import (
     PowerUpConfig,
@@ -69,8 +73,12 @@ from flyff_bot.ui.dashboard import (
 )
 
 if TYPE_CHECKING:
+    # The quests feature routes through the navigation package, which routes back here.
+    # The orchestrator only needs these names to describe its own surface, so importing
+    # them for type checking alone keeps the runtime dependency one-directional.
     from flyff_bot.features.navigation.pathing import PathingController
     from flyff_bot.features.navigation.vector_navigation import VectorZoneNavigator
+    from flyff_bot.features.quests.goals import QuestFarmingQueue, QuestResolution
 
 
 DEFAULT_TICK_INTERVAL_SECONDS = 0.1
@@ -212,6 +220,7 @@ class FarmingOrchestrator:
         pathing: PathingController | None = None,
         camera_aligner: CameraAligner | None = None,
         kill_goals: KillGoalTracker | None = None,
+        quest_queue: QuestFarmingQueue | None = None,
         on_target_classes_changed: Callable[[frozenset[str]], None] | None = None,
         event_logger: SessionEventLogger | None = None,
         foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
@@ -251,6 +260,7 @@ class FarmingOrchestrator:
         self._alignment_failure: CameraAlignmentStatus | None = None
         self._mode_after_alignment = FarmingMode.SEARCHING
         self._kill_goals = kill_goals or KillGoalTracker()
+        self._quest_queue = quest_queue
         self._on_target_classes_changed = on_target_classes_changed
         self._client_close_requested = False
         self._event_logger = event_logger
@@ -401,6 +411,52 @@ class FarmingOrchestrator:
         """Expose the per-monster quota progress of this session."""
 
         return self._kill_goals
+
+    @property
+    def quest_queue(self) -> QuestFarmingQueue | None:
+        """Expose the quest queue this session is working through, when one is attached."""
+
+        return self._quest_queue
+
+    def configure_quest_queue(self, queue: QuestFarmingQueue | None) -> None:
+        """Adopt a quest queue and bind the session to its first quest."""
+
+        self._quest_queue = queue
+        self._client_close_requested = False
+        if queue is None:
+            return
+        active = queue.active
+        if active is not None:
+            self._bind_quest(active)
+
+    def _bind_quest(self, resolution: QuestResolution) -> None:
+        """Point the session's quotas and navigation at one quest's targets.
+
+        The quotas restrict combat to that quest's monsters, and the resolved spawn zones
+        replace the navigator's camp selection so the next replan routes to the new area.
+        """
+
+        self._kill_goals.update_config(
+            KillGoalConfig(
+                quotas=tuple(
+                    MobKillQuota(monster, required)
+                    for monster, required in resolution.required_kills
+                )
+            )
+        )
+        self._apply_active_target_classes()
+        pathing = self._pathing
+        zones = resolution.zones
+        if pathing is None or not zones:
+            return
+        navigator = pathing.vector_navigator
+        if navigator is None:
+            return
+        navigator.set_preferred_zones(zones)
+        navigator.set_goals(resolution.zone_goals)
+        # Re-attaching the same navigator is how the pathing controller is told to drop the
+        # route it is following and plan a fresh one towards the new camp.
+        pathing.attach_vector_navigator(navigator)
 
     def _apply_active_target_classes(self) -> None:
         allowed = self._kill_goals.active_class_names
@@ -914,8 +970,24 @@ class FarmingOrchestrator:
             return
         if self._kill_goals.has_quotas:
             self._apply_active_target_classes()
+        self._advance_quest_queue(class_name)
+
+    def _advance_quest_queue(self, class_name: str | None) -> None:
+        """Hand the session on to the next selected quest once the active one is met."""
+
+        queue = self._quest_queue
+        if queue is None or not queue.record_kill(class_name):
+            return
+        following = queue.advance()
+        if following is None:
+            return
+        self._bind_quest(following)
 
     def _goal_completed(self) -> bool:
+        queue = self._quest_queue
+        if queue is not None and queue.has_quests:
+            # A quest session ends when its queue does, not when one quest's quotas are met.
+            return queue.is_completed
         if self._kill_goals.is_completed:
             return True
         goal = self._config.goal
@@ -926,7 +998,7 @@ class FarmingOrchestrator:
 
     def _complete_session(self) -> None:
         self._session_active = False
-        reason = "kill_quota" if self._kill_goals.is_completed else "item_goal"
+        reason = _completion_reason(self._quest_queue, self._kill_goals)
         self._set_mode(FarmingMode.COMPLETED, kind=SessionEventKind.GOAL_COMPLETED, reason=reason)
         if self._kill_goals.close_client_on_completion and not self._client_close_requested:
             self._client_close_requested = True
@@ -961,6 +1033,13 @@ class FarmingOrchestrator:
                     window=self._window_status,
                     engagement_break=self._engagement_break,
                     kill_progress=self._kill_goals.progress,
+                    quest_title=_active_quest_title(self._quest_queue),
+                    quest_progress=(
+                        () if self._quest_queue is None else self._quest_queue.progress
+                    ),
+                    quest_queue_completed=(
+                        self._quest_queue is not None and self._quest_queue.is_completed
+                    ),
                     events=(
                         self._event_logger.recent_events if self._event_logger is not None else ()
                     ),
@@ -1030,3 +1109,22 @@ def _dashboard_status(
 
 def _initial_world_state() -> WorldState:
     return WorldState(0.0, Position(0, 0), 0, (), 0)
+
+
+def _completion_reason(queue: QuestFarmingQueue | None, kill_goals: KillGoalTracker) -> str:
+    """Return the diagnostic reason recorded when a session reaches its goal."""
+
+    if queue is not None and queue.is_completed:
+        return "quest_queue"
+    if kill_goals.is_completed:
+        return "kill_quota"
+    return "item_goal"
+
+
+def _active_quest_title(queue: QuestFarmingQueue | None) -> str:
+    """Return the title of the quest a session is currently working on."""
+
+    if queue is None:
+        return ""
+    active = queue.active
+    return "" if active is None else active.quest.display_title

@@ -10,6 +10,7 @@ from world_fixtures import (
     flat_heights,
     respawn_record,
     unsupported_archive_index,
+    write_quest_client_tree,
     write_world_directory,
 )
 
@@ -17,6 +18,7 @@ import flyff_bot.cli as cli
 from flyff_bot.constants import ExitCode
 from flyff_bot.features.automation.orchestrator import FarmingMode
 from flyff_bot.features.input_control.models import WindowRef
+from flyff_bot.features.quests.persistence import load_quest_database
 from flyff_bot.features.vision import (
     FrameCaptureError,
     FrameCaptureErrorCode,
@@ -313,3 +315,46 @@ def test_extract_world_without_a_client_region_fails_with_a_localized_reason(
 
     assert exit_code == ExitCode.WORLD_EXTRACTION_FAILURE
     assert "keine Client-Region" in capsys.readouterr().err
+
+
+def test_extract_quests_writes_a_quest_database_without_a_game_window(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    write_quest_client_tree(tmp_path)
+    database_path = tmp_path / "quests" / "quests.json"
+
+    exit_code = cli.main(
+        [
+            "--extract-quests",
+            "--client-data-root",
+            str(tmp_path),
+            "--quest-database",
+            str(database_path),
+            "--language",
+            "en",
+        ]
+    )
+
+    assert exit_code == ExitCode.SUCCESS
+    assert database_path.is_file()
+    assert "Extracted 1 quests" in capsys.readouterr().out
+    assert load_quest_database(database_path).quests[0].title == "Vagrant Master"
+
+
+def test_extract_quests_without_a_client_archive_fails_with_a_localized_reason(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    exit_code = cli.main(
+        [
+            "--extract-quests",
+            "--client-data-root",
+            str(tmp_path / "missing"),
+            "--quest-database",
+            str(tmp_path / "quests.json"),
+            "--language",
+            "de",
+        ]
+    )
+
+    assert exit_code == ExitCode.QUEST_EXTRACTION_FAILURE
+    assert "kein lesbares Quest-Archiv" in capsys.readouterr().err

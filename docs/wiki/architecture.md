@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-20
+updated: 2026-08-21
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -9,6 +9,7 @@ sources:
   - ../sources/2026-08-19-target-server-entropia-pserver-clarification.md
   - ../sources/2026-08-19-entropia-client-navigation-data-extraction.md
   - ../sources/2026-08-20-entropia-camera-static-analysis.md
+  - ../sources/2026-08-21-entropia-keyed-archive-and-quest-data-analysis.md
 related:
   - project-overview.md
   - glossary.md
@@ -70,6 +71,7 @@ related:
   - ../user-stories/completed/US-058-navmesh-aware-targeting-and-telemetry-integration.md
   - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
   - ../user-stories/completed/US-059-authoritative-vector-navigation-legacy-removal-and-multi-zone-selection.md
+  - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
 ---
 
 # Architecture
@@ -1599,3 +1601,72 @@ camp that produced no confirmed kill, which the orchestrator turns into a hand-o
 stays bound rather than re-planning the route it is already following.
 
 The automated test gate passed on 2026-08-20 with 608 passed tests, 2 skipped, and 88.77% coverage.
+
+## Keyed client archives and goal-driven quest farming (US-061, completed)
+
+The client ships two archive generations behind the same `.hdr` / `.one` extensions. US-052 read
+the name-keyed one and reported the other as `UNSUPPORTED_ARCHIVE_INDEX`; every quest file lives in
+that second, *keyed* generation, together with 25 world regions. The
+[2026-08-21 static analysis](../sources/2026-08-21-entropia-keyed-archive-and-quest-data-analysis.md)
+establishes its layout, and `navigation.client_archive` now reads it alongside the original:
+
+- A keyed index record opens with `int32 -1`, stores the entry's start negated, and states a size
+  that excludes a fixed 10-byte region header, so a file's true length is `size + 10`.
+- The 64-character identity is `sha256("m1k3d3RS945TI!" + name.lower())`, which makes a keyed
+  archive **name-addressable** instead of requiring the US-052 known-plaintext-prefix search.
+- The payload keystream advances with the byte position and is seeded from the file name's adjacent
+  character XOR plus the file's own length:
+  `stored[i] = swap_nibbles(plain[i]) ^ ((length - 1 + (name[i % n] ^ name[(i+1) % n]) + i) & 0xFF)`.
+
+Reading stays strictly offline and non-destructive under ADR-005: no game process is opened and no
+client file is written. The decoder was verified by byte-exact round-trip against the 55 loose files
+that still match their packed entry; a further 20 loose files decode into valid headers but differ
+in content, which is what the client's loose-file preference implies for a patched file.
+
+`flyff_bot.features.quests` is the feature this unlocks. `extraction` unpacks the five
+`propQuest*.inc` scripts, `propMover.txt`, `Spec_Item.txt`, and one language's `*.txt.txt`
+catalogs; `client_tables` resolves `MI_*` / `II_*` symbols and `IDS_*` references into localized
+labels; `script_parser` reads the quest grammar into typed models. A bare-number script block is a
+quest *group* heading rather than a quest, and its title becomes the quest's area label - which for
+this client reads as `Flaris`, `Saintmorning`, and so on, so it doubles as the zone filter. Only the
+calls a session can act on are modelled: kill and collect conditions with their declared drop
+sources, begin-level window, objective text, and reward summary. Dialogue, party rules, and script
+hooks are skipped rather than half-modelled. `persistence` writes schema version 1 to
+`data/quests/quests.json`, which is git-ignored local operational data like the extracted world
+maps, and `uv run python -m flyff_bot --extract-quests` drives the whole pass offline. Against the
+operator's own installation it produced 1,434 quests, 563 of them farmable, with no diagnostics.
+
+`quests.goals` binds a quest to the ground. `QuestGoalResolver` matches each objective's monster to
+an extracted spawn zone by display name, by the numeric identifier when a quest states one directly,
+and - where several zones hold the same monster - by proximity to the coordinates the quest script
+itself names. A collection objective is farmed as kills of its declared drop sources, because a
+verified kill is the smallest unit of progress a session can observe without a loot feed attached
+(US-025). Missing geometry is reported rather than guessed: `NO_FARMABLE_OBJECTIVE`, `NO_WORLD_MAP`,
+and `NO_SPAWN_ZONE` are typed issues the dashboard renders as localized sentences.
+
+`QuestFarmingQueue` walks the operator's selection one quest at a time, counting only kills the
+session could attribute to a monster class. `FarmingOrchestrator` takes an optional queue: a
+verified kill that completes the active quest binds the next one, replacing the kill quotas, the
+combat class filter, and the navigator's camp selection, then re-attaching the navigator so the
+pathing controller drops its current route and plans towards the new area. When the queue runs out,
+the session reaches `FarmingMode.COMPLETED` with the reason `quest_queue`. A session without a queue
+is unchanged and still completes on its own quotas or item goal.
+
+The quests feature deliberately does not import the automation package: it states what a quest needs
+as `(monster, count)` pairs, and the orchestrator turns those into the `KillGoalConfig` it owns.
+The orchestrator's own quest imports are type-only, because the quests feature reaches the
+navigation package, which reaches back into automation. `QuestObjectiveProgress` therefore lives in
+`quests.models` beside the other dependency-free value objects, so `ui.dashboard` can carry it.
+
+`QuestGoalPanel` is the operator surface, on its own `Quest Goals` tab between Vitals & Buffs and
+Navigation & World. It filters the loaded database by free text, category, area, and character
+level, queues quests in the order they are checked, and renders the active quest and its objective
+counters from the same `DashboardUpdate` that feeds every other panel. All 563 farmable quests of
+this client render in about 30 ms and re-filter in under 10 ms, so the list is rebuilt on the Qt
+thread without a worker.
+
+The automated repository gate passed on 2026-08-21 at 674 passed, 2 skipped, and 89.22% coverage,
+and the extractor was run against the operator's own unmodified Entropia installation. The
+foregrounded Windows walkthrough - selecting quests, watching autonomous navigation to the resolved
+camps, and confirming the hand-over to the next quest in a live `neuz.exe` session - remains unrun
+and is not implied by the automated result.

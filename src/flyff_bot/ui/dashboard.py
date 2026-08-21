@@ -17,6 +17,7 @@ from flyff_bot.features.navigation.live_position import (
     PositionSource,
     WorldPosition,
 )
+from flyff_bot.features.quests.models import QuestObjectiveProgress
 from flyff_bot.features.vision.models import CapturedFrame
 
 
@@ -121,6 +122,9 @@ class DashboardUpdate:
     engagement_break: EngagementBreakReason | None = None
     kill_progress: tuple[MobKillProgress, ...] = ()
     events: tuple[SessionEvent, ...] = ()
+    quest_title: str = ""
+    quest_progress: tuple[QuestObjectiveProgress, ...] = ()
+    quest_queue_completed: bool = False
 
 
 class DashboardFeed(QObject):

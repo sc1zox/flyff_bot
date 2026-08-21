@@ -21,6 +21,7 @@ game process is opened, and no client file is ever written.
 
 from __future__ import annotations
 
+import hashlib
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -219,3 +220,145 @@ class ClientWorldArchive:
         if len(payload) != size:
             raise ClientArchiveError("An archive entry was shorter than the index declared.")
         return payload
+
+
+# --- Keyed archive generation (US-061) ------------------------------------------------
+#
+# Newer Entropia archives ship a second `.hdr` layout and a second payload transform. The
+# index record gains a leading `int32 -1` marker, its offset field stores the negated start
+# of the entry region, and its size field stores the file length minus the fixed region
+# header. Entry payloads are no longer keyed by the plain file name; the keystream advances
+# with the byte position and is seeded from the file name's adjacent-character XOR:
+#
+#     seed      = (length - 1 + (name[i % n] ^ name[(i + 1) % n]) + i) & 0xFF
+#     stored[i] = swap_nibbles(plain[i]) ^ seed
+#
+# The index identity is a salted digest of the lower-case file name, so an entry can be
+# addressed by name instead of by a known plaintext prefix. Reading stays offline and
+# read-only; nothing here writes to the client.
+
+# Marker that opens every record of the keyed index layout.
+KEYED_ARCHIVE_RECORD_MARKER = -1
+# Bytes each keyed entry reserves ahead of the length its index record declares.
+KEYED_ARCHIVE_REGION_HEADER_BYTES = 10
+# Salt the client mixes into the file name before digesting it into the index identity.
+KEYED_ARCHIVE_IDENTITY_SALT = b"m1k3d3RS945TI!"
+# Length of the hexadecimal identity the index stores per entry.
+KEYED_ARCHIVE_IDENTITY_LENGTH = 64
+
+
+def keyed_archive_identity(file_name: str) -> str:
+    """Return the index identity one keyed archive stores for a file name."""
+
+    lowered = file_name.lower().encode(ARCHIVE_NAME_ENCODING, errors="replace")
+    return hashlib.sha256(KEYED_ARCHIVE_IDENTITY_SALT + lowered).hexdigest()
+
+
+def decode_keyed_payload(payload: bytes, file_name: str) -> bytes:
+    """Return the original bytes of one entry stored by the keyed archive generation."""
+
+    key = file_name.lower().encode(ARCHIVE_NAME_ENCODING, errors="replace")
+    if not key:
+        raise ClientArchiveError(
+            "A keyed archive entry's seed is its file name and cannot be empty."
+        )
+    span = len(key)
+    seed = (len(payload) - 1) & 0xFF
+    plain = bytearray(len(payload))
+    for position, stored in enumerate(payload):
+        mixed = key[position % span] ^ key[(position + 1) % span]
+        plain[position] = _NIBBLE_SWAP[stored ^ ((seed + mixed + position) & 0xFF)]
+    return bytes(plain)
+
+
+def read_keyed_archive_index(payload: bytes) -> tuple[ArchiveEntry, ...]:
+    """Return every entry declared by one keyed ``.hdr`` index.
+
+    Offsets are stored negated and sizes exclude the fixed region header, so both are
+    normalized here into the absolute start and the true byte length of the packed file.
+    """
+
+    if len(payload) < ARCHIVE_INDEX_COUNT_BYTES:
+        raise ClientArchiveError("An archive index is too short to carry its entry count.")
+    (count,) = struct.unpack_from("<i", payload, 0)
+    if count < 0:
+        raise ClientArchiveError("An archive index cannot declare a negative entry count.")
+    entries: list[ArchiveEntry] = []
+    offset = ARCHIVE_INDEX_COUNT_BYTES
+    for _ in range(count):
+        if offset + 2 * ARCHIVE_INDEX_FIELD_BYTES > len(payload):
+            raise ClientArchiveError("An archive index ended inside an entry record.")
+        (marker,) = struct.unpack_from("<i", payload, offset)
+        if marker != KEYED_ARCHIVE_RECORD_MARKER:
+            raise ClientArchiveError("An archive index record is not in the keyed layout.")
+        offset += ARCHIVE_INDEX_FIELD_BYTES
+        (name_length,) = struct.unpack_from("<i", payload, offset)
+        offset += ARCHIVE_INDEX_FIELD_BYTES
+        remaining = len(payload) - offset
+        if name_length <= 0 or name_length + ARCHIVE_INDEX_ENTRY_TRAILER_BYTES > remaining:
+            raise ClientArchiveError("An archive index entry declared an unusable name length.")
+        identity = payload[offset : offset + name_length].decode("ascii", errors="replace")
+        offset += name_length
+        stored_offset, stored_size = struct.unpack_from("<2i", payload, offset)
+        offset += ARCHIVE_INDEX_ENTRY_TRAILER_BYTES
+        length = stored_size + KEYED_ARCHIVE_REGION_HEADER_BYTES
+        if length < 0:
+            # A retired entry declares a negative length; it holds no file at all.
+            continue
+        entries.append(ArchiveEntry(identity, -stored_offset, length))
+    if offset != len(payload):
+        raise ClientArchiveError("An archive index carried unexpected trailing bytes.")
+    return tuple(entries)
+
+
+class KeyedClientArchive:
+    """Name-addressed reader over one keyed ``.hdr`` / ``.one`` archive pair."""
+
+    def __init__(self, index_path: Path, data_path: Path) -> None:
+        self.name = data_path.stem
+        self._data_path = data_path
+        self._data_size = data_path.stat().st_size
+        self._entries = {
+            entry.identity: entry for entry in read_keyed_archive_index(index_path.read_bytes())
+        }
+
+    @staticmethod
+    def is_keyed_index(payload: bytes) -> bool:
+        """Return whether one ``.hdr`` payload opens with a keyed index record."""
+
+        if len(payload) < ARCHIVE_INDEX_COUNT_BYTES + ARCHIVE_INDEX_FIELD_BYTES:
+            return False
+        (marker,) = struct.unpack_from("<i", payload, ARCHIVE_INDEX_COUNT_BYTES)
+        return bool(marker == KEYED_ARCHIVE_RECORD_MARKER)
+
+    @classmethod
+    def open_pair(cls, index_path: Path) -> KeyedClientArchive | None:
+        """Open the pair an index belongs to, or return ``None`` when it is not keyed."""
+
+        data_path = index_path.with_suffix(ARCHIVE_DATA_SUFFIX)
+        if not data_path.is_file():
+            return None
+        if not cls.is_keyed_index(index_path.read_bytes()):
+            return None
+        return cls(index_path, data_path)
+
+    @property
+    def entry_count(self) -> int:
+        """Return how many packed files this archive declares."""
+
+        return len(self._entries)
+
+    def read(self, file_name: str) -> bytes | None:
+        """Return one packed file's decoded bytes, or ``None`` when it is not held here."""
+
+        entry = self._entries.get(keyed_archive_identity(file_name))
+        if entry is None:
+            return None
+        if entry.offset + entry.size > self._data_size:
+            raise ClientArchiveError("An archive entry reaches past the end of its payload.")
+        with self._data_path.open("rb") as stream:
+            stream.seek(entry.offset)
+            stored = stream.read(entry.size)
+        if len(stored) != entry.size:
+            raise ClientArchiveError("An archive entry was shorter than the index declared.")
+        return decode_keyed_payload(stored, file_name)

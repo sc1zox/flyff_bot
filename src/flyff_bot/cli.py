@@ -16,12 +16,14 @@ import numpy as np
 import numpy.typing as npt
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_DATA_ROOT,
     DEFAULT_CLIENT_WORLD_ROOT,
     DEFAULT_DATASET_MANIFEST_PATH,
     DEFAULT_KEY_DURATION_SECONDS,
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
     DEFAULT_PROCESS_NAME,
+    DEFAULT_QUEST_DATABASE_PATH,
     DEFAULT_START_DELAY_SECONDS,
     DEFAULT_TARGET_ANCHOR_PATH,
     DEFAULT_TELEMETRY_AREA_ID,
@@ -47,6 +49,7 @@ from flyff_bot.features.input_control import (
     WindowsInputController,
     parse_virtual_key,
 )
+from flyff_bot.features.navigation.client_archive import ClientArchiveError
 from flyff_bot.features.navigation.live_camera import LiveCameraReader
 from flyff_bot.features.navigation.live_position import LivePositionReader
 from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshBaker
@@ -68,6 +71,13 @@ from flyff_bot.features.navigation.world_extractor import (
 )
 from flyff_bot.features.navigation.world_geometry import terrain_triangles
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
+from flyff_bot.features.quests.extraction import (
+    DEFAULT_QUEST_LANGUAGE,
+    QuestExtractionDiagnostic,
+    QuestExtractionWarning,
+    extract_quest_database,
+)
+from flyff_bot.features.quests.persistence import save_quest_database
 from flyff_bot.features.telemetry import (
     JsonlTelemetryWorker,
     SqliteTelemetryStore,
@@ -231,6 +241,26 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         help=translator.text(Message.HELP_WORLD_REGION),
     )
     actions.add_argument(
+        "--extract-quests",
+        action="store_true",
+        help=translator.text(Message.HELP_EXTRACT_QUESTS),
+    )
+    parser.add_argument(
+        "--client-data-root",
+        default=DEFAULT_CLIENT_DATA_ROOT,
+        help=translator.text(Message.HELP_CLIENT_DATA_ROOT, default=DEFAULT_CLIENT_DATA_ROOT),
+    )
+    parser.add_argument(
+        "--quest-database",
+        default=DEFAULT_QUEST_DATABASE_PATH,
+        help=translator.text(Message.HELP_QUEST_DATABASE, default=DEFAULT_QUEST_DATABASE_PATH),
+    )
+    parser.add_argument(
+        "--quest-language",
+        default=DEFAULT_QUEST_LANGUAGE,
+        help=translator.text(Message.HELP_QUEST_LANGUAGE, default=DEFAULT_QUEST_LANGUAGE),
+    )
+    actions.add_argument(
         "--detect-mobs",
         action="store_true",
         help=translator.text(Message.HELP_DETECT_MOBS),
@@ -381,6 +411,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return ExitCode.SUCCESS
         if args.extract_world:
             return _extract_worlds(args, translator)
+        if args.extract_quests:
+            return _extract_quests(args, translator)
         controller = WindowsInputController()
         windows = controller.find_windows(args.process)
         if not windows:
@@ -586,6 +618,55 @@ def _extract_worlds(args: argparse.Namespace, translator: Translator) -> int:
         )
     )
     return ExitCode.WORLD_EXTRACTION_FAILURE if failed else ExitCode.SUCCESS
+
+
+_QUEST_WARNING_MESSAGES = {
+    QuestExtractionWarning.MISSING_QUEST_SCRIPT: Message.QUEST_SCRIPT_SKIPPED,
+    QuestExtractionWarning.MISSING_CLIENT_TABLE: Message.QUEST_TABLE_SKIPPED,
+    QuestExtractionWarning.UNREADABLE_ARCHIVE: Message.QUEST_ARCHIVE_SKIPPED,
+}
+
+
+def _extract_quests(args: argparse.Namespace, translator: Translator) -> int:
+    """Extract the client's quest definitions offline and write the JSON database.
+
+    Extraction reads the client's own packed data and writes only into this repository's
+    artifact directory, so it opens no game window and modifies no client file.
+    """
+
+    root = Path(args.client_data_root)
+    output_path = Path(args.quest_database)
+    diagnostics: list[QuestExtractionDiagnostic] = []
+    try:
+        database = extract_quest_database(
+            root, language=args.quest_language, diagnostics=diagnostics
+        )
+    except (OSError, ClientArchiveError) as error:
+        print(
+            translator.text(Message.QUEST_EXTRACTION_FAILED, reason=error),
+            file=sys.stderr,
+        )
+        return ExitCode.QUEST_EXTRACTION_FAILURE
+    for diagnostic in diagnostics:
+        message = _QUEST_WARNING_MESSAGES.get(diagnostic.warning)
+        if message is not None:
+            print(translator.text(message, detail=diagnostic.detail), file=sys.stderr)
+    if not database.quests:
+        print(
+            translator.text(Message.QUEST_ARCHIVE_MISSING, path=root),
+            file=sys.stderr,
+        )
+        return ExitCode.QUEST_EXTRACTION_FAILURE
+    save_quest_database(database, output_path)
+    print(
+        translator.text(
+            Message.QUEST_EXTRACTED,
+            quests=len(database.quests),
+            farmable=len(database.farmable),
+            path=output_path,
+        )
+    )
+    return ExitCode.SUCCESS
 
 
 def _farming_orchestrator(

@@ -1106,6 +1106,7 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
         "Dashboard",
         "Combat & Targets",
         "Vitals & Buffs",
+        "Quest Goals",
         "Navigation & World",
         "Diagnostics & Logs",
     ]
@@ -1133,6 +1134,9 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
     assert vitals_page.isAncestorOf(window.powerup_panel)
     assert navigation_page.isAncestorOf(window.world_data_button)
     assert diagnostics_page.isAncestorOf(window.event_log_panel)
+    quest_page = window.tab_scroll_area(DashboardTab.QUEST_GOALS).widget()
+    assert quest_page is not None
+    assert quest_page.isAncestorOf(window.quest_panel)
 
 
 def test_main_window_tab_labels_and_tooltips_retranslate_in_place() -> None:
@@ -1148,6 +1152,7 @@ def test_main_window_tab_labels_and_tooltips_retranslate_in_place() -> None:
         "Übersicht",
         "Kampf & Ziele",
         "Vitals & Buffs",
+        "Quest-Ziele",
         "Navigation & Karte",
         "Diagnose & Tools",
     ]

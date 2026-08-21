@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from flyff_bot.constants import (
     DEFAULT_CLIENT_WORLD_ROOT,
+    DEFAULT_QUEST_DATABASE_PATH,
     DEFAULT_WORLD_MAP_DIRECTORY,
     DEFAULT_WORLD_MONSTER_IDS_PATH,
 )
@@ -74,6 +75,10 @@ from flyff_bot.features.automation.vitals_persistence import (
 from flyff_bot.features.input_control import parse_virtual_key
 from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
 from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
+from flyff_bot.features.quests.persistence import (
+    QuestDatabaseError,
+    load_quest_database,
+)
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.features.vision.target_verification import (
     DEFAULT_ANCHOR_MATCH_THRESHOLD,
@@ -88,6 +93,7 @@ from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
 from flyff_bot.ui.powerup_panel import PowerUpPanel
+from flyff_bot.ui.quest_panel import QuestGoalPanel
 from flyff_bot.ui.target_panel import TargetSelectionPanel
 from flyff_bot.ui.theme import apply_theme
 from flyff_bot.ui.world_data_dialog import WorldDataDialog
@@ -141,8 +147,9 @@ class DashboardTab(IntEnum):
     DASHBOARD = 0
     COMBAT_TARGETS = 1
     VITALS_BUFFS = 2
-    NAVIGATION_WORLD = 3
-    DIAGNOSTICS_LOGS = 4
+    QUEST_GOALS = 3
+    NAVIGATION_WORLD = 4
+    DIAGNOSTICS_LOGS = 5
 
 
 class MainWindow(QMainWindow):
@@ -161,6 +168,7 @@ class MainWindow(QMainWindow):
     kill_verification_changed = Signal(bool)
     anchor_threshold_changed = Signal(float)
     target_selection_changed = Signal(object)
+    quest_selection_changed = Signal(object)
     vector_navigation_requested = Signal(object)
     vector_navigation_cleared = Signal()
 
@@ -174,12 +182,14 @@ class MainWindow(QMainWindow):
         client_world_root: Path | None = None,
         world_map_dir: Path | None = None,
         monster_names_path: Path | None = None,
+        quest_database_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._translator = translator
         self._client_world_root = client_world_root or Path(DEFAULT_CLIENT_WORLD_ROOT)
         self._world_map_dir = world_map_dir or Path(DEFAULT_WORLD_MAP_DIRECTORY)
         self._monster_names_path = monster_names_path or Path(DEFAULT_WORLD_MONSTER_IDS_PATH)
+        self._quest_database_path = quest_database_path or Path(DEFAULT_QUEST_DATABASE_PATH)
         self._world_data_dialog: WorldDataDialog | None = None
         self._vitals_config_path = vitals_config_path or DEFAULT_VITALS_CONFIG_PATH
         self._powerup_config_path = powerup_config_path or DEFAULT_POWERUP_CONFIG_PATH
@@ -302,6 +312,7 @@ class MainWindow(QMainWindow):
         self._load_emergency_settings()
 
         self._target_panel = TargetSelectionPanel(self._translator)
+        self._quest_panel = QuestGoalPanel(self._translator)
 
         self._target_debug_panel = QGroupBox()
         self._target_debug_panel.setObjectName("CardPanel")
@@ -564,6 +575,45 @@ class MainWindow(QMainWindow):
         return self._target_panel
 
     @property
+    def translator(self) -> Translator:
+        """Expose the active translator for composition-root wiring."""
+
+        return self._translator
+
+    @property
+    def quest_panel(self) -> QuestGoalPanel:
+        """Expose the quest goal browser for wiring and verification."""
+
+        return self._quest_panel
+
+    def load_quest_database(self) -> None:
+        """Load the extracted quest database into the quest panel, if one exists.
+
+        A missing or malformed database is a localized status line on the panel rather than
+        a failure: quest extraction is an offline step an operator may not have run yet.
+        """
+
+        path = self._quest_database_path
+        if not path.is_file():
+            self._quest_panel.set_status_text(
+                self._translator.text(Message.UI_QUEST_DATABASE_MISSING, path=path)
+            )
+            return
+        try:
+            database = load_quest_database(path)
+        except QuestDatabaseError as error:
+            self._quest_panel.set_status_text(
+                self._translator.text(Message.QUEST_EXTRACTION_FAILED, reason=error)
+            )
+            return
+        self._quest_panel.set_database(
+            database,
+            self._translator.text(
+                Message.UI_QUEST_DATABASE_LOADED, count=len(database.quests), path=path
+            ),
+        )
+
+    @property
     def powerup_panel(self) -> PowerUpPanel:
         return self._powerup_panel
 
@@ -709,6 +759,10 @@ class MainWindow(QMainWindow):
             self._powerup_panel,
         )
         self._add_scroll_tab(
+            DashboardTab.QUEST_GOALS,
+            self._quest_panel,
+        )
+        self._add_scroll_tab(
             DashboardTab.NAVIGATION_WORLD,
             nav_controls,
             self._map_container,
@@ -768,6 +822,7 @@ class MainWindow(QMainWindow):
         self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
         self._anchor_threshold_spin.valueChanged.connect(self._on_anchor_threshold_changed)
         self._target_panel.selection_changed.connect(self._on_target_selection_changed)
+        self._quest_panel.selection_changed.connect(self.quest_selection_changed)
         self._recovery_timeout_spin.valueChanged.connect(self._on_emergency_changed)
         self._recovery_hotkey_combo.currentIndexChanged.connect(self._on_emergency_changed)
         for check, spin, combo, debounce in (
@@ -846,6 +901,7 @@ class MainWindow(QMainWindow):
         self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))
         self._retranslate_recovery()
         self._target_panel.set_translator(self._translator)
+        self._quest_panel.set_translator(self._translator)
         self._target_grace_label.setText(self._translator.text(Message.UI_TARGET_GRACE_PERIOD))
         self._target_grace_spin.setToolTip(self._translator.text(Message.UI_TARGET_GRACE_TOOLTIP))
         self._kill_verification_label.setText(self._translator.text(Message.UI_KILL_VERIFICATION))
@@ -932,6 +988,10 @@ class MainWindow(QMainWindow):
             DashboardTab.VITALS_BUFFS: (
                 Message.UI_TAB_VITALS_BUFFS,
                 Message.UI_TAB_VITALS_BUFFS_TOOLTIP,
+            ),
+            DashboardTab.QUEST_GOALS: (
+                Message.UI_TAB_QUESTS,
+                Message.UI_TAB_QUESTS_TOOLTIP,
             ),
             DashboardTab.NAVIGATION_WORLD: (
                 Message.UI_TAB_NAVIGATION_WORLD,
@@ -1091,6 +1151,9 @@ class MainWindow(QMainWindow):
         self._render_vitals(update.state)
         self._render_kill_progress(update.kill_progress)
         self._target_panel.set_progress(update.kill_progress)
+        self._quest_panel.set_progress(
+            update.quest_title, update.quest_progress, update.quest_queue_completed
+        )
         self._event_log_panel.set_events(update.events)
         self._render_target_debug(update.state.selected_target, update.engagement_break)
         self._render_monster_stats_debug(update.state.monster_stats)

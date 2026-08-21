@@ -40,6 +40,12 @@ from flyff_bot.features.navigation.vector_navigation import (
     VectorZoneNavigator,
 )
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
+from flyff_bot.features.quests.goals import (
+    QuestFarmingQueue,
+    QuestGoalResolver,
+    QuestResolution,
+)
+from flyff_bot.features.quests.models import QuestDefinition
 from flyff_bot.features.vision import (
     DetectionConfig,
     OpenCVDnnYoloDetector,
@@ -164,6 +170,60 @@ def connect_target_selection(
     window.target_selection_changed.connect(_apply)
 
 
+class QuestGoalControls(Protocol):
+    """The subset of session controls needed to farm a queue of selected quests."""
+
+    def configure_quest_queue(self, queue: QuestFarmingQueue | None) -> None: ...
+
+
+def connect_quest_selection(
+    window: MainWindow,
+    session: QuestGoalControls,
+    resolver: Callable[[], QuestGoalResolver],
+) -> None:
+    """Resolve the operator's quest selection and arm the session's quest queue.
+
+    A quest whose monsters have no extracted spawn zone still enters the queue, but its
+    resolution issue is reported on the quest panel as a localized diagnostic instead of
+    being silently dropped.
+    """
+
+    def _apply(selection: object) -> None:
+        quests = tuple(
+            item for item in _as_sequence(selection) if isinstance(item, QuestDefinition)
+        )
+        if not quests:
+            session.configure_quest_queue(None)
+            window.quest_panel.set_status_text(
+                window.translator.text(Message.UI_QUEST_NO_SELECTION)
+            )
+            return
+        resolutions = resolver().resolve_all(quests)
+        session.configure_quest_queue(QuestFarmingQueue(resolutions))
+        window.quest_panel.set_status_text(_issue_text(window, resolutions))
+
+    window.quest_selection_changed.connect(_apply)
+
+
+def _as_sequence(value: object) -> tuple[object, ...]:
+    if isinstance(value, list | tuple):
+        return tuple(value)
+    return ()
+
+
+def _issue_text(window: MainWindow, resolutions: Sequence[QuestResolution]) -> str:
+    lines: list[str] = []
+    for resolution in resolutions:
+        monsters = ", ".join(
+            target.monster_name for target in resolution.targets if target.zone is None
+        )
+        title = resolution.quest.display_title
+        lines.extend(
+            window.quest_panel.issue_text(issue, title, monsters) for issue in resolution.issues
+        )
+    return chr(10).join(lines)
+
+
 def target_class_applier(
     detector: ClassFilterableDetector,
     verifier: TargetVerifier,
@@ -209,6 +269,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
 
     translator = Translator.from_environment()
     window = MainWindow(translator)
+    window.load_quest_database()
     feed = DashboardFeed()
     feed.update_available.connect(window.update_dashboard)
 
@@ -310,6 +371,15 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     on_start=lambda: start_farming(controller, window_handle, orchestrator),
                 )
                 connect_vector_navigation(window, orchestrator)
+                connect_quest_selection(
+                    window,
+                    orchestrator,
+                    lambda: QuestGoalResolver(
+                        None
+                        if pathing.vector_navigator is None
+                        else pathing.vector_navigator.world_map
+                    ),
+                )
                 worker = SessionWorker(orchestrator.tick, STANDBY_TICK_INTERVAL_SECONDS)
                 window._teardowns.append(worker.stop)
                 worker.start()

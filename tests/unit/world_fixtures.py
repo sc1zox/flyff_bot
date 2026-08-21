@@ -11,7 +11,12 @@ import struct
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
-from flyff_bot.features.navigation.client_archive import encode_archive_payload
+from flyff_bot.features.navigation.client_archive import (
+    KEYED_ARCHIVE_RECORD_MARKER,
+    KEYED_ARCHIVE_REGION_HEADER_BYTES,
+    encode_archive_payload,
+    keyed_archive_identity,
+)
 from flyff_bot.features.navigation.world_extractor import (
     DYNAMIC_OBJECT_MODEL_NAME_BYTES,
     DYNAMIC_OBJECT_MODEL_NAME_OFFSET,
@@ -191,3 +196,79 @@ def write_world_directory(
     if objects:
         (directory / f"{name}.dyo").write_bytes(dynamic_object_payload(objects))
     return directory
+
+
+NIBBLE_SWAP = bytes(((value << 4) | (value >> 4)) & 0xFF for value in range(256))
+
+QUEST_SCRIPT_FIXTURE = """
+QUEST_HUNT_AIBATT
+{
+	SetTitle( IDS_Q_TITLE );
+	setting
+	{
+		SetBeginCondLevel( 15, 20 );
+		SetEndCondKillNPC( 0, MI_AIBATT1, 10, 7128, 3333, 1 );
+	}
+}
+"""
+
+
+def utf16_text(text: str) -> bytes:
+    """Return one UTF-16 client text payload, byte-order mark included."""
+
+    return b"\xff\xfe" + text.encode("utf-16-le")
+
+
+def encode_keyed_payload(plain: bytes, file_name: str) -> bytes:
+    """Return the stored form of one keyed archive entry, as the client packs it."""
+
+    key = file_name.lower().encode("cp1252")
+    span = len(key)
+    seed = (len(plain) - 1) & 0xFF
+    return bytes(
+        NIBBLE_SWAP[value] ^ ((seed + (key[i % span] ^ key[(i + 1) % span]) + i) & 0xFF)
+        for i, value in enumerate(plain)
+    )
+
+
+def write_keyed_archive(directory: Path, stem: str, files: Mapping[str, bytes]) -> None:
+    """Write a synthetic keyed ``.hdr``/``.one`` archive pair holding the supplied files."""
+
+    index = bytearray(struct.pack("<i", len(files)))
+    payload = bytearray()
+    for name, plain in files.items():
+        stored = encode_keyed_payload(plain, name)
+        identity = keyed_archive_identity(name).encode("ascii")
+        index += struct.pack("<i", KEYED_ARCHIVE_RECORD_MARKER)
+        index += struct.pack("<i", len(identity))
+        index += identity
+        index += struct.pack("<2i", -len(payload), len(stored) - KEYED_ARCHIVE_REGION_HEADER_BYTES)
+        payload += stored
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{stem}.hdr").write_bytes(bytes(index))
+    (directory / f"{stem}.one").write_bytes(bytes(payload))
+
+
+def write_quest_client_tree(root: Path) -> Path:
+    """Write a synthetic client data tree holding one packed, localized quest."""
+
+    system = root / "System2"
+    write_keyed_archive(
+        system,
+        "data1",
+        {
+            "propQuest.inc": utf16_text(QUEST_SCRIPT_FIXTURE),
+            "propMover.txt": utf16_text("MI_AIBATT1\tIDS_M\t15\n"),
+            "Spec_Item.txt": utf16_text("6\tII_STONE\tIDS_I\t1\n"),
+        },
+    )
+    write_keyed_archive(
+        system / "Lang" / "English",
+        "english",
+        {
+            "propQuest.txt.txt": utf16_text("IDS_Q_TITLE\tVagrant Master\r\n"),
+            "propMover.txt.txt": utf16_text("IDS_M\tSmall Aibatt\r\n"),
+            "propItem.txt.txt": utf16_text("IDS_I\tTwinkle Stone\r\n"),
+        },
+    )
+    return root

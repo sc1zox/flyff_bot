@@ -841,3 +841,23 @@ loader, and a magic `0x70` hotkey fallback were removed. The duplicate `US-059` 
 `35e21bf` left red (one ruff `F841` and one mypy `comparison-overlap` in the GPS-resume tests) is
 green again. Full automated gate on 2026-08-20: 623 passed, 2 skipped, 89.09% coverage. The Windows
 walkthrough of live camera tracking, multi-camp transit, and the teleport threshold remains unrun.
+
+## 2026-08-21 synthesis - keyed client archives and quest farming (US-061)
+
+Ingested
+[2026-08-21 Entropia keyed archive and quest data static analysis](../sources/2026-08-21-entropia-keyed-archive-and-quest-data-analysis.md)
+and synthesized it into `architecture.md`.
+
+The 663 client archives US-052 refused as `UNSUPPORTED_ARCHIVE_INDEX` are a second archive
+generation, not a corrupt one. Its index record opens with `int32 -1`, stores the entry start
+negated, and reports a length 10 bytes short of the file; its identity is
+`sha256("m1k3d3RS945TI!" + name.lower())`, which makes the archive name-addressable; and its payload
+keystream advances with byte position, seeded from the file name's adjacent-character XOR and the
+file's own length. Both salt literals sit beside the `.one` / `.hdr` and `.res` / `.hdr` extension
+strings in `neuz.exe`. The decoder round-trips byte-exactly against 55 loose/packed file pairs.
+
+That unlocked `flyff_bot.features.quests`: offline extraction of 1,434 quests (563 farmable) into
+`data/quests/quests.json`, quest-to-spawn-zone resolution over the extracted world maps, sequential
+quest queue progression inside `FarmingOrchestrator`, and a searchable `Quest Goals` dashboard tab.
+Localized in English and German. Gate on 2026-08-21: 674 passed, 2 skipped, 89.22% coverage. The
+live Windows walkthrough is outstanding.
