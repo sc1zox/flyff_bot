@@ -58,7 +58,7 @@ from flyff_bot.features.navigation.execution import PathingInputAdapter, Pathing
 from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
-from flyff_bot.features.telemetry import CombatVerificationSource, TelemetryRecorder
+from flyff_bot.features.telemetry.models import CombatVerificationSource
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     FrameCaptureError,
@@ -79,6 +79,7 @@ if TYPE_CHECKING:
     from flyff_bot.features.navigation.pathing import PathingController
     from flyff_bot.features.navigation.vector_navigation import VectorZoneNavigator
     from flyff_bot.features.quests.goals import QuestFarmingQueue, QuestResolution
+    from flyff_bot.features.telemetry.recorder import TelemetryRecorder
 
 
 DEFAULT_TICK_INTERVAL_SECONDS = 0.1

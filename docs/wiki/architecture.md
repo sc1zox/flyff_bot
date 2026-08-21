@@ -72,6 +72,7 @@ related:
   - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
   - ../user-stories/completed/US-059-authoritative-vector-navigation-legacy-removal-and-multi-zone-selection.md
   - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
+  - ../user-stories/completed/US-066-farming-and-navigation-value-model.md
 ---
 
 # Architecture
@@ -1670,3 +1671,55 @@ and the extractor was run against the operator's own unmodified Entropia install
 foregrounded Windows walkthrough - selecting quests, watching autonomous navigation to the resolved
 camps, and confirming the hand-over to the next quest in a live `neuz.exe` session - remains unrun
 and is not implied by the automated result.
+
+## Offline farming value models from recorded telemetry (US-066, completed)
+
+US-066 adds `flyff_bot.features.ml`, a second offline consumer of the US-054 datasets beside the
+YOLO training adapter. It reads the three exported Parquet tables and never opens a window, sends
+input, or reads process memory; `python -m flyff_bot.features.ml.train_farming_value` runs with no
+game client present.
+
+`dataset.py` joins one supervised sample per *executed* target decision. A kill cycle is linked to
+its decision through the `target_decision_timestamp_ns` US-054 already records, and the navigation
+episode that started between those two timestamps supplies the corridor and trajectory geometry.
+Candidates the bot did not select never become samples; they contribute only observed context
+counts, so the off-policy dataset carries no invented counterfactual reward. Splitting moves whole
+sessions into the holdout, falling back to a contiguous temporal tail when only one session exists,
+so a session is never on both sides of the boundary.
+
+Features and labels stay strictly observational. Anything the session did not measure is `None`,
+becomes `NaN` in the model matrix, and reaches a model as the training-set median plus an explicit
+`<feature>__is_missing` indicator column, so an imputed value stays distinguishable from a
+measurement. Follow-up windows reaching past the end of a session are treated as right-censored and
+stay unknown rather than being recorded as zero kills; recovery time exists only for cycles where a
+stall was actually observed. Corridor clearance is not in the US-054 schema, so the corridor is
+described by length, waypoint count, turn angles, and detour ratio instead of a fabricated width.
+
+The five heads - travel time, stuck risk, recovery time, kill time, and follow-up value - are
+regularized linear models fitted on numpy alone: ridge regression, plus an L2-penalized logistic
+classifier via Newton iterations for stuck risk. Each is benchmarked on holdout sessions against a
+heuristic reference predictor: a least-squares scaling of the single measurement the deterministic
+controller would have used, or the training mean where it has no such rule. Heads without enough
+observed labels are reported as untrained instead of being fitted to noise. `cost.py` combines the
+five predictions into the weighted expected farming cost with operator-configurable component
+weights.
+
+Each head exports to a self-contained ONNX graph (`IsNaN` -> `Where` -> `Cast` -> `Concat` ->
+`Gemm`, closed by `Sigmoid` for the classifier) that takes the raw `NaN`-carrying feature matrix, so
+a consumer cannot disagree with the training-time preparation. The ONNX writer is the only reason
+for the new optional `ml` dependency; live inference stays on the OpenCV DNN runtime the app already
+ships. `models/farming_value/<version>/metadata.json` records the dataset digest, session
+identifiers, split strategy, feature and label schema, follow-up value definition, cost weights,
+per-head model and baseline metrics, the checked-out git commit, and the client build hashes read
+from the telemetry database.
+
+Importing the telemetry package first used to raise a circular `ImportError` through `navigation`
+and `automation`, which the new offline entry point would have hit on every run.
+`automation/orchestrator.py` now takes `CombatVerificationSource` from `telemetry.models` and
+`TelemetryRecorder` under `TYPE_CHECKING`, and `telemetry/__init__.py` no longer re-exports
+`geometry`, which is shared with the navigation layer telemetry itself depends on. Both packages
+keep their behaviour; only the import direction was corrected.
+
+The automated repository gate passed on 2026-08-21 at 719 passed, 2 skipped, and 89.70% coverage.
+Running the trainer on a real recorded Windows farming session and inspecting the produced
+artifacts remains outstanding and is not implied by the automated result.

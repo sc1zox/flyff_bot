@@ -23,7 +23,7 @@ so that **the bot selects practically faster and obstacle-free routes over geome
   - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../decisions/ADR-006-read-only-process-memory-access.md): Live GPS memory reads.
   - [`docs/user-stories/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md`](US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md): 3D NavMesh compilation.
   - [`docs/user-stories/completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md): GPS trajectories and stall events.
-  - [`docs/user-stories/US-066-farming-and-navigation-value-model.md`](US-066-farming-and-navigation-value-model.md): Empirical travel time and stuck models.
+  - [`docs/user-stories/completed/US-066-farming-and-navigation-value-model.md`](completed/US-066-farming-and-navigation-value-model.md): Empirical travel time and stuck models.
 - **Problem Statement:**
   Standard A* routing computes shortest geometric distance ($\min \int ds$). However, in practice, certain terrain polygons (narrow rock passes, steep inclines, tree roots) cause frequent collision stalls.
   An 8-meter corridor with an 8% stuck probability and 4-second recovery duration is practically slower and noisier than a smooth 10-meter open corridor.

@@ -23,10 +23,16 @@ flyff-bot = "flyff_bot.cli:main"
 training = [
     "ultralytics>=8.4.120",
 ]
+# Offline farming-value model export (US-066). Only the developer-side ONNX writer needs it;
+# live inference reads the artifacts through the OpenCV DNN runtime that ships with the app.
+ml = [
+    "onnx>=1.22,<2",
+]
 
 [dependency-groups]
 dev = [
   "mypy>=1.17",
+  "onnx>=1.22,<2",
   "pytest>=8.4",
   "pytest-cov>=6.2",
   "ruff>=0.12",
@@ -46,7 +52,7 @@ files = ["src", "tests", "scripts"]
 mypy_path = "scripts"
 
 [[tool.mypy.overrides]]
-module = ["cv2", "pyarrow", "pyarrow.*", "ultralytics"]
+module = ["cv2", "onnx", "onnx.*", "pyarrow", "pyarrow.*", "ultralytics"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

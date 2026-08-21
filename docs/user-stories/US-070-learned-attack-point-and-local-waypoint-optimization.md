@@ -22,7 +22,7 @@ so that **the character minimizes approach travel time, avoids geometry obstacle
   - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md)
   - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../decisions/ADR-006-read-only-process-memory-access.md)
   - [`docs/user-stories/US-060-combat-class-profiles-responsive-direct-targeting-and-lockout-minimization.md`](US-060-combat-class-profiles-responsive-direct-targeting-and-lockout-minimization.md): Class engagement distances.
-  - [`docs/user-stories/US-066-farming-and-navigation-value-model.md`](US-066-farming-and-navigation-value-model.md)
+  - [`docs/user-stories/completed/US-066-farming-and-navigation-value-model.md`](completed/US-066-farming-and-navigation-value-model.md)
   - [`docs/user-stories/US-067-unified-tactical-policy-integration.md`](US-067-unified-tactical-policy-integration.md)
   - [`docs/user-stories/US-069-experience-based-navmesh-routing.md`](US-069-experience-based-navmesh-routing.md)
 - **Problem Statement:**

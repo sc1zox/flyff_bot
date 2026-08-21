@@ -16,6 +16,9 @@ DEFAULT_TELEMETRY_ROOT = "data/telemetry"
 DEFAULT_TELEMETRY_DATABASE_PATH = "data/telemetry.sqlite3"
 DEFAULT_TELEMETRY_DATASET_PATH = "data/datasets/rl"
 DEFAULT_TELEMETRY_AREA_ID = "unknown"
+# Offline farming value models trained from recorded telemetry (US-066). The version segment
+# is part of the path so a new artifact set never overwrites the one a session already loaded.
+DEFAULT_FARMING_VALUE_MODEL_PATH = "models/farming_value/v1"
 # Extracted client world geometry (US-045). The client tree is the operator's own game
 # installation and is never part of this repository, so the default only states where an
 # unmodified Entropia install keeps its regions relative to the working directory.
@@ -45,3 +48,4 @@ class ExitCode(IntEnum):
     TRAINING_FAILURE = 6
     WORLD_EXTRACTION_FAILURE = 7
     QUEST_EXTRACTION_FAILURE = 8
+    VALUE_MODEL_FAILURE = 9

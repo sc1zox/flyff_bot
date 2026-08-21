@@ -22,7 +22,7 @@ so that **the bot optimizes overall farming throughput and kills-per-minute rath
   - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md)
   - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../decisions/ADR-006-read-only-process-memory-access.md)
   - [`docs/user-stories/completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md)
-  - [`docs/user-stories/US-066-farming-and-navigation-value-model.md`](US-066-farming-and-navigation-value-model.md): Transition cost and value models.
+  - [`docs/user-stories/completed/US-066-farming-and-navigation-value-model.md`](completed/US-066-farming-and-navigation-value-model.md): Transition cost and value models.
   - [`docs/user-stories/US-067-unified-tactical-policy-integration.md`](US-067-unified-tactical-policy-integration.md): Tactical policy protocol integration.
 - **Problem Statement:**
   Greedy nearest-neighbor selection often leads the character into isolated corners or high-stuck areas, leaving no nearby monsters after the kill.

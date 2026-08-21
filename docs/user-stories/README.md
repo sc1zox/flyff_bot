@@ -84,7 +84,7 @@ route rests on a dead-reckoned position built from unmeasured key-press constant
 
 Focuses on tactical optimization, offline transition modeling, empirical NavMesh routing, fast simulation, and hierarchical reinforcement learning across farming, navigation, and quests without brittle live exploration.
 
-- [ ] [**US-066: Farming and navigation value model and offline telemetry learning**](US-066-farming-and-navigation-value-model.md) — Offline predictive models for travel time, stuck risk, recovery cost, kill duration, and follow-up farming value trained on US-054 Parquet datasets.
+- [x] [**US-066: Farming and navigation value model and offline telemetry learning**](completed/US-066-farming-and-navigation-value-model.md) — Offline predictive models for travel time, stuck risk, recovery cost, kill duration, and follow-up farming value trained on US-054 Parquet datasets.
 - [ ] [**US-067: Unified tactical policy interface, heuristic baseline, and learned policy integration**](US-067-unified-tactical-policy-integration.md) — Typed `TacticalPolicy` abstraction with `HeuristicPolicy` and `LearnedPolicy` implementations, shadow mode, and deterministic fallback.
 - [ ] [**US-068: Rolling-horizon multi-target sequencing and lookahead planning**](US-068-rolling-horizon-multi-target-planning.md) — Multi-kill candidate evaluation using beam search to optimize long-term throughput rather than greedy single-mob targeting.
 - [ ] [**US-069: Experience-based NavMesh routing and empirical traversal cost integration**](US-069-experience-based-navmesh-routing.md) — Incorporating real GPS traversal times and stuck frequencies into A* edge weights to choose practically fast, obstacle-free paths.

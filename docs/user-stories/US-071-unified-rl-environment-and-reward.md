@@ -22,7 +22,7 @@ so that **offline and simulation-based RL agents can be trained to maximize oper
   - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md)
   - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../decisions/ADR-006-read-only-process-memory-access.md)
   - [`docs/user-stories/completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md)
-  - [`docs/user-stories/US-066-farming-and-navigation-value-model.md`](US-066-farming-and-navigation-value-model.md)
+  - [`docs/user-stories/completed/US-066-farming-and-navigation-value-model.md`](completed/US-066-farming-and-navigation-value-model.md)
   - [`docs/user-stories/US-067-unified-tactical-policy-integration.md`](US-067-unified-tactical-policy-integration.md)
   - Follow-up stories: [`US-072-offline-farming-and-navigation-simulator.md`](US-072-offline-farming-and-navigation-simulator.md), [`US-073-hierarchical-rl-farming-navigation-and-quest-policy.md`](US-073-hierarchical-rl-farming-navigation-and-quest-policy.md).
 - **Markov Decision Process (MDP) Abstraction Level:**

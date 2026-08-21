@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-20
+updated: 2026-08-21
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -385,3 +385,21 @@ related:
 - **NavMesh ray index** — The horizontal chunk index over walkable triangles that `BakedNavMesh.raycast()`
   builds once per mesh. A cast walks only the cells its ray crosses and stops at the first hit, so an
   elevated deck occludes the ground beneath it and a batch of detections avoids a full-mesh scan.
+- **Farming value model** — One of the five offline heads trained in `flyff_bot.features.ml` on
+  recorded US-054 telemetry: predicted travel time, stuck probability, recovery time, kill time, and
+  follow-up value. They predict measurable quantities, not actions, and never run in a live session.
+- **Expected farming cost** — `travel + kill + stuck_probability * recovery - followup_weight *
+  followup_value`, the single scalar the five predictions combine into. Its component weights are
+  configurable at training time and recorded in the artifact metadata.
+- **Follow-up value** — The versioned observable that defines what a kill is worth afterwards:
+  verified kills within the next five or ten seconds, or targetable mobs at the next decision. Which
+  one a model was trained on is recorded in `metadata.json`.
+- **Executed target decision** — The one candidate a recorded decision actually selected. Only these
+  become supervised samples; unselected candidates stay counterfactually unknown.
+- **Right-censored label** — An outcome whose observation window reached past the end of its session.
+  It stays unknown instead of being recorded as a real zero.
+- **Missing indicator column** — The `<feature>__is_missing` column paired with every model feature,
+  set when the recorded session never measured that feature and its training median was imputed.
+- **Heuristic reference predictor** — The per-head baseline each learned model is benchmarked
+  against: a least-squares scaling of the single measurement the deterministic controller would have
+  used, or the training mean where the controller has no such rule.

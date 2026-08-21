@@ -37,6 +37,9 @@ models/*.pt
 runs/
 *.pt
 
+# Locally trained farming value models and their metadata (US-066)
+models/farming_value/
+
 # Locally learned navigation maps and spawn heatmaps
 data/navigation/
 data/telemetry/

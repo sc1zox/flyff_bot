@@ -79,6 +79,11 @@ def test_each_language_contains_every_message() -> None:
                 objective="x",
                 group="x",
                 total=0,
+                trained=0,
+                holdout=0,
+                sessions=0,
+                strategy="x",
+                cost="0.0",
             )
 
 

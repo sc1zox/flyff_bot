@@ -861,3 +861,27 @@ That unlocked `flyff_bot.features.quests`: offline extraction of 1,434 quests (5
 quest queue progression inside `FarmingOrchestrator`, and a searchable `Quest Goals` dashboard tab.
 Localized in English and German. Gate on 2026-08-21: 674 passed, 2 skipped, 89.22% coverage. The
 live Windows walkthrough is outstanding.
+
+## 2026-08-21 synthesis - offline farming value models (US-066)
+
+Synthesized the US-066 implementation into `architecture.md` and `glossary.md`. No new source was
+ingested; the durable facts come from the shipped code and the recorded US-054 dataset contract.
+
+`flyff_bot.features.ml` is a second offline consumer of the US-054 Parquet tables. It joins one
+supervised sample per executed target decision through the `target_decision_timestamp_ns` the
+recorder already writes, correlates the navigation episode that ran between decision and kill for
+corridor and trajectory geometry, and splits holdout data by whole session so no session appears on
+both sides. Unselected candidates stay counterfactually unknown, unmeasured features stay `NaN` with
+a paired missing indicator, and follow-up windows past the end of a session stay right-censored.
+
+Five regularized linear heads (ridge, plus logistic for stuck risk) are fitted on numpy alone,
+benchmarked on holdout sessions against per-head heuristic reference predictors, and exported as
+self-contained ONNX graphs with a provenance `metadata.json`. Localized in English and German.
+
+Correction recorded while implementing: importing the telemetry package before automation raised a
+circular `ImportError`. `automation/orchestrator.py` now imports `CombatVerificationSource` from
+`telemetry.models` and `TelemetryRecorder` under `TYPE_CHECKING`, and `telemetry/__init__.py` no
+longer re-exports `geometry`, which the navigation layer it depends on also consumes.
+
+Gate on 2026-08-21: 719 passed, 2 skipped, 89.70% coverage. Running the trainer against a real
+recorded Windows session is outstanding.
