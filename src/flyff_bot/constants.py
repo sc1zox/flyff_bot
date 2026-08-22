@@ -29,6 +29,7 @@ DEFAULT_WORLD_MONSTER_IDS_PATH = "data/assets/world/monster_ids.json"
 # scripts, property tables, and language catalogs the extraction pass reads.
 DEFAULT_CLIENT_DATA_ROOT = "Entropia/Entropia/Data"
 DEFAULT_QUEST_DATABASE_PATH = "data/quests/quests.json"
+DEFAULT_QUEST_NPC_POSITIONS_PATH = "data/quests/npc_positions.json"
 # Reference screenshot of the in-game session stats window; its header line is the template
 # that locates the same window in a live frame.
 DEFAULT_MONSTER_STATS_PANEL_PATH = "data/assets/stats/monster_stats.png"

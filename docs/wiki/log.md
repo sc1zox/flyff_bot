@@ -893,3 +893,9 @@ recorded Windows session is outstanding.
   reduced spatial lockout, same-tick post-kill candidate evaluation, and localized dashboard controls.
 - Recorded scoped verification and explicitly excluded two unrelated pre-existing POSIX/Python
   environment test failures from the story result.
+
+## [2026-08-22] synthesis | Configured NPC quest interaction (US-062)
+
+Synthesized configured NPC locations, position-based NavMesh approach, read-only dialogue evidence,
+bounded retry/backoff, and queue safety into `architecture.md`. Recorded that client NPC identity and
+live dialogue templates remain unverified and that Windows end-to-end validation is outstanding.

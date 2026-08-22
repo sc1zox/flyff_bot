@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-21
+updated: 2026-08-22
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -72,6 +72,7 @@ related:
   - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
   - ../user-stories/completed/US-059-authoritative-vector-navigation-legacy-removal-and-multi-zone-selection.md
   - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
+  - ../user-stories/US-062-automated-npc-quest-acceptance-and-turn-in.md
   - ../user-stories/completed/US-066-farming-and-navigation-value-model.md
 ---
 
@@ -1671,6 +1672,35 @@ and the extractor was run against the operator's own unmodified Entropia install
 foregrounded Windows walkthrough - selecting quests, watching autonomous navigation to the resolved
 camps, and confirming the hand-over to the next quest in a live `neuz.exe` session - remains unrun
 and is not implied by the automated result.
+
+## Configured NPC quest interaction (US-062)
+
+Quest acceptance and turn-in add a second ground binding to the quest feature: an operator-authored
+`data/quests/npc_positions.json` maps each quest to `accept` and `turn_in` NPCs by stable quest ID.
+The current client evidence names objective coordinates but not giver/finisher identity, so this file
+is the only NPC source; missing locations become typed resolution issues rather than guesses. A Quest
+Black Board is configured exactly like any other interaction point. Each entry carries a finite world
+position and positive interaction radius, defaults to three world units, and is loaded beside the quest
+database.
+
+`PathingController.begin_position_approach()` routes to that exact position through the same baked
+NavMesh used for target approaches, while `position_target_in_interaction_range()` uses an independent
+quest-interaction distance so combat engagement distance is unchanged. Once arrival is observed,
+`QuestInteractionController` runs the bounded cycle: open dialogue, click an accept or turn-in option,
+confirm it from read-only frame evidence, farm objectives, return, and claim rewards. Its dialogue seam
+accepts only concrete option coordinates proven by perception; with no perceiver attached it may send
+the configured keyboard-open request but never clicks inferred menu geometry. Every dispatcher call
+rechecks END and foreground immediately before input.
+
+Navigation and interaction failures share one bounded timeout and exponential backoff state machine:
+retreat first, retry the same configured phase at most `MAXIMUM_QUEST_INTERACTION_ATTEMPTS` times,
+then fail safely without advancing the queue. Objective completion alone still does not advance a
+quest; reward evidence is required before queue retirement.
+
+Automated coverage verifies explicit NPC resolution and persistence, guarded dispatch, timeout,
+backoff, failure, NavMesh position-approach guards, and bilingual diagnostics. Live Windows NPC
+targeting, real client dialogue templates, and the full end-to-end Black Board walkthrough remain
+unverified.
 
 ## Offline farming value models from recorded telemetry (US-066, completed)
 

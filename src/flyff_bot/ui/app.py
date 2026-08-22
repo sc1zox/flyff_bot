@@ -381,7 +381,8 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     lambda: QuestGoalResolver(
                         None
                         if pathing.vector_navigator is None
-                        else pathing.vector_navigator.world_map
+                        else pathing.vector_navigator.world_map,
+                        window.quest_npc_positions,
                     ),
                 )
                 worker = SessionWorker(orchestrator.tick, STANDBY_TICK_INTERVAL_SECONDS)

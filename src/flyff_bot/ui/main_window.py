@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from flyff_bot.constants import (
     DEFAULT_CLIENT_WORLD_ROOT,
     DEFAULT_QUEST_DATABASE_PATH,
+    DEFAULT_QUEST_NPC_POSITIONS_PATH,
     DEFAULT_WORLD_MAP_DIRECTORY,
     DEFAULT_WORLD_MONSTER_IDS_PATH,
 )
@@ -81,9 +82,11 @@ from flyff_bot.features.automation.vitals_persistence import (
 from flyff_bot.features.input_control import parse_virtual_key
 from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
 from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
+from flyff_bot.features.quests.goals import QuestNpc
 from flyff_bot.features.quests.persistence import (
     QuestDatabaseError,
     load_quest_database,
+    load_quest_npc_positions,
 )
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.features.vision.target_verification import (
@@ -191,6 +194,7 @@ class MainWindow(QMainWindow):
         world_map_dir: Path | None = None,
         monster_names_path: Path | None = None,
         quest_database_path: Path | None = None,
+        quest_npc_positions_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._translator = translator
@@ -198,6 +202,9 @@ class MainWindow(QMainWindow):
         self._world_map_dir = world_map_dir or Path(DEFAULT_WORLD_MAP_DIRECTORY)
         self._monster_names_path = monster_names_path or Path(DEFAULT_WORLD_MONSTER_IDS_PATH)
         self._quest_database_path = quest_database_path or Path(DEFAULT_QUEST_DATABASE_PATH)
+        self._quest_npc_positions_path = quest_npc_positions_path or Path(
+            DEFAULT_QUEST_NPC_POSITIONS_PATH
+        )
         self._world_data_dialog: WorldDataDialog | None = None
         self._vitals_config_path = vitals_config_path or DEFAULT_VITALS_CONFIG_PATH
         self._powerup_config_path = powerup_config_path or DEFAULT_POWERUP_CONFIG_PATH
@@ -641,6 +648,14 @@ class MainWindow(QMainWindow):
                 Message.UI_QUEST_DATABASE_LOADED, count=len(database.quests), path=path
             ),
         )
+
+    @property
+    def quest_npc_positions(self) -> dict[str, QuestNpc]:
+        """Load explicit accept/turn-in locations, tolerating a missing optional file."""
+
+        if not self._quest_npc_positions_path.is_file():
+            return {}
+        return load_quest_npc_positions(self._quest_npc_positions_path)
 
     @property
     def powerup_panel(self) -> PowerUpPanel:
