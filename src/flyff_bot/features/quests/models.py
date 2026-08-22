@@ -230,6 +230,10 @@ class QuestDefinition:
     reward_items: tuple[str, ...] = ()
     reward_gold: int = 0
     reward_experience: int = 0
+    accept_npc_symbol: str = ""
+    turn_in_npc_symbol: str = ""
+    accept_npc_position: QuestDestination | None = None
+    turn_in_npc_position: QuestDestination | None = None
 
     def __post_init__(self) -> None:
         if not self.quest_id.strip():
@@ -294,6 +298,16 @@ class QuestDefinition:
             "reward_items": list(self.reward_items),
             "reward_gold": self.reward_gold,
             "reward_experience": self.reward_experience,
+            "accept_npc_symbol": self.accept_npc_symbol,
+            "turn_in_npc_symbol": self.turn_in_npc_symbol,
+            "accept_npc_position": (
+                None if self.accept_npc_position is None else self.accept_npc_position.as_document()
+            ),
+            "turn_in_npc_position": (
+                None
+                if self.turn_in_npc_position is None
+                else self.turn_in_npc_position.as_document()
+            ),
         }
 
     @classmethod
@@ -323,6 +337,26 @@ class QuestDefinition:
             ),
             reward_gold=_integer(document.get("reward_gold", 0), "reward gold"),
             reward_experience=_integer(document.get("reward_experience", 0), "reward experience"),
+            accept_npc_symbol=_text(
+                document.get("accept_npc_symbol", ""), "accept NPC symbol", allow_empty=True
+            ),
+            turn_in_npc_symbol=_text(
+                document.get("turn_in_npc_symbol", ""), "turn-in NPC symbol", allow_empty=True
+            ),
+            accept_npc_position=(
+                QuestDestination.from_document(
+                    _mapping(document.get("accept_npc_position"), "accept NPC position")
+                )
+                if document.get("accept_npc_position") is not None
+                else None
+            ),
+            turn_in_npc_position=(
+                QuestDestination.from_document(
+                    _mapping(document.get("turn_in_npc_position"), "turn-in NPC position")
+                )
+                if document.get("turn_in_npc_position") is not None
+                else None
+            ),
         )
 
 

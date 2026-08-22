@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from flyff_bot.features.navigation.live_position import WorldPosition
@@ -209,8 +209,16 @@ class QuestGoalResolver:
             issues.append(QuestResolutionIssue.NO_WORLD_MAP)
         elif any(target.zone is None for target in targets):
             issues.append(QuestResolutionIssue.NO_SPAWN_ZONE)
-        accept_npc = self._npc_for(quest.quest_id, QuestNpcRole.ACCEPT)
-        turn_in_npc = self._npc_for(quest.quest_id, QuestNpcRole.TURN_IN)
+        accept_npc = self._client_npc(
+            self._npc_positions.get(quest.accept_npc_symbol), quest.accept_npc_position
+        )
+        if not accept_npc.is_resolved:
+            accept_npc = self._npc_for(quest.quest_id, QuestNpcRole.ACCEPT)
+        turn_in_npc = self._client_npc(
+            self._npc_positions.get(quest.turn_in_npc_symbol), quest.turn_in_npc_position
+        )
+        if not turn_in_npc.is_resolved:
+            turn_in_npc = self._npc_for(quest.quest_id, QuestNpcRole.TURN_IN)
         if targets and not accept_npc.is_resolved:
             issues.append(QuestResolutionIssue.MISSING_ACCEPT_NPC)
         if targets and not turn_in_npc.is_resolved:
@@ -222,6 +230,24 @@ class QuestGoalResolver:
     def _npc_for(self, quest_id: str, role: QuestNpcRole) -> QuestNpc:
         npc = self._npc_positions.get(_npc_key(quest_id, role), UNRESOLVED_QUEST_NPC)
         return npc if npc.position is not None else UNRESOLVED_QUEST_NPC
+
+    @staticmethod
+    def _client_npc(npc: QuestNpc | None, destination: QuestDestination | None) -> QuestNpc:
+        """Return a client-resolved NPC, preferring its exact 3D placement."""
+
+        if npc is None:
+            return UNRESOLVED_QUEST_NPC
+        if npc.position is None:
+            return npc
+        if destination is not None:
+            return replace(
+                npc,
+                position=WorldPosition(destination.x, npc.position.y, destination.z),
+            )
+        return replace(
+            npc,
+            position=npc.position,
+        )
 
     def resolve_all(self, quests: Iterable[QuestDefinition]) -> tuple[QuestResolution, ...]:
         """Return one resolution per quest, in the order the quests were given."""

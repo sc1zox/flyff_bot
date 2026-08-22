@@ -18,6 +18,11 @@ from flyff_bot.features.navigation.client_archive import (
     ClientArchiveError,
     KeyedClientArchive,
 )
+from flyff_bot.features.navigation.live_position import WorldPosition
+from flyff_bot.features.navigation.world_extractor import (
+    WorldExtractionError,
+    dynamic_object_placements,
+)
 from flyff_bot.features.quests.client_tables import (
     ITEM_SYMBOL_PREFIX,
     MONSTER_SYMBOL_PREFIX,
@@ -25,6 +30,7 @@ from flyff_bot.features.quests.client_tables import (
     parse_symbol_names,
     parse_text_catalog,
 )
+from flyff_bot.features.quests.goals import QuestNpc
 from flyff_bot.features.quests.models import QuestCollection, QuestDatabase, QuestDefinition
 from flyff_bot.features.quests.script_parser import parse_quest_script
 
@@ -54,6 +60,7 @@ MONSTER_TABLE_FILE = "propMover.txt"
 MONSTER_TEXT_CATALOG = "propMover.txt.txt"
 ITEM_TABLE_FILE = "Spec_Item.txt"
 ITEM_TEXT_CATALOG = "propItem.txt.txt"
+WORLD_ROOT_DIRECTORY = "World"
 
 
 class QuestExtractionWarning(StrEnum):
@@ -173,6 +180,8 @@ def extract_quest_database(
         system, catalogs, ITEM_TABLE_FILE, ITEM_TEXT_CATALOG, ITEM_SYMBOL_PREFIX, diagnostics
     )
 
+    npc_positions = _npc_positions(client_data_root)
+
     quests: list[QuestDefinition] = []
     seen: set[str] = set()
     for script_name, collection in QUEST_SCRIPTS:
@@ -191,12 +200,33 @@ def extract_quest_database(
             strings=strings,
             monster_names=monster_names,
             item_names=item_names,
+            npc_positions=npc_positions,
         ):
             if quest.quest_id in seen:
                 continue
             seen.add(quest.quest_id)
             quests.append(quest)
     return QuestDatabase(quests=tuple(quests), language=language)
+
+
+def _npc_positions(client_data_root: Path) -> dict[str, QuestNpc]:
+    """Resolve client NPC symbols to world placements across all shipped regions."""
+
+    positions: dict[str, QuestNpc] = {}
+    world_root = client_data_root / WORLD_ROOT_DIRECTORY
+    for object_path in world_root.glob("**/*.dyo"):
+        try:
+            placements = dynamic_object_placements(object_path.read_bytes())
+        except OSError, WorldExtractionError:
+            continue
+        for symbol, position in placements:
+            if not symbol or symbol in positions:
+                continue
+            positions[symbol] = QuestNpc(
+                name=symbol,
+                position=WorldPosition(position.x, 0.0, position.z),
+            )
+    return positions
 
 
 def _symbol_names(

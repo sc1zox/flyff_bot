@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -105,7 +106,10 @@ def _world_map(*zones: VectorSpawnZone) -> WorldVectorMap:
 
 
 def _kill_quest(
-    quest_id: str, monster: str, kills: int, destination: QuestDestination | None = None
+    quest_id: str,
+    monster: str,
+    kills: int,
+    destination: QuestDestination | None = None,
 ) -> QuestDefinition:
     return QuestDefinition(
         quest_id=quest_id,
@@ -292,6 +296,15 @@ def _npc_positions() -> dict[str, QuestNpc]:
     }
 
 
+def _client_quest() -> QuestDefinition:
+    quest = _kill_quest("general:A", "Flame", 1)
+    return replace(
+        quest,
+        accept_npc_symbol="MaFl_Test",
+        turn_in_npc_symbol="MaFl_TurnIn",
+    )
+
+
 def test_resolver_binds_explicit_npc_locations_by_quest_and_role() -> None:
     resolver = QuestGoalResolver(_world_map(FLAME_ZONE_NEAR), _npc_positions())
 
@@ -305,6 +318,27 @@ def test_resolver_binds_explicit_npc_locations_by_quest_and_role() -> None:
     assert resolution.accept_npc.position == WorldPosition(100.0, 0.0, 100.0)
     assert resolution.accept_npc.is_interactable_from(WorldPosition(102.0, 0.0, 100.0))
     assert not resolution.accept_npc.is_interactable_from(WorldPosition(105.0, 0.0, 100.0))
+
+
+def test_resolver_prefers_client_npc_symbols_and_placements() -> None:
+    positions = {
+        "MaFl_Test": QuestNpc(
+            "Client Accept",
+            WorldPosition(10.0, 20.0, 30.0),
+        ),
+        "MaFl_TurnIn": QuestNpc(
+            "Client Turn In",
+            WorldPosition(40.0, 50.0, 60.0),
+        ),
+    }
+    resolver = QuestGoalResolver(_world_map(FLAME_ZONE_NEAR), positions)
+
+    resolution = resolver.resolve(_client_quest())
+
+    assert resolution.issues == ()
+    assert resolution.accept_npc is not None and resolution.turn_in_npc is not None
+    assert resolution.accept_npc.position == WorldPosition(10.0, 20.0, 30.0)
+    assert resolution.turn_in_npc.position == WorldPosition(40.0, 50.0, 60.0)
 
 
 def test_explicit_npc_locations_round_trip_through_versioned_json(tmp_path: Path) -> None:
