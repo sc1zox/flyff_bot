@@ -362,6 +362,10 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 )
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
+                window.combat_class_changed.connect(orchestrator.configure_combat_class)
+                window.engagement_distance_changed.connect(
+                    orchestrator.configure_engagement_distance
+                )
                 window.kill_verification_changed.connect(orchestrator.configure_kill_verification)
                 window.anchor_threshold_changed.connect(target_verifier.update_anchor_threshold)
                 connect_target_selection(window, orchestrator)

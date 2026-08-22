@@ -579,18 +579,19 @@ def test_orchestrator_prioritizes_vitals_trigger_ahead_of_combat() -> None:
 
 
 def test_failed_acquisition_does_not_thrash_between_search_and_targeting() -> None:
-    """BUG-010: an unverified click must not be re-issued on every grace expiry."""
+    """US-060: a shortened lockout still prevents immediate thrashing while reselecting."""
 
     adapter = _InputAdapter()
-    states = [_state(index * 0.1, mobs=(MOB,)) for index in range(41)]
+    states = [_state(index * 0.1, mobs=(MOB,)) for index in range(45)]
     orchestrator = _orchestrator(states, adapter)
     orchestrator.start()
 
-    modes = [orchestrator.tick().mode for _ in states]
+    modes = [orchestrator.tick().mode for _ in range(len(states) - 2)]
 
-    assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
-    assert modes.count(FarmingMode.TARGETING) == 1
-    assert orchestrator.mode is FarmingMode.SEARCHING
+    assert len(adapter.clicks) == 3
+    assert all(click == (WINDOW_HANDLE, 30, 30) for click in adapter.clicks)
+    assert modes.count(FarmingMode.TARGETING) == 3
+    assert orchestrator.mode in {FarmingMode.SEARCHING, FarmingMode.TARGETING, FarmingMode.COMBAT}
 
 
 def test_stuck_engagement_breaks_and_repositions_before_searching() -> None:
@@ -632,7 +633,7 @@ def test_engagement_break_reason_is_published_to_the_dashboard() -> None:
 
 
 def test_locked_out_mob_lets_camera_search_recovery_take_over() -> None:
-    """BUG-010: repeated unverified clicks must not keep postponing search recovery."""
+    """US-060: the shortened lockout still lets camera search recovery take over."""
 
     adapter = _InputAdapter()
     states = [_state(index * 0.1, mobs=(MOB,)) for index in range(121)]
@@ -642,7 +643,7 @@ def test_locked_out_mob_lets_camera_search_recovery_take_over() -> None:
     for _ in states:
         orchestrator.tick()
 
-    assert len(adapter.clicks) < 4
+    assert len(adapter.clicks) < 8
     assert (VIRTUAL_KEY_RIGHT, 0.2) in adapter.keys
 
 

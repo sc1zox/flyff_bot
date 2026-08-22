@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -15,6 +16,12 @@ from flyff_bot.features.automation.camera_alignment import (
 )
 from flyff_bot.features.automation.combat_execution import CombatInputAdapter, CombatInputDispatcher
 from flyff_bot.features.automation.controllers import (
+    CUSTOM_COMBAT_CLASS_PROFILE,
+    MELEE_COMBAT_CLASS_PROFILE,
+    MELEE_ENGAGEMENT_DISTANCE_UNITS,
+    RANGED_COMBAT_CLASS_PROFILE,
+    RANGED_ENGAGEMENT_DISTANCE_UNITS,
+    CombatClassProfile,
     CombatConfig,
     CombatController,
     CombatDecision,
@@ -37,7 +44,13 @@ from flyff_bot.features.automation.kill_goals import (
     KillGoalTracker,
     MobKillQuota,
 )
-from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
+from flyff_bot.features.automation.models import (
+    DesiredState,
+    InventoryEntry,
+    Position,
+    VisibleMob,
+    WorldState,
+)
 from flyff_bot.features.automation.powerup_controller import (
     PowerUpConfig,
     PowerUpInputAdapter,
@@ -55,7 +68,11 @@ from flyff_bot.features.automation.vitals_controller import (
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control import ForegroundWindowInfo
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
-from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
+from flyff_bot.features.navigation.live_position import (
+    PositionReadErrorCode,
+    PositionSource,
+    WorldPosition,
+)
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.telemetry.models import CombatVerificationSource
@@ -273,6 +290,8 @@ class FarmingOrchestrator:
         self._telemetry_observed_at_seconds: float | None = None
         self._pending_target_click: CombatDecision | None = None
         self._session_active = False
+        self._pathing_engagement_distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
+        self._pathing_engagement_profile: CombatClassProfile = MELEE_COMBAT_CLASS_PROFILE
 
     @property
     def mode(self) -> FarmingMode:
@@ -667,6 +686,7 @@ class FarmingOrchestrator:
                 if (
                     self._pathing is not None
                     and combat.selected_mob is not None
+                    and not self._should_dispatch_direct_click(combat.selected_mob)
                     and self._pathing.begin_target_approach(
                         combat.selected_mob, self._state.observed_at_seconds
                     )
@@ -768,6 +788,7 @@ class FarmingOrchestrator:
             )
             if reconciliation.is_healthy:
                 self._set_mode(FarmingMode.SEARCHING, reason="reconciled")
+                return self._advance()
             else:
                 self.pause(
                     kind=SessionEventKind.SUPERVISOR_FAILURE,
@@ -809,6 +830,67 @@ class FarmingOrchestrator:
             return False
         pathing.confirm(decision)
         return True
+
+    def _should_dispatch_direct_click(self, mob: VisibleMob) -> bool:
+        """Return whether a selected mob may be clicked without a Funnel approach."""
+
+        if self._pathing is None or mob.world_x is None or mob.world_z is None:
+            return True
+        player = self._pathing.live_position
+        if player is None or mob.navmesh_reachable is False or mob.navmesh_within_leash is False:
+            return True
+        distance = math.dist(
+            (player.x, player.z),
+            (mob.world_x, mob.world_z),
+        )
+        if distance <= self.pathing_engagement_distance:
+            return True
+        navmesh = self._pathing.navmesh
+        if navmesh is None:
+            return False
+        route = navmesh.find_path(
+            player,
+            WorldPosition(
+                mob.world_x, mob.world_y if mob.world_y is not None else player.y, mob.world_z
+            ),
+        )
+        return len(route) <= 2
+
+    def configure_combat_class(self, profile: CombatClassProfile) -> None:
+        """Apply a combat-class engagement profile to orchestration and pathing."""
+
+        if profile is MELEE_COMBAT_CLASS_PROFILE:
+            distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
+        elif profile is RANGED_COMBAT_CLASS_PROFILE:
+            distance = RANGED_ENGAGEMENT_DISTANCE_UNITS
+        elif profile is CUSTOM_COMBAT_CLASS_PROFILE:
+            distance = self.pathing_engagement_distance
+        else:
+            raise ValueError("Unsupported combat class profile.")
+        self.configure_engagement_distance(distance)
+        self._pathing_engagement_profile = profile
+
+    def configure_engagement_distance(self, distance_units: float) -> None:
+        """Apply the operator-selected target engagement distance dynamically."""
+
+        if distance_units <= 0.0:
+            raise ValueError("Engagement distance must be positive.")
+        self._pathing_engagement_distance = distance_units
+        self._pathing_engagement_profile = CUSTOM_COMBAT_CLASS_PROFILE
+        if self._pathing is not None:
+            self._pathing.update_engagement_distance(distance_units)
+
+    @property
+    def pathing_engagement_profile(self) -> CombatClassProfile:
+        """Return the combat class profile that owns the current distance."""
+
+        return self._pathing_engagement_profile
+
+    @property
+    def pathing_engagement_distance(self) -> float:
+        """Return the current direct-targeting and approach hand-off distance."""
+
+        return self._pathing_engagement_distance
 
     def _approach_stalled(self) -> bool:
         """Return whether the client-driven walk towards the engaged mob is blocked."""

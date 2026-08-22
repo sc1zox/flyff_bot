@@ -885,3 +885,11 @@ longer re-exports `geometry`, which the navigation layer it depends on also cons
 
 Gate on 2026-08-21: 719 passed, 2 skipped, 89.70% coverage. Running the trainer against a real
 recorded Windows session is outstanding.
+
+## 2026-08-22 — US-060 architecture synthesis
+
+- Ingested implemented US-060 facts into architecture: combat class profiles, live engagement
+  distance configuration, straight-route direct targeting, obstacle-aware approach hand-off,
+  reduced spatial lockout, same-tick post-kill candidate evaluation, and localized dashboard controls.
+- Recorded scoped verification and explicitly excluded two unrelated pre-existing POSIX/Python
+  environment test failures from the story result.

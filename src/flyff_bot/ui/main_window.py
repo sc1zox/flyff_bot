@@ -35,7 +35,13 @@ from flyff_bot.constants import (
     DEFAULT_WORLD_MONSTER_IDS_PATH,
 )
 from flyff_bot.features.automation.camera_alignment import DEFAULT_AUTO_ALIGN_CAMERA
-from flyff_bot.features.automation.controllers import EngagementBreakReason
+from flyff_bot.features.automation.controllers import (
+    DEFAULT_COMBAT_CLASS_PROFILE,
+    MELEE_ENGAGEMENT_DISTANCE_UNITS,
+    RANGED_ENGAGEMENT_DISTANCE_UNITS,
+    CombatClassProfile,
+    EngagementBreakReason,
+)
 from flyff_bot.features.automation.emergency_persistence import (
     DEFAULT_EMERGENCY_CONFIG_PATH,
     load_emergency_config,
@@ -165,6 +171,8 @@ class MainWindow(QMainWindow):
     powerup_config_changed = Signal(object)
     emergency_config_changed = Signal(object)
     combat_grace_changed = Signal(float)
+    combat_class_changed = Signal(object)
+    engagement_distance_changed = Signal(float)
     kill_verification_changed = Signal(bool)
     anchor_threshold_changed = Signal(float)
     target_selection_changed = Signal(object)
@@ -277,6 +285,19 @@ class MainWindow(QMainWindow):
         # Sub-panels
         self._combat_panel = QGroupBox()
         self._combat_panel.setObjectName("CardPanel")
+        self._combat_class_label = QLabel()
+        self._combat_class_selector = QComboBox()
+        for profile in CombatClassProfile:
+            self._combat_class_selector.addItem("", userData=profile)
+        self._combat_class_selector.setCurrentIndex(
+            list(CombatClassProfile).index(DEFAULT_COMBAT_CLASS_PROFILE)
+        )
+        self._engagement_distance_label = QLabel()
+        self._engagement_distance_spin = QDoubleSpinBox()
+        self._engagement_distance_spin.setRange(0.1, 100.0)
+        self._engagement_distance_spin.setSingleStep(0.5)
+        self._engagement_distance_spin.setDecimals(1)
+        self._engagement_distance_spin.setValue(MELEE_ENGAGEMENT_DISTANCE_UNITS)
         self._target_grace_label = QLabel()
         self._target_grace_spin = QDoubleSpinBox()
         self._target_grace_spin.setRange(0.0, 10.0)
@@ -527,6 +548,14 @@ class MainWindow(QMainWindow):
         return self._combat_panel
 
     @property
+    def combat_class_selector(self) -> QComboBox:
+        return self._combat_class_selector
+
+    @property
+    def engagement_distance_spin(self) -> QDoubleSpinBox:
+        return self._engagement_distance_spin
+
+    @property
     def vitals_panel(self) -> QGroupBox:
         return self._vitals_panel
 
@@ -719,8 +748,21 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self._auto_align_toggle, 1, 1, 1, 2)
         controls_layout.addWidget(self._language_label, 1, 3)
         controls_layout.addWidget(self._language_selector, 1, 4)
-        controls_layout.setColumnStretch(5, 1)
         self._controls_card.setLayout(controls_layout)
+
+        combat_layout = QGridLayout()
+        combat_layout.addWidget(self._combat_class_label, 0, 0)
+        combat_layout.addWidget(self._combat_class_selector, 0, 1)
+        combat_layout.addWidget(self._engagement_distance_label, 1, 0)
+        combat_layout.addWidget(self._engagement_distance_spin, 1, 1)
+        combat_layout.addWidget(self._target_grace_label, 2, 0)
+        combat_layout.addWidget(self._target_grace_spin, 2, 1)
+        combat_layout.addWidget(self._kill_verification_toggle, 3, 0, 1, 2)
+        combat_layout.addWidget(self._anchor_threshold_label, 4, 0)
+        combat_layout.addWidget(self._anchor_threshold_spin, 4, 1)
+        self._combat_panel.setLayout(combat_layout)
+
+        controls_layout.setColumnStretch(5, 1)
 
         preview_controls = QWidget()
         preview_controls_layout = QHBoxLayout(preview_controls)
@@ -819,6 +861,8 @@ class MainWindow(QMainWindow):
         self._placements_toggle.toggled.connect(self._on_placements_toggled)
         self._language_selector.currentIndexChanged.connect(self._switch_language)
         self._target_grace_spin.valueChanged.connect(self.combat_grace_changed)
+        self._combat_class_selector.currentIndexChanged.connect(self._on_combat_class_changed)
+        self._engagement_distance_spin.valueChanged.connect(self.engagement_distance_changed)
         self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
         self._anchor_threshold_spin.valueChanged.connect(self._on_anchor_threshold_changed)
         self._target_panel.selection_changed.connect(self._on_target_selection_changed)
@@ -840,6 +884,18 @@ class MainWindow(QMainWindow):
         config = self.get_vitals_config()
         save_vitals_config(config, self._vitals_config_path)
         self.vitals_config_changed.emit(config)
+
+    @Slot()
+    def _on_combat_class_changed(self) -> None:
+        profile = self._combat_class_selector.currentData()
+        if profile is CombatClassProfile.MELEE:
+            distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
+        elif profile is CombatClassProfile.RANGED:
+            distance = RANGED_ENGAGEMENT_DISTANCE_UNITS
+        else:
+            distance = self._engagement_distance_spin.value()
+        self._engagement_distance_spin.setValue(distance)
+        self.combat_class_changed.emit(profile)
 
     def show_error_dialog(self, title: str, message: str) -> None:
         QMessageBox.warning(self, title, message)
@@ -899,6 +955,27 @@ class MainWindow(QMainWindow):
         self._placements_toggle.setText(self._translator.text(Message.UI_PLACEMENTS_TOGGLE))
         self._placements_toggle.setToolTip(self._translator.text(Message.UI_PLACEMENTS_TOOLTIP))
         self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))
+        self._combat_class_label.setText(self._translator.text(Message.UI_COMBAT_CLASS))
+        self._combat_class_selector.setToolTip(
+            self._translator.text(Message.UI_COMBAT_CLASS_TOOLTIP)
+        )
+        for profile in CombatClassProfile:
+            index = self._combat_class_selector.findData(profile)
+            if index >= 0:
+                key = (
+                    Message.UI_COMBAT_CLASS_MELEE
+                    if profile is CombatClassProfile.MELEE
+                    else Message.UI_COMBAT_CLASS_RANGED
+                    if profile is CombatClassProfile.RANGED
+                    else Message.UI_COMBAT_CLASS_CUSTOM
+                )
+                self._combat_class_selector.setItemText(index, self._translator.text(key))
+        self._engagement_distance_label.setText(
+            self._translator.text(Message.UI_ENGAGEMENT_DISTANCE)
+        )
+        self._engagement_distance_spin.setToolTip(
+            self._translator.text(Message.UI_ENGAGEMENT_DISTANCE_TOOLTIP)
+        )
         self._retranslate_recovery()
         self._target_panel.set_translator(self._translator)
         self._quest_panel.set_translator(self._translator)

@@ -264,22 +264,56 @@ def test_failed_acquisition_locks_out_the_clicked_location_instead_of_reclicking
     assert timed_out.mode is CombatMode.IDLE
     assert timed_out.break_reason is EngagementBreakReason.ACQUISITION_TIMEOUT
     assert controller.step(_state(time=1.1, mobs=(mob,))).input_kind is None
-    assert controller.step(_state(time=4.9, mobs=(mob,))).input_kind is None
-    assert controller.step(_state(time=5.1, mobs=(mob,))).input_kind is CombatInputKind.CLICK
+    assert controller.step(_state(time=1.9, mobs=(mob,))).input_kind is None
+    assert controller.step(_state(time=2.1, mobs=(mob,))).input_kind is CombatInputKind.CLICK
 
 
-def test_lockout_ignores_only_mobs_inside_its_radius() -> None:
+def test_lockout_defaults_are_one_second_and_fifteen_pixels() -> None:
     controller = CombatController()
     locked = _mob(x=80, y=40)
-    distant = _mob(x=0, y=0)
+    neighbor = _mob(x=105, y=55)  # 25 pixels from the corpse center.
 
     controller.step(_state(mobs=(locked,)))
-    assert controller.step(_state(time=1.0, mobs=(locked,))).mode is CombatMode.IDLE
+    controller.step(_state(time=1.0, target=VALID_TARGET, mobs=(locked,)))
+    damaged = controller.step(
+        _state(
+            time=1.5,
+            target=SelectedTarget(TargetState.VALID, "Mushpang", 50),
+            mobs=(locked,),
+        )
+    )
+    assert damaged.progress_observed
+    confirmed = controller.step(_state(time=2.0, target=NO_TARGET, mobs=(locked,)))
+    assert confirmed.mode is CombatMode.TARGET_DEAD
 
-    reselected = controller.step(_state(time=1.1, mobs=(locked, distant)))
+    assert controller.step(_state(time=2.1, mobs=(locked,))).mode is CombatMode.IDLE
+    reselected = controller.step(_state(time=3.1, mobs=(locked, neighbor)))
 
     assert reselected.mode is CombatMode.TARGETING
-    assert reselected.position == Position(10, 5)
+    assert reselected.position == Position(90, 45)
+
+
+def test_live_neighbor_outside_lockout_radius_is_immediately_eligible() -> None:
+    controller = CombatController()
+    locked = _mob(x=80, y=40)
+    live_neighbor = _mob(x=120, y=60)
+
+    controller.step(_state(mobs=(locked,)))
+    controller.step(_state(time=1.0, target=VALID_TARGET, mobs=(locked,)))
+    controller.step(
+        _state(
+            time=1.5,
+            target=SelectedTarget(TargetState.VALID, "Mushpang", 50),
+            mobs=(locked,),
+        )
+    )
+    confirmed = controller.step(_state(time=2.0, target=NO_TARGET, mobs=(locked,)))
+    assert confirmed.mode is CombatMode.TARGET_DEAD
+    assert controller.step(_state(time=2.1, mobs=(live_neighbor,))).mode is CombatMode.IDLE
+    candidate = controller.step(_state(time=3.1, mobs=(live_neighbor,)))
+
+    assert candidate.mode is CombatMode.TARGETING
+    assert candidate.position == Position(130, 65)
 
 
 def test_confirmed_kill_locks_out_the_corpse_location() -> None:
@@ -516,7 +550,7 @@ def test_engagement_timeout_shares_the_unreachable_strike_count_with_the_obstacl
 
 def test_combat_config_rejects_invalid_unreachable_lockout_values() -> None:
     with pytest.raises(ValueError):
-        CombatConfig(unreachable_lockout_seconds=1.0)
+        CombatConfig(unreachable_lockout_seconds=0.5)
     with pytest.raises(ValueError):
         CombatConfig(approach_failure_memory_seconds=-1.0)
 

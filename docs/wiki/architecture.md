@@ -1723,3 +1723,24 @@ keep their behaviour; only the import direction was corrected.
 The automated repository gate passed on 2026-08-21 at 719 passed, 2 skipped, and 89.70% coverage.
 Running the trainer on a real recorded Windows farming session and inspecting the produced
 artifacts remains outstanding and is not implied by the automated result.
+
+## Combat class profiles and responsive direct targeting (US-060, completed)
+
+`CombatClassProfile` provides melee, ranged, and custom engagement profiles with defaults of
+3.0 and 15.0 world units. `FarmingOrchestrator.configure_combat_class()` and
+`configure_engagement_distance()` apply the operator's choice live to both orchestration and
+`PathingController.update_engagement_distance()`. A selected measured target is clicked directly
+when it is already inside that distance; a melee target is also clicked directly when the
+NavMesh route is one straight segment. Only a longer multi-waypoint route enters
+`FarmingMode.APPROACHING`. Unmeasured, unreachable, or outside-leash candidates retain the
+existing safe fallbacks.
+
+The corpse lockout now defaults to one second at 15 pixels so dense packs remain selectable,
+while failed acquisition still suppresses immediate re-clicks. Post-kill reconciliation returns
+to searching and evaluates candidates in the same tick. The combat dashboard exposes a localized
+class dropdown plus engagement-distance control wired dynamically through the app boundary.
+Focus loss, pause, and emergency stop continue to abort all dispatch paths before input.
+
+Relevant checks passed on Linux: Ruff, mypy, and 682 tests with 20 platform skips after
+excluding two unrelated pre-existing Python/POSIX environment failures in Windows struct sizing
+and OCR decoding. Windows field validation remains outstanding.

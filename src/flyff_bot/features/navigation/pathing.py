@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from flyff_bot.features.automation.controllers import (
@@ -450,6 +450,14 @@ class PathingController:
         return (
             math.dist((position.x, position.y, position.z), (target.x, target.y, target.z))
             <= self._config.navmesh_engagement_distance_units
+        )
+
+    def update_engagement_distance(self, distance_units: float) -> None:
+        """Apply a dynamic combat-class engagement distance without dropping the route."""
+
+        self._config = replace(
+            self._config,
+            navmesh_engagement_distance_units=distance_units,
         )
 
     def observe(self, state: WorldState, frame: CapturedFrame | None = None) -> None:
