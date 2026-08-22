@@ -899,3 +899,10 @@ recorded Windows session is outstanding.
 Synthesized configured NPC locations, position-based NavMesh approach, read-only dialogue evidence,
 bounded retry/backoff, and queue safety into `architecture.md`. Recorded that client NPC identity and
 live dialogue templates remain unverified and that Windows end-to-end validation is outstanding.
+
+## [2026-08-23] correction | US-060 completion audit
+
+Moved the combat-class story out of completed and synthesized its partial implementation status into
+`architecture.md`: lockout and post-kill recovery are tested, responsive-targeting regressions and UI
+wiring coverage are missing, preset engagement distances are unmeasured operator defaults, and live
+Windows validation is outstanding.
