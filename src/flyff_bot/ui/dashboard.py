@@ -11,6 +11,7 @@ from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.kill_goals import MobKillProgress
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.diagnostics import SessionEvent
+from flyff_bot.features.dungeons.models import DungeonStateSnapshot
 from flyff_bot.features.navigation.live_camera import CameraReadErrorCode, CameraState
 from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
@@ -125,6 +126,7 @@ class DashboardUpdate:
     quest_title: str = ""
     quest_progress: tuple[QuestObjectiveProgress, ...] = ()
     quest_queue_completed: bool = False
+    dungeons: tuple[DungeonStateSnapshot, ...] | None = None
 
 
 class DashboardFeed(QObject):

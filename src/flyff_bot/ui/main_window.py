@@ -97,6 +97,7 @@ from flyff_bot.features.vision.target_verification import (
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal, WindowStatus
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
+from flyff_bot.ui.dungeon_panel import DungeonCooldownPanel
 from flyff_bot.ui.event_log_panel import EventLogPanel
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
@@ -151,14 +152,15 @@ MINIMUM_WINDOW_HEIGHT = 520
 
 
 class DashboardTab(IntEnum):
-    """Stable indices for the five operator-facing dashboard views."""
+    """Stable indices for the operator-facing dashboard views."""
 
     DASHBOARD = 0
     COMBAT_TARGETS = 1
     VITALS_BUFFS = 2
     QUEST_GOALS = 3
-    NAVIGATION_WORLD = 4
-    DIAGNOSTICS_LOGS = 5
+    DUNGEONS_COOLDOWNS = 4
+    NAVIGATION_WORLD = 5
+    DIAGNOSTICS_LOGS = 6
 
 
 class MainWindow(QMainWindow):
@@ -341,6 +343,7 @@ class MainWindow(QMainWindow):
 
         self._target_panel = TargetSelectionPanel(self._translator)
         self._quest_panel = QuestGoalPanel(self._translator)
+        self._dungeon_panel = DungeonCooldownPanel(self._translator)
 
         self._target_debug_panel = QGroupBox()
         self._target_debug_panel.setObjectName("CardPanel")
@@ -622,6 +625,12 @@ class MainWindow(QMainWindow):
 
         return self._quest_panel
 
+    @property
+    def dungeon_panel(self) -> DungeonCooldownPanel:
+        """Expose the dungeon cooldown panel for wiring and verification."""
+
+        return self._dungeon_panel
+
     def load_quest_database(self) -> None:
         """Load the extracted quest database into the quest panel, if one exists.
 
@@ -820,6 +829,10 @@ class MainWindow(QMainWindow):
             self._quest_panel,
         )
         self._add_scroll_tab(
+            DashboardTab.DUNGEONS_COOLDOWNS,
+            self._dungeon_panel,
+        )
+        self._add_scroll_tab(
             DashboardTab.NAVIGATION_WORLD,
             nav_controls,
             self._map_container,
@@ -994,6 +1007,7 @@ class MainWindow(QMainWindow):
         self._retranslate_recovery()
         self._target_panel.set_translator(self._translator)
         self._quest_panel.set_translator(self._translator)
+        self._dungeon_panel.set_translator(self._translator)
         self._target_grace_label.setText(self._translator.text(Message.UI_TARGET_GRACE_PERIOD))
         self._target_grace_spin.setToolTip(self._translator.text(Message.UI_TARGET_GRACE_TOOLTIP))
         self._kill_verification_label.setText(self._translator.text(Message.UI_KILL_VERIFICATION))
@@ -1084,6 +1098,10 @@ class MainWindow(QMainWindow):
             DashboardTab.QUEST_GOALS: (
                 Message.UI_TAB_QUESTS,
                 Message.UI_TAB_QUESTS_TOOLTIP,
+            ),
+            DashboardTab.DUNGEONS_COOLDOWNS: (
+                Message.UI_TAB_DUNGEONS,
+                Message.UI_TAB_DUNGEONS_TOOLTIP,
             ),
             DashboardTab.NAVIGATION_WORLD: (
                 Message.UI_TAB_NAVIGATION_WORLD,
@@ -1246,6 +1264,7 @@ class MainWindow(QMainWindow):
         self._quest_panel.set_progress(
             update.quest_title, update.quest_progress, update.quest_queue_completed
         )
+        self._dungeon_panel.set_snapshots(update.dungeons)
         self._event_log_panel.set_events(update.events)
         self._render_target_debug(update.state.selected_target, update.engagement_break)
         self._render_monster_stats_debug(update.state.monster_stats)

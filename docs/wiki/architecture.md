@@ -74,6 +74,7 @@ related:
   - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
   - ../user-stories/US-062-automated-npc-quest-acceptance-and-turn-in.md
   - ../user-stories/completed/US-066-farming-and-navigation-value-model.md
+  - ../user-stories/US-063-client-dungeon-data-and-live-cooldown-memory-extraction.md
 ---
 
 # Architecture
@@ -1777,3 +1778,29 @@ and OCR decoding. A 2026-08-23 audit corrected the story status: the lockout and
 are tested, but the promised ranged-profile, straight-versus-obstructed-route, combat-class wiring,
 and UI regressions are absent. The 3.0 / 15.0 unit presets are operator defaults rather than measured
 Entropia client ranges. Live Windows validation of actual attack-range selection remains required.
+
+## Client dungeon data and live cooldown extraction (US-063, completed)
+
+`flyff_bot.features.dungeons` adds a second keyed-archive consumer beside quests. The offline CLI
+pass (`--extract-dungeons`) reads `PartyDungeon.lua`, resolves world identifiers and localized
+labels from the dungeon text table, and writes only complete declarations to schema-versioned
+`data/dungeons/dungeons.json`. `SetCoolTime(MIN(minutes))` is interpreted as minutes; a declaration
+without verifiable level or cooldown fields is skipped rather than defaulted. No client file is
+written or modified.
+
+Live cooldowns use the existing documented read-only process boundary. A SHA-256 fingerprint in
+`data/config/client_dungeon_profiles.json` selects an exact module RVA, pointer width, bounded array
+shape, and field offsets. `LiveDungeonCooldownReader` performs one fixed pointer read plus one fixed
+range read per poll, closes its handle each time, and emits immutable snapshots with `READY`,
+`ON_COOLDOWN`, `ENTRY_LIMIT_REACHED`, or `UNKNOWN`. Missing/malformed profiles, unavailable processes,
+and failed reads produce typed `UNCONFIGURED_PROFILE`, `PROCESS_UNAVAILABLE`, or `HANDLE_LOST`
+diagnostics instead of inferred addresses. The shipped profile file is deliberately empty because no
+verified Entropia cooldown offsets have been observed yet; Windows live validation therefore remains
+outstanding.
+
+The dashboard's Dungeons & Cooldowns tab renders extracted names, level ranges, localized status,
+entry counts, and zero-padded `HH:MM:SS` timers from dashboard snapshots. Automated coverage includes
+synthetic archive extraction/persistence, mocked read-only memory buffers, status precedence, graceful
+degradation, panel rendering/retranslation, and locale synchronization. On this POSIX host the suite
+passes after excluding two unrelated pre-existing Python/POSIX environment failures in Windows struct
+sizing and OCR decoding.

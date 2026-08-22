@@ -906,3 +906,9 @@ Moved the combat-class story out of completed and synthesized its partial implem
 `architecture.md`: lockout and post-kill recovery are tested, responsive-targeting regressions and UI
 wiring coverage are missing, preset engagement distances are unmeasured operator defaults, and live
 Windows validation is outstanding.
+
+## [2026-08-23] synthesis | Dungeon data and cooldown reader (US-063)
+
+Synthesized offline keyed-archive dungeon extraction, empty-by-default fingerprinted cooldown
+profiles, typed read-only degradation, dashboard presentation, and outstanding Windows/live-offset
+verification into `architecture.md`.
