@@ -16,8 +16,8 @@ As a **bot operator with an active Premium account on Entropia Flyff**, I want *
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
 - Previous work:
-  - [US-004](completed/US-004-target-mob-verification.md), [US-012](completed/US-012-real-world-vision-refactoring.md), and [US-029](completed/US-029-configurable-target-verification-thresholds.md) established template-matched target header anchoring and red pixel-column fill measurement for standard HP bars.
-  - [US-023](completed/US-023-reliable-combat-targeting-and-kill-verification.md) and [US-034](completed/US-034-background-independent-monster-stats-kill-confirmation.md) established combat engagement tracking and OCR kill verification.
+  - [US-004](../completed/US-004-target-mob-verification.md), [US-012](../completed/US-012-real-world-vision-refactoring.md), and [US-029](../completed/US-029-configurable-target-verification-thresholds.md) established template-matched target header anchoring and red pixel-column fill measurement for standard HP bars.
+  - [US-023](../completed/US-023-reliable-combat-targeting-and-kill-verification.md) and [US-034](../completed/US-034-background-independent-monster-stats-kill-confirmation.md) established combat engagement tracking and OCR kill verification.
 - Premium HUD differences:
   - On Entropia Flyff, characters with active **Premium** status have exact numeric monster health rendered inside the target header (e.g. `Health: 888,888,888 / 888,888,888` and/or exact percentage numbers).
   - Characters without Premium only see the standard red graphical gauge bar without numeric health text.
@@ -25,7 +25,7 @@ As a **bot operator with an active Premium account on Entropia Flyff**, I want *
 - Extraction mechanism:
   - The target header region already matches the anchor template (`target_anchor.png`).
   - Below the monster nameplate and header icon, a dedicated text sub-ROI contains the white/yellow numeric health string.
-  - Using color-range thresholding (similar to [US-032](completed/US-032-tesseract-ocr-target-name-verification.md) and [US-034](completed/US-034-background-independent-monster-stats-kill-confirmation.md)), text glyphs are isolated from the background and OCR-parsed via `TesseractTextRecognizer`.
+  - Using color-range thresholding (similar to [US-032](../completed/US-032-tesseract-ocr-target-name-verification.md) and [US-034](../completed/US-034-background-independent-monster-stats-kill-confirmation.md)), text glyphs are isolated from the background and OCR-parsed via `TesseractTextRecognizer`.
   - The parsed values are normalized into `current_hp: int`, `max_hp: int`, and `hp_percentage: float = (current_hp / max_hp) * 100.0`.
 - Combat integration:
   - When Premium HP OCR is active and successfully parsing values, `TargetVerificationMetrics` and `SelectedTarget.hp_percentage` use the exact mathematical percentage.
