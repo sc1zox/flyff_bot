@@ -420,5 +420,17 @@
   "error.value_model_no_samples": "No target decision in {path} could be linked to an observed kill cycle.",
   "error.value_model_export_failed": "The model artifact could not be written: {reason}.",
   "error.value_model_onnx_required": "Exporting ONNX models requires the optional ml dependency group.",
-  "error.value_model_invalid_option": "A training option was rejected: {reason}."
+  "error.value_model_invalid_option": "A training option was rejected: {reason}.",
+  "ui.setup_title": "Initial Setup",
+  "ui.setup_client_path": "Client folder",
+  "ui.setup_browse": "Browse…",
+  "ui.setup_start": "Extract all client data",
+  "ui.setup_cancel": "Cancel extraction",
+  "ui.setup_canceling": "Cancelling after the current file or region…",
+  "ui.setup_complete": "Unified extraction completed.",
+  "ui.setup_failed": "Extraction failed: {reason}",
+  "ui.setup_invalid_directory": "Select the Entropia folder that contains neuz.exe and Data.",
+  "ui.setup_summary": "Worlds: {worlds} · Quests: {quests} · Dungeons: {dungeons} · Mover tables: {monsters} · Memory profile: {memory}",
+  "ui.setup_memory_profile_verified": "verified SHA-256 {sha256}, {fields} proven fields",
+  "ui.setup_memory_profile_missing": "not installed; no exact-fingerprint profile was supplied"
 }

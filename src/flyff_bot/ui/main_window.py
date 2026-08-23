@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -28,7 +29,9 @@ from PySide6.QtWidgets import (
 )
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH,
     DEFAULT_CLIENT_WORLD_ROOT,
+    DEFAULT_DUNGEON_DATABASE_PATH,
     DEFAULT_QUEST_DATABASE_PATH,
     DEFAULT_QUEST_NPC_POSITIONS_PATH,
     DEFAULT_WORLD_MAP_DIRECTORY,
@@ -55,6 +58,7 @@ from flyff_bot.features.quests.persistence import (
     load_quest_database,
     load_quest_npc_positions,
 )
+from flyff_bot.features.setup.extraction import UnifiedClientExtractor
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import (
@@ -86,6 +90,7 @@ from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
 from flyff_bot.ui.powerup_panel import PowerUpPanel
 from flyff_bot.ui.quest_panel import QuestGoalPanel
+from flyff_bot.ui.setup_wizard import SetupWizard
 from flyff_bot.ui.target_panel import TargetSelectionPanel
 from flyff_bot.ui.theme import apply_theme
 from flyff_bot.ui.world_data_dialog import WorldDataDialog
@@ -209,6 +214,8 @@ class MainWindow(QMainWindow):
         self._popout_map_button = self._navigation.popout_button
         self._world_data_button = self._navigation.world_data_button
         self._teardowns: list[Callable[[], None]] = []
+        self._setup_wizard: SetupWizard | None = None
+        self._build_setup_menu()
 
         # Primary Action Controls
         self._start_button = self._controls_card.start_button
@@ -748,6 +755,45 @@ class MainWindow(QMainWindow):
             controller.dialog.vector_navigation_cleared.connect(self.vector_navigation_cleared)
             self._navigation_controller = controller
         self._navigation_controller.show_world_data()
+
+    def _build_setup_menu(self) -> None:
+        menu_bar = self.menuBar()
+        setup_menu = QMenu(menu_bar)
+        action = setup_menu.addAction("")
+        action.triggered.connect(self.show_setup_wizard)
+        self._setup_action = action
+        self._setup_action.setText(self._translator.text(Message.UI_SETUP_TITLE))
+        menu_bar.addMenu(setup_menu)
+
+    @Slot()
+    def show_setup_wizard(self) -> None:
+        if self._setup_wizard is None:
+            self._setup_wizard = SetupWizard(
+                self._translator,
+                client_world_root=self._client_world_root,
+                world_map_directory=self._world_map_dir,
+                monster_names_path=self._monster_names_path,
+                parent=self,
+            )
+            self._setup_wizard.setup_completed.connect(lambda _result: self.load_quest_database())
+        self._setup_wizard.show()
+        self._setup_wizard.raise_()
+        self._setup_wizard.activateWindow()
+
+    @staticmethod
+    def is_first_run_setup_required(
+        *,
+        world_map_directory: Path | None = None,
+        quest_database: Path | None = None,
+        dungeon_database: Path | None = None,
+        player_profiles: Path | None = None,
+    ) -> bool:
+        return UnifiedClientExtractor.is_first_run_required(
+            world_map_directory=world_map_directory or Path(DEFAULT_WORLD_MAP_DIRECTORY),
+            quest_database=quest_database or Path(DEFAULT_QUEST_DATABASE_PATH),
+            dungeon_database=dungeon_database or Path(DEFAULT_DUNGEON_DATABASE_PATH),
+            player_profiles=player_profiles or Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+        )
 
     def _retranslate(self) -> None:
         self.setWindowTitle(self._translator.text(Message.UI_TITLE))

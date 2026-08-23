@@ -76,6 +76,8 @@ related:
   - ../user-stories/US-062-automated-npc-quest-acceptance-and-turn-in.md
   - ../user-stories/completed/US-066-farming-and-navigation-value-model.md
   - ../user-stories/US-063-client-dungeon-data-and-live-cooldown-memory-extraction.md
+  - ../user-stories/completed/US-078-initial-setup-wizard-and-unified-client-data-extraction.md
+  - ../bugs/fixed/BUG-029-tesseract-ocr-tsv-argument-ordering-causes-empty-stdout-and-unreadable-target-names.md
 ---
 
 # Architecture
@@ -1813,6 +1815,22 @@ passes after excluding two unrelated pre-existing Python/POSIX environment failu
 sizing and OCR decoding.
 
 ## Fingerprinted player-stat snapshots (US-076, implementation draft)
+
+## Initial setup and unified client extraction (US-078, completed)
+
+`flyff_bot.features.setup` provides the first-run detector and sequential extraction orchestrator.
+The dashboard opens a localized modal wizard when any required offline artifact is absent, and an
+Initial Setup menu action reopens it at any time. The operator selects the Entropia folder; setup
+validates `neuz.exe` plus `Data/`, then runs mover/static-item discovery, quests with NPC locations,
+dungeons, all discovered world regions, and executable fingerprinting on a cancellable worker thread.
+Progress, stage detail, counts, warnings, and skipped tables are marshalled to Qt signals so the UI
+remains responsive.
+
+Player-stat profile installation is deliberately conservative: the wizard hashes `neuz.exe`, checks
+the PE machine type, and installs only a validated registry entry whose SHA-256 exactly matches that
+binary. Missing or malformed proven profiles are typed diagnostics; no offset is inferred. This
+preserves ADR-006 and the empty shipped player-stat registry until controlled static-analysis and
+live evidence supplies real offsets.
 
 ## Fingerprinted player-stat snapshots (US-076, implementation draft)
 

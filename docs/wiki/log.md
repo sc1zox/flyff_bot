@@ -1,5 +1,10 @@
 # Wiki log
 
+## 2026-08-23
+
+- Architecture now documents the completed US-078 initial setup and unified client extraction
+  workflow, including exact-fingerprint-only player-stat profile installation.
+
 Append entries using `## [YYYY-MM-DD] operation | subject`. Do not rewrite past entries; add a
 correction that links to the superseded entry.
 
