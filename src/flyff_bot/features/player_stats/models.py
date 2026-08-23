@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -17,8 +18,8 @@ class PlayerStatField:
     def __post_init__(self) -> None:
         if not self.name or self.name != self.name.strip():
             raise ValueError("A player statistic must have a non-empty trimmed name.")
-        if self.value < 0.0:
-            raise ValueError(f"The {self.name} statistic cannot be negative.")
+        if not math.isfinite(self.value):
+            raise ValueError(f"The {self.name} statistic must be finite.")
 
 
 class PlayerStatsReadErrorCode(StrEnum):

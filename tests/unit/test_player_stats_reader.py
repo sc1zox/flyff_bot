@@ -13,6 +13,8 @@ import pytest
 
 from flyff_bot.features.navigation.live_position import EXPECTED_PROCESS_NAME
 from flyff_bot.features.player_stats.models import (
+    PlayerStatField,
+    PlayerStatsReadError,
     PlayerStatsReadErrorCode,
     PlayerStatsSource,
 )
@@ -35,6 +37,8 @@ _FIELDS = (
     PlayerStatFieldProfile("hp", 0, PlayerStatType.F32, 0.0, 100.0),
     PlayerStatFieldProfile("mp", 4, PlayerStatType.F32, 0.0, 100.0),
 )
+
+_VALID_PAYLOAD = struct.pack("<2f", 70.0, 70.0)
 
 
 def _executable_digest() -> str:
@@ -61,6 +65,7 @@ class FakeStatsMemoryApi:
         self.fail_read = False
         self.short_payload = False
         self.nonfinite_payload = True
+        self.null_pointer = False
         self.reads: list[tuple[int, int]] = []
         self.closed: list[int] = []
 
@@ -84,12 +89,10 @@ class FakeStatsMemoryApi:
         if self.fail_read:
             raise OSError("lost")
         if address == MODULE_BASE + PLAYER_POINTER_RVA:
+            if self.null_pointer:
+                return b"\0" * self.pointer_size
             return PLAYER_ADDRESS.to_bytes(self.pointer_size, "little")
-        payload = (
-            struct.pack("<2f", 70.0, math.nan)
-            if self.nonfinite_payload
-            else struct.pack("<2f", 70.0, 70.0)
-        )
+        payload = struct.pack("<2f", 70.0, math.nan) if self.nonfinite_payload else _VALID_PAYLOAD
         if self.short_payload:
             return payload[:-1]
         return payload
@@ -200,7 +203,7 @@ def test_nonfinite_value_is_rejected_without_field_markers(
     assert api.closed == [PROCESS_HANDLE]
 
 
-def test_short_structure_read_is_malformed_and_closes_promptly(
+def test_short_structure_read_uses_the_malformed_read_code(
     profile: ClientPlayerStatsProfile,
 ) -> None:
     api = FakeStatsMemoryApi()
@@ -215,7 +218,65 @@ def test_short_structure_read_is_malformed_and_closes_promptly(
     snapshot = reader.poll(0.0)
 
     assert snapshot.source is PlayerStatsSource.UNAVAILABLE
+    assert snapshot.error is not None
+    assert snapshot.error.code is PlayerStatsReadErrorCode.MALFORMED_READ
     assert api.closed == [PROCESS_HANDLE]
+
+
+def test_null_player_pointer_uses_the_invalid_pointer_code(
+    profile: ClientPlayerStatsProfile,
+) -> None:
+    api = FakeStatsMemoryApi()
+    api.nonfinite_payload = False
+    api.null_pointer = True
+    events: list[PlayerStatsReadError] = []
+    reader = LivePlayerStatsReader(
+        WINDOW_HANDLE,
+        profiles={profile.sha256: profile},
+        api=api,
+        event_sink=events.append,
+    )
+
+    snapshot = reader.poll(0.0)
+
+    assert snapshot.error is not None
+    assert snapshot.error.code is PlayerStatsReadErrorCode.INVALID_POINTER
+    assert [event.code for event in events] == [PlayerStatsReadErrorCode.INVALID_POINTER]
+    assert api.closed == [PROCESS_HANDLE]
+
+
+def test_failed_fields_are_preserved_across_repeated_failures(
+    profile: ClientPlayerStatsProfile,
+) -> None:
+    api = FakeStatsMemoryApi()
+    api.nonfinite_payload = False
+    reader = LivePlayerStatsReader(WINDOW_HANDLE, profiles={profile.sha256: profile}, api=api)
+    valid = reader.poll(0.0)
+
+    api.fail_read = True
+    first_failure = reader.poll(0.11)
+    second_failure = reader.poll(0.22)
+
+    expected_names = tuple(field.name for field in valid.fields)
+    assert first_failure.unavailable_field_names == expected_names
+    assert second_failure.unavailable_field_names == expected_names
+
+
+def test_profile_bounds_accept_negative_signed_values() -> None:
+    profile = ClientPlayerStatsProfile(
+        sha256=_executable_digest(),
+        player_pointer_rva=PLAYER_POINTER_RVA,
+        pointer_size_bytes=8,
+        fields=(
+            PlayerStatFieldProfile("alignment", 0, PlayerStatType.I32, -100.0, 100.0),
+            PlayerStatFieldProfile("delta", 4, PlayerStatType.I32, -10.0, 10.0),
+        ),
+    )
+
+    decoded = profile.decode(struct.pack("<2i", -25, -5))
+    fields = tuple(PlayerStatField(name, value, False) for name, value in decoded.items())
+
+    assert [field.value for field in fields] == [-25.0, -5.0]
 
 
 def test_polling_is_throttled_and_recovery_emits_one_transition(

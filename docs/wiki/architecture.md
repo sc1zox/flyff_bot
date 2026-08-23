@@ -1768,6 +1768,11 @@ and emits one diagnostic per error transition. Profiles live in
 `data/config/client_player_stats_profiles.json`; malformed JSON, duplicate fingerprints, invalid
 pointer widths, overlapping ranges, unknown primitive types, or out-of-range bounds fail before any
 process handle opens.
+Incomplete structure reads and out-of-bounds/non-finite decoded values are reported as malformed
+reads; a non-positive player pointer is reported separately as an invalid pointer. An unavailable
+snapshot retains the field names from the most recent complete snapshot so repeated failures remain
+diagnostically stable. Profile-declared signed or floating-point fields may legitimately be negative;
+the profile bounds remain the authority for value validity.
 
 No verified player-stat field offsets exist in repository evidence today. The shipped registry is
 therefore intentionally empty: production sessions receive typed unavailable snapshots rather than

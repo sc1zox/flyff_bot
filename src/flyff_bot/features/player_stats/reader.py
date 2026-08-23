@@ -105,6 +105,7 @@ class LivePlayerStatsReader:
         self._profile: ClientPlayerStatsProfile | None = None
         self._polled_at_seconds: float | None = None
         self._last_snapshot = _no_profile_snapshot()
+        self._last_valid_field_names: tuple[str, ...] = ()
         self._last_error_code: PlayerStatsReadErrorCode | None = PlayerStatsReadErrorCode.NO_PROFILE
         self._lock = RLock()
 
@@ -172,9 +173,14 @@ class LivePlayerStatsReader:
                     ),
                 )
                 self._last_error_code = None
+                self._last_valid_field_names = tuple(field.name for field in profile.fields)
             except _PlayerStatsOpenError as error:
                 self._fail(error.code, str(error))
-            except (OSError, ValueError, struct.error) as error:
+            except _InvalidPlayerPointer as error:
+                self._fail(PlayerStatsReadErrorCode.INVALID_POINTER, str(error))
+            except (_MalformedStatsRead, ValueError) as error:
+                self._fail(PlayerStatsReadErrorCode.MALFORMED_READ, str(error))
+            except (OSError, struct.error) as error:
                 self._fail(PlayerStatsReadErrorCode.HANDLE_LOST, str(error))
             return self._last_snapshot
 
@@ -270,9 +276,9 @@ class LivePlayerStatsReader:
         }
 
     def _fail(self, code: PlayerStatsReadErrorCode, detail: str) -> None:
-        self.close()
         error = PlayerStatsReadError(code, detail)
-        unavailable_names = tuple(field.name for field in self._last_snapshot.fields)
+        unavailable_names = self._last_valid_field_names
+        self.close()
         self._last_snapshot = ClientPlayerStatsSnapshot(
             PlayerStatsSource.UNAVAILABLE,
             error=error,

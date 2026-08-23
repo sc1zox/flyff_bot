@@ -902,3 +902,9 @@ Profiles are validated before handle creation and every snapshot is immutable wi
 unavailability. The glossary defines the snapshot contract. Because repository evidence contains no
 verified player-stat field offsets, the shipped registry remains empty and live values remain
 explicitly unavailable until static-analysis and in-game verification provide x86/x64 profiles.
+
+## [2026-08-23] synthesis | Player-stat diagnostics correction (US-076)
+
+Synthesized the review correction into `architecture.md`: invalid pointers are distinct from
+malformed reads, unavailable snapshots retain the last complete field-name set across repeated
+failures, and profile bounds govern legitimate negative values.
