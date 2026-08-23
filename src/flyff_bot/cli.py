@@ -30,6 +30,7 @@ from flyff_bot.constants import (
     DEFAULT_TELEMETRY_DATABASE_PATH,
     DEFAULT_TELEMETRY_DATASET_PATH,
     DEFAULT_TELEMETRY_ROOT,
+    DEFAULT_TELEPORTER_DATABASE_PATH,
     DEFAULT_TRAINING_EPOCHS,
     DEFAULT_WORLD_MAP_DIRECTORY,
     DEFAULT_WORLD_MONSTER_IDS_PATH,
@@ -59,6 +60,12 @@ from flyff_bot.features.navigation.navmesh_persistence import (
     world_navmesh_path,
 )
 from flyff_bot.features.navigation.pathing import PathingController
+from flyff_bot.features.navigation.teleporter_extraction import (
+    TeleporterExtractionDiagnostic,
+    TeleporterExtractionWarning,
+    extract_teleporter_catalog,
+    save_teleporter_catalog,
+)
 from flyff_bot.features.navigation.world_extractor import (
     ExtractionDiagnostic,
     ExtractionWarning,
@@ -245,6 +252,11 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         action="store_true",
         help=translator.text(Message.HELP_EXTRACT_QUESTS),
     )
+    actions.add_argument(
+        "--extract-teleporters",
+        action="store_true",
+        help=translator.text(Message.HELP_EXTRACT_TELEPORTERS),
+    )
     parser.add_argument(
         "--client-data-root",
         default=DEFAULT_CLIENT_DATA_ROOT,
@@ -259,6 +271,13 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         "--quest-language",
         default=DEFAULT_QUEST_LANGUAGE,
         help=translator.text(Message.HELP_QUEST_LANGUAGE, default=DEFAULT_QUEST_LANGUAGE),
+    )
+    parser.add_argument(
+        "--teleporter-database",
+        default=DEFAULT_TELEPORTER_DATABASE_PATH,
+        help=translator.text(
+            Message.HELP_TELEPORTER_DATABASE, default=DEFAULT_TELEPORTER_DATABASE_PATH
+        ),
     )
     actions.add_argument(
         "--detect-mobs",
@@ -413,6 +432,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return _extract_worlds(args, translator)
         if args.extract_quests:
             return _extract_quests(args, translator)
+        if args.extract_teleporters:
+            return _extract_teleporters(args, translator)
         controller = WindowsInputController()
         windows = controller.find_windows(args.process)
         if not windows:
@@ -663,6 +684,41 @@ def _extract_quests(args: argparse.Namespace, translator: Translator) -> int:
             Message.QUEST_EXTRACTED,
             quests=len(database.quests),
             farmable=len(database.farmable),
+            path=output_path,
+        )
+    )
+    return ExitCode.SUCCESS
+
+
+def _extract_teleporters(args: argparse.Namespace, translator: Translator) -> int:
+    """Extract teleporter destinations offline and write a canonical JSON catalog."""
+
+    root = Path(args.client_data_root)
+    output_path = Path(args.teleporter_database)
+    diagnostics: list[TeleporterExtractionDiagnostic] = []
+    try:
+        catalog = extract_teleporter_catalog(root, diagnostics=diagnostics)
+    except OSError as error:
+        print(
+            translator.text(Message.TELEPORT_EXTRACTION_FAILED, reason=error),
+            file=sys.stderr,
+        )
+        return ExitCode.TELEPORTER_EXTRACTION_FAILURE
+    for diagnostic in diagnostics:
+        message = {
+            TeleporterExtractionWarning.MISSING_CLIENT_ARCHIVE: Message.TELEPORT_ASSET_MISSING,
+            TeleporterExtractionWarning.MISSING_TELEPORTER_ASSET: Message.TELEPORT_ASSET_MISSING,
+            TeleporterExtractionWarning.UNREADABLE_ARCHIVE: Message.TELEPORT_ARCHIVE_SKIPPED,
+            TeleporterExtractionWarning.MALFORMED_RECORD: Message.TELEPORT_RECORD_SKIPPED,
+        }[diagnostic.warning]
+        print(translator.text(message, detail=diagnostic.detail), file=sys.stderr)
+    if not catalog.destinations:
+        return ExitCode.TELEPORTER_EXTRACTION_FAILURE
+    save_teleporter_catalog(catalog, output_path)
+    print(
+        translator.text(
+            Message.TELEPORT_EXTRACTED,
+            destinations=len(catalog.destinations),
             path=output_path,
         )
     )

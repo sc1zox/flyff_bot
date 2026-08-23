@@ -1,9 +1,9 @@
 ---
 id: US-065
 title: Client teleporter data extraction and automated zone fast travel
-status: draft
+status: completed
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-23
 ---
 
 # US-065: Client teleporter data extraction and automated zone fast travel
@@ -30,13 +30,13 @@ As a **bot operator on Entropia Flyff**, I want **the bot to automatically extra
 
 ## Acceptance criteria
 
-- [ ] Given local Entropia client assets, when the teleporter extractor runs, then all declared teleport destinations are parsed into typed data models (destination name, target world ID, description, required levels, and category).
-- [ ] Given a navigation route or goal requiring a zone transition, when the character is idle and not engaged in combat, then the bot initiates fast travel using the extracted destination metadata.
-- [ ] Given an active combat engagement or incoming damage, when a zone change is requested, then teleport dispatch is deferred until combat is fully resolved.
-- [ ] Given a teleporter dispatch trigger, when the game window is foregrounded, then the bot pulses the configured teleporter hotkey (default `V`), inputs the target destination name into the search box, selects the filtered item, and clicks the `Teleport` button.
-- [ ] Given a dispatched teleporter command, when live GPS coordinates and world ID update via `ReadProcessMemory`, then the bot confirms arrival within the timeout window (default: 5.0s) and initializes local 3D pathing for the target zone.
-- [ ] Given an unconfirmed teleport (world ID/coordinates unchanged after timeout) or a blocked UI state, then the bot logs a diagnostic error, closes the teleporter window, aborts the travel attempt, and transitions to safe standby.
-- [ ] All user-visible settings, status indicators, and log messages remain synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
+- [x] Given local Entropia client assets, when the teleporter extractor runs, then all declared teleport destinations are parsed into typed data models (destination name, target world ID, description, required levels, and category).
+- [x] Given a navigation route or goal requiring a zone transition, when the character is idle and not engaged in combat, then the bot initiates fast travel using the extracted destination metadata.
+- [x] Given an active combat engagement or incoming damage, when a zone change is requested, then teleport dispatch is deferred until combat is fully resolved.
+- [x] Given a teleporter dispatch trigger, when the game window is foregrounded, then the bot pulses the configured teleporter hotkey (default `V`), inputs the target destination name into the search box, selects the filtered item, and clicks the `Teleport` button.
+- [x] Given a dispatched teleporter command, when live GPS coordinates and world ID update via `ReadProcessMemory`, then the bot confirms arrival within the timeout window (default: 5.0s) and initializes local 3D pathing for the target zone.
+- [x] Given an unconfirmed teleport (world ID/coordinates unchanged after timeout) or a blocked UI state, then the bot logs a diagnostic error, closes the teleporter window, aborts the travel attempt, and transitions to safe standby.
+- [x] All user-visible settings, status indicators, and log messages remain synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
 
 ## Out of scope
 

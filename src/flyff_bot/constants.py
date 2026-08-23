@@ -33,6 +33,8 @@ DEFAULT_QUEST_DATABASE_PATH = "data/quests/quests.json"
 # that locates the same window in a live frame.
 DEFAULT_MONSTER_STATS_PANEL_PATH = "data/assets/stats/monster_stats.png"
 DEFAULT_TARGET_ANCHOR_PATH = "data/assets/mobs/target_anchor.png"
+DEFAULT_TELEPORTER_DATABASE_PATH = "data/navigation/teleporters.json"
+DEFAULT_CLIENT_WORLD_ID_PROFILES_PATH = "data/navigation/client_world_id_profiles.json"
 DEFAULT_PLAYER_VITALS_PANEL_PATH = "data/assets/player/player_vitals_left_top_corner.png"
 
 
@@ -49,3 +51,4 @@ class ExitCode(IntEnum):
     WORLD_EXTRACTION_FAILURE = 7
     QUEST_EXTRACTION_FAILURE = 8
     VALUE_MODEL_FAILURE = 9
+    TELEPORTER_EXTRACTION_FAILURE = 10

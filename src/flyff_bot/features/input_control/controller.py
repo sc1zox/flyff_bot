@@ -22,6 +22,7 @@ SHOW_WINDOW_RESTORE = 9
 INPUT_TYPE_MOUSE = 0
 INPUT_TYPE_KEYBOARD = 1
 KEY_EVENT_KEY_UP = 0x0002
+KEY_EVENT_UNICODE = 0x0004
 MOUSE_EVENT_MOVE = 0x0001
 MOUSE_EVENT_LEFT_DOWN = 0x0002
 MOUSE_EVENT_LEFT_UP = 0x0004
@@ -375,6 +376,25 @@ class WindowsInputController:
         """Hold a search key only while END is clear and the client stays foregrounded."""
 
         self.send_keys_while_guarded(window_handle, (virtual_key,), duration_seconds)
+
+    def type_text_while_guarded(self, window_handle: int, text: str) -> None:
+        """Send Unicode text while END is clear and the client stays foregrounded."""
+
+        if self.is_aborted() or not self.is_foreground(window_handle):
+            return
+        events = (Input * len(text))(
+            *(
+                Input(
+                    type=INPUT_TYPE_KEYBOARD,
+                    keyboard=KeyboardInput(wScan=ord(character), dwFlags=KEY_EVENT_UNICODE),
+                )
+                for character in text
+            )
+        )
+        if events and self._user32.SendInput(len(events), events, ctypes.sizeof(Input)) != len(
+            events
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
 
     def _send_mouse_event(self, event: Input) -> None:
         """Dispatch one mouse event, raising the Win32 error when it is not accepted."""

@@ -73,6 +73,7 @@ def test_each_language_contains_every_message() -> None:
                 regions=0,
                 polygons=0,
                 quests=0,
+                destinations=0,
                 farmable=0,
                 levels="x",
                 identifier="x",

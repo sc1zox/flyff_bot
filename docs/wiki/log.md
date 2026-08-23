@@ -893,3 +893,9 @@ Ingested
 into `project-overview.md` and `entropia-game-wiki.md`. Established the official gameplay-domain
 consultation workflow, documented the GitBook `.md` endpoint and `llms.txt` index, and added a
 260-entry sitemap-derived page inventory without copying wiki prose.
+
+## [2026-08-23] synthesis | Teleporter extraction and dispatch (US-065)
+
+Added the US-065 architecture section covering offline `TeleportOption.inc` extraction, typed
+destination records, guarded no-OCR UI dispatch, and closed-loop arrival confirmation. Recorded
+that live confirmation fails closed until a verified world-ID memory profile exists.

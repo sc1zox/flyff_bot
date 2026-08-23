@@ -748,6 +748,19 @@ ticks alone keep both saving and loading possible while the session is paused.
 | `READ_ONLY` | the operator accepted a read-only load (`accept_unmatched`) | map loaded, learning suspended |
 | `UNANCHORED` | the profile carries no landmark (saved while `DEGRADED`) | map loaded read-only |
 
+## Teleporter extraction and dispatch (US-065)
+
+The navigation feature includes offline teleporter destination extraction from
+`TeleportOption.inc` (loose or packed in `System3`), typed `TeleporterDestination` records,
+and a guarded `TeleporterDispatcher`. The dispatcher defers while combat is active or damage
+is observed, enforces foreground and emergency-stop checks, sends a deterministic no-OCR UI
+sequence (`V` hotkey, search-field click, text input, first-result click, teleport-button
+click), and confirms arrival only when the authoritative world ID and position match. On
+timeout or blocked UI state it closes the teleporter window and enters safe standby.
+
+The current `LivePositionReader` provides XYZ only; there is no verified world-ID memory
+offset. Production arrival confirmation therefore fails closed rather than guessing identity.
+
 Matching reuses the odometry machinery rather than a second implementation:
 `windowed_surface` applies the same marker masking and Hanning window to a stored disk that
 `read_minimap` applies to a live one, `correlate_surfaces` is the shared response-gated phase
