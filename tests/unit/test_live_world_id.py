@@ -21,10 +21,10 @@ class _FakeMemoryApi:
         self,
         world_id: int = 0,
         *,
-        executable: Path = Path(__file__).parent / "neuz.exe",
+        executable: Path | None = None,
     ) -> None:
         self.world_id = world_id
-        self.executable = executable
+        self.executable = executable or _FAKE_EXECUTABLE_NAME
 
     def process_id_for_window(self, window_handle: int) -> int:
         return 1
@@ -45,9 +45,9 @@ class _FakeMemoryApi:
         pass
 
 
-_FAKE_EXECUTABLE_PATH = Path(__file__).parent / "neuz.exe"
-_FAKE_EXECUTABLE_PATH.write_bytes(b"fake-neuz-executable")
-_DIGEST = hashlib.sha256(_FAKE_EXECUTABLE_PATH.read_bytes()).hexdigest()
+_FAKE_EXECUTABLE_CONTENT = b"fake-neuz-executable"
+_FAKE_EXECUTABLE_NAME = Path("neuz.exe")
+_DIGEST = hashlib.sha256(_FAKE_EXECUTABLE_CONTENT).hexdigest()
 
 
 def test_load_profiles_from_valid_json(tmp_path: Path) -> None:
@@ -71,10 +71,12 @@ def test_rejects_invalid_json(tmp_path: Path) -> None:
         load_client_world_id_profiles(path)
 
 
-def test_reader_reports_unsupported_build_without_profile() -> None:
+def test_reader_reports_unsupported_build_without_profile(tmp_path: Path) -> None:
+    executable = tmp_path / "neuz.exe"
+    executable.write_bytes(_FAKE_EXECUTABLE_CONTENT)
     reader = LiveWorldIdReader(
         1,
-        api=_FakeMemoryApi(),
+        api=_FakeMemoryApi(executable=executable),
         profiles={},
     )
 
@@ -85,9 +87,11 @@ def test_reader_reports_unsupported_build_without_profile() -> None:
     assert reading.error.code is WorldIdReadErrorCode.UNSUPPORTED_BUILD
 
 
-def test_reader_returns_world_id_with_matching_profile() -> None:
+def test_reader_returns_world_id_with_matching_profile(tmp_path: Path) -> None:
+    executable = tmp_path / "neuz.exe"
+    executable.write_bytes(_FAKE_EXECUTABLE_CONTENT)
     profile = ClientWorldIdProfile(_DIGEST, world_id_rva=0x1000)
-    api = _FakeMemoryApi(world_id=42)
+    api = _FakeMemoryApi(world_id=42, executable=executable)
     reader = LiveWorldIdReader(1, api=api, profiles={_DIGEST: profile})
 
     reading = reader.poll(0.0)

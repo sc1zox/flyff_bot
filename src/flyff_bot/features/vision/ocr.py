@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -27,7 +26,6 @@ TESSERACT_LANGUAGE_ENGLISH = "eng"
 TESSERACT_LANGUAGE = "eng+deu"
 TESSERACT_PAGE_SEGMENTATION_MODE = 6
 TESSERACT_TIMEOUT_SECONDS = 10.0
-_TESSERACT_INPUT_FILENAME = "ocr-roi.png"
 _TESSERACT_CONFIG_ARGUMENT = "--psm"
 _TESSERACT_OUTPUT_FORMAT = "stdout"
 _TESSERACT_TSV_FORMAT = "tsv"
@@ -127,36 +125,38 @@ class TesseractTextRecognizer:
         success, encoded_image = cv2.imencode(".png", image)
         if not success:
             raise OcrError(OcrErrorCode.RECOGNITION_FAILED)
-        with tempfile.TemporaryDirectory() as directory:
-            image_path = Path(directory, _TESSERACT_INPUT_FILENAME)
-            image_path.write_bytes(encoded_image.tobytes())
-            try:
-                result = subprocess.run(
-                    [
-                        self._executable,
-                        str(image_path),
-                        _TESSERACT_TSV_FORMAT,
-                        "-l",
-                        self._language,
-                        _TESSERACT_CONFIG_ARGUMENT,
-                        str(TESSERACT_PAGE_SEGMENTATION_MODE),
-                    ],
-                    capture_output=True,
-                    check=True,
-                    text=True,
-                    encoding=_TESSERACT_OUTPUT_ENCODING,
-                    errors=_TESSERACT_DECODE_ERROR_STRATEGY,
-                    timeout=TESSERACT_TIMEOUT_SECONDS,
-                )
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-                raise OcrError(OcrErrorCode.RECOGNITION_FAILED) from error
-            except OSError as error:
-                # A missing binary raises FileNotFoundError; one that exists but cannot be
-                # executed raises another OSError. Both mean the engine is unusable.
-                raise OcrError(OcrErrorCode.ENGINE_UNAVAILABLE) from error
-            if "Failed loading language" in result.stderr:
-                raise OcrError(OcrErrorCode.ENGINE_UNAVAILABLE)
-        return _parse_tesseract_tsv(result.stdout)
+        stdin_payload = encoded_image.tobytes()
+        try:
+            result = subprocess.run(
+                [
+                    self._executable,
+                    "-",
+                    _TESSERACT_TSV_FORMAT,
+                    "-l",
+                    self._language,
+                    _TESSERACT_CONFIG_ARGUMENT,
+                    str(TESSERACT_PAGE_SEGMENTATION_MODE),
+                ],
+                input=stdin_payload,
+                capture_output=True,
+                check=True,
+                text=False,
+                timeout=TESSERACT_TIMEOUT_SECONDS,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            raise OcrError(OcrErrorCode.RECOGNITION_FAILED) from error
+        except OSError as error:
+            # A missing binary raises FileNotFoundError; one that exists but cannot be
+            # executed raises another OSError. Both mean the engine is unusable.
+            raise OcrError(OcrErrorCode.ENGINE_UNAVAILABLE) from error
+        stdout = result.stdout.decode(
+            _TESSERACT_OUTPUT_ENCODING,
+            errors=_TESSERACT_DECODE_ERROR_STRATEGY,
+        )
+        stderr = result.stderr.decode(errors=_TESSERACT_DECODE_ERROR_STRATEGY)
+        if "Failed loading language" in stderr:
+            raise OcrError(OcrErrorCode.ENGINE_UNAVAILABLE)
+        return _parse_tesseract_tsv(stdout)
 
 
 def _parse_tesseract_tsv(payload: str) -> tuple[RecognizedTextLine, ...]:
