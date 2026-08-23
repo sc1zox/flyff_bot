@@ -1,10 +1,10 @@
 ---
 id: BUG-023
 title: Player stats reader masks invalid pointer and malformed read diagnostics
-status: reported
+status: fixed
 severity: medium
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-24
 ---
 
 # BUG-023: Player stats reader masks invalid pointer and malformed read diagnostics
@@ -43,7 +43,15 @@ In `LivePlayerStatsReader.poll()`:
 
 ## Regression verification
 
-- [ ] A failing automated test asserts `PlayerStatsReadErrorCode.INVALID_POINTER` when player pointer is null.
-- [ ] A failing automated test asserts `PlayerStatsReadErrorCode.MALFORMED_READ` when short or non-finite payloads are read.
-- [ ] The checks pass after adding explicit `except` handlers for `_InvalidPlayerPointer` and `_MalformedStatsRead` in `LivePlayerStatsReader.poll()`.
-- [ ] Related documentation is current.
+- [x] A failing automated test asserts `PlayerStatsReadErrorCode.INVALID_POINTER` when player pointer is null.
+- [x] A failing automated test asserts `PlayerStatsReadErrorCode.MALFORMED_READ` when short or non-finite payloads are read.
+- [x] The checks pass after adding explicit `except` handlers for `_InvalidPlayerPointer` and `_MalformedStatsRead` in `LivePlayerStatsReader.poll()`.
+- [x] Related documentation is current.
+
+## Resolution
+
+Commit `711af41` added the explicit exception handlers and regression tests. The targeted reader and
+perception suite passes 17 tests; focused `ruff check` and `ruff format --check` also pass on the
+reader modules and tests. The full repository gate was not rerun in this working tree because it is
+currently occupied by unrelated BUG-022 changes that introduce lint failures, so this closure records
+only the automated evidence listed above and does not claim a clean full-gate result.
