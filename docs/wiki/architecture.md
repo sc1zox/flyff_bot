@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-21
+updated: 2026-08-23
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -1338,6 +1338,26 @@ interaction paths. It passed at 750 tests passed, 2 skipped, and 92.54% coverage
 live-client visual walkthrough remains outstanding, including visual responsiveness and confirmation
 that both `Escape` and `END` halt a live `neuz.exe` session; automated evidence is not presented as
 field validation.
+
+## Feature-scoped main-window composition
+
+A follow-up quality refactor keeps `MainWindow` as the stable public composition and intent
+boundary while moving feature-specific construction, localization, persistence, rendering, and
+navigation lifecycle out of the monolithic window class:
+
+- `ui.main_window_parts` contains feature-scoped slices for header metrics, operator controls,
+  combat settings, emergency recovery, vitals rules, quest loading, navigation, diagnostics, and
+  status presentation.
+- `MainWindow` retains the public Qt signals, widget accessors, event handling, emergency paths,
+  and composition-root wiring expected by the application and tests.
+- Feature panels own their business ranges, defaults, configuration conversion, localized labels,
+  and internal rendering; the window no longer duplicates their control knowledge.
+
+This change is behavior-preserving at the UI boundary. It does not alter perception, orchestration,
+Win32 input, foreground checks, `END`, or `Escape` safety behavior. The remaining largest modules
+(`automation.orchestrator`, `navigation.world_extractor`, `navigation.pathing`, and `cli`) need
+dedicated, independently reviewed slices because they mix several lifecycle and parsing
+responsibilities; bundling those changes into this UI refactor would make the review unsafe.
 
 ## Packed client archives and complete terrain height fields (US-052)
 

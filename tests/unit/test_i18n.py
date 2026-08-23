@@ -4,7 +4,7 @@ import pytest
 
 from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.i18n import Language, Message, Translator
-from flyff_bot.ui.main_window import _engagement_break_message
+from flyff_bot.ui.main_window_parts.diagnostics import _engagement_break_message
 
 
 def test_each_language_contains_every_message() -> None:

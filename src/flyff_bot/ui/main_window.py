@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFrame,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -34,25 +33,17 @@ from flyff_bot.constants import (
     DEFAULT_WORLD_MAP_DIRECTORY,
     DEFAULT_WORLD_MONSTER_IDS_PATH,
 )
-from flyff_bot.features.automation.camera_alignment import DEFAULT_AUTO_ALIGN_CAMERA
 from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.emergency_persistence import (
     DEFAULT_EMERGENCY_CONFIG_PATH,
     load_emergency_config,
     save_emergency_config,
 )
-from flyff_bot.features.automation.emergency_recovery import (
-    MAXIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
-    MINIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
-    EmergencyRecoveryConfig,
-)
+from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import KillGoalConfig, MobKillProgress
 from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
-    MonsterStatsSource,
-    MonsterStatsStatus,
     SelectedTarget,
-    TargetNameStatus,
     TargetState,
     WorldState,
 )
@@ -64,31 +55,42 @@ from flyff_bot.features.automation.powerup_persistence import (
 )
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
-    VitalTriggerRule,
-    VitalTriggerType,
 )
 from flyff_bot.features.automation.vitals_persistence import (
     DEFAULT_VITALS_CONFIG_PATH,
     load_vitals_config,
     save_vitals_config,
 )
-from flyff_bot.features.input_control import parse_virtual_key
-from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
-from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
 from flyff_bot.features.quests.persistence import (
     QuestDatabaseError,
     load_quest_database,
 )
 from flyff_bot.features.vision.models import CapturedFrame
-from flyff_bot.features.vision.target_verification import (
-    DEFAULT_ANCHOR_MATCH_THRESHOLD,
-    MAXIMUM_MATCH_THRESHOLD,
-    MINIMUM_MATCH_THRESHOLD,
-)
 from flyff_bot.i18n import Language, Message, Translator
-from flyff_bot.ui.dashboard import BotStatus, DashboardUpdate, FarmingGoal, WindowStatus
+from flyff_bot.ui.dashboard import (
+    BotStatus,
+    DashboardUpdate,
+    FarmingGoal,
+    WindowStatus,
+)
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
 from flyff_bot.ui.event_log_panel import EventLogPanel
+from flyff_bot.ui.main_window_parts.combat_settings import CombatSettingsPanel
+from flyff_bot.ui.main_window_parts.dashboard import DashboardSummary, StatusHeaderCard
+from flyff_bot.ui.main_window_parts.diagnostics import (
+    MonsterStatsDebugPanel,
+    TargetDebugPanel,
+)
+from flyff_bot.ui.main_window_parts.header import (
+    goal_text,
+    kill_progress_text,
+)
+from flyff_bot.ui.main_window_parts.navigation import NavigationSection
+from flyff_bot.ui.main_window_parts.quests import QuestDatabaseController
+from flyff_bot.ui.main_window_parts.recovery_settings import RecoverySettingsPanel
+from flyff_bot.ui.main_window_parts.status_presenter import StatusPresenter
+from flyff_bot.ui.main_window_parts.vitals_settings import VitalsSettingsPanel
+from flyff_bot.ui.main_window_parts.window_controls import WindowControlsCard
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
@@ -98,43 +100,6 @@ from flyff_bot.ui.target_panel import TargetSelectionPanel
 from flyff_bot.ui.theme import apply_theme
 from flyff_bot.ui.world_data_dialog import WorldDataDialog
 
-MATCH_THRESHOLD_STEP = 0.05
-MATCH_THRESHOLD_DECIMALS = 2
-
-HOTKEY_CHOICES = [
-    "F1",
-    "F2",
-    "F3",
-    "F4",
-    "F5",
-    "F6",
-    "F7",
-    "F8",
-    "F9",
-    "F10",
-    "F11",
-    "F12",
-    "1",
-    "2",
-    "3",
-    "4",
-    "5",
-    "6",
-    "7",
-    "8",
-    "9",
-    "0",
-    "C",
-    "Space",
-]
-
-EMERGENCY_HOTKEY_CHOICES = [
-    *(f"F{number}" for number in range(1, 13)),
-    *(str(digit) for digit in range(10)),
-    *(chr(code) for code in range(ord("A"), ord("Z") + 1)),
-]
-STUCK_TIMEOUT_STEP_SECONDS = 5.0
-STUCK_TIMEOUT_DECIMALS = 1
 DEFAULT_WINDOW_WIDTH = 1100
 DEFAULT_WINDOW_HEIGHT = 760
 MINIMUM_WINDOW_WIDTH = 760
@@ -195,38 +160,33 @@ class MainWindow(QMainWindow):
         self._powerup_config_path = powerup_config_path or DEFAULT_POWERUP_CONFIG_PATH
         self._emergency_config_path = emergency_config_path or DEFAULT_EMERGENCY_CONFIG_PATH
         self._latest_update: DashboardUpdate | None = None
+        self._status_card = StatusHeaderCard()
 
         # Persistent header cards
-        self._status_card = QGroupBox()
-        self._status_card.setObjectName("CardPanel")
-        self._controls_card = QGroupBox()
-        self._controls_card.setObjectName("CardPanel")
+        self._status_card = StatusHeaderCard()
+        self._controls_card = WindowControlsCard()
 
         # Functional view cards
-        self._summary_card = QGroupBox()
-        self._summary_card.setObjectName("CardPanel")
+        self._summary_card = DashboardSummary()
 
         # Status & Metrics
-        self._status_label = QLabel()
-        self._status_label.setObjectName("StatusBadge")
-        self._window_label = QLabel()
-        self._window_label.setObjectName("StatChip")
-        self._window_status = WindowStatus.NOT_FOUND
-        self._gps_label = QLabel()
-        self._gps_label.setObjectName("StatChip")
-        self._camera_label = QLabel()
-        self._camera_label.setObjectName("StatChip")
-        self._position_source = PositionSource.UNAVAILABLE
-        self._mob_label = QLabel()
-        self._mob_label.setObjectName("StatChip")
-        self._target_label = QLabel()
-        self._target_label.setObjectName("StatChip")
-        self._goal_label = QLabel()
-        self._goal_label.setObjectName("StatChip")
-        self._vitals_label = QLabel()
-        self._vitals_label.setObjectName("StatChip")
-        self._kill_progress_label = QLabel()
-        self._kill_progress_label.setObjectName("StatChip")
+        self._status_label = self._status_card.status_label
+        self._window_label = self._status_card.window_label
+        self._gps_label = self._status_card.gps_label
+        self._camera_label = self._status_card.camera_label
+        self._mob_label = self._summary_card.mob_label
+        self._target_label = self._summary_card.target_label
+        self._goal_label = self._summary_card.goal_label
+        self._vitals_label = self._summary_card.vitals_label
+        self._kill_progress_label = self._summary_card.kill_progress_label
+        self._status_presenter = StatusPresenter(
+            translator,
+            self._status_label,
+            self._status_card.window_label,
+            self._gps_label,
+            self._camera_label,
+        )
+        self._window_status = self._status_presenter.window_status
 
         # Debug Overlay Viewport
         self._overlay_label = DebugOverlayWidget()
@@ -236,33 +196,21 @@ class MainWindow(QMainWindow):
         self._placement_overlay = PlacementOverlayWindow(self._translator)
 
         # Navigation Map & Inspector
-        self._path_inspector = PathInspectorWidget(self._translator)
-        self._map_container = QWidget()
-        self._map_container_layout = QVBoxLayout(self._map_container)
-        self._map_container_layout.setContentsMargins(0, 0, 0, 0)
-        self._map_container_layout.addWidget(self._path_inspector)
-        self._map_window = NavigationMapWindow(self._translator)
-        self._popout_map_button = QPushButton()
-        self._world_data_button = QPushButton()
-        self._is_map_popped_out = False
+        self._navigation = NavigationSection(self._translator)
+        self._path_inspector = self._navigation.inspector
+        self._map_container = self._navigation.map_container
+        self._map_window = self._navigation.map_window
+        self._popout_map_button = self._navigation.popout_button
+        self._world_data_button = self._navigation.world_data_button
         self._teardowns: list[Callable[[], None]] = []
 
         # Primary Action Controls
-        self._start_button = QPushButton()
-        self._start_button.setObjectName("ActionStart")
-        self._pause_button = QPushButton()
-        self._pause_button.setObjectName("ActionPause")
-        self._attack_key_label = QLabel()
-        self._attack_key_button = QPushButton()
-        self._align_camera_button = QPushButton()
-        self._auto_align_toggle = QCheckBox()
-        self._auto_align_toggle.setObjectName("Switch")
-        self._auto_align_toggle.setChecked(DEFAULT_AUTO_ALIGN_CAMERA)
-        self._attack_virtual_key = parse_virtual_key("F3")
-        self._attack_key_name = "F3"
-        self._is_recording_attack_key = False
-        self._language_label = QLabel()
-        self._language_selector = QComboBox()
+        self._start_button = self._controls_card.start_button
+        self._pause_button = self._controls_card.pause_button
+        self._attack_key_button = self._controls_card.attack_key_button
+        self._align_camera_button = self._controls_card.align_camera_button
+        self._auto_align_toggle = self._controls_card.auto_align_toggle
+        self._language_selector = self._controls_card.language_selector
 
         # Display settings
         self._camera_preview_toggle = QCheckBox()
@@ -275,129 +223,42 @@ class MainWindow(QMainWindow):
         self._tab_scroll_areas: dict[DashboardTab, QScrollArea] = {}
 
         # Sub-panels
-        self._combat_panel = QGroupBox()
-        self._combat_panel.setObjectName("CardPanel")
-        self._target_grace_label = QLabel()
-        self._target_grace_spin = QDoubleSpinBox()
-        self._target_grace_spin.setRange(0.0, 10.0)
-        self._target_grace_spin.setSingleStep(0.1)
-        self._target_grace_spin.setDecimals(1)
-        self._target_grace_spin.setValue(0.8)
-        self._kill_verification_label = QLabel()
-        self._kill_verification_toggle = QCheckBox()
-        self._kill_verification_toggle.setObjectName("Switch")
-        self._kill_verification_toggle.setChecked(True)
-        self._anchor_threshold_label = QLabel()
-        self._anchor_threshold_spin = QDoubleSpinBox()
-        self._anchor_threshold_spin.setRange(MINIMUM_MATCH_THRESHOLD, MAXIMUM_MATCH_THRESHOLD)
-        self._anchor_threshold_spin.setSingleStep(MATCH_THRESHOLD_STEP)
-        self._anchor_threshold_spin.setDecimals(MATCH_THRESHOLD_DECIMALS)
-        self._anchor_threshold_spin.setValue(DEFAULT_ANCHOR_MATCH_THRESHOLD)
+        self._combat_panel = CombatSettingsPanel()
+        self._target_grace_spin = self._combat_panel.grace_spin
+        self._kill_verification_toggle = self._combat_panel.verification_toggle
+        self._anchor_threshold_spin = self._combat_panel.anchor_spin
 
-        self._recovery_panel = QGroupBox()
-        self._recovery_panel.setObjectName("CardPanel")
-        self._recovery_timeout_label = QLabel()
-        self._recovery_timeout_spin = QDoubleSpinBox()
-        self._recovery_timeout_spin.setRange(
-            MINIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
-            MAXIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
-        )
-        self._recovery_timeout_spin.setSingleStep(STUCK_TIMEOUT_STEP_SECONDS)
-        self._recovery_timeout_spin.setDecimals(STUCK_TIMEOUT_DECIMALS)
-        self._recovery_hotkey_label = QLabel()
-        self._recovery_hotkey_combo = QComboBox()
-        self._recovery_hotkey_combo.addItem("", userData=None)
-        for key_name in EMERGENCY_HOTKEY_CHOICES:
-            self._recovery_hotkey_combo.addItem(key_name, userData=key_name)
+        self._recovery_panel = RecoverySettingsPanel()
+        self._recovery_timeout_spin = self._recovery_panel.timeout_spin
+        self._recovery_hotkey_combo = self._recovery_panel.hotkey_combo
         self._load_emergency_settings()
 
         self._target_panel = TargetSelectionPanel(self._translator)
         self._quest_panel = QuestGoalPanel(self._translator)
+        self._quest_controller = QuestDatabaseController(self._quest_panel, self._translator)
 
-        self._target_debug_panel = QGroupBox()
-        self._target_debug_panel.setObjectName("CardPanel")
-        self._target_anchor_label = QLabel()
-        self._target_anchor_val = QLabel()
-        self._target_anchor_val.setObjectName("StatChip")
-        self._target_hp_label = QLabel()
-        self._target_hp_val = QLabel()
-        self._target_hp_val.setObjectName("StatChip")
-        self._target_name_label = QLabel()
-        self._target_name_val = QLabel()
-        self._target_name_val.setObjectName("StatChip")
-        self._target_state_label = QLabel()
-        self._target_state_val = QLabel()
-        self._target_state_val.setObjectName("StatChip")
-        self._target_reason_label = QLabel()
-        self._target_reason_val = QLabel()
-        self._target_reason_val.setObjectName("StatChip")
-        self._target_break_label = QLabel()
-        self._target_break_val = QLabel()
-        self._target_break_val.setObjectName("StatChip")
+        self._target_debug_panel = TargetDebugPanel()
+        self._target_anchor_val = self._target_debug_panel.anchor_value
+        self._target_hp_val = self._target_debug_panel.hp_value
+        self._target_name_val = self._target_debug_panel.name_value
+        self._target_state_val = self._target_debug_panel.state_value
+        self._target_reason_val = self._target_debug_panel.reason_value
+        self._target_break_val = self._target_debug_panel.break_value
 
-        self._monster_stats_panel = QGroupBox()
-        self._monster_stats_panel.setObjectName("CardPanel")
-        self._monster_anchor_label = QLabel()
-        self._monster_anchor_val = QLabel()
-        self._monster_anchor_val.setObjectName("StatChip")
-        self._monster_roi_label = QLabel()
-        self._monster_roi_val = QLabel()
-        self._monster_roi_val.setObjectName("StatChip")
-        self._monster_source_label = QLabel()
-        self._monster_source_val = QLabel()
-        self._monster_source_val.setObjectName("StatChip")
-        self._monster_kills_label = QLabel()
-        self._monster_kills_val = QLabel()
-        self._monster_kills_val.setObjectName("StatChip")
-        self._monster_text_label = QLabel()
-        self._monster_text_val = QLabel()
-        self._monster_text_val.setObjectName("StatChip")
-        self._monster_status_label = QLabel()
-        self._monster_status_val = QLabel()
-        self._monster_status_val.setObjectName("StatChip")
+        self._monster_stats_panel = MonsterStatsDebugPanel()
+        self._monster_anchor_val = self._monster_stats_panel.anchor_value
+        self._monster_roi_val = self._monster_stats_panel.roi_value
+        self._monster_source_val = self._monster_stats_panel.source_value
+        self._monster_kills_val = self._monster_stats_panel.kills_value
+        self._monster_text_val = self._monster_stats_panel.text_value
+        self._monster_status_val = self._monster_stats_panel.status_value
 
         self._event_log_panel = EventLogPanel(self._translator)
 
-        self._vitals_panel = QGroupBox()
-        self._vitals_panel.setObjectName("CardPanel")
-        self._vitals_col_type = QLabel()
-        self._vitals_col_active = QLabel()
-        self._vitals_col_threshold = QLabel()
-        self._vitals_col_hotkey = QLabel()
-        self._vitals_col_debounce = QLabel()
-        self._hp_label = QLabel()
-        self._hp_check = QCheckBox()
-        self._hp_check.setObjectName("Switch")
-        self._hp_spin = QSpinBox()
-        self._hp_spin.setRange(1, 99)
-        self._hp_combo = QComboBox()
-        self._hp_combo.addItems(HOTKEY_CHOICES)
-        self._hp_debounce_spin = QDoubleSpinBox()
-        self._hp_debounce_spin.setRange(0.1, 30.0)
-        self._hp_debounce_spin.setSingleStep(0.5)
-        self._hp_debounce_spin.setDecimals(1)
-        self._mp_label = QLabel()
-        self._mp_check = QCheckBox()
-        self._mp_check.setObjectName("Switch")
-        self._mp_spin = QSpinBox()
-        self._mp_spin.setRange(1, 99)
-        self._mp_combo = QComboBox()
-        self._mp_combo.addItems(HOTKEY_CHOICES)
-        self._mp_debounce_spin = QDoubleSpinBox()
-        self._mp_debounce_spin.setRange(0.1, 30.0)
-        self._mp_debounce_spin.setSingleStep(0.5)
-        self._mp_debounce_spin.setDecimals(1)
-        self._fp_label = QLabel()
-        self._fp_check = QCheckBox()
-        self._fp_check.setObjectName("Switch")
-        self._fp_spin = QSpinBox()
-        self._fp_spin.setRange(1, 99)
-        self._fp_combo = QComboBox()
-        self._fp_combo.addItems(HOTKEY_CHOICES)
-        self._fp_debounce_spin = QDoubleSpinBox()
-        self._fp_debounce_spin.setRange(0.1, 30.0)
-        self._fp_debounce_spin.setSingleStep(0.5)
-        self._fp_debounce_spin.setDecimals(1)
+        self._vitals_panel = VitalsSettingsPanel()
+        self._hp_spin = self._vitals_panel.hp_threshold_spin
+        self._mp_spin = self._vitals_panel.mp_threshold_spin
+        self._fp_spin = self._vitals_panel.fp_threshold_spin
         self._load_vitals_settings()
 
         self._powerup_panel = PowerUpPanel(self._translator)
@@ -407,9 +268,7 @@ class MainWindow(QMainWindow):
         self._connect_controls()
         self._retranslate()
         self._render_status_badge(BotStatus.PAUSED)
-        self._render_window_status()
-        self._render_gps()
-        self._render_camera()
+        self._status_presenter.render_initial_state()
         self._render_mob_count(0)
         self._render_vitals()
         apply_theme(self)
@@ -508,7 +367,7 @@ class MainWindow(QMainWindow):
 
     @property
     def attack_virtual_key(self) -> int:
-        return self._attack_virtual_key
+        return self._controls_card.attack_virtual_key
 
     @property
     def attack_key_button(self) -> QPushButton:
@@ -544,7 +403,7 @@ class MainWindow(QMainWindow):
 
     @property
     def is_map_popped_out(self) -> bool:
-        return self._is_map_popped_out
+        return self._navigation.is_popped_out
 
     @property
     def popout_map_button(self) -> QPushButton:
@@ -555,8 +414,7 @@ class MainWindow(QMainWindow):
         return self._kill_progress_label
 
     def set_window_status(self, status: WindowStatus) -> None:
-        self._window_status = status
-        self._render_window_status()
+        self._status_presenter.render_window_status(status)
 
     @property
     def goal_label(self) -> QLabel:
@@ -694,46 +552,11 @@ class MainWindow(QMainWindow):
         return self._recovery_hotkey_combo
 
     def _build_layout(self) -> None:
-        status_top = QHBoxLayout()
-        status_top.addWidget(self._status_label)
-        status_top.addWidget(self._window_label)
-        status_top.addWidget(self._gps_label)
-        status_top.addWidget(self._camera_label)
-        status_top.addStretch()
-        self._status_card.setLayout(status_top)
-
-        metrics_layout = QGridLayout()
-        metrics_layout.addWidget(self._mob_label, 0, 0)
-        metrics_layout.addWidget(self._target_label, 0, 1)
-        metrics_layout.addWidget(self._kill_progress_label, 0, 2)
-        metrics_layout.addWidget(self._vitals_label, 1, 0, 1, 2)
-        metrics_layout.addWidget(self._goal_label, 1, 2)
-        self._summary_card.setLayout(metrics_layout)
-
-        controls_layout = QGridLayout()
-        controls_layout.addWidget(self._start_button, 0, 0)
-        controls_layout.addWidget(self._pause_button, 0, 1)
-        controls_layout.addWidget(self._attack_key_label, 0, 2)
-        controls_layout.addWidget(self._attack_key_button, 0, 3)
-        controls_layout.addWidget(self._align_camera_button, 1, 0)
-        controls_layout.addWidget(self._auto_align_toggle, 1, 1, 1, 2)
-        controls_layout.addWidget(self._language_label, 1, 3)
-        controls_layout.addWidget(self._language_selector, 1, 4)
-        controls_layout.setColumnStretch(5, 1)
-        self._controls_card.setLayout(controls_layout)
-
         preview_controls = QWidget()
         preview_controls_layout = QHBoxLayout(preview_controls)
         preview_controls_layout.setContentsMargins(0, 0, 0, 0)
         preview_controls_layout.addWidget(self._camera_preview_toggle)
         preview_controls_layout.addStretch()
-
-        nav_controls = QWidget()
-        nav_controls_layout = QHBoxLayout(nav_controls)
-        nav_controls_layout.setContentsMargins(0, 0, 0, 0)
-        nav_controls_layout.addWidget(self._world_data_button)
-        nav_controls_layout.addWidget(self._popout_map_button)
-        nav_controls_layout.addStretch()
 
         diagnostics_controls = QWidget()
         diagnostics_controls_layout = QHBoxLayout(diagnostics_controls)
@@ -764,7 +587,7 @@ class MainWindow(QMainWindow):
         )
         self._add_scroll_tab(
             DashboardTab.NAVIGATION_WORLD,
-            nav_controls,
+            self._navigation,
             self._map_container,
         )
         self._add_scroll_tab(
@@ -818,26 +641,22 @@ class MainWindow(QMainWindow):
         self._powerup_panel.config_changed.connect(self._on_powerup_config_changed)
         self._placements_toggle.toggled.connect(self._on_placements_toggled)
         self._language_selector.currentIndexChanged.connect(self._switch_language)
-        self._target_grace_spin.valueChanged.connect(self.combat_grace_changed)
-        self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
-        self._anchor_threshold_spin.valueChanged.connect(self._on_anchor_threshold_changed)
+        self._combat_panel.grace_spin.valueChanged.connect(self.combat_grace_changed)
+        self._combat_panel.verification_toggle.toggled.connect(self._on_kill_verification_changed)
+        self._combat_panel.anchor_spin.valueChanged.connect(self._on_anchor_threshold_changed)
         self._target_panel.selection_changed.connect(self._on_target_selection_changed)
         self._quest_panel.selection_changed.connect(self.quest_selection_changed)
-        self._recovery_timeout_spin.valueChanged.connect(self._on_emergency_changed)
-        self._recovery_hotkey_combo.currentIndexChanged.connect(self._on_emergency_changed)
-        for check, spin, combo, debounce in (
-            (self._hp_check, self._hp_spin, self._hp_combo, self._hp_debounce_spin),
-            (self._mp_check, self._mp_spin, self._mp_combo, self._mp_debounce_spin),
-            (self._fp_check, self._fp_spin, self._fp_combo, self._fp_debounce_spin),
-        ):
-            check.toggled.connect(self._on_vitals_changed)
-            spin.valueChanged.connect(self._on_vitals_changed)
-            combo.currentIndexChanged.connect(self._on_vitals_changed)
-            debounce.valueChanged.connect(self._on_vitals_changed)
+        self._recovery_panel.timeout_spin.valueChanged.connect(self._on_emergency_changed)
+        self._recovery_panel.hotkey_combo.currentIndexChanged.connect(self._on_emergency_changed)
+        for controls in self._vitals_panel.rows:
+            controls.enabled.toggled.connect(self._on_vitals_changed)
+            controls.threshold.valueChanged.connect(self._on_vitals_changed)
+            controls.hotkey.currentIndexChanged.connect(self._on_vitals_changed)
+            controls.debounce.valueChanged.connect(self._on_vitals_changed)
 
     @Slot()
     def _on_vitals_changed(self) -> None:
-        config = self.get_vitals_config()
+        config = self._vitals_panel.get_config()
         save_vitals_config(config, self._vitals_config_path)
         self.vitals_config_changed.emit(config)
 
@@ -864,33 +683,17 @@ class MainWindow(QMainWindow):
 
     def _retranslate(self) -> None:
         self.setWindowTitle(self._translator.text(Message.UI_TITLE))
-        self._status_card.setTitle(self._translator.text(Message.UI_CARD_STATUS))
-        self._controls_card.setTitle(self._translator.text(Message.UI_CARD_CONTROLS))
-        self._summary_card.setTitle(self._translator.text(Message.UI_DASHBOARD_SUMMARY))
+        self._status_presenter.set_translator(self._translator)
+        self._status_card.retranslate(self._translator)
+        self._controls_card.retranslate(self._translator)
+        self._summary_card.retranslate(self._translator)
         self._retranslate_tabs()
         self._popout_map_button.setText(
             self._translator.text(
-                Message.UI_DOCK_MAP if self._is_map_popped_out else Message.UI_POPOUT_MAP
+                Message.UI_DOCK_MAP if self._navigation.is_popped_out else Message.UI_POPOUT_MAP
             )
         )
         self._map_window.set_translator(self._translator)
-
-        self._start_button.setText(self._translator.text(Message.UI_START))
-        self._pause_button.setText(self._translator.text(Message.UI_PAUSE))
-        self._attack_key_label.setText(self._translator.text(Message.UI_ATTACK_KEY))
-        self._attack_key_button.setToolTip(self._translator.text(Message.UI_ATTACK_KEY_TOOLTIP))
-        self._attack_key_button.setText(
-            self._translator.text(Message.UI_ATTACK_KEY_RECORDING)
-            if self._is_recording_attack_key
-            else self._attack_key_name
-        )
-        self._align_camera_button.setText(self._translator.text(Message.UI_ALIGN_CAMERA))
-        self._align_camera_button.setToolTip(self._translator.text(Message.UI_ALIGN_CAMERA_TOOLTIP))
-        self._auto_align_toggle.setText(self._translator.text(Message.UI_AUTO_ALIGN_CAMERA))
-        self._auto_align_toggle.setToolTip(
-            self._translator.text(Message.UI_AUTO_ALIGN_CAMERA_TOOLTIP)
-        )
-        self._language_label.setText(self._translator.text(Message.UI_LANGUAGE))
         self._camera_preview_toggle.setText(self._translator.text(Message.UI_CAMERA_PREVIEW))
         self._camera_preview_toggle.setToolTip(
             self._translator.text(Message.UI_CAMERA_PREVIEW_TOOLTIP)
@@ -898,60 +701,21 @@ class MainWindow(QMainWindow):
         self._powerup_panel.set_translator(self._translator)
         self._placements_toggle.setText(self._translator.text(Message.UI_PLACEMENTS_TOGGLE))
         self._placements_toggle.setToolTip(self._translator.text(Message.UI_PLACEMENTS_TOOLTIP))
-        self._combat_panel.setTitle(self._translator.text(Message.UI_COMBAT_SETTINGS))
-        self._retranslate_recovery()
+        self._combat_panel.retranslate(self._translator)
+        self._recovery_panel.retranslate(self._translator)
         self._target_panel.set_translator(self._translator)
         self._quest_panel.set_translator(self._translator)
-        self._target_grace_label.setText(self._translator.text(Message.UI_TARGET_GRACE_PERIOD))
-        self._target_grace_spin.setToolTip(self._translator.text(Message.UI_TARGET_GRACE_TOOLTIP))
-        self._kill_verification_label.setText(self._translator.text(Message.UI_KILL_VERIFICATION))
-        self._kill_verification_toggle.setToolTip(
-            self._translator.text(Message.UI_KILL_VERIFICATION_TOOLTIP)
-        )
-        self._anchor_threshold_label.setText(self._translator.text(Message.UI_ANCHOR_THRESHOLD))
-        self._anchor_threshold_spin.setToolTip(
-            self._translator.text(Message.UI_ANCHOR_THRESHOLD_TOOLTIP)
-        )
-        self._target_debug_panel.setTitle(self._translator.text(Message.UI_TARGET_DEBUG_TITLE))
-        self._target_anchor_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_ANCHOR))
-        self._target_hp_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_HP))
-        self._target_name_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_NAME))
-        self._target_state_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_STATE))
-        self._target_reason_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_REASON))
-        self._target_break_label.setText(self._translator.text(Message.UI_TARGET_DEBUG_BREAK))
-        self._monster_stats_panel.setTitle(
-            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_TITLE)
-        )
-        self._monster_anchor_label.setText(
-            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ANCHOR)
-        )
-        self._monster_roi_label.setText(self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ROI))
-        self._monster_source_label.setText(
-            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_SOURCE)
-        )
-        self._monster_kills_label.setText(
-            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_KILLS)
-        )
-        self._monster_text_label.setText(self._translator.text(Message.UI_MONSTER_STATS_DEBUG_TEXT))
-        self._monster_status_label.setText(
-            self._translator.text(Message.UI_MONSTER_STATS_DEBUG_STATUS)
-        )
-        self._render_monster_stats_debug(
+        self._target_debug_panel.retranslate(self._translator)
+        self._monster_stats_panel.retranslate(self._translator)
+        self._monster_stats_panel.render_metrics(
+            self._translator,
             self._latest_update.state.monster_stats
             if self._latest_update is not None
-            else MonsterStatsMetrics()
+            else MonsterStatsMetrics(),
         )
         self._event_log_panel.set_translator(self._translator)
-        self._vitals_panel.setTitle(self._translator.text(Message.UI_VITALS_TITLE))
-        self._vitals_col_type.setText(self._translator.text(Message.UI_VITALS_HP)[:2])
-        self._vitals_col_active.setText(self._translator.text(Message.UI_VITALS_ACTIVE))
-        self._vitals_col_threshold.setText(self._translator.text(Message.UI_VITALS_THRESHOLD))
-        self._vitals_col_hotkey.setText(self._translator.text(Message.UI_VITALS_HOTKEY))
-        self._vitals_col_debounce.setText(self._translator.text(Message.UI_VITALS_DEBOUNCE))
-        self._hp_label.setText(self._translator.text(Message.UI_VITALS_HP))
-        self._mp_label.setText(self._translator.text(Message.UI_VITALS_MP))
-        self._fp_label.setText(self._translator.text(Message.UI_VITALS_FP))
-        self._path_inspector.set_translator(self._translator)
+        self._vitals_panel.retranslate(self._translator)
+        self._navigation.set_translator(self._translator)
         self._world_data_button.setText(self._translator.text(Message.UI_WORLD_DATA))
         self._world_data_button.setToolTip(self._translator.text(Message.UI_WORLD_DATA_TOOLTIP))
         if self._world_data_dialog is not None:
@@ -971,10 +735,7 @@ class MainWindow(QMainWindow):
         if self._latest_update is not None:
             self._render_update()
         else:
-            self._render_status_badge(BotStatus.PAUSED)
-            self._render_window_status()
-            self._render_gps()
-            self._render_camera()
+            self._status_presenter.render_initial_state()
             self._render_mob_count(0)
             self._render_vitals()
 
@@ -1006,46 +767,17 @@ class MainWindow(QMainWindow):
             self._tab_widget.setTabText(int(tab), self._translator.text(label_key))
             self._tab_widget.setTabToolTip(int(tab), self._translator.text(tooltip_key))
 
-    def _retranslate_recovery(self) -> None:
-        self._recovery_panel.setTitle(self._translator.text(Message.UI_RECOVERY_TITLE))
-        self._recovery_timeout_label.setText(self._translator.text(Message.UI_RECOVERY_TIMEOUT))
-        self._recovery_timeout_spin.setToolTip(
-            self._translator.text(Message.UI_RECOVERY_TIMEOUT_TOOLTIP)
-        )
-        self._recovery_hotkey_label.setText(self._translator.text(Message.UI_RECOVERY_HOTKEY))
-        self._recovery_hotkey_combo.setToolTip(
-            self._translator.text(Message.UI_RECOVERY_HOTKEY_TOOLTIP)
-        )
-        self._recovery_hotkey_combo.blockSignals(True)
-        self._recovery_hotkey_combo.setItemText(
-            0, self._translator.text(Message.UI_RECOVERY_HOTKEY_UNASSIGNED)
-        )
-        self._recovery_hotkey_combo.blockSignals(False)
-
     @Slot()
     def _request_camera_alignment(self) -> None:
         self.align_camera_requested.emit()
 
     @Slot()
     def _begin_attack_key_recording(self) -> None:
-        self._is_recording_attack_key = True
-        self._attack_key_button.setText(self._translator.text(Message.UI_ATTACK_KEY_RECORDING))
-        self._attack_key_button.setFocus(Qt.FocusReason.MouseFocusReason)
+        self._controls_card.begin_attack_key_recording(self._translator)
 
     def _record_attack_key(self, event: QKeyEvent) -> None:
-        label = _key_label(event.key())
-        self._is_recording_attack_key = False
-        if label is None:
-            self._attack_key_button.setToolTip(
-                self._translator.text(Message.UI_ATTACK_KEY_UNSUPPORTED)
-            )
-            self._attack_key_button.setText(self._attack_key_name)
-            return
-        self._attack_virtual_key = parse_virtual_key(label)
-        self._attack_key_name = label
-        self._attack_key_button.setToolTip(self._translator.text(Message.UI_ATTACK_KEY_TOOLTIP))
-        self._attack_key_button.setText(label)
-        self.attack_key_changed.emit(self._attack_virtual_key)
+        if self._controls_card.record_attack_key(event.key(), self._translator):
+            self.attack_key_changed.emit(self._controls_card.attack_virtual_key)
 
     @Slot(DashboardUpdate)
     def update_dashboard(self, update: DashboardUpdate) -> None:
@@ -1067,97 +799,36 @@ class MainWindow(QMainWindow):
         )
 
     def _render_status_badge(self, status: BotStatus) -> None:
-        self._status_label.setText(
-            self._translator.text(
-                Message.UI_BOT_STATUS,
-                status=self._translator.text(_status_message(status)),
-            )
-        )
-        self._status_label.setProperty("status", _status_category(status))
-        style = self._status_label.style()
-        if style is not None:
-            style.unpolish(self._status_label)
-            style.polish(self._status_label)
+        self._status_presenter.render_status(status)
 
-    def _render_window_status(self) -> None:
-        self._window_label.setText(
-            self._translator.text(_window_status_message(self._window_status))
+    def _render_navigation_status(self) -> None:
+        self._status_presenter.render_navigation_status(
+            self._latest_update.navigation if self._latest_update is not None else None
         )
-
-    def _render_gps(self) -> None:
-        live = self._position_source is PositionSource.LIVE
-        navigation = self._latest_update.navigation if self._latest_update is not None else None
-        position = navigation.world_position if navigation is not None else None
-        error_code = navigation.position_error_code if navigation is not None else None
-        reason = self._translator.text(
-            Message.UI_GPS_UNAVAILABLE if error_code is None else _gps_error_message(error_code)
-        )
-        self._gps_label.setText(
-            self._translator.text(Message.UI_GPS_LIVE)
-            if live
-            else self._translator.text(Message.UI_GPS_OFFLINE, reason=reason)
-        )
-        self._gps_label.setProperty("gps", "live" if live else "offline")
-        self._gps_label.setToolTip(
-            self._translator.text(
-                Message.UI_GPS_COORDINATES,
-                x=f"{position.x:.2f}",
-                y=f"{position.y:.2f}",
-                z=f"{position.z:.2f}",
-            )
-            if position is not None
-            else self._translator.text(Message.UI_GPS_OFFLINE, reason=reason)
-        )
-        style = self._gps_label.style()
-        if style is not None:
-            style.unpolish(self._gps_label)
-            style.polish(self._gps_label)
-
-    def _render_camera(self) -> None:
-        navigation = self._latest_update.navigation if self._latest_update is not None else None
-        state = navigation.camera_state if navigation is not None else None
-        error_code = navigation.camera_error_code if navigation is not None else None
-        reason = self._translator.text(
-            Message.UI_GPS_UNAVAILABLE if error_code is None else _camera_error_message(error_code)
-        )
-        self._camera_label.setText(
-            self._translator.text(Message.UI_CAMERA_LIVE)
-            if state is not None
-            else self._translator.text(Message.UI_CAMERA_OFFLINE, reason=reason)
-        )
-        self._camera_label.setProperty("camera", "live" if state is not None else "offline")
-        style = self._camera_label.style()
-        if style is not None:
-            style.unpolish(self._camera_label)
-            style.polish(self._camera_label)
 
     def _render_update(self) -> None:
         if self._latest_update is None:
             return
         update = self._latest_update
         self._render_status_badge(update.status)
-        self._window_status = update.window
-        self._render_window_status()
-        self._position_source = (
-            update.navigation.position_source
-            if update.navigation is not None
-            else PositionSource.UNAVAILABLE
-        )
-        self._render_gps()
-        self._render_camera()
+        self._status_presenter.render_window_status(update.window)
+        self._render_navigation_status()
         self._render_mob_count(update.state.nearby_mob_count)
         self._render_target(update.state.selected_target)
         self._render_goal(update.goal, update.state.inventory)
         self._render_vitals(update.state)
         self._render_kill_progress(update.kill_progress)
         self._target_panel.set_progress(update.kill_progress)
+        self._navigation.render_navigation(update.navigation)
+        self._quest_panel.set_progress(
+            update.quest_title, update.quest_progress, update.quest_queue_completed
+        )
         self._quest_panel.set_progress(
             update.quest_title, update.quest_progress, update.quest_queue_completed
         )
         self._event_log_panel.set_events(update.events)
         self._render_target_debug(update.state.selected_target, update.engagement_break)
         self._render_monster_stats_debug(update.state.monster_stats)
-        self._path_inspector.set_navigation(update.navigation)
         self._align_camera_button.setEnabled(
             update.status in {BotStatus.PAUSED, BotStatus.STANDBY, BotStatus.ALIGNMENT_FAILED}
         )
@@ -1179,7 +850,7 @@ class MainWindow(QMainWindow):
 
     def _render_goal(self, goal: FarmingGoal | None, inventory: Sequence[object]) -> None:
         state = self._latest_update.state if self._latest_update is not None else None
-        self._goal_label.setText(_goal_text(self._translator, state, goal))
+        self._goal_label.setText(goal_text(self._translator, state, goal))
 
     def _render_vitals(self, state: WorldState | None = None) -> None:
         vitals = state.player_vitals if state is not None else None
@@ -1203,88 +874,15 @@ class MainWindow(QMainWindow):
         )
 
     def _render_kill_progress(self, progress: tuple[MobKillProgress, ...]) -> None:
-        self._kill_progress_label.setText(_kill_progress_text(self._translator, progress))
+        self._kill_progress_label.setText(kill_progress_text(self._translator, progress))
 
     def _render_target_debug(
         self, target: SelectedTarget, break_reason: EngagementBreakReason | None
     ) -> None:
-        metrics = target.metrics
-        self._target_anchor_val.setText(
-            self._translator.text(
-                Message.UI_TARGET_DEBUG_ANCHOR_VALUE,
-                status=_pass_fail_text(self._translator, metrics.anchor_passed),
-                score=f"{metrics.anchor_score:.2f}",
-                threshold=f"{metrics.anchor_threshold:.2f}",
-            )
-        )
-        self._target_hp_val.setText(
-            self._translator.text(
-                Message.UI_TARGET_DEBUG_HP_VALUE,
-                status=_pass_fail_text(self._translator, metrics.hp_passed),
-                pixels=metrics.hp_pixel_count,
-                percentage=f"{metrics.hp_percentage:.1f}",
-            )
-        )
-        self._target_name_val.setText(
-            self._translator.text(Message.UI_TARGET_DEBUG_NAME_NOT_EVALUATED)
-            if metrics.name_status is TargetNameStatus.NOT_EVALUATED
-            else self._translator.text(
-                Message.UI_TARGET_DEBUG_NAME_VALUE,
-                status=_pass_fail_text(self._translator, metrics.name_passed),
-                text=metrics.name_text,
-                name=metrics.name_candidate or self._translator.text(Message.UI_NO_TARGET_NAME),
-            )
-        )
-
-        self._target_state_val.setText(self._translator.text(_target_state_message(target.state)))
-        self._target_reason_val.setText(
-            self._translator.text(_target_failure_reason_message(target))
-        )
-        self._target_break_val.setText(
-            self._translator.text(_engagement_break_message(break_reason))
-        )
+        self._target_debug_panel.render_target(self._translator, target, break_reason)
 
     def _render_monster_stats_debug(self, metrics: MonsterStatsMetrics) -> None:
-        if not metrics.anchor_configured:
-            anchor_text = self._translator.text(Message.UI_MONSTER_STATS_DEBUG_ANCHOR_FIXED_REGION)
-        else:
-            anchor_text = self._translator.text(
-                Message.UI_MONSTER_STATS_DEBUG_ANCHOR_VALUE,
-                status=_pass_fail_text(self._translator, metrics.anchor_passed),
-                score=f"{metrics.anchor_score:.2f}",
-                threshold=f"{metrics.anchor_threshold:.2f}",
-            )
-        self._monster_anchor_val.setText(anchor_text)
-
-        if metrics.roi_width > 0 and metrics.roi_height > 0:
-            self._monster_roi_val.setText(
-                self._translator.text(
-                    Message.UI_MONSTER_STATS_DEBUG_ROI_VALUE,
-                    width=metrics.roi_width,
-                    height=metrics.roi_height,
-                )
-            )
-        else:
-            self._monster_roi_val.setText(
-                self._translator.text(Message.UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE)
-            )
-
-        self._monster_source_val.setText(
-            self._translator.text(_monster_stats_source_message(metrics.source))
-        )
-        self._monster_kills_val.setText(
-            str(metrics.parsed_count)
-            if metrics.parsed_count is not None
-            else self._translator.text(Message.UI_MONSTER_STATS_DEBUG_NO_COUNT)
-        )
-        self._monster_text_val.setText(
-            metrics.raw_text
-            if metrics.raw_text
-            else self._translator.text(Message.UI_MONSTER_STATS_DEBUG_NO_TEXT)
-        )
-        self._monster_status_val.setText(
-            self._translator.text(_monster_stats_status_message(metrics.status))
-        )
+        self._monster_stats_panel.render_metrics(self._translator, metrics)
 
     def _render_overlay_frame(
         self, frame: CapturedFrame | None, state: WorldState | None = None
@@ -1317,32 +915,11 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _toggle_map_popout(self) -> None:
-        if self._is_map_popped_out:
-            self._dock_map()
-        else:
-            self._popout_map()
-
-    def _popout_map(self) -> None:
-        item = self._map_container_layout.takeAt(0)
-        if item is not None:
-            inspector = item.widget()
-            if isinstance(inspector, PathInspectorWidget):
-                self._map_window.set_inspector(inspector)
-                self._map_window.show()
-                self._is_map_popped_out = True
-                self._popout_map_button.setText(self._translator.text(Message.UI_DOCK_MAP))
-
-    def _dock_map(self) -> None:
-        inspector = self._map_window.take_inspector()
-        if inspector is not None:
-            self._map_container_layout.addWidget(inspector)
-            self._map_window.hide()
-            self._is_map_popped_out = False
-            self._popout_map_button.setText(self._translator.text(Message.UI_POPOUT_MAP))
+        self._navigation.toggle_popout()
 
     @Slot()
     def _on_map_window_closed(self) -> None:
-        self._dock_map()
+        self._navigation.dock()
 
     @Slot()
     def _request_start(self) -> None:
@@ -1367,6 +944,7 @@ class MainWindow(QMainWindow):
                 return
             self._translator = Translator(language)
             self._retranslate()
+            self._quest_controller.set_translator(self._translator)
             self._placement_overlay.set_translator(self._translator)
 
     @Slot(bool)
@@ -1395,72 +973,10 @@ class MainWindow(QMainWindow):
 
     def _load_vitals_settings(self) -> None:
         config = load_vitals_config(self._vitals_config_path)
-        for rule in config.rules:
-            key_name = ""
-            for name in HOTKEY_CHOICES:
-                try:
-                    if parse_virtual_key(name) == rule.virtual_key:
-                        key_name = name
-                        break
-                except ValueError:
-                    continue
-            if rule.vital_type is VitalTriggerType.HP:
-                self._hp_check.setChecked(rule.enabled)
-                self._hp_spin.setValue(round(rule.threshold_percentage))
-                self._hp_combo.setCurrentText(key_name)
-                self._hp_debounce_spin.setValue(rule.debounce_seconds)
-            elif rule.vital_type is VitalTriggerType.MP:
-                self._mp_check.setChecked(rule.enabled)
-                self._mp_spin.setValue(round(rule.threshold_percentage))
-                self._mp_combo.setCurrentText(key_name)
-                self._mp_debounce_spin.setValue(rule.debounce_seconds)
-            elif rule.vital_type is VitalTriggerType.FP:
-                self._fp_check.setChecked(rule.enabled)
-                self._fp_spin.setValue(round(rule.threshold_percentage))
-                self._fp_combo.setCurrentText(key_name)
-                self._fp_debounce_spin.setValue(rule.debounce_seconds)
+        self._vitals_panel.load_config(config)
 
     def get_vitals_config(self) -> VitalsTriggerConfig:
-        rules = []
-        for vital_type, check, spin, combo, debounce in (
-            (
-                VitalTriggerType.HP,
-                self._hp_check,
-                self._hp_spin,
-                self._hp_combo,
-                self._hp_debounce_spin,
-            ),
-            (
-                VitalTriggerType.MP,
-                self._mp_check,
-                self._mp_spin,
-                self._mp_combo,
-                self._mp_debounce_spin,
-            ),
-            (
-                VitalTriggerType.FP,
-                self._fp_check,
-                self._fp_spin,
-                self._fp_combo,
-                self._fp_debounce_spin,
-            ),
-        ):
-            try:
-                vk = parse_virtual_key(combo.currentText().strip())
-            except ValueError:
-                # An unreadable hotkey is an unusable rule rather than a silently
-                # re-assigned one, so the entry is dropped instead of guessed.
-                continue
-            rules.append(
-                VitalTriggerRule(
-                    vital_type=vital_type,
-                    threshold_percentage=spin.value(),
-                    virtual_key=vk,
-                    debounce_seconds=debounce.value(),
-                    enabled=check.isChecked(),
-                )
-            )
-        return VitalsTriggerConfig(rules=tuple(rules))
+        return self._vitals_panel.get_config()
 
     def _load_powerup_settings(self) -> None:
         config = load_powerup_config(self._powerup_config_path)
@@ -1480,37 +996,15 @@ class MainWindow(QMainWindow):
 
     def _load_emergency_settings(self) -> None:
         config = load_emergency_config(self._emergency_config_path)
-        self._recovery_timeout_spin.setValue(config.stuck_timeout_seconds)
-        key_name = None
-        if config.teleport_virtual_key is not None:
-            for name in EMERGENCY_HOTKEY_CHOICES:
-                try:
-                    if parse_virtual_key(name) == config.teleport_virtual_key:
-                        key_name = name
-                        break
-                except ValueError:
-                    continue
-        index = self._recovery_hotkey_combo.findData(key_name)
-        if index >= 0:
-            self._recovery_hotkey_combo.setCurrentIndex(index)
+        self._recovery_panel.load_config(config)
 
     def get_emergency_config(self) -> EmergencyRecoveryConfig:
-        hotkey_data = self._recovery_hotkey_combo.currentData()
-        virtual_key: int | None = None
-        if hotkey_data:
-            try:
-                virtual_key = parse_virtual_key(str(hotkey_data))
-            except ValueError:
-                virtual_key = None
-        return EmergencyRecoveryConfig(
-            stuck_timeout_seconds=self._recovery_timeout_spin.value(),
-            teleport_virtual_key=virtual_key,
-        )
+        return self._recovery_panel.get_config()
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if (
             watched is self._attack_key_button
-            and self._is_recording_attack_key
+            and self._controls_card._is_recording_attack_key
             and event.type() == QEvent.Type.KeyPress
             and isinstance(event, QKeyEvent)
         ):
@@ -1534,193 +1028,3 @@ class MainWindow(QMainWindow):
         save_vitals_config(self.get_vitals_config(), self._vitals_config_path)
         save_emergency_config(self.get_emergency_config(), self._emergency_config_path)
         super().closeEvent(event)
-
-
-def _key_label(key_code: int) -> str | None:
-    if Qt.Key.Key_F1 <= key_code <= Qt.Key.Key_F12:
-        return f"F{key_code - int(Qt.Key.Key_F1) + 1}"
-    if Qt.Key.Key_0 <= key_code <= Qt.Key.Key_9:
-        return chr(key_code)
-    if Qt.Key.Key_A <= key_code <= Qt.Key.Key_Z:
-        return chr(key_code)
-    if key_code == Qt.Key.Key_Space:
-        return "Space"
-    return None
-
-
-def _status_message(status: BotStatus) -> Message:
-    return {
-        BotStatus.ACTIVE: Message.UI_STATUS_ACTIVE,
-        BotStatus.STANDBY: Message.UI_STATUS_STANDBY,
-        BotStatus.COMPLETED: Message.UI_STATUS_COMPLETED,
-        BotStatus.PAUSED: Message.UI_STATUS_PAUSED,
-        BotStatus.EMERGENCY_STOPPED: Message.UI_STATUS_EMERGENCY_STOPPED,
-        BotStatus.COMBAT: Message.UI_STATUS_COMBAT,
-        BotStatus.RECONCILING: Message.UI_STATUS_RECONCILING,
-        BotStatus.SEARCH_ROTATING: Message.UI_STATUS_SEARCH_ROTATING,
-        BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
-        BotStatus.REPOSITIONING: Message.UI_STATUS_REPOSITIONING,
-        BotStatus.APPROACHING: Message.UI_STATUS_APPROACHING,
-        BotStatus.ALIGNING: Message.UI_STATUS_ALIGNING,
-        BotStatus.ALIGNMENT_FAILED: Message.UI_STATUS_ALIGNMENT_FAILED,
-        BotStatus.EMERGENCY_TELEPORT: Message.UI_STATUS_EMERGENCY_TELEPORT,
-        BotStatus.EMERGENCY_TELEPORT_UNAVAILABLE: Message.UI_STATUS_EMERGENCY_TELEPORT_UNAVAILABLE,
-    }[status]
-
-
-def _gps_error_message(code: PositionReadErrorCode) -> Message:
-    return {
-        PositionReadErrorCode.UNSUPPORTED_PLATFORM: Message.UI_GPS_ERROR_UNSUPPORTED_PLATFORM,
-        PositionReadErrorCode.WINDOW_NOT_FOREGROUND: Message.UI_GPS_ERROR_WINDOW_NOT_FOREGROUND,
-        PositionReadErrorCode.PROCESS_UNAVAILABLE: Message.UI_GPS_ERROR_PROCESS_UNAVAILABLE,
-        PositionReadErrorCode.WRONG_PROCESS: Message.UI_GPS_ERROR_WRONG_PROCESS,
-        PositionReadErrorCode.UNSUPPORTED_BUILD: Message.UI_GPS_ERROR_UNSUPPORTED_BUILD,
-        PositionReadErrorCode.HANDLE_LOST: Message.UI_GPS_ERROR_HANDLE_LOST,
-        PositionReadErrorCode.MALFORMED_READ: Message.UI_GPS_ERROR_MALFORMED_READ,
-        PositionReadErrorCode.INVALID_PROFILE_CONFIGURATION: (
-            Message.UI_GPS_ERROR_INVALID_PROFILE_CONFIGURATION
-        ),
-    }[code]
-
-
-def _camera_error_message(code: CameraReadErrorCode) -> Message:
-    return {
-        CameraReadErrorCode.UNSUPPORTED_PLATFORM: Message.UI_CAMERA_ERROR_UNSUPPORTED_PLATFORM,
-        CameraReadErrorCode.WINDOW_NOT_FOREGROUND: Message.UI_CAMERA_ERROR_WINDOW_NOT_FOREGROUND,
-        CameraReadErrorCode.PROCESS_UNAVAILABLE: Message.UI_CAMERA_ERROR_PROCESS_UNAVAILABLE,
-        CameraReadErrorCode.WRONG_PROCESS: Message.UI_CAMERA_ERROR_WRONG_PROCESS,
-        CameraReadErrorCode.UNSUPPORTED_BUILD: Message.UI_CAMERA_ERROR_UNSUPPORTED_BUILD,
-        CameraReadErrorCode.HANDLE_LOST: Message.UI_CAMERA_ERROR_HANDLE_LOST,
-        CameraReadErrorCode.MALFORMED_READ: Message.UI_CAMERA_ERROR_MALFORMED_READ,
-        CameraReadErrorCode.INVALID_PROFILE_CONFIGURATION: (
-            Message.UI_CAMERA_ERROR_INVALID_PROFILE_CONFIGURATION
-        ),
-    }[code]
-
-
-def _window_status_message(status: WindowStatus) -> Message:
-    return {
-        WindowStatus.OK: Message.UI_WINDOW_OK,
-        WindowStatus.NOT_FOREGROUND: Message.UI_WINDOW_NOT_FOREGROUND,
-        WindowStatus.MINIMIZED: Message.UI_WINDOW_MINIMIZED,
-        WindowStatus.NOT_FOUND: Message.UI_WINDOW_NOT_FOUND,
-        WindowStatus.CAPTURE_FAILED: Message.UI_WINDOW_CAPTURE_FAILED,
-    }[status]
-
-
-def _status_category(status: BotStatus) -> str:
-    if status == BotStatus.ACTIVE:
-        return "active"
-    if status in {BotStatus.STANDBY, BotStatus.COMPLETED}:
-        return "standby"
-    if status == BotStatus.COMBAT:
-        return "combat"
-    if status == BotStatus.PAUSED:
-        return "paused"
-    if status == BotStatus.EMERGENCY_STOPPED:
-        return "emergency_stopped"
-    if status in {BotStatus.RECONCILING, BotStatus.ALIGNING}:
-        return "reconciling"
-    if status in {BotStatus.ALIGNMENT_FAILED, BotStatus.EMERGENCY_TELEPORT_UNAVAILABLE}:
-        return "emergency_stopped"
-    if status == BotStatus.EMERGENCY_TELEPORT:
-        return "reconciling"
-    return "search"
-
-
-def _pass_fail_text(translator: Translator, passed: bool) -> str:
-    return translator.text(Message.UI_TARGET_DEBUG_PASS if passed else Message.UI_TARGET_DEBUG_FAIL)
-
-
-def _target_state_message(state: TargetState) -> Message:
-    return {
-        TargetState.VALID: Message.UI_TARGET_VALID,
-        TargetState.WRONG: Message.UI_TARGET_WRONG,
-        TargetState.NONE: Message.UI_TARGET_NONE,
-    }[state]
-
-
-def _monster_stats_status_message(status: MonsterStatsStatus) -> Message:
-    return {
-        MonsterStatsStatus.IDLE: Message.UI_MONSTER_STATS_DEBUG_STATUS_IDLE,
-        MonsterStatsStatus.OK: Message.UI_MONSTER_STATS_DEBUG_STATUS_OK,
-        MonsterStatsStatus.ROI_UNAVAILABLE: Message.UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE,
-        MonsterStatsStatus.ENGINE_UNAVAILABLE: (
-            Message.UI_MONSTER_STATS_DEBUG_STATUS_ENGINE_UNAVAILABLE
-        ),
-        MonsterStatsStatus.OCR_FAILED: Message.UI_MONSTER_STATS_DEBUG_STATUS_OCR_FAILED,
-        MonsterStatsStatus.NO_MATCH: Message.UI_MONSTER_STATS_DEBUG_STATUS_NO_MATCH,
-    }[status]
-
-
-def _monster_stats_source_message(source: MonsterStatsSource) -> Message:
-    return {
-        MonsterStatsSource.ANCHORED: Message.UI_MONSTER_STATS_DEBUG_SOURCE_ANCHORED,
-        MonsterStatsSource.FIXED_REGION: Message.UI_MONSTER_STATS_DEBUG_SOURCE_FIXED_REGION,
-    }[source]
-
-
-def _engagement_break_message(reason: EngagementBreakReason | None) -> Message:
-    if reason is None:
-        return Message.UI_TARGET_DEBUG_BREAK_NONE
-    return {
-        EngagementBreakReason.ACQUISITION_TIMEOUT: Message.UI_TARGET_DEBUG_BREAK_ACQUISITION,
-        EngagementBreakReason.TARGET_UNVERIFIED: Message.UI_TARGET_DEBUG_BREAK_UNVERIFIED,
-        EngagementBreakReason.ENGAGEMENT_TIMEOUT: Message.UI_TARGET_DEBUG_BREAK_TIMEOUT,
-        EngagementBreakReason.OBSTACLE_STALL: Message.UI_TARGET_DEBUG_BREAK_OBSTACLE,
-    }[reason]
-
-
-def _target_failure_reason_message(target: SelectedTarget) -> Message:
-    metrics = target.metrics
-    if target.state is TargetState.VALID:
-        return Message.UI_TARGET_DEBUG_REASON_OK
-    if not metrics.anchor_passed:
-        return Message.UI_TARGET_DEBUG_REASON_ANCHOR
-    if not metrics.hp_passed:
-        return Message.UI_TARGET_DEBUG_REASON_HP
-    return _target_name_reason_message(metrics.name_status)
-
-
-def _target_name_reason_message(status: TargetNameStatus) -> Message:
-    return {
-        TargetNameStatus.NOT_EVALUATED: Message.UI_TARGET_DEBUG_REASON_ANCHOR,
-        TargetNameStatus.MATCHED: Message.UI_TARGET_DEBUG_REASON_OK,
-        TargetNameStatus.NO_MATCH: Message.UI_TARGET_DEBUG_REASON_NAME,
-        TargetNameStatus.UNREADABLE: Message.UI_TARGET_DEBUG_REASON_NAME_UNREADABLE,
-        TargetNameStatus.OCR_FAILED: Message.UI_TARGET_DEBUG_REASON_NAME_OCR_FAILED,
-        TargetNameStatus.ENGINE_UNAVAILABLE: Message.UI_TARGET_DEBUG_REASON_NAME_ENGINE,
-    }[status]
-
-
-def _goal_text(translator: Translator, state: WorldState | None, goal: FarmingGoal | None) -> str:
-    if goal is None:
-        return translator.text(Message.UI_NO_GOAL)
-    quantities = (
-        {entry.item: entry.quantity for entry in state.inventory} if state is not None else {}
-    )
-    return translator.text(
-        Message.UI_GOAL_PROGRESS,
-        current=quantities.get(goal.item_name, 0),
-        required=goal.required_quantity,
-        item_name=goal.item_name,
-    )
-
-
-def _kill_progress_text(translator: Translator, progress: tuple[MobKillProgress, ...]) -> str:
-    if not progress:
-        return translator.text(Message.UI_KILL_PROGRESS_NONE)
-    entries = [
-        translator.text(
-            (
-                Message.UI_KILL_PROGRESS_UNLIMITED_ENTRY
-                if item.is_unlimited
-                else Message.UI_KILL_PROGRESS_ENTRY
-            ),
-            name=item.class_name,
-            kills=item.kills,
-            required=item.required_kills,
-        )
-        for item in progress
-    ]
-    return translator.text(Message.UI_KILL_PROGRESS_SUMMARY, progress=", ".join(entries))
