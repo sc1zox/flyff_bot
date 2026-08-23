@@ -1,12 +1,15 @@
 ---
 id: US-075
 title: Portable one-click static client data extraction
-status: draft
+status: superseded
 created: 2026-08-23
 updated: 2026-08-23
 ---
 
-# US-075: Portable one-click static client data extraction
+# US-075: Portable one-click static client data extraction (Superseded by US-078)
+
+> [!NOTE]
+> **Superseded:** This story's portable dataset schema, table extraction passes, manifest generation, and offline capabilities have been consolidated into [US-078](../US-078-initial-setup-wizard-and-unified-client-data-extraction.md), which serves as the leading initial setup, unified extraction, and memory profiling specification.
 
 ## Story
 
@@ -15,6 +18,7 @@ As a **bot operator running the extraction workstation separately from the autom
 ## Context and assumptions
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
+- Consolidated into [US-078](../US-078-initial-setup-wizard-and-unified-client-data-extraction.md).
 - The operator selects or enters the installation path; the application must not assume that `Entropia/Entropia/Data` exists on every machine.
 - Static file reading is authorized by [ADR-005](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md). The installation remains read-only.
 - Existing archive readers already support both `.hdr`/`.one` generations, including name-addressed keyed archives ([US-052](completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md), [US-061](completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md)).
