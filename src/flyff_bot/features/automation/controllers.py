@@ -329,6 +329,11 @@ class CombatController:
 
         self._config = config
 
+    def reset(self) -> None:
+        """Finish a completed engagement so candidate selection can resume immediately."""
+
+        self._reset()
+
     def begin_target_acquisition(self, observed_at_seconds: float) -> None:
         """Start the visual target-header grace period when a deferred click is sent."""
 

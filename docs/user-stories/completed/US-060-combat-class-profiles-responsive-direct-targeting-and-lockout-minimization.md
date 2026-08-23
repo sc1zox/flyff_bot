@@ -1,9 +1,9 @@
 ---
 id: US-060
 title: Combat class profiles, responsive direct targeting, and spatial lockout minimization
-status: draft
+status: completed
 created: 2026-08-20
-updated: 2026-08-23
+updated: 2026-08-24
 ---
 
 # US-060: Combat class profiles, responsive direct targeting, and spatial lockout minimization
@@ -72,8 +72,7 @@ so that **monsters in view are immediately targeted without unnecessary approach
   - Lockout constants, dense-pack selection behavior, and post-kill same-tick recovery have focused tests in
     `test_combat_controller.py` and `test_orchestrator.py`.
 - Completed:
-  - Ranged/straight-route targeting, obstructed-route approach, profile configuration, custom-distance propagation, and UI signals now have focused regression coverage.
-  - Windows `./scripts/check.ps1` passed on 2026-08-23 with Ruff/mypy clean, 746 passed, 3 platform skips, and 88.77% coverage.
+  - Ranged/straight-route targeting, obstructed-route approach, profile configuration, custom-distance propagation, UI signals, and post-kill reconciliation now have focused regression coverage.
 - Manual (Windows):
   - All three live-client checks remain unrun. They must validate actual attack-range selection and direct-click behavior; automated tests cannot prove those client responses.
 
@@ -85,3 +84,6 @@ so that **monsters in view are immediately targeted without unnecessary approach
   behavior requires live Windows validation rather than static archive data.
 - Follow-up on 2026-08-23 closed the missing regression proof while preserving the audit's live-validation caveat.
   Preset engagement distances remain unmeasured operator defaults.
+- Follow-up on 2026-08-24 added a direct orchestrator regression proving that post-kill reconciliation
+  selects and clicks the next candidate in the same tick, then restored completed status after the full
+  repository gate passed.

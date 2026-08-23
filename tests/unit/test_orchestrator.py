@@ -277,6 +277,32 @@ def test_navigation_pathing_continues_uninterrupted_across_a_kill_transition() -
     assert all(update.navigation is not None for update in updates)
 
 
+def test_post_kill_reconciliation_selects_next_candidate_in_same_tick() -> None:
+    """US-060: reconciliation must not spend an idle tick before the next target."""
+
+    adapter = _InputAdapter()
+    valid = SelectedTarget(TargetState.VALID, "Mushpang", 100)
+    next_mob = VisibleMob(2, "Mushpang", 0.9, 120, 60, 20, 20)
+    states = [
+        _state(1.0, mobs=(MOB,)),
+        _state(2.0, target=valid),
+        _state(3.0, target=SelectedTarget(TargetState.VALID, "Mushpang", 50)),
+        _state(4.0, target=SelectedTarget(TargetState.NONE, None, 0)),
+        _state(5.0, mobs=(next_mob,)),
+    ]
+    orchestrator = _orchestrator(states, adapter)
+    orchestrator.start()
+
+    for _ in range(4):
+        orchestrator.tick()
+
+    result = orchestrator.tick()
+
+    assert result.mode is FarmingMode.TARGETING
+    assert len(adapter.clicks) == 2
+    assert adapter.clicks[-1] == (WINDOW_HANDLE, 130, 70)
+
+
 def _measured_mob(distance: float) -> VisibleMob:
     return replace(
         MOB,

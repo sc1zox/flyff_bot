@@ -1765,7 +1765,7 @@ keep their behaviour; only the import direction was corrected.
 The automated repository gate passed on 2026-08-21 at 719 passed, 2 skipped, and 89.70% coverage.
 Running the trainer on a real recorded Windows farming session and inspecting the produced
 artifacts remains outstanding and is not implied by the automated result.
-## Combat class profiles and responsive direct targeting (US-060, partially implemented)
+## Combat class profiles and responsive direct targeting (US-060, completed)
 
 `CombatClassProfile` provides melee, ranged, and custom engagement profiles with defaults of
 3.0 and 15.0 world units. `FarmingOrchestrator.configure_combat_class()` and
@@ -1777,16 +1777,17 @@ NavMesh route is one straight segment. Only a longer multi-waypoint route enters
 existing safe fallbacks.
 
 The corpse lockout now defaults to one second at 15 pixels so dense packs remain selectable,
-while failed acquisition still suppresses immediate re-clicks. Post-kill reconciliation returns
-to searching and evaluates candidates in the same tick. The combat dashboard exposes a localized
-class dropdown plus engagement-distance control wired dynamically through the app boundary.
+while failed acquisition still suppresses immediate re-clicks. Post-kill reconciliation resets the
+finished combat engagement, returns to searching, and evaluates candidates in the same tick. The
+combat dashboard exposes a localized class dropdown plus engagement-distance control wired
+dynamically through the app boundary.
 Focus loss, pause, and emergency stop continue to abort all dispatch paths before input.
 
-The Windows gate passed on 2026-08-23 with Ruff and mypy clean, 746 tests passed, three platform
-skips, and 88.77% coverage. Regression coverage now proves the ranged preset, straight versus
-multi-waypoint route handling, profile/custom-distance propagation, and dashboard signal wiring.
-The 3.0 / 15.0 unit presets remain operator defaults rather than measured Entropia client ranges,
-and live Windows validation of actual attack-range selection remains required.
+A regression now proves that post-kill reconciliation selects and clicks the next candidate in the
+same tick. Regression coverage also proves the ranged preset, straight versus multi-waypoint route
+handling, profile/custom-distance propagation, and dashboard signal wiring. The 3.0 / 15.0 unit
+presets remain operator defaults rather than measured Entropia client ranges, and live Windows
+validation of actual attack-range selection remains required.
 
 ## Client dungeon data and live cooldown extraction (US-063, completed)
 

@@ -800,6 +800,7 @@ class FarmingOrchestrator:
                 self._config.effective_desired_state, self._state
             )
             if reconciliation.is_healthy:
+                self._combat.reset()
                 self._set_mode(FarmingMode.SEARCHING, reason="reconciled")
                 return self._advance()
             else:

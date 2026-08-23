@@ -961,3 +961,11 @@ explicitly unavailable until static-analysis and in-game verification provide x8
 Synthesized the review correction into `architecture.md`: invalid pointers are distinct from
 malformed reads, unavailable snapshots retain the last complete field-name set across repeated
 failures, and profile bounds govern legitimate negative values.
+
+## [2026-08-24] completion | Combat class profiles and responsive targeting (US-060)
+
+Added a direct post-kill reconciliation regression proving same-tick selection and guarded click
+dispatch, exposed the combat-controller completion reset at the orchestration boundary, restored
+US-060 to completed, and synthesized the closed criterion set into `architecture.md`. Preset
+engagement distances remain unmeasured operator defaults and live Windows validation remains
+outstanding.
