@@ -90,6 +90,41 @@ def test_recognizer_decodes_engine_output_as_utf_8_with_replacement(
     assert lines == ("Flame <Lvl 175>",)
 
 
+def test_recognizer_streams_tsv_to_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        commands.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            b"level\tpage\tblock\tpar\tline\tword\tleft\ttop\twidth"
+            b"\theight\tconf\ttext\n"
+            b"5\t1\t1\t1\t1\t1\t10\t20\t100\t20\t95\tFlame\n",
+            b"",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    lines = TesseractTextRecognizer("tesseract").recognize(np.full((32, 64), 255, dtype=np.uint8))
+
+    assert commands == [
+        [
+            "tesseract",
+            "-",
+            "stdout",
+            "-l",
+            "eng+deu",
+            "--psm",
+            "6",
+            "tsv",
+        ]
+    ]
+    assert lines == ("Flame",)
+
+
 def test_recognizer_reports_missing_language_data_as_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

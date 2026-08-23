@@ -131,11 +131,12 @@ class TesseractTextRecognizer:
                 [
                     self._executable,
                     "-",
-                    _TESSERACT_TSV_FORMAT,
+                    _TESSERACT_OUTPUT_FORMAT,
                     "-l",
                     self._language,
                     _TESSERACT_CONFIG_ARGUMENT,
                     str(TESSERACT_PAGE_SEGMENTATION_MODE),
+                    _TESSERACT_TSV_FORMAT,
                 ],
                 input=stdin_payload,
                 capture_output=True,

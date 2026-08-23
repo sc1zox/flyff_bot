@@ -1,7 +1,7 @@
 ---
 id: BUG-029
 title: Tesseract OCR TSV argument ordering causes empty stdout and unreadable target names
-status: reported
+status: resolved
 severity: high
 created: 2026-08-23
 updated: 2026-08-23
@@ -56,6 +56,6 @@ updated: 2026-08-23
 
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated test or deterministic manual check exists.
+- [x] The check passes after the fix.
+- [x] Related documentation is current.
