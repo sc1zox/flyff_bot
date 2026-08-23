@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol
 
 from flyff_bot.constants import DEFAULT_CLIENT_DUNGEON_PROFILES_PATH
 from flyff_bot.features.dungeons.models import (
@@ -35,6 +36,7 @@ class DungeonReadStatus(StrEnum):
     """Typed reason a live dungeon poll could not produce authoritative state."""
 
     UNCONFIGURED_PROFILE = "unconfigured_profile"
+    WINDOW_NOT_FOREGROUND = "window_not_foreground"
     PROCESS_UNAVAILABLE = "process_unavailable"
     HANDLE_LOST = "handle_lost"
 
@@ -47,6 +49,21 @@ class DungeonReadDiagnostic:
     detail: str = ""
 
 
+class ForegroundProcessMemoryApi(ProcessMemoryApi, Protocol):
+    """The read-only process boundary needed for foreground-gated polling."""
+
+    def is_window_foreground(self, window_handle: int) -> bool: ...
+
+
+class _DungeonOpenError(Exception):
+    """Client attachment failed before a verified read-only read could occur."""
+
+    def __init__(self, status: DungeonReadStatus, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
 class LiveDungeonCooldownReader:
     """Poll one exact client build's fixed cooldown array without scanning or writing."""
 
@@ -55,7 +72,7 @@ class LiveDungeonCooldownReader:
         window_handle: int,
         definitions: Mapping[int, DungeonDefinition],
         *,
-        api: ProcessMemoryApi | None = None,
+        api: ForegroundProcessMemoryApi | None = None,
         profiles: Mapping[str, ClientDungeonProfile] | None = None,
         profiles_path: Path = Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
         poll_hertz: float = DEFAULT_DUNGEON_POLL_HERTZ,
@@ -78,6 +95,9 @@ class LiveDungeonCooldownReader:
                 self._profile_configuration_error = str(error)
         self._poll_interval_seconds = 1.0 / poll_hertz
         self._polled_at_seconds: float | None = None
+        self._handle: int | None = None
+        self._module_base: int | None = None
+        self._profile: ClientDungeonProfile | None = None
         self._last_snapshot: tuple[DungeonStateSnapshot, ...] | None = None
         self._last_diagnostic: DungeonReadDiagnostic | None = None
 
@@ -86,6 +106,12 @@ class LiveDungeonCooldownReader:
         """Return why the most recent poll degraded to unknown rows, if it did."""
 
         return self._last_diagnostic
+
+    @property
+    def is_open(self) -> bool:
+        """Return whether a verified read-only client session remains attached."""
+
+        return self._handle is not None
 
     def poll(self, at_seconds: float | None = None) -> tuple[DungeonStateSnapshot, ...]:
         """Return immutable state for every extracted definition at a bounded rate."""
@@ -108,9 +134,18 @@ class LiveDungeonCooldownReader:
         return snapshots
 
     def close(self) -> None:
-        """Retain no process resources; the fixed read opens and closes per poll."""
+        """Release the read-only process handle. Repeated close calls are safe."""
 
         self._last_snapshot = None
+
+    def _close_handle(self) -> None:
+        if self._handle is not None:
+            api = self._api_or_raise()
+            assert api is not None
+            api.close(self._handle)
+        self._handle = None
+        self._module_base = None
+        self._profile = None
 
     def _read_states(
         self,
@@ -129,32 +164,26 @@ class LiveDungeonCooldownReader:
                 DungeonReadStatus.PROCESS_UNAVAILABLE,
                 "Live dungeon reading is only available on Windows.",
             )
+        if not api.is_window_foreground(self._window_handle):
+            return {}, DungeonReadDiagnostic(
+                DungeonReadStatus.WINDOW_NOT_FOREGROUND,
+                "The game window is not foregrounded.",
+            )
         try:
-            process_id = api.process_id_for_window(self._window_handle)
-            handle = api.open_read_process(process_id)
-        except OSError as error:
-            return {}, DungeonReadDiagnostic(DungeonReadStatus.PROCESS_UNAVAILABLE, str(error))
-        try:
-            executable = api.executable_path(handle)
-            if executable.name.casefold() != EXPECTED_PROCESS_NAME:
-                return {}, DungeonReadDiagnostic(
-                    DungeonReadStatus.PROCESS_UNAVAILABLE,
-                    f"Expected {EXPECTED_PROCESS_NAME}, got {executable.name}.",
-                )
-            digest = executable_sha256(executable)
-            profile = self._profiles.get(digest)
-            if profile is None:
-                return {}, DungeonReadDiagnostic(
-                    DungeonReadStatus.UNCONFIGURED_PROFILE,
-                    f"No dungeon profile exists for SHA-256 {digest}.",
-                )
-            module_base = api.main_module_base(process_id)
+            self._ensure_open(api)
+            profile = self._profile
+            assert profile is not None
+            handle = self._handle
+            module_base = self._module_base
+            assert handle is not None
+            assert module_base is not None
             pointer_bytes = api.read(
                 handle,
                 module_base + profile.runtime_state_pointer_rva,
                 profile.pointer_size_bytes,
             )
             if len(pointer_bytes) != profile.pointer_size_bytes:
+                self._close_handle()
                 return {}, DungeonReadDiagnostic(
                     DungeonReadStatus.HANDLE_LOST,
                     "The runtime-state pointer read was incomplete.",
@@ -162,6 +191,7 @@ class LiveDungeonCooldownReader:
             pointer_format = "<I" if profile.pointer_size_bytes == UINT32_SIZE_BYTES else "<Q"
             array_address = int(struct.unpack(pointer_format, pointer_bytes)[0])
             if array_address == 0:
+                self._close_handle()
                 return {}, DungeonReadDiagnostic(
                     DungeonReadStatus.HANDLE_LOST,
                     "The runtime-state pointer is null.",
@@ -172,17 +202,52 @@ class LiveDungeonCooldownReader:
                 profile.array_read_size_bytes,
             )
             if len(payload) != profile.array_read_size_bytes:
+                self._close_handle()
                 return {}, DungeonReadDiagnostic(
                     DungeonReadStatus.HANDLE_LOST,
                     "The cooldown-array read was incomplete.",
                 )
         except OSError as error:
+            self._close_handle()
             return {}, DungeonReadDiagnostic(DungeonReadStatus.HANDLE_LOST, str(error))
-        finally:
-            api.close(handle)
+        except _DungeonOpenError as error:
+            return {}, DungeonReadDiagnostic(error.status, error.detail)
         return self._decode(profile, payload), None
 
-    def _api_or_raise(self) -> ProcessMemoryApi | None:
+    def _ensure_open(self, api: ForegroundProcessMemoryApi) -> None:
+        if self._handle is not None:
+            return
+        try:
+            process_id = api.process_id_for_window(self._window_handle)
+            handle = api.open_read_process(process_id)
+        except OSError as error:
+            raise _DungeonOpenError(DungeonReadStatus.PROCESS_UNAVAILABLE, str(error)) from error
+        try:
+            executable = api.executable_path(handle)
+            if executable.name.casefold() != EXPECTED_PROCESS_NAME:
+                raise _DungeonOpenError(
+                    DungeonReadStatus.PROCESS_UNAVAILABLE,
+                    f"Expected {EXPECTED_PROCESS_NAME}, got {executable.name}.",
+                )
+            digest = executable_sha256(executable)
+            assert self._profiles is not None
+            profile = self._profiles.get(digest)
+            if profile is None:
+                raise _DungeonOpenError(
+                    DungeonReadStatus.UNCONFIGURED_PROFILE,
+                    f"No dungeon profile exists for SHA-256 {digest}.",
+                )
+            module_base = api.main_module_base(process_id)
+        except (OSError, _DungeonOpenError) as error:
+            api.close(handle)
+            if isinstance(error, _DungeonOpenError):
+                raise
+            raise _DungeonOpenError(DungeonReadStatus.PROCESS_UNAVAILABLE, str(error)) from error
+        self._handle = handle
+        self._module_base = module_base
+        self._profile = profile
+
+    def _api_or_raise(self) -> ForegroundProcessMemoryApi | None:
         if self._api is None:
             from flyff_bot.features.navigation.live_position import WindowsProcessMemoryApi
 

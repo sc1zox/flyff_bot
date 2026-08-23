@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-23
+updated: 2026-08-24
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -1797,13 +1797,17 @@ labels from the dungeon text table, and writes only complete declarations to sch
 without verifiable level or cooldown fields is skipped rather than defaulted. No client file is
 written or modified.
 
-Live cooldowns use the existing documented read-only process boundary. A SHA-256 fingerprint in
+Live cooldowns use the existing documented read-only process boundary and require the client window to
+be foregrounded before attachment or any fixed read. A SHA-256 fingerprint in
 `data/config/client_dungeon_profiles.json` selects an exact module RVA, pointer width, bounded array
-shape, and field offsets. `LiveDungeonCooldownReader` performs one fixed pointer read plus one fixed
-range read per poll, closes its handle each time, and emits immutable snapshots with `READY`,
-`ON_COOLDOWN`, `ENTRY_LIMIT_REACHED`, or `UNKNOWN`. Missing/malformed profiles, unavailable processes,
-and failed reads produce typed `UNCONFIGURED_PROFILE`, `PROCESS_UNAVAILABLE`, or `HANDLE_LOST`
-diagnostics instead of inferred addresses. The shipped profile file is deliberately empty because no
+shape, and field offsets. `LiveDungeonCooldownReader` opens, fingerprints, resolves the module base,
+and validates that profile once in `_ensure_open()`, then retains only the read-only handle and those
+verified values across bounded polls; malformed reads close it for recovery on a later foregrounded
+poll. Each successful poll performs one fixed pointer read plus one fixed range read and emits
+immutable snapshots with `READY`, `ON_COOLDOWN`, `ENTRY_LIMIT_REACHED`, or `UNKNOWN`. Missing/malformed
+profiles, background windows, unavailable processes, and failed reads produce typed
+`UNCONFIGURED_PROFILE`, `WINDOW_NOT_FOREGROUND`, `PROCESS_UNAVAILABLE`, or `HANDLE_LOST` diagnostics
+instead of inferred addresses. The shipped profile file is deliberately empty because no
 verified Entropia cooldown offsets have been observed yet; Windows live validation therefore remains
 outstanding.
 

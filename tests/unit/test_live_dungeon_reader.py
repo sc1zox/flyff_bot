@@ -7,6 +7,7 @@ import json
 import struct
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 from flyff_bot.features.dungeons.live_reader import (
     DungeonReadStatus,
@@ -34,6 +35,9 @@ class FakeDungeonMemoryApi:
         self.reads: list[tuple[int, int]] = []
         self.closed: list[int] = []
         self.open_count = 0
+        self.executable_hash_calls = 0
+        self.module_base_calls = 0
+        self.foreground = True
         self.fail_open = False
         self.short_pointer = False
         self.null_pointer = False
@@ -41,6 +45,10 @@ class FakeDungeonMemoryApi:
     def process_id_for_window(self, window_handle: int) -> int:
         assert window_handle == WINDOW_HANDLE
         return PROCESS_ID
+
+    def is_window_foreground(self, window_handle: int) -> bool:
+        assert window_handle == WINDOW_HANDLE
+        return self.foreground
 
     def open_read_process(self, process_id: int) -> int:
         assert process_id == PROCESS_ID
@@ -55,6 +63,7 @@ class FakeDungeonMemoryApi:
 
     def main_module_base(self, process_id: int) -> int:
         assert process_id == PROCESS_ID
+        self.module_base_calls += 1
         return MODULE_BASE
 
     def read(self, process_handle: int, address: int, size: int) -> bytes:
@@ -145,7 +154,8 @@ def test_reader_reads_one_fixed_array_and_calculates_all_statuses(tmp_path: Path
         (MODULE_BASE + POINTER_RVA, 8),
         (ARRAY_ADDRESS, profile.array_read_size_bytes),
     ]
-    assert api.closed == [PROCESS_HANDLE]
+    assert reader.is_open
+    assert api.closed == []
 
 
 def test_empty_profile_configuration_reports_unconfigured_without_memory_access(
@@ -201,24 +211,77 @@ def test_process_open_failure_is_typed_and_closes_nothing(tmp_path: Path) -> Non
     assert api.closed == []
 
 
-def test_short_or_null_runtime_pointer_degrades_to_unknown_and_closes_the_handle(
-    tmp_path: Path,
-) -> None:
+def test_background_client_is_rejected_without_memory_access(tmp_path: Path) -> None:
+    executable = tmp_path / "neuz.exe"
+    executable.write_bytes(b"unused")
+    api = FakeDungeonMemoryApi(executable)
+    api.foreground = False
+    reader, _profile = _reader(api)
+
+    snapshots = reader.poll()
+
+    assert len(snapshots) == 3
+    assert all(snapshot.status is DungeonStatus.UNKNOWN for snapshot in snapshots)
+    assert reader.last_diagnostic is not None
+    assert reader.last_diagnostic.status is DungeonReadStatus.WINDOW_NOT_FOREGROUND
+    assert "not foregrounded" in reader.last_diagnostic.detail
+    assert api.open_count == 0
+    assert api.reads == []
+    assert api.closed == []
+
+
+def test_verified_handle_and_module_base_are_cached_across_polls(tmp_path: Path) -> None:
+    executable = tmp_path / "neuz.exe"
+    executable.write_bytes(b"dungeon cached build")
+    api = FakeDungeonMemoryApi(executable)
+    reader, _profile = _reader(api)
+    original_digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    hash_calls = 0
+
+    def count_hash(_path: Path) -> str:
+        nonlocal hash_calls
+        hash_calls += 1
+        return original_digest
+
+    first_time = time.monotonic()
+
+    with patch(
+        "flyff_bot.features.dungeons.live_reader.executable_sha256",
+        side_effect=count_hash,
+    ):
+        first = reader.poll(at_seconds=first_time)
+        second = reader.poll(at_seconds=first_time + 10.0)
+
+    assert [snapshot.status for snapshot in first] == [
+        DungeonStatus.ON_COOLDOWN,
+        DungeonStatus.ENTRY_LIMIT_REACHED,
+        DungeonStatus.READY,
+    ]
+    assert second[1].entries_used == first[1].entries_used
+    assert hash_calls == 1
+    assert api.open_count == 1
+    assert api.module_base_calls == 1
+    assert api.closed == []
+
+
+def test_malformed_runtime_pointer_closes_the_cached_handle(tmp_path: Path) -> None:
     executable = tmp_path / "neuz.exe"
     executable.write_bytes(b"dungeon pointer build")
     api = FakeDungeonMemoryApi(executable)
     reader, _profile = _reader(api)
-    api.short_pointer = True
-    first = reader.poll()
-    api.null_pointer = True
-    second = reader.poll(at_seconds=time.monotonic() + 10.0)
+    assert reader.poll()
+    assert reader.is_open
 
-    assert len(first) == 3
-    assert len(second) == 3
-    assert all(snapshot.status is DungeonStatus.UNKNOWN for snapshot in first + second)
+    api.short_pointer = True
+
+    degraded = reader.poll(at_seconds=time.monotonic() + 10.0)
+
+    assert len(degraded) == 3
+    assert all(snapshot.status is DungeonStatus.UNKNOWN for snapshot in degraded)
     assert reader.last_diagnostic is not None
     assert reader.last_diagnostic.status is DungeonReadStatus.HANDLE_LOST
-    assert api.closed == [PROCESS_HANDLE, PROCESS_HANDLE]
+    assert not reader.is_open
+    assert api.closed == [PROCESS_HANDLE]
 
 
 def test_client_dungeon_profiles_round_trip_normalizes_fingerprints(tmp_path: Path) -> None:

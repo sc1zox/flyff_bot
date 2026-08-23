@@ -1,10 +1,11 @@
 ---
 id: BUG-022
 title: Dungeon live reader missing foreground guard and disk-thrashing SHA-256 hashing
-status: reported
 severity: high
 created: 2026-08-23
-updated: 2026-08-23
+status: resolved
+updated: 2026-08-24
+verification: passed
 ---
 
 # BUG-022: Dungeon live reader missing foreground guard and disk-thrashing SHA-256 hashing
@@ -42,7 +43,15 @@ According to [ADR-006](../decisions/ADR-006-read-only-process-memory-access.md) 
 
 ## Regression verification
 
-- [ ] A failing automated test proves that `LiveDungeonCooldownReader` rejects background client windows without opening a handle or reading memory.
-- [ ] A failing automated test proves that `LiveDungeonCooldownReader` caches the verified process handle and module base across polls rather than re-reading the binary and re-hashing on every tick.
-- [ ] The checks pass after refactoring `LiveDungeonCooldownReader` to follow the `_ensure_open()` safety lifecycle pattern.
-- [ ] Related documentation is current.
+- [x] A failing automated test proves that `LiveDungeonCooldownReader` rejects background client windows without opening a handle or reading memory.
+- [x] A failing automated test proves that `LiveDungeonCooldownReader` caches the verified process handle and module base across polls rather than re-reading the binary and re-hashing on every tick.
+- [x] The checks pass after refactoring `LiveDungeonCooldownReader` to follow the `_ensure_open()` safety lifecycle pattern.
+- [x] Related documentation is current.
+
+## Verification evidence
+
+- Automated gate: `./scripts/check.ps1` exited successfully on 2026-08-24 with `uv sync --locked`,
+  `ruff check .`, `ruff format --check .`, `mypy`, and pytest passing (`793 passed`, `5 skipped`;
+  coverage `88.17%`). The two new BUG-022 regression tests were first proven red against the original
+  implementation, then green after `_ensure_open()` was added. Live Windows/client polling remains a
+  separate manual check and is not claimed by this automated evidence.

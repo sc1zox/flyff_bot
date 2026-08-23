@@ -14,9 +14,7 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-- [ ] [**BUG-022: Dungeon live reader missing foreground guard and disk-thrashing SHA-256 hashing**](BUG-022-dungeon-live-reader-missing-foreground-guard-and-disk-thrashing.md)
 - [ ] [**BUG-023: Player stats reader masks invalid pointer and malformed read diagnostics**](BUG-023-player-stats-reader-masks-invalid-pointer-and-malformed-read-diagnostics.md)
-
 
 ## Fixed Defects
 
@@ -46,3 +44,4 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-026: Teleporter hotkey bypasses foreground guard**](fixed/BUG-026-teleporter-hotkey-bypasses-foreground-guard.md)
 - [x] [**BUG-027: Arrival observer relies on private reader state**](fixed/BUG-027-arrival-observer-relies-on-private-reader-state.md)
 - [x] [**BUG-028: UI refactor retains private control coupling and stale gate evidence**](fixed/BUG-028-ui-refactor-retains-private-control-coupling-and-stale-gate-evidence.md)
+- [x] [**BUG-022: Dungeon live reader missing foreground guard and disk-thrashing SHA-256 hashing**](fixed/BUG-022-dungeon-live-reader-missing-foreground-guard-and-disk-thrashing.md)

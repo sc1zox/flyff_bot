@@ -1,5 +1,11 @@
 # Wiki log
 
+## [2026-08-24] synthesis | Dungeon reader foreground and resource correction (BUG-022)
+
+Synthesized the BUG-022 correction into `architecture.md`: dungeon cooldown polling is foregrounded
+before process attachment, verifies the executable once, retains the read-only handle and module base,
+and releases them on unrecoverable read loss for safe recovery.
+
 ## 2026-08-23
 
 - Architecture now documents the completed US-078 initial setup and unified client extraction
