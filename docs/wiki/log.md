@@ -885,3 +885,11 @@ longer re-exports `geometry`, which the navigation layer it depends on also cons
 
 Gate on 2026-08-21: 719 passed, 2 skipped, 89.70% coverage. Running the trainer against a real
 recorded Windows session is outstanding.
+
+## [2026-08-23] ingest | Official Entropia game wiki consultation
+
+Ingested
+[official Entropia Wiki access and inventory](../sources/2026-08-23-entropia-wiki-access-and-page-inventory.md)
+into `project-overview.md` and `entropia-game-wiki.md`. Established the official gameplay-domain
+consultation workflow, documented the GitBook `.md` endpoint and `llms.txt` index, and added a
+260-entry sitemap-derived page inventory without copying wiki prose.

@@ -11,6 +11,8 @@ one-line purpose.
 - [Roadmap](roadmap.md) — phased implementation plan and user-story milestones through navigation
   accuracy work.
 - [Glossary](glossary.md) — stable project language, source indicators, and navigation terms.
+- [Entropia game wiki consultation](entropia-game-wiki.md) — official gameplay-domain source and
+  lookup workflow.
 
 ## Maintenance
 

@@ -1,7 +1,7 @@
 ---
 title: Project overview
 status: active
-updated: 2026-08-19
+updated: 2026-08-23
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-19-target-server-entropia-pserver-clarification.md
@@ -20,6 +20,7 @@ heuristics, window capture mechanisms, and Win32 input injection rely on the cla
 ## Boundaries
 
 - The target game client is the native Windows executable `neuz.exe` from the **Entropia Flyff PServer** ([entropia.fun](https://entropia.fun)).
+- Ingame/domain knowledge is grounded in the [official Entropia Wiki](https://wiki.entropia.top/); consult it through the [game wiki consultation workflow](entropia-game-wiki.md).
 - The operating platform is Windows with the stable Python version pinned by `.python-version`.
 - The emergency stop is the `END` key (and `Escape` key in the UI).
 - The local `Entropia/` client installation is runtime context, not source code, and is ignored.
@@ -39,4 +40,3 @@ heuristics, window capture mechanisms, and Win32 input injection rely on the cla
 The requested project constraints are grounded in the captured
 [repository bootstrap request](../sources/2026-08-15-repository-bootstrap-request.md) and the
 [target server clarification](../sources/2026-08-19-target-server-entropia-pserver-clarification.md).
-
