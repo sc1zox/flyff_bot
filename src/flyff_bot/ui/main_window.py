@@ -297,7 +297,7 @@ class MainWindow(QMainWindow):
         self._combat_class_label = QLabel()
         self._combat_class_selector = QComboBox()
         for profile in CombatClassProfile:
-            self._combat_class_selector.addItem("", userData=profile)
+            self._combat_class_selector.addItem("", userData=profile.value)
         self._combat_class_selector.setCurrentIndex(
             list(CombatClassProfile).index(DEFAULT_COMBAT_CLASS_PROFILE)
         )
@@ -891,6 +891,7 @@ class MainWindow(QMainWindow):
         self._target_grace_spin.valueChanged.connect(self.combat_grace_changed)
         self._combat_class_selector.currentIndexChanged.connect(self._on_combat_class_changed)
         self._engagement_distance_spin.valueChanged.connect(self.engagement_distance_changed)
+        self._engagement_distance_spin.valueChanged.connect(self._on_engagement_distance_changed)
         self._kill_verification_toggle.toggled.connect(self._on_kill_verification_changed)
         self._anchor_threshold_spin.valueChanged.connect(self._on_anchor_threshold_changed)
         self._target_panel.selection_changed.connect(self._on_target_selection_changed)
@@ -916,14 +917,36 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_combat_class_changed(self) -> None:
         profile = self._combat_class_selector.currentData()
-        if profile is CombatClassProfile.MELEE:
+        if isinstance(profile, CombatClassProfile):
+            selected_profile = profile
+        elif profile in {item.value for item in CombatClassProfile}:
+            selected_profile = CombatClassProfile(profile)
+        else:
+            return
+        if selected_profile is CombatClassProfile.MELEE:
             distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
-        elif profile is CombatClassProfile.RANGED:
+        elif selected_profile is CombatClassProfile.RANGED:
             distance = RANGED_ENGAGEMENT_DISTANCE_UNITS
         else:
             distance = self._engagement_distance_spin.value()
         self._engagement_distance_spin.setValue(distance)
-        self.combat_class_changed.emit(profile)
+        self.combat_class_changed.emit(selected_profile)
+
+    @Slot()
+    def _on_engagement_distance_changed(self, distance_units: float) -> None:
+        profile = (
+            CombatClassProfile.MELEE
+            if distance_units == MELEE_ENGAGEMENT_DISTANCE_UNITS
+            else CombatClassProfile.RANGED
+            if distance_units == RANGED_ENGAGEMENT_DISTANCE_UNITS
+            else CombatClassProfile.CUSTOM
+        )
+        current = self._combat_class_selector.currentData()
+        current_profile = (
+            current if isinstance(current, CombatClassProfile) else CombatClassProfile(current)
+        )
+        if profile is not current_profile:
+            self._combat_class_selector.setCurrentIndex(list(CombatClassProfile).index(profile))
 
     def show_error_dialog(self, title: str, message: str) -> None:
         QMessageBox.warning(self, title, message)

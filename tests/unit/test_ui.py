@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
 )
 
+from flyff_bot.features.automation.controllers import CombatClassProfile
 from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import (
     KillGoalConfig,
@@ -699,6 +700,38 @@ def test_main_window_combat_panel_in_tab_and_config_signals() -> None:
 
     assert grace_values[-1] == pytest.approx(1.5)
     assert kill_verification_values == [False]
+
+
+def test_main_window_combat_class_and_distance_signals_are_wired(tmp_path: Path) -> None:
+    del tmp_path
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.COMBAT_TARGETS)
+    application.processEvents()
+
+    class_values: list[object] = []
+    distance_values: list[float] = []
+    window.combat_class_changed.connect(class_values.append)
+    window.engagement_distance_changed.connect(distance_values.append)
+
+    window._combat_class_selector.setCurrentIndex(
+        list(CombatClassProfile).index(CombatClassProfile.RANGED)
+    )
+    application.processEvents()
+    assert class_values == [CombatClassProfile.RANGED]
+    assert window._engagement_distance_spin.value() == pytest.approx(15.0)
+    assert distance_values == [pytest.approx(15.0)]
+
+    window._combat_class_selector.setCurrentIndex(
+        list(CombatClassProfile).index(CombatClassProfile.CUSTOM)
+    )
+    application.processEvents()
+    window._engagement_distance_spin.setValue(8.5)
+    application.processEvents()
+    assert class_values[-1] is CombatClassProfile.CUSTOM
+    assert distance_values[-1] == pytest.approx(8.5)
 
 
 def test_main_window_target_debug_panel_in_tab_and_renders_failure_metrics() -> None:

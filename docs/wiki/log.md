@@ -912,3 +912,12 @@ Windows validation is outstanding.
 Synthesized offline keyed-archive dungeon extraction, empty-by-default fingerprinted cooldown
 profiles, typed read-only degradation, dashboard presentation, and outstanding Windows/live-offset
 verification into `architecture.md`.
+
+## [2026-08-23] integration | Quest interaction dispatch (US-062 follow-up)
+
+Wired `QuestInteractionController` into `FarmingOrchestrator`: explicit NPC position approaches use
+NavMesh routing, guarded keyboard fallback dispatches the configured C key only after arrival,
+dialogue-option clicks still require read-only frame evidence, timeout retreat uses exponential
+backoff, and ordinary searching resumes when no quest interaction is active. Focused orchestration
+and quest-interaction suites pass. Live dialogue geometry and end-to-end Windows validation remain
+unverified.

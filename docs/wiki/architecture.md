@@ -1772,12 +1772,11 @@ to searching and evaluates candidates in the same tick. The combat dashboard exp
 class dropdown plus engagement-distance control wired dynamically through the app boundary.
 Focus loss, pause, and emergency stop continue to abort all dispatch paths before input.
 
-Relevant checks passed on Linux: Ruff, mypy, and 682 tests with 20 platform skips after
-excluding two unrelated pre-existing Python/POSIX environment failures in Windows struct sizing
-and OCR decoding. A 2026-08-23 audit corrected the story status: the lockout and post-kill portions
-are tested, but the promised ranged-profile, straight-versus-obstructed-route, combat-class wiring,
-and UI regressions are absent. The 3.0 / 15.0 unit presets are operator defaults rather than measured
-Entropia client ranges. Live Windows validation of actual attack-range selection remains required.
+The Windows gate passed on 2026-08-23 with Ruff and mypy clean, 746 tests passed, three platform
+skips, and 88.77% coverage. Regression coverage now proves the ranged preset, straight versus
+multi-waypoint route handling, profile/custom-distance propagation, and dashboard signal wiring.
+The 3.0 / 15.0 unit presets remain operator defaults rather than measured Entropia client ranges,
+and live Windows validation of actual attack-range selection remains required.
 
 ## Client dungeon data and live cooldown extraction (US-063, completed)
 

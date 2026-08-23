@@ -57,6 +57,10 @@ from flyff_bot.features.automation.powerup_controller import (
     PowerUpInputDispatcher,
     PowerUpScheduler,
 )
+from flyff_bot.features.automation.quest_execution import QuestInputDispatcher
+from flyff_bot.features.automation.quest_execution_models import (
+    QuestInteractionController,
+)
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
 from flyff_bot.features.automation.vitals_controller import (
@@ -261,6 +265,8 @@ class FarmingOrchestrator:
         self._vitals_dispatcher = VitalsInputDispatcher(input_adapter, window_handle)
         self._powerup_dispatcher = PowerUpInputDispatcher(input_adapter, window_handle)
         self._emergency_dispatcher = EmergencyTeleportDispatcher(input_adapter, window_handle)
+        self._quest_interaction: QuestInteractionController | None = None
+        self._quest_input_dispatcher = QuestInputDispatcher(input_adapter, window_handle)
         self._pathing = pathing
         attach_geometry = getattr(self._pipeline, "attach_world_geometry", None)
         if callable(attach_geometry):
@@ -444,6 +450,7 @@ class FarmingOrchestrator:
         self._quest_queue = queue
         self._client_close_requested = False
         if queue is None:
+            self._quest_interaction = None
             return
         active = queue.active
         if active is not None:
@@ -465,6 +472,7 @@ class FarmingOrchestrator:
             )
         )
         self._apply_active_target_classes()
+        self._quest_interaction = QuestInteractionController(resolution)
         pathing = self._pathing
         zones = resolution.zones
         if pathing is None or not zones:
@@ -659,6 +667,8 @@ class FarmingOrchestrator:
         return True
 
     def _advance(self) -> bool:
+        if self._quest_interaction is not None:
+            self._advance_quest_interaction()
         if self._mode is FarmingMode.SEARCHING:
             combat = self._combat.step(self._state)
             if combat.mode is not CombatMode.IDLE:
@@ -803,7 +813,36 @@ class FarmingOrchestrator:
 
         pathing = self._pathing
         pending = self._pending_target_click
+        interaction = self._quest_interaction
         from flyff_bot.features.navigation.pathing import PathingMode
+
+        if interaction is not None and pending is None:
+            npc = interaction.active_npc
+            live_position = pathing.live_position if pathing is not None else None
+            if (
+                pathing is not None
+                and npc is not None
+                and npc.position is not None
+                and live_position is not None
+            ):
+                if npc.is_interactable_from(live_position):
+                    pathing.cancel_target_approach()
+                    self._set_mode(FarmingMode.SEARCHING, reason="quest_npc_reached")
+                    return self._advance()
+                if not pathing.world_waypoints:
+                    self._set_mode(FarmingMode.SEARCHING, reason="quest_route_unavailable")
+                    return False
+            decision = pathing.step(self._state.observed_at_seconds) if pathing else None
+            if decision is None or decision.mode is PathingMode.IDLE:
+                self._set_mode(FarmingMode.SEARCHING, reason="quest_route_unavailable")
+                return False
+            if not self._pathing_dispatcher.dispatch(decision):
+                if pathing is not None:
+                    pathing.reject(decision)
+                return False
+            if pathing is not None:
+                pathing.confirm(decision)
+            return True
 
         if pathing is None or pending is None:
             self._set_mode(FarmingMode.SEARCHING, reason="approach_unavailable")
@@ -941,6 +980,43 @@ class FarmingOrchestrator:
                 decision.virtual_key, decision.key_press_duration_seconds
             )
         return dispatched
+
+    def _advance_quest_interaction(self) -> bool:
+        """Drive the configured accept/turn-in cycle before ordinary mob searching."""
+
+        interaction = self._quest_interaction
+        if interaction is None:
+            return False
+        if interaction.is_failed:
+            return False
+        pathing = self._pathing
+        if pathing is None:
+            return False
+        npc = interaction.active_npc
+        if npc is None:
+            return False
+        live_position = pathing.live_position
+        in_range = bool(live_position and npc.is_interactable_from(live_position))
+        if in_range and interaction.mode.startswith("navigating_"):
+            pathing.cancel_target_approach()
+            self._set_mode(FarmingMode.SEARCHING, reason="quest_npc_reached")
+            return False
+        if not in_range and interaction.mode.startswith("navigating_"):
+            if not pathing.begin_position_approach(
+                npc.position if npc.position is not None else WorldPosition(0.0, 0.0, 0.0),
+                self._state.observed_at_seconds,
+            ):
+                interaction.observe_navigation(
+                    npc.position,
+                    False,
+                    route_available=False,
+                    at_seconds=self._state.observed_at_seconds,
+                )
+                return False
+            self._set_mode(FarmingMode.APPROACHING, reason="quest_npc_selected")
+            return False
+        decision = interaction.step(self._state, self._last_frame)
+        return self._quest_input_dispatcher.dispatch(decision)
 
     def _exhausted_zone_handed_over(self) -> bool:
         """Route to the next selected spawn zone once this camp searched out empty.

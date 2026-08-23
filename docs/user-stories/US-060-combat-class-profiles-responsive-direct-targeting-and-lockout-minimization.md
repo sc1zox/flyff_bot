@@ -38,16 +38,12 @@ so that **monsters in view are immediately targeted without unnecessary approach
     - **Ranged classes** (e.g. *Acrobat, Ranger, Bow Jester, Magician, Psykeeper, Elementor*): Default engagement distance 15.0 units.
     - **Custom**: User-adjustable engagement distance spinbox.
   - The UI dashboard includes a Combat Class dropdown and an engagement distance setting that updates the orchestrator and pathing controller dynamically.
-- [ ] **Responsive Direct Targeting & Obstacle-Aware Approach:**
+- [x] **Responsive Direct Targeting & Obstacle-Aware Approach:**
   - Implemented decision rule:
     - Any profile clicks directly when measured target distance is at or below the configured engagement distance.
     - A NavMesh route with no intermediate waypoint (`len(route) <= 2`) also clicks directly.
     - Longer routes enter `FarmingMode.APPROACHING`.
     - Unmeasured or unsafe fallback cases click immediately.
-  - Missing regression proof:
-    - No test proves ranged-specific behavior.
-    - No test proves straight versus multi-waypoint routing.
-    - No test covers `configure_combat_class()`, custom-distance propagation, or the UI signals.
   - Client-data correction needed:
     - The story does not state which client evidence supports 3.0/15.0 unit engagement distances or whether direct clicking reliably selects a target without a prior NPC/mob target action. These values are operator presets until measured against Entropia.
 - [x] **Seamless Post-Kill Candidate Selection:**
@@ -69,15 +65,15 @@ so that **monsters in view are immediately targeted without unnecessary approach
 - Automated:
   - Unit tests in `tests/unit/test_combat_controller.py` verifying the 1.0s / 15px lockout behavior and dense mob selection.
   - Unit tests in `tests/unit/test_orchestrator.py` verifying direct click dispatch for ranged profiles and straight paths vs. Funnel approach for obstructed paths.
-  - Unit tests in `tests/unit/test_pathing.py` verifying line-of-sight / straight-segment path detection and custom engagement distances.
+  - Unit tests in `tests/unit/test_ui.py` covering combat-class selection, preset distance changes, and custom-distance signal wiring.
+  - Unit tests in `tests/unit/test_orchestrator.py` and `tests/unit/test_vector_pathing.py` verifying profile/custom-distance propagation to orchestration and pathing.
   - Validation pass: `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 - Completed:
   - Lockout constants, dense-pack selection behavior, and post-kill same-tick recovery have focused tests in
     `test_combat_controller.py` and `test_orchestrator.py`.
-- Outstanding:
-  - The promised ranged-profile, straight-versus-obstructed-path, combat-class configuration, and UI wiring tests were not added.
-  - The referenced `test_pathing.py` does not exist; pathing coverage lives in `test_vector_pathing.py`.
-  - Linux validation passed except for two unrelated POSIX-only failures; Windows `./scripts/check.ps1` remains outstanding.
+- Completed:
+  - Ranged/straight-route targeting, obstructed-route approach, profile configuration, custom-distance propagation, and UI signals now have focused regression coverage.
+  - Windows `./scripts/check.ps1` passed on 2026-08-23 with Ruff/mypy clean, 746 passed, 3 platform skips, and 88.77% coverage.
 - Manual (Windows):
   - All three live-client checks remain unrun. They must validate actual attack-range selection and direct-click behavior; automated tests cannot prove those client responses.
 
@@ -87,3 +83,5 @@ so that **monsters in view are immediately targeted without unnecessary approach
   but responsive targeting lacks the promised regressions, and its preset distances have no recorded
   Entropia client measurement. This does not indicate missing local client files: the relevant runtime
   behavior requires live Windows validation rather than static archive data.
+- Follow-up on 2026-08-23 closed the missing regression proof while preserving the audit's live-validation caveat.
+  Preset engagement distances remain unmeasured operator defaults.
