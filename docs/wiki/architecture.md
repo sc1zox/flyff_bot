@@ -1348,6 +1348,10 @@ navigation lifecycle out of the monolithic window class:
 - `ui.main_window_parts` contains feature-scoped slices for header metrics, operator controls,
   combat settings, emergency recovery, vitals rules, quest loading, navigation, diagnostics, and
   status presentation.
+- The second pass moved dashboard rendering, camera-preview rendering, configuration persistence,
+  and world-data dialog lifecycle behind presenters/controllers. `MainWindow` now composes those
+  slices and forwards operator intent; it no longer owns feature rendering rules, persistence
+  paths, or dialog construction.
 - `MainWindow` retains the public Qt signals, widget accessors, event handling, emergency paths,
   and composition-root wiring expected by the application and tests.
 - Feature panels own their business ranges, defaults, configuration conversion, localized labels,

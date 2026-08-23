@@ -33,33 +33,15 @@ from flyff_bot.constants import (
     DEFAULT_WORLD_MAP_DIRECTORY,
     DEFAULT_WORLD_MONSTER_IDS_PATH,
 )
-from flyff_bot.features.automation.controllers import EngagementBreakReason
-from flyff_bot.features.automation.emergency_persistence import (
-    DEFAULT_EMERGENCY_CONFIG_PATH,
-    load_emergency_config,
-    save_emergency_config,
-)
 from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
-from flyff_bot.features.automation.kill_goals import KillGoalConfig, MobKillProgress
+from flyff_bot.features.automation.kill_goals import KillGoalConfig
 from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
-    SelectedTarget,
-    TargetState,
     WorldState,
 )
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
-from flyff_bot.features.automation.powerup_persistence import (
-    DEFAULT_POWERUP_CONFIG_PATH,
-    load_powerup_config,
-    save_powerup_config,
-)
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
-)
-from flyff_bot.features.automation.vitals_persistence import (
-    DEFAULT_VITALS_CONFIG_PATH,
-    load_vitals_config,
-    save_vitals_config,
 )
 from flyff_bot.features.quests.persistence import (
     QuestDatabaseError,
@@ -70,24 +52,23 @@ from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import (
     BotStatus,
     DashboardUpdate,
-    FarmingGoal,
     WindowStatus,
 )
-from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
+from flyff_bot.ui.debug_overlay import DebugOverlayWidget
 from flyff_bot.ui.event_log_panel import EventLogPanel
 from flyff_bot.ui.main_window_parts.combat_settings import CombatSettingsPanel
 from flyff_bot.ui.main_window_parts.dashboard import DashboardSummary, StatusHeaderCard
+from flyff_bot.ui.main_window_parts.dashboard_presenter import DashboardPresenter
 from flyff_bot.ui.main_window_parts.diagnostics import (
     MonsterStatsDebugPanel,
     TargetDebugPanel,
 )
-from flyff_bot.ui.main_window_parts.header import (
-    goal_text,
-    kill_progress_text,
-)
 from flyff_bot.ui.main_window_parts.navigation import NavigationSection
+from flyff_bot.ui.main_window_parts.navigation_controller import NavigationController
+from flyff_bot.ui.main_window_parts.overlay_presenter import OverlayPresenter
 from flyff_bot.ui.main_window_parts.quests import QuestDatabaseController
 from flyff_bot.ui.main_window_parts.recovery_settings import RecoverySettingsPanel
+from flyff_bot.ui.main_window_parts.settings_controllers import SettingsController
 from flyff_bot.ui.main_window_parts.status_presenter import StatusPresenter
 from flyff_bot.ui.main_window_parts.vitals_settings import VitalsSettingsPanel
 from flyff_bot.ui.main_window_parts.window_controls import WindowControlsCard
@@ -155,13 +136,7 @@ class MainWindow(QMainWindow):
         self._world_map_dir = world_map_dir or Path(DEFAULT_WORLD_MAP_DIRECTORY)
         self._monster_names_path = monster_names_path or Path(DEFAULT_WORLD_MONSTER_IDS_PATH)
         self._quest_database_path = quest_database_path or Path(DEFAULT_QUEST_DATABASE_PATH)
-        self._world_data_dialog: WorldDataDialog | None = None
-        self._vitals_config_path = vitals_config_path or DEFAULT_VITALS_CONFIG_PATH
-        self._powerup_config_path = powerup_config_path or DEFAULT_POWERUP_CONFIG_PATH
-        self._emergency_config_path = emergency_config_path or DEFAULT_EMERGENCY_CONFIG_PATH
         self._latest_update: DashboardUpdate | None = None
-        self._status_card = StatusHeaderCard()
-
         # Persistent header cards
         self._status_card = StatusHeaderCard()
         self._controls_card = WindowControlsCard()
@@ -179,6 +154,14 @@ class MainWindow(QMainWindow):
         self._goal_label = self._summary_card.goal_label
         self._vitals_label = self._summary_card.vitals_label
         self._kill_progress_label = self._summary_card.kill_progress_label
+        self._dashboard_presenter = DashboardPresenter(
+            translator,
+            mob_label=self._mob_label,
+            target_label=self._target_label,
+            goal_label=self._goal_label,
+            vitals_label=self._vitals_label,
+            kill_progress_label=self._kill_progress_label,
+        )
         self._status_presenter = StatusPresenter(
             translator,
             self._status_label,
@@ -188,15 +171,22 @@ class MainWindow(QMainWindow):
         )
         self._window_status = self._status_presenter.window_status
 
+        # Display settings
+        self._camera_preview_toggle = QCheckBox()
+        self._camera_preview_toggle.setObjectName("Switch")
+        self._placements_toggle = QCheckBox()
+        self._placements_toggle.setObjectName("Switch")
+
         # Debug Overlay Viewport
-        self._overlay_label = DebugOverlayWidget()
-        self._overlay_label.setVisible(False)
+        self._overlay = OverlayPresenter(self._translator, self._placements_toggle)
+        self._overlay_label = self._overlay.preview
 
         # Transparent in-game placement guide overlay
         self._placement_overlay = PlacementOverlayWindow(self._translator)
 
         # Navigation Map & Inspector
         self._navigation = NavigationSection(self._translator)
+        self._navigation_controller: NavigationController | None = None
         self._path_inspector = self._navigation.inspector
         self._map_container = self._navigation.map_container
         self._map_window = self._navigation.map_window
@@ -212,12 +202,6 @@ class MainWindow(QMainWindow):
         self._auto_align_toggle = self._controls_card.auto_align_toggle
         self._language_selector = self._controls_card.language_selector
 
-        # Display settings
-        self._camera_preview_toggle = QCheckBox()
-        self._camera_preview_toggle.setObjectName("Switch")
-        self._placements_toggle = QCheckBox()
-        self._placements_toggle.setObjectName("Switch")
-
         self._tab_widget = QTabWidget()
         self._tab_widget.setObjectName("FunctionalTabs")
         self._tab_scroll_areas: dict[DashboardTab, QScrollArea] = {}
@@ -229,10 +213,6 @@ class MainWindow(QMainWindow):
         self._anchor_threshold_spin = self._combat_panel.anchor_spin
 
         self._recovery_panel = RecoverySettingsPanel()
-        self._recovery_timeout_spin = self._recovery_panel.timeout_spin
-        self._recovery_hotkey_combo = self._recovery_panel.hotkey_combo
-        self._load_emergency_settings()
-
         self._target_panel = TargetSelectionPanel(self._translator)
         self._quest_panel = QuestGoalPanel(self._translator)
         self._quest_controller = QuestDatabaseController(self._quest_panel, self._translator)
@@ -259,18 +239,24 @@ class MainWindow(QMainWindow):
         self._hp_spin = self._vitals_panel.hp_threshold_spin
         self._mp_spin = self._vitals_panel.mp_threshold_spin
         self._fp_spin = self._vitals_panel.fp_threshold_spin
-        self._load_vitals_settings()
 
         self._powerup_panel = PowerUpPanel(self._translator)
-        self._load_powerup_settings()
+        self._settings = SettingsController(
+            translator,
+            recovery_panel=self._recovery_panel,
+            vitals_panel=self._vitals_panel,
+            powerup_panel=self._powerup_panel,
+            vitals_path=vitals_config_path,
+            powerup_path=powerup_config_path,
+            emergency_path=emergency_config_path,
+        )
 
         self._build_layout()
         self._connect_controls()
         self._retranslate()
         self._render_status_badge(BotStatus.PAUSED)
         self._status_presenter.render_initial_state()
-        self._render_mob_count(0)
-        self._render_vitals()
+        self._dashboard_presenter.render_initial_state()
         apply_theme(self)
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         self.setMinimumSize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
@@ -343,7 +329,7 @@ class MainWindow(QMainWindow):
 
     @property
     def world_data_dialog(self) -> WorldDataDialog | None:
-        return self._world_data_dialog
+        return self._navigation_controller.dialog if self._navigation_controller else None
 
     @property
     def target_grace_spin(self) -> QDoubleSpinBox:
@@ -545,11 +531,11 @@ class MainWindow(QMainWindow):
 
     @property
     def recovery_timeout_spin(self) -> QDoubleSpinBox:
-        return self._recovery_timeout_spin
+        return self._settings.recovery_panel.timeout_spin
 
     @property
     def recovery_hotkey_combo(self) -> QComboBox:
-        return self._recovery_hotkey_combo
+        return self._settings.recovery_panel.hotkey_combo
 
     def _build_layout(self) -> None:
         preview_controls = QWidget()
@@ -656,8 +642,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_vitals_changed(self) -> None:
-        config = self._vitals_panel.get_config()
-        save_vitals_config(config, self._vitals_config_path)
+        config = self._settings.save_vitals()
         self.vitals_config_changed.emit(config)
 
     def show_error_dialog(self, title: str, message: str) -> None:
@@ -665,21 +650,19 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_world_data_clicked(self) -> None:
-        dialog = self._world_data_dialog
-        if dialog is None:
-            dialog = WorldDataDialog(
-                self._translator,
-                self._client_world_root,
-                self._world_map_dir,
+        if self._navigation_controller is None:
+            controller = NavigationController(
+                translator=self._translator,
+                navigation=self._navigation,
+                parent_window=self,
+                world_root=self._client_world_root,
+                map_dir=self._world_map_dir,
                 monster_names_path=self._monster_names_path,
-                parent=self,
             )
-            dialog.vector_navigation_requested.connect(self.vector_navigation_requested)
-            dialog.vector_navigation_cleared.connect(self.vector_navigation_cleared)
-            self._world_data_dialog = dialog
-        dialog.refresh()
-        dialog.show()
-        dialog.raise_()
+            controller.dialog.vector_navigation_requested.connect(self.vector_navigation_requested)
+            controller.dialog.vector_navigation_cleared.connect(self.vector_navigation_cleared)
+            self._navigation_controller = controller
+        self._navigation_controller.show_world_data()
 
     def _retranslate(self) -> None:
         self.setWindowTitle(self._translator.text(Message.UI_TITLE))
@@ -716,10 +699,12 @@ class MainWindow(QMainWindow):
         self._event_log_panel.set_translator(self._translator)
         self._vitals_panel.retranslate(self._translator)
         self._navigation.set_translator(self._translator)
+        if self._navigation_controller is not None:
+            self._navigation_controller.set_translator(self._translator)
+        self._dashboard_presenter.set_translator(self._translator)
+        self._overlay.set_translator(self._translator)
         self._world_data_button.setText(self._translator.text(Message.UI_WORLD_DATA))
         self._world_data_button.setToolTip(self._translator.text(Message.UI_WORLD_DATA_TOOLTIP))
-        if self._world_data_dialog is not None:
-            self._world_data_dialog.set_translator(self._translator)
         previous_language = self._translator.language
         self._language_selector.blockSignals(True)
         self._language_selector.clear()
@@ -736,8 +721,7 @@ class MainWindow(QMainWindow):
             self._render_update()
         else:
             self._status_presenter.render_initial_state()
-            self._render_mob_count(0)
-            self._render_vitals()
+            self._dashboard_presenter.render_initial_state()
 
     def _retranslate_tabs(self) -> None:
         labels = {
@@ -806,6 +790,10 @@ class MainWindow(QMainWindow):
             self._latest_update.navigation if self._latest_update is not None else None
         )
 
+    def _render_dashboard(self, update: DashboardUpdate) -> None:
+        self._dashboard_presenter.render_update(update)
+        self._target_panel.set_progress(update.kill_progress)
+
     def _render_update(self) -> None:
         if self._latest_update is None:
             return
@@ -813,103 +801,32 @@ class MainWindow(QMainWindow):
         self._render_status_badge(update.status)
         self._status_presenter.render_window_status(update.window)
         self._render_navigation_status()
-        self._render_mob_count(update.state.nearby_mob_count)
-        self._render_target(update.state.selected_target)
-        self._render_goal(update.goal, update.state.inventory)
-        self._render_vitals(update.state)
-        self._render_kill_progress(update.kill_progress)
-        self._target_panel.set_progress(update.kill_progress)
+        self._render_dashboard(update)
         self._navigation.render_navigation(update.navigation)
         self._quest_panel.set_progress(
             update.quest_title, update.quest_progress, update.quest_queue_completed
         )
-        self._quest_panel.set_progress(
-            update.quest_title, update.quest_progress, update.quest_queue_completed
-        )
         self._event_log_panel.set_events(update.events)
-        self._render_target_debug(update.state.selected_target, update.engagement_break)
-        self._render_monster_stats_debug(update.state.monster_stats)
+        self._target_debug_panel.render_target(
+            self._translator,
+            update.state.selected_target,
+            update.engagement_break,
+        )
+        self._monster_stats_panel.render_metrics(self._translator, update.state.monster_stats)
         self._align_camera_button.setEnabled(
             update.status in {BotStatus.PAUSED, BotStatus.STANDBY, BotStatus.ALIGNMENT_FAILED}
         )
         if update.frame is not None:
             self._render_overlay_frame(update.frame, update.state)
 
-    def _render_mob_count(self, count: int) -> None:
-        self._mob_label.setText(self._translator.text(Message.UI_MOBS_COUNT, count=count))
-
-    def _render_target(self, target: SelectedTarget) -> None:
-        msg = (
-            Message.UI_TARGET_VALID
-            if target.state is TargetState.VALID
-            else Message.UI_TARGET_WRONG
-            if target.state is TargetState.WRONG
-            else Message.UI_TARGET_NONE
-        )
-        self._target_label.setText(self._translator.text(msg))
-
-    def _render_goal(self, goal: FarmingGoal | None, inventory: Sequence[object]) -> None:
-        state = self._latest_update.state if self._latest_update is not None else None
-        self._goal_label.setText(goal_text(self._translator, state, goal))
-
-    def _render_vitals(self, state: WorldState | None = None) -> None:
-        vitals = state.player_vitals if state is not None else None
-        hp = (
-            f"{vitals.hp_percentage:.1f}"
-            if vitals is not None and vitals.hp_percentage is not None
-            else "--"
-        )
-        mp = (
-            f"{vitals.mp_percentage:.1f}"
-            if vitals is not None and vitals.mp_percentage is not None
-            else "--"
-        )
-        fp = (
-            f"{vitals.fp_percentage:.1f}"
-            if vitals is not None and vitals.fp_percentage is not None
-            else "--"
-        )
-        self._vitals_label.setText(
-            self._translator.text(Message.UI_VITALS_STATUS, hp=hp, mp=mp, fp=fp)
-        )
-
-    def _render_kill_progress(self, progress: tuple[MobKillProgress, ...]) -> None:
-        self._kill_progress_label.setText(kill_progress_text(self._translator, progress))
-
-    def _render_target_debug(
-        self, target: SelectedTarget, break_reason: EngagementBreakReason | None
-    ) -> None:
-        self._target_debug_panel.render_target(self._translator, target, break_reason)
-
-    def _render_monster_stats_debug(self, metrics: MonsterStatsMetrics) -> None:
-        self._monster_stats_panel.render_metrics(self._translator, metrics)
-
     def _render_overlay_frame(
         self, frame: CapturedFrame | None, state: WorldState | None = None
     ) -> None:
-        if frame is None:
-            self._overlay_label.clear()
-            return
-        mobs = state.visible_mobs if state is not None else ()
-        target = (
-            state.selected_target
-            if state is not None
-            else SelectedTarget(TargetState.NONE, None, 0)
-        )
-        vitals = state.player_vitals if state is not None else None
-        pixmap = render_debug_overlay(
-            frame,
-            mobs,
-            target,
-            self._translator,
-            vitals=vitals,
-            show_placements=self._placements_toggle.isChecked(),
-        )
-        self._overlay_label.setPixmap(pixmap)
+        self._overlay.render_frame(frame, state)
 
     @Slot(bool)
     def _update_overlay_visibility(self, visible: bool) -> None:
-        self._overlay_label.setVisible(visible)
+        self._overlay.set_visible(visible)
         if visible and self._latest_update is not None:
             self._render_overlay_frame(self._latest_update.frame, self._latest_update.state)
 
@@ -967,39 +884,31 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _on_powerup_config_changed(self, config: object) -> None:
-        if isinstance(config, PowerUpConfig):
-            save_powerup_config(config, self._powerup_config_path)
-            self.powerup_config_changed.emit(config)
+        self._settings.handle_powerup_changed(config)
+        self.powerup_config_changed.emit(self._settings.powerup_config)
 
     def _load_vitals_settings(self) -> None:
-        config = load_vitals_config(self._vitals_config_path)
-        self._vitals_panel.load_config(config)
+        self._settings.load_vitals()
 
     def get_vitals_config(self) -> VitalsTriggerConfig:
-        return self._vitals_panel.get_config()
+        return self._settings.vitals_config
 
     def _load_powerup_settings(self) -> None:
-        config = load_powerup_config(self._powerup_config_path)
-        self._powerup_panel.set_config(config)
+        self._settings.load_powerups()
 
     def get_powerup_config(self) -> PowerUpConfig:
-        return self._powerup_panel.config
+        return self._settings.powerup_config
 
     def set_target_mob_options(self, options: tuple[str, ...] | Sequence[str]) -> None:
         self._target_panel.set_class_names(options)
 
     @Slot()
     def _on_emergency_changed(self) -> None:
-        config = self.get_emergency_config()
-        save_emergency_config(config, self._emergency_config_path)
+        config = self._settings.save_emergency()
         self.emergency_config_changed.emit(config)
 
-    def _load_emergency_settings(self) -> None:
-        config = load_emergency_config(self._emergency_config_path)
-        self._recovery_panel.load_config(config)
-
     def get_emergency_config(self) -> EmergencyRecoveryConfig:
-        return self._recovery_panel.get_config()
+        return self._settings.emergency_config
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if (
@@ -1021,10 +930,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.pause_requested.emit()
-        self._map_window.close()
         self._placement_overlay.close()
-        if self._world_data_dialog is not None:
-            self._world_data_dialog.close()
-        save_vitals_config(self.get_vitals_config(), self._vitals_config_path)
-        save_emergency_config(self.get_emergency_config(), self._emergency_config_path)
+        if self._navigation_controller is not None:
+            self._navigation_controller.close()
+        self._settings.save_vitals()
+        self._settings.save_emergency()
         super().closeEvent(event)
