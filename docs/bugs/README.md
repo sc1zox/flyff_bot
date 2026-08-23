@@ -14,7 +14,8 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-_No open defects._
+- [ ] [**BUG-022: Dungeon live reader missing foreground guard and disk-thrashing SHA-256 hashing**](BUG-022-dungeon-live-reader-missing-foreground-guard-and-disk-thrashing.md)
+- [ ] [**BUG-023: Player stats reader masks invalid pointer and malformed read diagnostics**](BUG-023-player-stats-reader-masks-invalid-pointer-and-malformed-read-diagnostics.md)
 
 
 ## Fixed Defects
