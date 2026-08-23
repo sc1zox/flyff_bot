@@ -1691,9 +1691,9 @@ The 2026-08-23 screenshots showed no `C` binding, so the former keyboard fallbac
 On arrival, the controller uses the measured screen box of the configured NPC to request one guarded
 left click; `QuestMenuPerceiver` OCRs the resulting client frame and proves configured action phrases
 by fuzzy text matching. Default phrases cover generic "accept"/"submit" menus, while operators can
-supply other localized menu actions without changing code. The current OCR seam reports action evidence
-but no clickable row geometry yet, so it never substitutes a guessed menu coordinate; the next bounded
-step is Tesseract line boxes feeding exact centres into the existing click dispatcher.
+supply other localized menu actions without changing code. Tesseract now runs in bounded TSV mode and
+groups word rows into line boxes; the perceiver clicks only the OCR-proven line centre, never a guessed
+coordinate. OCR failures and unmatched actions remain typed no-op observations.
 Every dispatcher call rechecks END and foreground immediately before input.
 
 Navigation and interaction failures share one bounded timeout and exponential backoff state machine:
@@ -1701,11 +1701,11 @@ retreat first, retry the same configured phase at most `MAXIMUM_QUEST_INTERACTIO
 then fail safely without advancing the queue. Objective completion alone still does not advance a
 quest; reward evidence is required before queue retirement.
 
-Automated coverage verifies explicit NPC resolution and persistence, guarded click dispatch, generic
-menu-text matching, timeout, backoff, failure, NavMesh position-approach guards, and bilingual
-diagnostics. Live Windows OCR accuracy against the actual client menu and the full end-to-end Black
-Board walkthrough remain unverified. The separate exchange/vendor menu remains out of scope for this
-quest-interaction correction.
+Automated coverage verifies explicit NPC resolution and persistence, guarded click dispatch,
+OCR line-box parsing, generic menu-text matching with exact centres, timeout, backoff, failure,
+NavMesh position-approach guards, and bilingual diagnostics. Live Windows OCR accuracy against the
+actual client menu and the full end-to-end Black Board walkthrough remain unverified. The separate
+exchange/vendor menu remains out of scope for this quest-interaction correction.
 
 ## Offline farming value models from recorded telemetry (US-066, completed)
 

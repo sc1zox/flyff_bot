@@ -13,7 +13,7 @@ from flyff_bot.features.automation.models import Position, WorldState
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.quests.goals import QuestNpc, QuestResolution
 from flyff_bot.features.vision.models import CapturedFrame
-from flyff_bot.features.vision.ocr import OcrError, TextRecognizer
+from flyff_bot.features.vision.ocr import BoundedTextRecognizer, OcrError, RecognizedTextLine
 
 DEFAULT_QUEST_INTERACTION_TIMEOUT_SECONDS = 10.0
 DEFAULT_QUEST_RETRY_BASE_SECONDS = 2.0
@@ -93,7 +93,7 @@ class QuestMenuPerceiver:
 
     def __init__(
         self,
-        recognizer: TextRecognizer,
+        recognizer: BoundedTextRecognizer,
         *,
         actions: tuple[MenuAction, ...] = DEFAULT_QUEST_MENU_ACTIONS,
         match_threshold: float = DEFAULT_MENU_TEXT_MATCH_THRESHOLD,
@@ -115,20 +115,18 @@ class QuestMenuPerceiver:
         if frame is None:
             return DialogueObservation(detail="frame_unavailable")
         try:
-            lines = tuple(self._recognizer.recognize(frame.pixels))
+            lines = self._recognizer.recognize_lines(frame.pixels)
         except OcrError as error:
             return DialogueObservation(detail=f"ocr_{error.code.value}")
         for action in self._actions:
             match = _best_matching_line(action.phrases, lines)
             if match is None or match.score < self._match_threshold:
                 continue
-            # Text order alone does not prove clickable geometry. A later bounded
-            # OCR-geometry adapter can supply the exact row centre; until then the
-            # controller receives positive menu evidence without an unsafe estimate.
             return DialogueObservation(
                 True,
                 can_accept=action.key == "accept",
                 can_turn_in=action.key != "accept",
+                option_position=Position(*match.line.centre),
                 detail=action.key,
             )
         return DialogueObservation(detail="menu_action_not_found")
@@ -136,18 +134,19 @@ class QuestMenuPerceiver:
 
 @dataclass(frozen=True, slots=True)
 class _MenuMatch:
+    line: RecognizedTextLine
     score: float
 
 
 def _best_matching_line(
     phrases: Sequence[str],
-    lines: Iterable[str],
+    lines: Iterable[RecognizedTextLine],
 ) -> _MenuMatch | None:
     best: _MenuMatch | None = None
     for line in lines:
-        normalized = line.casefold().strip()
+        normalized = line.text.casefold().strip()
         score = max(SequenceMatcher(None, normalized, phrase).ratio() for phrase in phrases)
-        candidate = _MenuMatch(score)
+        candidate = _MenuMatch(line, score)
         if best is None or candidate.score > best.score:
             best = candidate
     return best

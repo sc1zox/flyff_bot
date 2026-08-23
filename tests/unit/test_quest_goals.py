@@ -58,7 +58,7 @@ from flyff_bot.features.quests.persistence import (
     save_quest_npc_positions,
 )
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
-from flyff_bot.features.vision.ocr import TextRecognizer
+from flyff_bot.features.vision.ocr import BoundedTextRecognizer, RecognizedTextLine
 
 WINDOW_HANDLE = 42
 FLAME = VisibleMob(0, "Flame", 0.9, 20, 20, 20, 20)
@@ -432,26 +432,37 @@ def test_dialogue_unavailable_without_npc_evidence_dispatches_nothing() -> None:
 
 def test_menu_perceiver_matches_generic_accept_and_submit_rows() -> None:
     class Recognizer:
-        def recognize(self, _image: object) -> tuple[str, ...]:
-            return ("Dialog", "Accept  All Quests", "Submit All Quests")
+        def recognize_lines(self, _image: object) -> tuple[RecognizedTextLine, ...]:
+            return (
+                RecognizedTextLine("Dialog", 10, 10, 80, 20),
+                RecognizedTextLine("Accept  All Quests", 10, 40, 180, 24),
+                RecognizedTextLine("Submit All Quests", 10, 70, 180, 24),
+            )
 
-    perceiver = QuestMenuPerceiver(cast("TextRecognizer", Recognizer()))
+    perceiver = QuestMenuPerceiver(cast("BoundedTextRecognizer", Recognizer()))
     observation = perceiver.observe_dialogue(_state(1.0), _frame())
 
     assert observation.is_open and observation.can_accept
     assert not observation.can_turn_in
-    assert observation.option_position is None
+    if observation.option_position is None:
+        raise AssertionError("OCR line geometry must provide a clickable position.")
+    assert (observation.option_position.x, observation.option_position.y) == (100, 52)
     assert observation.detail == "accept"
 
 
 def test_menu_perceiver_supports_configured_action_phrases() -> None:
     class Recognizer:
-        def recognize(self, _image: object) -> tuple[str, ...]:
-            return ("Trade", "Recwding", "Buyback", "Exchange")
+        def recognize_lines(self, _image: object) -> tuple[RecognizedTextLine, ...]:
+            return (
+                RecognizedTextLine("Trade", 10, 10, 100, 20),
+                RecognizedTextLine("Recwding", 10, 35, 100, 20),
+                RecognizedTextLine("Buyback", 10, 60, 100, 20),
+                RecognizedTextLine("Exchange", 10, 85, 100, 20),
+            )
 
     actions = (MenuAction("exchange", ("exchange",)),)
     perceiver = QuestMenuPerceiver(
-        cast("TextRecognizer", Recognizer()),
+        cast("BoundedTextRecognizer", Recognizer()),
         actions=actions,
         match_threshold=0.8,
     )

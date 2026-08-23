@@ -918,5 +918,6 @@ verification into `architecture.md`.
 Wired `QuestInteractionController` into `FarmingOrchestrator`: explicit NPC position approaches use
 NavMesh routing and interaction is now strictly click-based: the incorrect C-key fallback was removed.
 Arrival clicks the measured NPC screen box, then `QuestMenuPerceiver` proves a generic/configurable
-menu action with OCR before clicking its concrete row. Timeout retreat retains exponential backoff.
-Live Windows OCR/menu validation remains outstanding.
+menu action with OCR before clicking its concrete row. Tesseract line geometry is parsed from bounded
+TSV output and supplies the guarded row centre. Timeout retreat retains exponential backoff. Live
+Windows OCR/menu validation remains outstanding.

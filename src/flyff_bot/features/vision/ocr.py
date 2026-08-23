@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 from collections.abc import Iterable
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -29,6 +30,7 @@ TESSERACT_TIMEOUT_SECONDS = 10.0
 _TESSERACT_INPUT_FILENAME = "ocr-roi.png"
 _TESSERACT_CONFIG_ARGUMENT = "--psm"
 _TESSERACT_OUTPUT_FORMAT = "stdout"
+_TESSERACT_TSV_FORMAT = "tsv"
 # Tesseract writes UTF-8, while Python decodes pipes with the platform ANSI code page
 # (CP1252 on Windows). Both are pinned so recognition never fails on a stray byte.
 _TESSERACT_OUTPUT_ENCODING = "utf-8"
@@ -65,6 +67,33 @@ class TextRecognizer(Protocol):
         """Return recognized text lines from a monochrome or colour image."""
 
 
+@dataclass(frozen=True, slots=True)
+class RecognizedTextLine:
+    """One OCR line with its image-relative clickable bounding box."""
+
+    text: str
+    left: int
+    top: int
+    width: int
+    height: int
+
+    @property
+    def centre(self) -> tuple[int, int]:
+        """Return the guarded-click centre of the recognized line."""
+
+        return self.left + self.width // 2, self.top + self.height // 2
+
+
+class BoundedTextRecognizer(Protocol):
+    """An OCR engine that preserves line geometry for guarded clicks."""
+
+    def recognize_lines(
+        self,
+        image: npt.NDArray[np.uint8],
+    ) -> tuple[RecognizedTextLine, ...]:
+        """Return non-empty recognized lines with image-relative bounding boxes."""
+
+
 def resolve_tesseract_executable() -> str:
     """Return the Tesseract command to invoke, probing the known install locations.
 
@@ -90,6 +119,11 @@ class TesseractTextRecognizer:
         self._language = language
 
     def recognize(self, image: npt.NDArray[np.uint8]) -> tuple[str, ...]:
+        return tuple(line.text for line in self.recognize_lines(image))
+
+    def recognize_lines(self, image: npt.NDArray[np.uint8]) -> tuple[RecognizedTextLine, ...]:
+        """Return OCR lines and boxes using Tesseract's TSV output."""
+
         success, encoded_image = cv2.imencode(".png", image)
         if not success:
             raise OcrError(OcrErrorCode.RECOGNITION_FAILED)
@@ -101,7 +135,7 @@ class TesseractTextRecognizer:
                     [
                         self._executable,
                         str(image_path),
-                        _TESSERACT_OUTPUT_FORMAT,
+                        _TESSERACT_TSV_FORMAT,
                         "-l",
                         self._language,
                         _TESSERACT_CONFIG_ARGUMENT,
@@ -120,4 +154,53 @@ class TesseractTextRecognizer:
                 # A missing binary raises FileNotFoundError; one that exists but cannot be
                 # executed raises another OSError. Both mean the engine is unusable.
                 raise OcrError(OcrErrorCode.ENGINE_UNAVAILABLE) from error
-        return tuple(line for line in result.stdout.splitlines() if line.strip())
+            if "Failed loading language" in result.stderr:
+                raise OcrError(OcrErrorCode.ENGINE_UNAVAILABLE)
+        return _parse_tesseract_tsv(result.stdout)
+
+
+def _parse_tesseract_tsv(payload: str) -> tuple[RecognizedTextLine, ...]:
+    """Group Tesseract word rows into line boxes without trusting empty cells."""
+
+    lines_by_key: dict[tuple[int, int, int], list[RecognizedTextLine]] = {}
+    for row in payload.splitlines()[1:]:
+        columns = row.split("\t")
+        if len(columns) < 12 or columns[11].strip() == "":
+            continue
+        try:
+            level = int(columns[0])
+            block = int(columns[1])
+            paragraph = int(columns[2])
+            line_number = int(columns[3])
+            left = int(columns[6])
+            top = int(columns[7])
+            width = int(columns[8])
+            height = int(columns[9])
+        except ValueError:
+            continue
+        if level != 5 or width <= 0 or height <= 0:
+            continue
+        text = columns[11].strip()
+        if not text:
+            continue
+        key = (block, paragraph, line_number)
+        lines_by_key.setdefault(key, []).append(
+            RecognizedTextLine(text=text, left=left, top=top, width=width, height=height)
+        )
+
+    lines: list[RecognizedTextLine] = []
+    for words in lines_by_key.values():
+        left = min(word.left for word in words)
+        top = min(word.top for word in words)
+        right = max(word.left + word.width for word in words)
+        bottom = max(word.top + word.height for word in words)
+        lines.append(
+            RecognizedTextLine(
+                text=" ".join(word.text for word in words),
+                left=left,
+                top=top,
+                width=right - left,
+                height=bottom - top,
+            )
+        )
+    return tuple(lines)
