@@ -1,7 +1,7 @@
 ---
 id: BUG-028
 title: UI refactor retains private control coupling and stale gate evidence
-status: reported
+status: fixed
 severity: low
 created: 2026-08-23
 updated: 2026-08-23
@@ -38,7 +38,8 @@ After slicing `MainWindow`, collaborators should expose intentional state querie
 
 ## Regression verification
 
-- [ ] A static/architecture test or review checklist prevents `MainWindow` from reaching into collaborator-private state.
-- [ ] Documentation states the exact gate result for the reviewed commit and identifies live-client checks separately.
-- [ ] Parser comments and diagnostics consistently describe every accepted record shape.
-- [ ] The complete repository gate passes.
+- [x] A static/architecture test or review checklist prevents `MainWindow` from reaching into collaborator-private state.
+- [x] Documentation states the exact gate result for the reviewed commit and identifies live-client checks separately.
+- [x] Parser comments and diagnostics consistently describe every accepted record shape.
+- [x] The complete repository gate passes.
+

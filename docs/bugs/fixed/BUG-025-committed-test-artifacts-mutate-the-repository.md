@@ -1,7 +1,7 @@
 ---
 id: BUG-025
 title: Committed test artifacts mutate the repository
-status: reported
+status: fixed
 severity: medium
 created: 2026-08-23
 updated: 2026-08-23
@@ -38,7 +38,8 @@ Unit tests should remain hermetic under pytest-provided temporary paths, should 
 
 ## Regression verification
 
-- [ ] A failing check proves the repository status is unchanged after running the teleporter extractor tests.
-- [ ] Tests use pytest-owned temporary paths and no longer recursively remove repository-relative test output.
-- [ ] Committed generated artifacts under `.us065-test-tmp` are removed from source control.
-- [ ] The full repository gate passes from a clean checkout and leaves it clean.
+- [x] A failing check proves the repository status is unchanged after running the teleporter extractor tests.
+- [x] Tests use pytest-owned temporary paths and no longer recursively remove repository-relative test output.
+- [x] Committed generated artifacts under `.us065-test-tmp` are removed from source control.
+- [x] The full repository gate passes from a clean checkout and leaves it clean.
+

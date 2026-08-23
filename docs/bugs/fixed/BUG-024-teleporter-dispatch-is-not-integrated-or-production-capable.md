@@ -1,7 +1,7 @@
 ---
 id: BUG-024
 title: Teleporter dispatch is not integrated or production capable
-status: reported
+status: fixed
 severity: high
 created: 2026-08-23
 updated: 2026-08-23
@@ -39,8 +39,9 @@ The branch contains typed extraction models, a dispatcher state machine, a concr
 
 ## Regression verification
 
-- [ ] A failing integration test proves navigation or goal execution can request a destination, drive dispatcher ticks, and consume confirmed/failed results.
-- [ ] A failing test proves confirmed arrival initializes target-zone pathing as required by US-065.
-- [ ] A deterministic check documents the required operator-supplied world-ID profile and proves missing-profile behavior fails closed without pretending readiness.
-- [ ] The complete repository gate passes after integration.
-- [ ] Related documentation accurately distinguishes implemented components from unavailable end-to-end behavior.
+- [x] A failing integration test proves navigation or goal execution can request a destination, drive dispatcher ticks, and consume confirmed/failed results.
+- [x] A failing test proves confirmed arrival initializes target-zone pathing as required by US-065.
+- [x] A deterministic check documents the required operator-supplied world-ID profile and proves missing-profile behavior fails closed without pretending readiness.
+- [x] The complete repository gate passes after integration.
+- [x] Related documentation accurately distinguishes implemented components from unavailable end-to-end behavior.
+

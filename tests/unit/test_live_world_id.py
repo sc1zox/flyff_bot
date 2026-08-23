@@ -17,8 +17,14 @@ from flyff_bot.features.navigation.live_world_id import (
 
 
 class _FakeMemoryApi:
-    def __init__(self, world_id: int = 0) -> None:
+    def __init__(
+        self,
+        world_id: int = 0,
+        *,
+        executable: Path = Path(__file__).parent / "neuz.exe",
+    ) -> None:
         self.world_id = world_id
+        self.executable = executable
 
     def process_id_for_window(self, window_handle: int) -> int:
         return 1
@@ -27,7 +33,7 @@ class _FakeMemoryApi:
         return 100
 
     def executable_path(self, process_handle: int) -> Path:
-        return _FAKE_EXECUTABLE
+        return self.executable
 
     def main_module_base(self, process_id: int) -> int:
         return 0x400000
@@ -39,8 +45,9 @@ class _FakeMemoryApi:
         pass
 
 
-_FAKE_EXECUTABLE = Path(__file__).parent / "neuz.exe"
-_DIGEST = hashlib.sha256(_FAKE_EXECUTABLE.read_bytes()).hexdigest()
+_FAKE_EXECUTABLE_PATH = Path(__file__).parent / "neuz.exe"
+_FAKE_EXECUTABLE_PATH.write_bytes(b"fake-neuz-executable")
+_DIGEST = hashlib.sha256(_FAKE_EXECUTABLE_PATH.read_bytes()).hexdigest()
 
 
 def test_load_profiles_from_valid_json(tmp_path: Path) -> None:

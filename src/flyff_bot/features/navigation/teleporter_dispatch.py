@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import math
+import time
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from flyff_bot.features.navigation.live_position import WorldPosition
+from flyff_bot.features.navigation.live_position import (
+    PositionReading,
+    PositionSource,
+    WorldPosition,
+)
 from flyff_bot.features.navigation.live_world_id import LiveWorldIdReader
 from flyff_bot.features.navigation.teleporter_models import TeleporterDestination
 
@@ -79,6 +84,12 @@ class TeleporterInputAdapter(Protocol):
     def close_teleporter_window(self, window_handle: int) -> None: ...
 
 
+class ArrivalPositionReader(Protocol):
+    """Explicit read-only position sampling contract for arrival confirmation."""
+
+    def poll(self, at_seconds: float) -> PositionReading: ...
+
+
 class ArrivalObserver(Protocol):
     """Read-only source of authoritative world identity and coordinates."""
 
@@ -90,7 +101,7 @@ class LiveArrivalObserver:
 
     def __init__(
         self,
-        position_reader: object,
+        position_reader: ArrivalPositionReader,
         world_id_reader: LiveWorldIdReader | None = None,
     ) -> None:
         self._position_reader = position_reader
@@ -101,22 +112,10 @@ class LiveArrivalObserver:
         world_id: int | None = None
         sampled_at: float | None = None
 
-        poll_position = getattr(self._position_reader, "poll", None)
-        last_position = getattr(self._position_reader, "_last_reading", None)
-        if callable(poll_position):
-            import time
-
-            reading = poll_position(time.monotonic())
-            if (
-                reading is not None
-                and reading.source.value == "live"
-                and reading.position is not None
-            ):
-                position = reading.position
-                sampled_at = reading.sampled_at_seconds
-        elif last_position is not None and last_position.source.value == "live":
-            position = last_position.position
-            sampled_at = last_position.sampled_at_seconds
+        reading = self._position_reader.poll(time.monotonic())
+        if reading.source is PositionSource.LIVE and reading.position is not None:
+            position = reading.position
+            sampled_at = reading.sampled_at_seconds
 
         if self._world_id_reader is not None:
             timestamp = time.monotonic() if sampled_at is None else sampled_at

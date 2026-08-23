@@ -1,7 +1,7 @@
 ---
 id: BUG-026
 title: Teleporter hotkey bypasses foreground guard
-status: reported
+status: fixed
 severity: high
 created: 2026-08-23
 updated: 2026-08-23
@@ -38,7 +38,8 @@ The dispatcher checks `is_foreground()` once before starting its five-action seq
 
 ## Regression verification
 
-- [ ] A failing test proves `TeleporterWindowsInput.pulse_teleporter_hotkey()` uses the window-handle-guarded key helper.
-- [ ] A failing test proves key release still occurs after abort or focus loss during the pulse.
-- [ ] A manual Windows check confirms no key reaches a non-game foreground application after deliberate focus loss.
+- [x] A failing test proves `TeleporterWindowsInput.pulse_teleporter_hotkey()` uses the window-handle-guarded key helper.
+- [x] A failing test proves key release still occurs after abort or focus loss during the pulse.
+- [ ] A manual Windows check confirms no key reaches a non-game foreground application after deliberate focus loss (unrun).
 - [ ] Related safety documentation and tests remain synchronized.
+

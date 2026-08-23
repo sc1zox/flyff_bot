@@ -53,6 +53,10 @@ class WindowControlsCard(QGroupBox):
     def attack_virtual_key(self) -> int:
         return self._attack_virtual_key
 
+    @property
+    def is_recording_attack_key(self) -> bool:
+        return self._is_recording_attack_key
+
     def begin_attack_key_recording(self, translator: Translator) -> None:
         self._is_recording_attack_key = True
         self.attack_key_button.setText(translator.text(Message.UI_ATTACK_KEY_RECORDING))

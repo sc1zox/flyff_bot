@@ -913,7 +913,7 @@ class MainWindow(QMainWindow):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if (
             watched is self._attack_key_button
-            and self._controls_card._is_recording_attack_key
+            and self._controls_card.is_recording_attack_key
             and event.type() == QEvent.Type.KeyPress
             and isinstance(event, QKeyEvent)
         ):

@@ -1,7 +1,7 @@
 ---
 id: BUG-027
 title: Arrival observer relies on private reader state
-status: reported
+status: fixed
 severity: medium
 created: 2026-08-23
 updated: 2026-08-23
@@ -38,7 +38,8 @@ A production adapter should depend on a small explicitly typed protocol owned at
 
 ## Regression verification
 
-- [ ] A failing mypy/test check rejects a position reader that does not satisfy the explicit arrival-sampling protocol.
-- [ ] Tests cover fresh polling, unavailable readings, and malformed adapters without accessing private attributes.
-- [ ] Production code removes reflective access and the function-local standard-library import.
-- [ ] The complete repository gate passes.
+- [x] A failing mypy/test check rejects a position reader that does not satisfy the explicit arrival-sampling protocol.
+- [x] Tests cover fresh polling, unavailable readings, and malformed adapters without accessing private attributes.
+- [x] Production code removes reflective access and the function-local standard-library import.
+- [x] The complete repository gate passes.
+

@@ -26,10 +26,10 @@ CLIENT_TEXT_FALLBACK_ENCODING = "cp1252"
 TELEPORTER_DATABASE_SCHEMA_VERSION = 1
 
 # The public Flyff source declares destinations with `AddTeleportOption`; the Entropia
-# binary additionally exposes the plural spelling. Both share the seven documented fields:
-# identifier, display name, world ID, description, minimum level, maximum level, category,
-# search text, and optionally arrival-anchor X/Z. The ten-field form is this bot's explicit
-# normalized extension; an ordinary seven-field client record has no proven XYZ fields.
+# binary additionally exposes the plural spelling. Accepted forms are 3, 7, 8, and 10
+# fields: the three-field form has identifier/name/world; seven adds description/level/
+# category; eight adds search text; ten adds arrival-anchor X/Z. Only the ten-field form
+# carries coordinates, and those remain unverified until a live client confirms them.
 TELEPORTER_CALL_PATTERN = re.compile(
     r"\bAddTeleportOptions?\s*\((?P<arguments>[^)]*)\)", re.IGNORECASE
 )
@@ -194,7 +194,7 @@ def parse_teleporter_destinations(
                 diagnostics.append(
                     TeleporterExtractionDiagnostic(
                         TeleporterExtractionWarning.MALFORMED_RECORD,
-                        f"expected 7, 8, or 10 fields, found {len(values)}",
+                        f"expected 3, 7, 8, or 10 fields, found {len(values)}",
                     )
                 )
             continue

@@ -17,10 +17,12 @@ class TeleporterWindowsInput:
     def __init__(
         self,
         controller: WindowsInputController,
+        window_handle: int,
         *,
         config: TeleporterDispatchConfig | None = None,
     ) -> None:
         self._controller = controller
+        self._window_handle = window_handle
         self._config = config or TeleporterDispatchConfig()
 
     def is_aborted(self) -> bool:
@@ -30,7 +32,11 @@ class TeleporterWindowsInput:
         return self._controller.is_foreground(window_handle)
 
     def pulse_teleporter_hotkey(self, virtual_key: int, duration_seconds: float) -> None:
-        self._controller.send_key(virtual_key, duration_seconds)
+        self._controller.send_key_while_guarded(
+            self._window_handle,
+            virtual_key,
+            duration_seconds,
+        )
 
     def type_search_text(self, window_handle: int, text: str) -> None:
         self._controller.type_text_while_guarded(window_handle, text)

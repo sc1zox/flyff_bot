@@ -73,9 +73,6 @@ from flyff_bot.ui.dashboard import (
 )
 
 if TYPE_CHECKING:
-    # The quests feature routes through the navigation package, which routes back here.
-    # The orchestrator only needs these names to describe its own surface, so importing
-    # them for type checking alone keeps the runtime dependency one-directional.
     from flyff_bot.features.navigation.pathing import PathingController
     from flyff_bot.features.navigation.vector_navigation import VectorZoneNavigator
     from flyff_bot.features.quests.goals import QuestFarmingQueue, QuestResolution
@@ -782,8 +779,6 @@ class FarmingOrchestrator:
 
         pathing = self._pathing
         pending = self._pending_target_click
-        from flyff_bot.features.navigation.pathing import PathingMode
-
         if pathing is None or pending is None:
             self._set_mode(FarmingMode.SEARCHING, reason="approach_unavailable")
             return False
@@ -796,6 +791,8 @@ class FarmingOrchestrator:
             self._combat.begin_target_acquisition(self._state.observed_at_seconds)
             return self._combat_dispatcher.dispatch(pending)
         decision = pathing.step(self._state.observed_at_seconds)
+        from flyff_bot.features.navigation.pathing import PathingMode
+
         if decision.mode is PathingMode.IDLE and pathing.navmesh_target is None:
             self._pending_target_click = None
             if self._telemetry is not None:

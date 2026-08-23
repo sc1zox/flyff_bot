@@ -34,6 +34,12 @@ from flyff_bot.features.navigation.teleport import (
     TeleportController,
     TeleportStatus,
 )
+from flyff_bot.features.navigation.teleporter_dispatch import (
+    CombatObservation,
+    TeleporterDispatcher,
+    TeleporterDispatchStatus,
+)
+from flyff_bot.features.navigation.teleporter_models import TeleporterDestination
 from flyff_bot.features.navigation.tracking import (
     StallConfig,
     StallDetector,
@@ -136,6 +142,7 @@ class PathingController:
         camera_reader: LiveCameraReader | None = None,
         navmesh: BakedNavMesh | None = None,
         teleport_config: TeleportConfig | None = None,
+        teleporter_dispatcher: TeleporterDispatcher | None = None,
     ) -> None:
         self._config = config or PathingConfig()
         self._stalls = StallDetector(self._config.stall)
@@ -156,6 +163,7 @@ class PathingController:
         self._camera_error_code: CameraReadErrorCode | None = None
         self._world_waypoints: tuple[WorldPosition, ...] = ()
         self._teleport = TeleportController(teleport_config)
+        self._teleporter_dispatcher = teleporter_dispatcher
         self._pending_decision: PathingDecision | None = None
         self._evasion_steps: list[PathingDecision] = []
         self._last_live_stall: WorldPosition | None = None
@@ -330,6 +338,23 @@ class PathingController:
         self._waypoint_index = 0
         self._planned_at_seconds = None
         self._completed_zone_sweeps = 0
+
+    def request_teleporter_destination(
+        self, destination: TeleporterDestination, at_seconds: float
+    ) -> bool:
+        """Arm one guarded client teleporter transition."""
+
+        dispatcher = self._teleporter_dispatcher
+        if dispatcher is None:
+            return False
+        self._world_waypoints = ()
+        self._waypoint_index = 0
+        self._planned_at_seconds = None
+        self._navmesh_target = None
+        self._evasion_steps.clear()
+        self._pending_decision = None
+        dispatcher.request(destination, at_seconds)
+        return True
 
     def snapshot(self, at_seconds: float = 0.0) -> NavigationSnapshot:
         """Return an immutable snapshot of authoritative 3D GPS, NavMesh, and active route."""
@@ -536,6 +561,8 @@ class PathingController:
         if not self.is_gps_available:
             self._block_navigation()
             return PathingDecision(PathingMode.BLOCKED)
+        if self._tick_teleporter(at_seconds):
+            return PathingDecision(PathingMode.TELEPORTING)
         if self._pending_decision is not None:
             decision = self._pending_decision
             self._pending_decision = None
@@ -567,6 +594,29 @@ class PathingController:
         )
         if keys:
             self.integrate_movement(keys, decision.key_press_duration_seconds)
+
+    def _tick_teleporter(self, at_seconds: float) -> bool:
+        """Advance a pending guarded teleporter transition, if one is armed."""
+
+        dispatcher = self._teleporter_dispatcher
+        if dispatcher is None or dispatcher.destination is None:
+            return False
+        result = dispatcher.tick(
+            CombatObservation(False, 100.0, at_seconds),
+            at_seconds=at_seconds,
+        )
+        if result.status in {
+            TeleporterDispatchStatus.DEFERRED,
+            TeleporterDispatchStatus.DISPATCHED,
+        }:
+            self._mode = PathingMode.TELEPORTING
+            return True
+        if result.status is TeleporterDispatchStatus.CONFIRMED:
+            self._teleporter_dispatcher = None
+            self._mode = PathingMode.BLOCKED
+            return False
+        self._block_navigation()
+        return True
 
     def reject(self, decision: PathingDecision) -> None:
         """Return a rejected teleport request to ground routing."""
