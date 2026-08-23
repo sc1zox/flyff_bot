@@ -7,6 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
+import numpy as np
+
 from flyff_bot.features.automation.models import (
     Position,
     SelectedTarget,
@@ -20,11 +22,13 @@ from flyff_bot.features.automation.quest_execution import QuestInputDispatcher
 from flyff_bot.features.automation.quest_execution_models import (
     DialogueObservation,
     DialoguePerceiver,
+    MenuAction,
     QuestInputKind,
     QuestInteractionConfig,
     QuestInteractionController,
     QuestInteractionDecision,
     QuestInteractionMode,
+    QuestMenuPerceiver,
 )
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.pathing import PathingConfig, PathingController
@@ -53,6 +57,8 @@ from flyff_bot.features.quests.persistence import (
     load_quest_npc_positions,
     save_quest_npc_positions,
 )
+from flyff_bot.features.vision.models import CapturedFrame, ClientSize
+from flyff_bot.features.vision.ocr import TextRecognizer
 
 WINDOW_HANDLE = 42
 FLAME = VisibleMob(0, "Flame", 0.9, 20, 20, 20, 20)
@@ -403,13 +409,56 @@ def test_dialogue_unavailable_does_not_click_a_menu() -> None:
     from flyff_bot.features.quests.goals import QuestResolution
 
     controller = QuestInteractionController(cast("QuestResolution", _interaction_resolution()))
+    controller.begin_interaction(1.0, npc_screen_position=Position(120, 90))
+
+    decision = controller.step(_state(1.1))
+
+    assert decision.input_kind is QuestInputKind.CLICK
+    assert decision.position == Position(120, 90)
+
+
+def test_dialogue_unavailable_without_npc_evidence_dispatches_nothing() -> None:
+    from flyff_bot.features.quests.goals import QuestResolution
+
+    controller = QuestInteractionController(cast("QuestResolution", _interaction_resolution()))
     controller.begin_interaction(1.0)
 
     decision = controller.step(_state(1.1))
 
-    assert decision.input_kind is QuestInputKind.KEY
+    assert decision.input_kind is QuestInputKind.NONE
     assert decision.position is None
-    assert decision.virtual_key is not None
+    assert decision.virtual_key is None
+
+
+def test_menu_perceiver_matches_generic_accept_and_submit_rows() -> None:
+    class Recognizer:
+        def recognize(self, _image: object) -> tuple[str, ...]:
+            return ("Dialog", "Accept  All Quests", "Submit All Quests")
+
+    perceiver = QuestMenuPerceiver(cast("TextRecognizer", Recognizer()))
+    observation = perceiver.observe_dialogue(_state(1.0), _frame())
+
+    assert observation.is_open and observation.can_accept
+    assert not observation.can_turn_in
+    assert observation.option_position is None
+    assert observation.detail == "accept"
+
+
+def test_menu_perceiver_supports_configured_action_phrases() -> None:
+    class Recognizer:
+        def recognize(self, _image: object) -> tuple[str, ...]:
+            return ("Trade", "Recwding", "Buyback", "Exchange")
+
+    actions = (MenuAction("exchange", ("exchange",)),)
+    perceiver = QuestMenuPerceiver(
+        cast("TextRecognizer", Recognizer()),
+        actions=actions,
+        match_threshold=0.8,
+    )
+    observation = perceiver.observe_dialogue(_state(1.0), _frame())
+
+    assert observation.is_open and observation.can_turn_in
+    assert observation.detail == "exchange"
 
 
 def test_interaction_timeout_retries_with_backoff_then_fails_safely() -> None:
@@ -419,7 +468,6 @@ def test_interaction_timeout_retries_with_backoff_then_fails_safely() -> None:
         interaction_timeout_seconds=1.0,
         retry_base_seconds=2.0,
         maximum_attempts=2,
-        key_press_duration_seconds=0.1,
     )
     controller = QuestInteractionController(
         cast("QuestResolution", _interaction_resolution()), config=config
@@ -474,9 +522,8 @@ def test_quest_input_dispatcher_refuses_abort_and_lost_focus() -> None:
     dispatcher = QuestInputDispatcher(adapter, WINDOW_HANDLE)
     decision = QuestInteractionDecision(
         QuestInteractionMode.INTERACTING,
-        QuestInputKind.KEY,
-        virtual_key=67,
-        key_press_duration_seconds=0.1,
+        QuestInputKind.CLICK,
+        position=Position(30, 40),
     )
 
     blocked = dispatcher.dispatch(decision)
@@ -491,7 +538,7 @@ def test_quest_input_dispatcher_refuses_abort_and_lost_focus() -> None:
     assert not blocked
     assert not unfocused
     assert dispatched
-    assert adapter.keys == [(67, 0.1)]
+    assert adapter.clicks == [(WINDOW_HANDLE, 30, 40)]
 
 
 class _Pipeline:
@@ -550,6 +597,13 @@ def _state(
         selected_target=target or SelectedTarget(TargetState.NONE, None, 0),
         visible_mobs=mobs,
         viewport=Viewport(400, 400),
+    )
+
+
+def _frame() -> CapturedFrame:
+    return CapturedFrame(
+        np.zeros((100, 200, 3), dtype=np.uint8),
+        ClientSize(width=200, height=100),
     )
 
 

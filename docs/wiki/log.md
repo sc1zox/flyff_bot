@@ -916,8 +916,7 @@ verification into `architecture.md`.
 ## [2026-08-23] integration | Quest interaction dispatch (US-062 follow-up)
 
 Wired `QuestInteractionController` into `FarmingOrchestrator`: explicit NPC position approaches use
-NavMesh routing, guarded keyboard fallback dispatches the configured C key only after arrival,
-dialogue-option clicks still require read-only frame evidence, timeout retreat uses exponential
-backoff, and ordinary searching resumes when no quest interaction is active. Focused orchestration
-and quest-interaction suites pass. Live dialogue geometry and end-to-end Windows validation remain
-unverified.
+NavMesh routing and interaction is now strictly click-based: the incorrect C-key fallback was removed.
+Arrival clicks the measured NPC screen box, then `QuestMenuPerceiver` proves a generic/configurable
+menu action with OCR before clicking its concrete row. Timeout retreat retains exponential backoff.
+Live Windows OCR/menu validation remains outstanding.

@@ -59,6 +59,7 @@ from flyff_bot.features.automation.powerup_controller import (
 )
 from flyff_bot.features.automation.quest_execution import QuestInputDispatcher
 from flyff_bot.features.automation.quest_execution_models import (
+    DialoguePerceiver,
     QuestInteractionController,
 )
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
@@ -244,6 +245,7 @@ class FarmingOrchestrator:
         kill_goals: KillGoalTracker | None = None,
         quest_queue: QuestFarmingQueue | None = None,
         on_target_classes_changed: Callable[[frozenset[str]], None] | None = None,
+        quest_menu_perceiver: DialoguePerceiver | None = None,
         event_logger: SessionEventLogger | None = None,
         foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
         telemetry: TelemetryRecorder | None = None,
@@ -266,6 +268,7 @@ class FarmingOrchestrator:
         self._powerup_dispatcher = PowerUpInputDispatcher(input_adapter, window_handle)
         self._emergency_dispatcher = EmergencyTeleportDispatcher(input_adapter, window_handle)
         self._quest_interaction: QuestInteractionController | None = None
+        self._quest_menu_perceiver = quest_menu_perceiver
         self._quest_input_dispatcher = QuestInputDispatcher(input_adapter, window_handle)
         self._pathing = pathing
         attach_geometry = getattr(self._pipeline, "attach_world_geometry", None)
@@ -472,7 +475,10 @@ class FarmingOrchestrator:
             )
         )
         self._apply_active_target_classes()
-        self._quest_interaction = QuestInteractionController(resolution)
+        self._quest_interaction = QuestInteractionController(
+            resolution,
+            dialogue_perceiver=self._quest_menu_perceiver,
+        )
         pathing = self._pathing
         zones = resolution.zones
         if pathing is None or not zones:
@@ -1001,6 +1007,29 @@ class FarmingOrchestrator:
             pathing.cancel_target_approach()
             self._set_mode(FarmingMode.SEARCHING, reason="quest_npc_reached")
             return False
+        npc_screen_position = None
+        if in_range:
+            for mob in self._state.visible_mobs:
+                if (
+                    mob.world_x is None
+                    or mob.world_y is None
+                    or mob.world_z is None
+                    or npc.position is None
+                ):
+                    continue
+                if (
+                    math.dist(
+                        (mob.world_x, mob.world_y, mob.world_z),
+                        (
+                            npc.position.x,
+                            npc.position.y,
+                            npc.position.z,
+                        ),
+                    )
+                    <= 1.0
+                ):
+                    npc_screen_position = Position(mob.x, mob.y + mob.height // 2)
+                    break
         if not in_range and interaction.mode.startswith("navigating_"):
             if not pathing.begin_position_approach(
                 npc.position if npc.position is not None else WorldPosition(0.0, 0.0, 0.0),
@@ -1015,7 +1044,11 @@ class FarmingOrchestrator:
                 return False
             self._set_mode(FarmingMode.APPROACHING, reason="quest_npc_selected")
             return False
-        decision = interaction.step(self._state, self._last_frame)
+        decision = interaction.step(
+            self._state,
+            self._last_frame,
+            npc_screen_position=npc_screen_position,
+        )
         return self._quest_input_dispatcher.dispatch(decision)
 
     def _exhausted_zone_handed_over(self) -> bool:

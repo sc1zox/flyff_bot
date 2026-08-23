@@ -1686,22 +1686,26 @@ database.
 
 `PathingController.begin_position_approach()` routes to that exact position through the same baked
 NavMesh used for target approaches, while `position_target_in_interaction_range()` uses an independent
-quest-interaction distance so combat engagement distance is unchanged. Once arrival is observed,
-`QuestInteractionController` runs the bounded cycle: open dialogue, click an accept or turn-in option,
-confirm it from read-only frame evidence, farm objectives, return, and claim rewards. Its dialogue seam
-accepts only concrete option coordinates proven by perception; with no perceiver attached it may send
-the configured keyboard-open request but never clicks inferred menu geometry. Every dispatcher call
-rechecks END and foreground immediately before input.
+quest-interaction distance so combat engagement distance is unchanged. Quest interaction is click-only.
+The 2026-08-23 screenshots showed no `C` binding, so the former keyboard fallback was removed entirely.
+On arrival, the controller uses the measured screen box of the configured NPC to request one guarded
+left click; `QuestMenuPerceiver` OCRs the resulting client frame and proves configured action phrases
+by fuzzy text matching. Default phrases cover generic "accept"/"submit" menus, while operators can
+supply other localized menu actions without changing code. The current OCR seam reports action evidence
+but no clickable row geometry yet, so it never substitutes a guessed menu coordinate; the next bounded
+step is Tesseract line boxes feeding exact centres into the existing click dispatcher.
+Every dispatcher call rechecks END and foreground immediately before input.
 
 Navigation and interaction failures share one bounded timeout and exponential backoff state machine:
 retreat first, retry the same configured phase at most `MAXIMUM_QUEST_INTERACTION_ATTEMPTS` times,
 then fail safely without advancing the queue. Objective completion alone still does not advance a
 quest; reward evidence is required before queue retirement.
 
-Automated coverage verifies explicit NPC resolution and persistence, guarded dispatch, timeout,
-backoff, failure, NavMesh position-approach guards, and bilingual diagnostics. Live Windows NPC
-targeting, real client dialogue templates, and the full end-to-end Black Board walkthrough remain
-unverified.
+Automated coverage verifies explicit NPC resolution and persistence, guarded click dispatch, generic
+menu-text matching, timeout, backoff, failure, NavMesh position-approach guards, and bilingual
+diagnostics. Live Windows OCR accuracy against the actual client menu and the full end-to-end Black
+Board walkthrough remain unverified. The separate exchange/vendor menu remains out of scope for this
+quest-interaction correction.
 
 ## Offline farming value models from recorded telemetry (US-066, completed)
 
