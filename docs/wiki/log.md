@@ -893,3 +893,12 @@ Ingested
 into `project-overview.md` and `entropia-game-wiki.md`. Established the official gameplay-domain
 consultation workflow, documented the GitBook `.md` endpoint and `llms.txt` index, and added a
 260-entry sitemap-derived page inventory without copying wiki prose.
+
+## [2026-08-23] synthesis | Profile-driven player-stat reader (US-076)
+
+Synthesized the US-076 implementation boundary into `architecture.md`: perception now prefers a
+foreground-gated, SHA-256-bound, read-only player-stats snapshot over constructing player-vitals OCR.
+Profiles are validated before handle creation and every snapshot is immutable with explicit
+unavailability. The glossary defines the snapshot contract. Because repository evidence contains no
+verified player-stat field offsets, the shipped registry remains empty and live values remain
+explicitly unavailable until static-analysis and in-game verification provide x86/x64 profiles.

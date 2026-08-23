@@ -40,6 +40,7 @@ from flyff_bot.features.navigation.vector_navigation import (
     VectorZoneNavigator,
 )
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
+from flyff_bot.features.player_stats.reader import LivePlayerStatsReader
 from flyff_bot.features.quests.goals import (
     QuestFarmingQueue,
     QuestGoalResolver,
@@ -311,6 +312,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     frame_source,
                     detector,
                     target_verifier,
+                    player_stats_reader=LivePlayerStatsReader(window_handle),
                     monster_stats_reader=MonsterStatsReader(
                         TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
                         header_anchor_template=load_header_anchor_template(

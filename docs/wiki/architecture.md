@@ -67,6 +67,7 @@ related:
   - ../user-stories/completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md
   - ../user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md
   - ../user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md
+  - ../user-stories/US-076-complete-client-player-stats-reader.md
   - ../user-stories/completed/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
   - ../user-stories/completed/US-058-navmesh-aware-targeting-and-telemetry-integration.md
   - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
@@ -1747,3 +1748,28 @@ keep their behaviour; only the import direction was corrected.
 The automated repository gate passed on 2026-08-21 at 719 passed, 2 skipped, and 89.70% coverage.
 Running the trainer on a real recorded Windows farming session and inspecting the produced
 artifacts remains outstanding and is not implied by the automated result.
+
+## Fingerprinted player-stat snapshots (US-076, implementation draft)
+
+`flyff_bot.features.player_stats` adds a second stage for authoritative vitals: `PerceptionPipeline`
+now accepts an optional `LivePlayerStatsReader`. When that provider is present it polls a frozen
+`ClientPlayerStatsSnapshot`, copies only profile-declared HP/MP/FP values into the existing
+`PlayerVitals` contract when all three are present and valid, and stores the complete snapshot on
+`WorldState.player_stats_snapshot`. It no longer constructs or invokes `PlayerVitalsReader`; target,
+monster-stats, loot, and mob OCR are unchanged. Missing or partial client stats therefore retain the
+previous vitals instead of falling back to screen recognition.
+
+The reader reuses the documented read-only Win32 boundary from `LivePositionReader`
+(`PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION`) and adds foreground gating like
+`LiveCameraReader`. It hashes the executable, resolves an exact lowercase SHA-256 profile before any
+field read, reads one fixed pointer-width pointer plus one bounded structure span, validates every
+value against finite profile bounds, closes the handle promptly on failure, throttles repeated polls,
+and emits one diagnostic per error transition. Profiles live in
+`data/config/client_player_stats_profiles.json`; malformed JSON, duplicate fingerprints, invalid
+pointer widths, overlapping ranges, unknown primitive types, or out-of-range bounds fail before any
+process handle opens.
+
+No verified player-stat field offsets exist in repository evidence today. The shipped registry is
+therefore intentionally empty: production sessions receive typed unavailable snapshots rather than
+guessed addresses or fabricated values. Adding x86/x64 profiles requires new static-analysis evidence
+and controlled in-game verification; until then this story cannot be marked complete.
