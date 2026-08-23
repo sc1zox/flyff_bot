@@ -899,6 +899,7 @@ consultation workflow, documented the GitBook `.md` endpoint and `llms.txt` inde
 Added the US-065 architecture section covering offline `TeleportOption.inc` extraction, typed
 destination records, guarded no-OCR UI dispatch, and closed-loop arrival confirmation. Recorded
 that live confirmation fails closed until a verified world-ID memory profile exists.
+
 ## 2026-08-22 — US-060 architecture synthesis
 
 - Ingested implemented US-060 facts into architecture: combat class profiles, live engagement
@@ -934,3 +935,18 @@ Arrival clicks the measured NPC screen box, then `QuestMenuPerceiver` proves a g
 menu action with OCR before clicking its concrete row. Tesseract line geometry is parsed from bounded
 TSV output and supplies the guarded row centre. Timeout retreat retains exponential backoff. Live
 Windows OCR/menu validation remains outstanding.
+
+## [2026-08-23] synthesis | Profile-driven player-stat reader (US-076)
+
+Synthesized the US-076 implementation boundary into `architecture.md`: perception now prefers a
+foreground-gated, SHA-256-bound, read-only player-stats snapshot over constructing player-vitals OCR.
+Profiles are validated before handle creation and every snapshot is immutable with explicit
+unavailability. The glossary defines the snapshot contract. Because repository evidence contains no
+verified player-stat field offsets, the shipped registry remains empty and live values remain
+explicitly unavailable until static-analysis and in-game verification provide x86/x64 profiles.
+
+## [2026-08-23] synthesis | Player-stat diagnostics correction (US-076)
+
+Synthesized the review correction into `architecture.md`: invalid pointers are distinct from
+malformed reads, unavailable snapshots retain the last complete field-name set across repeated
+failures, and profile bounds govern legitimate negative values.

@@ -7,11 +7,6 @@ from flyff_bot.features.navigation.live_position import PositionReadErrorCode
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import BotStatus, FarmingGoal, WindowStatus
 
-DEFAULT_WINDOW_WIDTH = 1100
-DEFAULT_WINDOW_HEIGHT = 760
-MINIMUM_WINDOW_WIDTH = 760
-MINIMUM_WINDOW_HEIGHT = 520
-
 
 def status_message(status: BotStatus) -> Message:
     return {

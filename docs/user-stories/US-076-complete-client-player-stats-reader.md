@@ -22,15 +22,15 @@ As a **bot operator**, I want **the application to read every available player s
 
 ## Acceptance criteria
 
-- [ ] Given a supported SHA-256 client profile, when the stats reader polls, then it extracts all configured player statistics through fixed bounded reads, including HP, MP, FP, level, experience, current/max values where the client exposes them, stat attributes, relevant derived combat values, active resource state, and any additional fields proven by static analysis.
+- [ ] Given a supported SHA-256 client profile, when the stats reader polls, then it extracts every configured proven player statistic through one fixed pointer read and one fixed bounded structure read; the profile schema can express HP, MP, FP, level, experience, attributes, and additional verified fields, but no such stat offsets are yet evidenced in repository sources.
 - [ ] Given each reading, when values are decoded, then the application receives an immutable snapshot carrying source metadata, timestamp, finite validated values, unknown-field markers, and the client digest used.
 - [ ] Given HP is available from the client, when combat, vitals triggers, telemetry, RL observations, and dashboards evaluate player state, then they use the client reading and do not invoke player-vitals OCR.
 - [ ] Given MP, FP, level, EXP, attributes, or other exposed stats are required by controllers, when decisions run, then they consume the same immutable snapshot instead of separate ad-hoc visual readers.
-- [ ] Given an unsupported executable, missing/malformed profile, closed/minimized/background client, short read, invalid pointer, or non-finite value occurs, when polling runs, then the reader returns a typed diagnostic, emits no fabricated values, closes handles promptly, and marks affected fields unavailable.
-- [ ] Given a required live player stat is unavailable, when the central live-state gate evaluates the session, then behavior follows US-077 rather than falling back to OCR.
-- [ ] Given profiles are added for x86/x64 builds, when configuration loads, then every address range is validated for type, bounds, overlap policy, pointer width, and fingerprint uniqueness before any process handle opens.
-- [ ] Given emergency stop fires or foreground focus is lost, when polling is active, then no unsafe recovery loop starts; reads may continue only within ADR-006 and all input dispatch remains blocked.
-- [ ] Failure and cancellation behavior is defined for reader startup, polling, shutdown, client restart, binary update, and profile reload.
+- [x] Given an unsupported executable, missing/malformed profile, closed/minimized/background client, short read, invalid pointer, or non-finite value occurs, when polling runs, then the reader returns a typed diagnostic, emits no fabricated values, closes handles promptly, and marks affected fields unavailable.
+- [ ] Given a required live player stat is unavailable, when the central live-state gate evaluates the session, then behavior follows US-077 rather than falling back to OCR; until that story lands, perception retains prior valid vitals without invoking OCR.
+- [x] Given profiles are added for x86/x64 builds, when configuration loads, then every address range is validated for type, bounds, overlap policy, pointer width, and fingerprint uniqueness before any process handle opens.
+- [x] Given foreground focus is lost or the game window/process disappears, when polling is active, then the reader returns typed diagnostics, closes its handle, and starts no unsafe recovery loop. Emergency input safety remains owned by existing guarded dispatchers because this reader performs no input.
+- [x] Failure and cancellation behavior is defined for startup, throttled polling, shutdown/client-window change, short/non-finite reads, unsupported binaries, and invalid operator profiles; explicit reload remains part of the follow-up readiness-gate integration.
 - [ ] All user-visible text is available in German and English.
 
 ## Out of scope
@@ -43,8 +43,8 @@ As a **bot operator**, I want **the application to read every available player s
 ## Verification
 
 - Automated:
-  - Synthetic process-memory tests cover complete snapshots, partial availability, x86/x64 pointers, malformed profiles, short/non-finite reads, handle cleanup, poll throttling, restarts, and foreground/emergency interactions.
-  - Controller tests prove vitals and other consumers use client stats and never request player-vitals OCR.
+  - Synthetic process-memory tests cover complete snapshots, malformed profiles, overlapping ranges, short/non-finite reads, handle cleanup, poll throttling, recovery, foreground loss, and immutable snapshot contracts.
+  - Pipeline tests prove HP/MP/FP originate from complete client snapshots and partial/unavailable snapshots do not invoke player-vitals OCR.
   - Profile-validation tests reject guessed, overlapping, out-of-bounds, duplicate, or malformed configurations.
   - Localization tests enforce German/English parity; `./scripts/check.ps1` passes.
 - Manual (Windows):

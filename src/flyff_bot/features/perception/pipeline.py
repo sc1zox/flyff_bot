@@ -23,6 +23,10 @@ from flyff_bot.features.perception.mob_world_position import (
     MobWorldPositionEstimator,
     with_estimated_world_positions,
 )
+from flyff_bot.features.player_stats.models import (
+    ClientPlayerStatsSnapshot,
+    PlayerStatsSource,
+)
 from flyff_bot.features.vision.capture import FrameSource
 from flyff_bot.features.vision.detection import Detection, DetectionError, Detector
 from flyff_bot.features.vision.models import CapturedFrame
@@ -50,6 +54,12 @@ class PerceptionFailure(StrEnum):
     TARGET_VERIFICATION = "target_verification"
     VITALS_READING = "vitals_reading"
     MONSTER_STATS = "monster_stats"
+
+
+class PlayerStatsProvider(Protocol):
+    """A provider of exact-profile client-memory statistics."""
+
+    def poll(self, at_seconds: float) -> ClientPlayerStatsSnapshot: ...
 
 
 class TargetVerificationFeed(Protocol):
@@ -97,6 +107,7 @@ class PerceptionPipeline:
         target_verifier: TargetVerificationFeed,
         clock: Callable[[], float] = monotonic,
         vitals_reader: PlayerVitalsFeed | None = None,
+        player_stats_reader: PlayerStatsProvider | None = None,
         monster_stats_reader: MonsterStatsFeed | None = None,
         monster_stats_interval_seconds: float = DEFAULT_MONSTER_STATS_INTERVAL_SECONDS,
     ) -> None:
@@ -106,7 +117,10 @@ class PerceptionPipeline:
         self._detector = detector
         self._target_verifier = target_verifier
         self._clock = clock
-        self._vitals_reader = vitals_reader or PlayerVitalsReader()
+        self._vitals_reader = (
+            None if player_stats_reader is not None else (vitals_reader or PlayerVitalsReader())
+        )
+        self._player_stats_reader = player_stats_reader
         self._monster_stats_reader = monster_stats_reader
         self._monster_stats_interval_seconds = monster_stats_interval_seconds
         self._next_monster_stats_read_at_seconds = 0.0
@@ -150,11 +164,25 @@ class PerceptionPipeline:
             selected_target = _selected_target(self._target_verifier.verify(frame))
         except FRAME_READ_ERRORS:
             failures.add(PerceptionFailure.TARGET_VERIFICATION)
+        observed_at_seconds = self._clock()
+        player_stats_snapshot = previous_state.player_stats_snapshot
         try:
-            player_vitals = self._vitals_reader.read(frame)
+            if self._player_stats_reader is not None:
+                snapshot = self._player_stats_reader.poll(observed_at_seconds)
+                player_stats_snapshot = snapshot
+                if snapshot.source is PlayerStatsSource.CLIENT_MEMORY:
+                    values = {field.name: field.value for field in snapshot.fields}
+                    if all(name in values for name in ("hp", "mp", "fp")):
+                        player_vitals = PlayerVitals(
+                            values["hp"],
+                            values["mp"],
+                            values["fp"],
+                        )
+            else:
+                assert self._vitals_reader is not None
+                player_vitals = self._vitals_reader.read(frame)
         except FRAME_READ_ERRORS:
             failures.add(PerceptionFailure.VITALS_READING)
-        observed_at_seconds = self._clock()
         # Each reading spawns an OCR subprocess, which is far slower than one perception tick,
         # so the HUD counter is sampled on its own interval instead of on every frame.
         if (
@@ -184,6 +212,7 @@ class PerceptionPipeline:
             visible_mobs=visible_mobs,
             viewport=viewport,
             player_vitals=player_vitals,
+            player_stats_snapshot=player_stats_snapshot,
             monster_kill_count=monster_kill_count,
             monster_stats=monster_stats,
         )

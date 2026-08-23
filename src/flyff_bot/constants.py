@@ -15,6 +15,7 @@ DEFAULT_CLIENT_CAMERA_PROFILES_PATH = "data/config/client_camera_profiles.json"
 # Live dungeon cooldown profiles (US-063) remain empty until an exact client binary has
 # verified offsets; the reader refuses to guess rather than reading an inferred address.
 DEFAULT_CLIENT_DUNGEON_PROFILES_PATH = "data/config/client_dungeon_profiles.json"
+DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH = "data/config/client_player_stats_profiles.json"
 DEFAULT_TELEMETRY_ROOT = "data/telemetry"
 DEFAULT_TELEMETRY_DATABASE_PATH = "data/telemetry.sqlite3"
 DEFAULT_TELEMETRY_DATASET_PATH = "data/datasets/rl"

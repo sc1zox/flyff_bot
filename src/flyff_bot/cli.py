@@ -84,6 +84,7 @@ from flyff_bot.features.navigation.world_extractor import (
 )
 from flyff_bot.features.navigation.world_geometry import terrain_triangles
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
+from flyff_bot.features.player_stats.reader import LivePlayerStatsReader
 from flyff_bot.features.quests.extraction import (
     DEFAULT_QUEST_LANGUAGE,
     QuestExtractionDiagnostic,
@@ -811,6 +812,7 @@ def _farming_orchestrator(
             ),
         ),
         TargetVerifier(allowed_names, anchors, TesseractTextRecognizer()),
+        player_stats_reader=LivePlayerStatsReader(window_handle),
     )
     navmesh_artifact = load_baked_navmesh(Path(args.navmesh_map)) if args.navmesh_map else None
     pathing = PathingController(

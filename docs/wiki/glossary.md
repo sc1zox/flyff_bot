@@ -1,16 +1,18 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-21
+updated: 2026-08-23
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
   - ../sources/2026-08-18-minimap-odometry-calibration.md
   - ../sources/2026-08-19-target-server-entropia-pserver-clarification.md
   - ../sources/2026-08-19-entropia-client-navigation-data-extraction.md
+  - ../sources/2026-08-20-entropia-camera-static-analysis.md
 related:
   - project-overview.md
   - architecture.md
+  - ../decisions/ADR-006-read-only-process-memory-access.md
 ---
 
 # Glossary
@@ -403,3 +405,7 @@ related:
 - **Heuristic reference predictor** — The per-head baseline each learned model is benchmarked
   against: a least-squares scaling of the single measurement the deterministic controller would have
   used, or the training mean where the controller has no such rule.
+- **Player-stats snapshot** — `ClientPlayerStatsSnapshot`, the immutable result of one foreground-
+  gated, SHA-256-bound, bounded read. It carries decoded profile-declared fields, unknown-field
+  markers, timestamp, client digest, unavailable field names, or a typed diagnostic; it never
+  substitutes defaults for unread statistics.
