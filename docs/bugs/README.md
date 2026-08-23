@@ -16,6 +16,11 @@ bugs are moved to `docs/bugs/fixed/`.
 
 - [ ] [**BUG-022: Dungeon live reader missing foreground guard and disk-thrashing SHA-256 hashing**](BUG-022-dungeon-live-reader-missing-foreground-guard-and-disk-thrashing.md)
 - [ ] [**BUG-023: Player stats reader masks invalid pointer and malformed read diagnostics**](BUG-023-player-stats-reader-masks-invalid-pointer-and-malformed-read-diagnostics.md)
+- [ ] [**BUG-024: Teleporter dispatch is not integrated or production capable**](BUG-024-teleporter-dispatch-is-not-integrated-or-production-capable.md)
+- [ ] [**BUG-025: Committed test artifacts mutate the repository**](BUG-025-committed-test-artifacts-mutate-the-repository.md)
+- [ ] [**BUG-026: Teleporter hotkey bypasses foreground guard**](BUG-026-teleporter-hotkey-bypasses-foreground-guard.md)
+- [ ] [**BUG-027: Arrival observer relies on private reader state**](BUG-027-arrival-observer-relies-on-private-reader-state.md)
+- [ ] [**BUG-028: UI refactor retains private control coupling and stale gate evidence**](BUG-028-ui-refactor-retains-private-control-coupling-and-stale-gate-evidence.md)
 
 
 ## Fixed Defects
@@ -41,5 +46,4 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-019: Live camera poll suppressed by the GPS sample guard freezes the steering heading**](fixed/BUG-019-live-camera-poll-suppressed-by-gps-sample-guard.md)
 - [x] [**BUG-020: Emergency recovery measures world-unit GPS movement against a minimap pixel threshold**](fixed/BUG-020-emergency-recovery-progress-threshold-in-minimap-pixels.md)
 - [x] [**BUG-021: Vector navigation offers no multi-zone selection and renders debug values unlocalized**](fixed/BUG-021-multi-zone-selection-and-localized-debug-values-missing.md)
-
 
