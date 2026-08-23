@@ -71,7 +71,15 @@ def test_recognizer_decodes_engine_output_as_utf_8_with_replacement(
 
     def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         captured.update(kwargs)
-        return subprocess.CompletedProcess(command, 0, "Flame <Lvl 175>\n", "")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "level\tpage\tblock\tpar\tline\tword\tleft\ttop\twidth"
+            "\theight\tconf\ttext\n"
+            "5\t1\t1\t1\t1\t1\t10\t20\t100\t20\t95\tFlame\n"
+            "5\t1\t1\t1\t1\t2\t115\t20\t80\t20\t95\t<Lvl 175>\n",
+            "",
+        )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
@@ -80,6 +88,22 @@ def test_recognizer_decodes_engine_output_as_utf_8_with_replacement(
     assert captured["encoding"] == "utf-8"
     assert captured["errors"] == "replace"
     assert lines == ("Flame <Lvl 175>",)
+
+
+def test_recognizer_reports_missing_language_data_as_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, "", "Failed loading language 'deu'")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    try:
+        TesseractTextRecognizer("tesseract").recognize(np.full((32, 64), 255, dtype=np.uint8))
+    except OcrError as error:
+        assert error.code is OcrErrorCode.ENGINE_UNAVAILABLE
+    else:
+        raise AssertionError("Missing language data must not become empty OCR output.")
 
 
 @pytest.mark.skipif(

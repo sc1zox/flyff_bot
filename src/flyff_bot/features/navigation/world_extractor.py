@@ -750,6 +750,22 @@ def dynamic_object_model_names(payload: bytes) -> tuple[str, ...]:
     return tuple(names)
 
 
+def dynamic_object_placements(payload: bytes) -> tuple[tuple[str, WorldCoordinate], ...]:
+    """Return every named client placement with its authoritative world position."""
+
+    body = payload[DYNAMIC_OBJECT_HEADER_BYTES:]
+    if len(body) % DYNAMIC_OBJECT_RECORD_BYTES != 0:
+        raise WorldExtractionError("A dynamic-object file does not divide into whole records.")
+    placements: list[tuple[str, WorldCoordinate]] = []
+    for offset in range(0, len(body), DYNAMIC_OBJECT_RECORD_BYTES):
+        x, _y, z = struct.unpack_from("<3f", body, offset + DYNAMIC_OBJECT_POSITION_OFFSET)
+        start = offset + DYNAMIC_OBJECT_MODEL_NAME_OFFSET
+        raw = body[start : start + DYNAMIC_OBJECT_MODEL_NAME_BYTES]
+        name = raw.split(b"\x00", 1)[0].decode("cp1252", errors="replace")
+        placements.append((name, WorldCoordinate(x, z)))
+    return tuple(placements)
+
+
 def load_monster_names(path: Path) -> dict[int, str]:
     """Return the monster-id to detector-class mapping stored at one JSON path."""
 

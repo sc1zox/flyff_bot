@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -15,6 +16,12 @@ from flyff_bot.features.automation.camera_alignment import (
 )
 from flyff_bot.features.automation.combat_execution import CombatInputAdapter, CombatInputDispatcher
 from flyff_bot.features.automation.controllers import (
+    CUSTOM_COMBAT_CLASS_PROFILE,
+    MELEE_COMBAT_CLASS_PROFILE,
+    MELEE_ENGAGEMENT_DISTANCE_UNITS,
+    RANGED_COMBAT_CLASS_PROFILE,
+    RANGED_ENGAGEMENT_DISTANCE_UNITS,
+    CombatClassProfile,
     CombatConfig,
     CombatController,
     CombatDecision,
@@ -37,12 +44,23 @@ from flyff_bot.features.automation.kill_goals import (
     KillGoalTracker,
     MobKillQuota,
 )
-from flyff_bot.features.automation.models import DesiredState, InventoryEntry, Position, WorldState
+from flyff_bot.features.automation.models import (
+    DesiredState,
+    InventoryEntry,
+    Position,
+    VisibleMob,
+    WorldState,
+)
 from flyff_bot.features.automation.powerup_controller import (
     PowerUpConfig,
     PowerUpInputAdapter,
     PowerUpInputDispatcher,
     PowerUpScheduler,
+)
+from flyff_bot.features.automation.quest_execution import QuestInputDispatcher
+from flyff_bot.features.automation.quest_execution_models import (
+    DialoguePerceiver,
+    QuestInteractionController,
 )
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
@@ -55,7 +73,11 @@ from flyff_bot.features.automation.vitals_controller import (
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control import ForegroundWindowInfo
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
-from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
+from flyff_bot.features.navigation.live_position import (
+    PositionReadErrorCode,
+    PositionSource,
+    WorldPosition,
+)
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.telemetry.models import CombatVerificationSource
@@ -220,6 +242,7 @@ class FarmingOrchestrator:
         kill_goals: KillGoalTracker | None = None,
         quest_queue: QuestFarmingQueue | None = None,
         on_target_classes_changed: Callable[[frozenset[str]], None] | None = None,
+        quest_menu_perceiver: DialoguePerceiver | None = None,
         event_logger: SessionEventLogger | None = None,
         foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
         telemetry: TelemetryRecorder | None = None,
@@ -241,6 +264,9 @@ class FarmingOrchestrator:
         self._vitals_dispatcher = VitalsInputDispatcher(input_adapter, window_handle)
         self._powerup_dispatcher = PowerUpInputDispatcher(input_adapter, window_handle)
         self._emergency_dispatcher = EmergencyTeleportDispatcher(input_adapter, window_handle)
+        self._quest_interaction: QuestInteractionController | None = None
+        self._quest_menu_perceiver = quest_menu_perceiver
+        self._quest_input_dispatcher = QuestInputDispatcher(input_adapter, window_handle)
         self._pathing = pathing
         attach_geometry = getattr(self._pipeline, "attach_world_geometry", None)
         if callable(attach_geometry):
@@ -270,6 +296,8 @@ class FarmingOrchestrator:
         self._telemetry_observed_at_seconds: float | None = None
         self._pending_target_click: CombatDecision | None = None
         self._session_active = False
+        self._pathing_engagement_distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
+        self._pathing_engagement_profile: CombatClassProfile = MELEE_COMBAT_CLASS_PROFILE
 
     @property
     def mode(self) -> FarmingMode:
@@ -422,6 +450,7 @@ class FarmingOrchestrator:
         self._quest_queue = queue
         self._client_close_requested = False
         if queue is None:
+            self._quest_interaction = None
             return
         active = queue.active
         if active is not None:
@@ -443,6 +472,10 @@ class FarmingOrchestrator:
             )
         )
         self._apply_active_target_classes()
+        self._quest_interaction = QuestInteractionController(
+            resolution,
+            dialogue_perceiver=self._quest_menu_perceiver,
+        )
         pathing = self._pathing
         zones = resolution.zones
         if pathing is None or not zones:
@@ -637,6 +670,8 @@ class FarmingOrchestrator:
         return True
 
     def _advance(self) -> bool:
+        if self._quest_interaction is not None:
+            self._advance_quest_interaction()
         if self._mode is FarmingMode.SEARCHING:
             combat = self._combat.step(self._state)
             if combat.mode is not CombatMode.IDLE:
@@ -664,6 +699,7 @@ class FarmingOrchestrator:
                 if (
                     self._pathing is not None
                     and combat.selected_mob is not None
+                    and not self._should_dispatch_direct_click(combat.selected_mob)
                     and self._pathing.begin_target_approach(
                         combat.selected_mob, self._state.observed_at_seconds
                     )
@@ -765,6 +801,7 @@ class FarmingOrchestrator:
             )
             if reconciliation.is_healthy:
                 self._set_mode(FarmingMode.SEARCHING, reason="reconciled")
+                return self._advance()
             else:
                 self.pause(
                     kind=SessionEventKind.SUPERVISOR_FAILURE,
@@ -779,6 +816,37 @@ class FarmingOrchestrator:
 
         pathing = self._pathing
         pending = self._pending_target_click
+        interaction = self._quest_interaction
+        from flyff_bot.features.navigation.pathing import PathingMode
+
+        if interaction is not None and pending is None:
+            npc = interaction.active_npc
+            live_position = pathing.live_position if pathing is not None else None
+            if (
+                pathing is not None
+                and npc is not None
+                and npc.position is not None
+                and live_position is not None
+            ):
+                if npc.is_interactable_from(live_position):
+                    pathing.cancel_target_approach()
+                    self._set_mode(FarmingMode.SEARCHING, reason="quest_npc_reached")
+                    return self._advance()
+                if not pathing.world_waypoints:
+                    self._set_mode(FarmingMode.SEARCHING, reason="quest_route_unavailable")
+                    return False
+            decision = pathing.step(self._state.observed_at_seconds) if pathing else None
+            if decision is None or decision.mode is PathingMode.IDLE:
+                self._set_mode(FarmingMode.SEARCHING, reason="quest_route_unavailable")
+                return False
+            if not self._pathing_dispatcher.dispatch(decision):
+                if pathing is not None:
+                    pathing.reject(decision)
+                return False
+            if pathing is not None:
+                pathing.confirm(decision)
+            return True
+
         if pathing is None or pending is None:
             self._set_mode(FarmingMode.SEARCHING, reason="approach_unavailable")
             return False
@@ -806,6 +874,67 @@ class FarmingOrchestrator:
             return False
         pathing.confirm(decision)
         return True
+
+    def _should_dispatch_direct_click(self, mob: VisibleMob) -> bool:
+        """Return whether a selected mob may be clicked without a Funnel approach."""
+
+        if self._pathing is None or mob.world_x is None or mob.world_z is None:
+            return True
+        player = self._pathing.live_position
+        if player is None or mob.navmesh_reachable is False or mob.navmesh_within_leash is False:
+            return True
+        distance = math.dist(
+            (player.x, player.z),
+            (mob.world_x, mob.world_z),
+        )
+        if distance <= self.pathing_engagement_distance:
+            return True
+        navmesh = self._pathing.navmesh
+        if navmesh is None:
+            return False
+        route = navmesh.find_path(
+            player,
+            WorldPosition(
+                mob.world_x, mob.world_y if mob.world_y is not None else player.y, mob.world_z
+            ),
+        )
+        return len(route) <= 2
+
+    def configure_combat_class(self, profile: CombatClassProfile) -> None:
+        """Apply a combat-class engagement profile to orchestration and pathing."""
+
+        if profile is MELEE_COMBAT_CLASS_PROFILE:
+            distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
+        elif profile is RANGED_COMBAT_CLASS_PROFILE:
+            distance = RANGED_ENGAGEMENT_DISTANCE_UNITS
+        elif profile is CUSTOM_COMBAT_CLASS_PROFILE:
+            distance = self.pathing_engagement_distance
+        else:
+            raise ValueError("Unsupported combat class profile.")
+        self.configure_engagement_distance(distance)
+        self._pathing_engagement_profile = profile
+
+    def configure_engagement_distance(self, distance_units: float) -> None:
+        """Apply the operator-selected target engagement distance dynamically."""
+
+        if distance_units <= 0.0:
+            raise ValueError("Engagement distance must be positive.")
+        self._pathing_engagement_distance = distance_units
+        self._pathing_engagement_profile = CUSTOM_COMBAT_CLASS_PROFILE
+        if self._pathing is not None:
+            self._pathing.update_engagement_distance(distance_units)
+
+    @property
+    def pathing_engagement_profile(self) -> CombatClassProfile:
+        """Return the combat class profile that owns the current distance."""
+
+        return self._pathing_engagement_profile
+
+    @property
+    def pathing_engagement_distance(self) -> float:
+        """Return the current direct-targeting and approach hand-off distance."""
+
+        return self._pathing_engagement_distance
 
     def _approach_stalled(self) -> bool:
         """Return whether the client-driven walk towards the engaged mob is blocked."""
@@ -856,6 +985,70 @@ class FarmingOrchestrator:
                 decision.virtual_key, decision.key_press_duration_seconds
             )
         return dispatched
+
+    def _advance_quest_interaction(self) -> bool:
+        """Drive the configured accept/turn-in cycle before ordinary mob searching."""
+
+        interaction = self._quest_interaction
+        if interaction is None:
+            return False
+        if interaction.is_failed:
+            return False
+        pathing = self._pathing
+        if pathing is None:
+            return False
+        npc = interaction.active_npc
+        if npc is None:
+            return False
+        live_position = pathing.live_position
+        in_range = bool(live_position and npc.is_interactable_from(live_position))
+        if in_range and interaction.mode.startswith("navigating_"):
+            pathing.cancel_target_approach()
+            self._set_mode(FarmingMode.SEARCHING, reason="quest_npc_reached")
+            return False
+        npc_screen_position = None
+        if in_range:
+            for mob in self._state.visible_mobs:
+                if (
+                    mob.world_x is None
+                    or mob.world_y is None
+                    or mob.world_z is None
+                    or npc.position is None
+                ):
+                    continue
+                if (
+                    math.dist(
+                        (mob.world_x, mob.world_y, mob.world_z),
+                        (
+                            npc.position.x,
+                            npc.position.y,
+                            npc.position.z,
+                        ),
+                    )
+                    <= 1.0
+                ):
+                    npc_screen_position = Position(mob.x, mob.y + mob.height // 2)
+                    break
+        if not in_range and interaction.mode.startswith("navigating_"):
+            if not pathing.begin_position_approach(
+                npc.position if npc.position is not None else WorldPosition(0.0, 0.0, 0.0),
+                self._state.observed_at_seconds,
+            ):
+                interaction.observe_navigation(
+                    npc.position,
+                    False,
+                    route_available=False,
+                    at_seconds=self._state.observed_at_seconds,
+                )
+                return False
+            self._set_mode(FarmingMode.APPROACHING, reason="quest_npc_selected")
+            return False
+        decision = interaction.step(
+            self._state,
+            self._last_frame,
+            npc_screen_position=npc_screen_position,
+        )
+        return self._quest_input_dispatcher.dispatch(decision)
 
     def _exhausted_zone_handed_over(self) -> bool:
         """Route to the next selected spawn zone once this camp searched out empty.

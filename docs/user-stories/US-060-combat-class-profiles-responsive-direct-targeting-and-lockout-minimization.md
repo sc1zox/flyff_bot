@@ -3,7 +3,7 @@ id: US-060
 title: Combat class profiles, responsive direct targeting, and spatial lockout minimization
 status: draft
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-23
 ---
 
 # US-060: Combat class profiles, responsive direct targeting, and spatial lockout minimization
@@ -28,27 +28,30 @@ so that **monsters in view are immediately targeted without unnecessary approach
 
 ## Acceptance criteria
 
-- [ ] **Lockout Parameter Minimization:**
+- [x] **Lockout Parameter Minimization:**
   - DEFAULT_TARGET_LOCKOUT_SECONDS is reduced to 1.0 second (from 4.0 seconds).
   - DEFAULT_TARGET_LOCKOUT_RADIUS_PIXELS is reduced to 15 pixels (from 50 pixels).
   - Defeated mob corpse locations remain blocked for 1.0 s to prevent immediate death-animation re-clicking, but live monsters located $\ge 15$ pixels away are immediately eligible for candidate selection.
-- [ ] **Combat Class Profiles & Engagement Distance Configuration:**
+- [x] **Combat Class Profiles & Engagement Distance Configuration:**
   - A CombatClassProfile model/enum is defined with presets:
     - **Melee classes** (e.g. *Mercenary, Blade, Knight, Assist, Billposter, Ringmaster*): Default engagement distance 3.0 units.
     - **Ranged classes** (e.g. *Acrobat, Ranger, Bow Jester, Magician, Psykeeper, Elementor*): Default engagement distance 15.0 units.
     - **Custom**: User-adjustable engagement distance spinbox.
   - The UI dashboard includes a Combat Class dropdown and an engagement distance setting that updates the orchestrator and pathing controller dynamically.
-- [ ] **Responsive Direct Targeting & Obstacle-Aware Approach:**
-  - When a candidate mob is selected:
-    - **Ranged Profile:** If the target is within the configured engagement distance (e.g. $\le 15.0$ units) and reachable, dispatch the direct click immediately without entering FarmingMode.APPROACHING.
-    - **Melee Profile with Clear Path:** If the NavMesh route to the target is a direct straight segment (no intermediate obstacle waypoints), dispatch the direct click immediately and allow the client to close distance directly.
-    - **Obstacle-Obstructed Path:** If the NavMesh route requires multi-waypoint navigation around geometry/obstacles, enter FarmingMode.APPROACHING and navigate using Funnel waypoints until engagement distance is reached before dispatching the click.
-- [ ] **Seamless Post-Kill Candidate Selection:**
+- [x] **Responsive Direct Targeting & Obstacle-Aware Approach:**
+  - Implemented decision rule:
+    - Any profile clicks directly when measured target distance is at or below the configured engagement distance.
+    - A NavMesh route with no intermediate waypoint (`len(route) <= 2`) also clicks directly.
+    - Longer routes enter `FarmingMode.APPROACHING`.
+    - Unmeasured or unsafe fallback cases click immediately.
+  - Client-data correction needed:
+    - The story does not state which client evidence supports 3.0/15.0 unit engagement distances or whether direct clicking reliably selects a target without a prior NPC/mob target action. These values are operator presets until measured against Entropia.
+- [x] **Seamless Post-Kill Candidate Selection:**
   - When resetting from CombatMode.TARGET_DEAD or RECONCILING into SEARCHING, candidate evaluation runs immediately in the same tick without a blank idle tick, preventing premature pathing/search camera rotation when valid mobs are in view.
-- [ ] **Safety Boundaries & Failure Modes:**
+- [x] **Safety Boundaries & Failure Modes:**
   - Focus loss, manual pause, and emergency stops (END / Escape) immediately abort active approaches and cancel held movement keys.
   - If a direct-clicked approach stalls on an unmodeled obstacle, the existing obstacle stall detector triggers evasion and re-navigation as designed.
-- [ ] **Localization:**
+- [x] **Localization:**
   - All new user-visible UI labels, combat class names, tooltips, and log events are synchronized in German (src/flyff_bot/locales/de.json) and English (src/flyff_bot/locales/en.json).
 
 ## Out of scope
@@ -62,9 +65,23 @@ so that **monsters in view are immediately targeted without unnecessary approach
 - Automated:
   - Unit tests in `tests/unit/test_combat_controller.py` verifying the 1.0s / 15px lockout behavior and dense mob selection.
   - Unit tests in `tests/unit/test_orchestrator.py` verifying direct click dispatch for ranged profiles and straight paths vs. Funnel approach for obstructed paths.
-  - Unit tests in `tests/unit/test_pathing.py` verifying line-of-sight / straight-segment path detection and custom engagement distances.
+  - Unit tests in `tests/unit/test_ui.py` covering combat-class selection, preset distance changes, and custom-distance signal wiring.
+  - Unit tests in `tests/unit/test_orchestrator.py` and `tests/unit/test_vector_pathing.py` verifying profile/custom-distance propagation to orchestration and pathing.
   - Validation pass: `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- Completed:
+  - Lockout constants, dense-pack selection behavior, and post-kill same-tick recovery have focused tests in
+    `test_combat_controller.py` and `test_orchestrator.py`.
+- Completed:
+  - Ranged/straight-route targeting, obstructed-route approach, profile configuration, custom-distance propagation, and UI signals now have focused regression coverage.
+  - Windows `./scripts/check.ps1` passed on 2026-08-23 with Ruff/mypy clean, 746 passed, 3 platform skips, and 88.77% coverage.
 - Manual (Windows):
-  - In Flyff, select a Ranged class (e.g. Ranger / Magician) and verify that mobs at 10–15m are targeted and attacked immediately without running into melee range.
-  - Select a Melee class on an open field and verify that the bot clicks the mob directly and runs smoothly without camera-turning thrashing.
-  - Defeat a monster in a dense pack and verify that a neighboring monster is targeted after 1.0s without the bot turning away.
+  - All three live-client checks remain unrun. They must validate actual attack-range selection and direct-click behavior; automated tests cannot prove those client responses.
+
+## Implementation audit notes (2026-08-23)
+
+- US-060 was incorrectly marked complete. The lockout and post-kill portions are implemented and tested,
+  but responsive targeting lacks the promised regressions, and its preset distances have no recorded
+  Entropia client measurement. This does not indicate missing local client files: the relevant runtime
+  behavior requires live Windows validation rather than static archive data.
+- Follow-up on 2026-08-23 closed the missing regression proof while preserving the audit's live-validation caveat.
+  Preset engagement distances remain unmeasured operator defaults.

@@ -12,6 +12,7 @@ import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 
+from flyff_bot.features.quests.goals import QuestNpc
 from flyff_bot.features.quests.models import (
     UNBOUNDED_LEVEL,
     UNKNOWN_MONSTER_ID,
@@ -37,6 +38,8 @@ QUEST_DROP_CALL = "questitem"
 REWARD_ITEM_CALL = "setendrewarditem"
 REWARD_GOLD_CALL = "setendrewardgold"
 REWARD_EXP_CALL = "setendrewardexp"
+ACCEPT_NPC_CALL = "setcharacter"
+TURN_IN_NPC_CALL = "setendcondcharacter"
 
 # Argument positions inside the calls above, named so the offsets are not bare numbers.
 KILL_MONSTER_ARGUMENT = 1
@@ -57,6 +60,8 @@ LEVEL_MINIMUM_ARGUMENT = 0
 LEVEL_MAXIMUM_ARGUMENT = 1
 LEVEL_ARGUMENTS = 2
 REWARD_AMOUNT_ARGUMENT = 0
+ACCEPT_NPC_ARGUMENT = 0
+TURN_IN_NPC_ARGUMENT = 0
 
 _CALL_PATTERN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(([^()]*)\)", re.DOTALL)
 _IDENTIFIER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+")
@@ -155,6 +160,7 @@ def parse_quest_script(
     monster_names: Mapping[str, str] | None = None,
     monster_ids: Mapping[str, int] | None = None,
     item_names: Mapping[str, str] | None = None,
+    npc_positions: Mapping[str, QuestNpc] | None = None,
 ) -> tuple[QuestDefinition, ...]:
     """Return every quest one client quest script declares.
 
@@ -181,6 +187,7 @@ def parse_quest_script(
                 monster_names or {},
                 monster_ids or {},
                 item_names or {},
+                npc_positions or {},
             )
         )
     return tuple(quests)
@@ -195,6 +202,7 @@ def _build_quest(
     monster_names: Mapping[str, str],
     monster_ids: Mapping[str, int],
     item_names: Mapping[str, str],
+    npc_positions: Mapping[str, QuestNpc],
 ) -> QuestDefinition:
     title = ""
     description = ""
@@ -208,6 +216,10 @@ def _build_quest(
     reward_items: list[str] = []
     reward_gold = 0
     reward_experience = 0
+    accept_npc_symbol = ""
+    turn_in_npc_symbol = ""
+    accept_npc_destination: QuestDestination | None = None
+    turn_in_npc_destination: QuestDestination | None = None
 
     for call in calls:
         first = call.argument(0)
@@ -248,6 +260,26 @@ def _build_quest(
                 reward_experience,
                 _integer(call.arguments[REWARD_AMOUNT_ARGUMENT], reward_experience),
             )
+        elif call.name == ACCEPT_NPC_CALL and call.arguments:
+            symbol = call.arguments[ACCEPT_NPC_ARGUMENT]
+            if not accept_npc_symbol and symbol:
+                accept_npc_symbol = symbol
+        elif call.name == TURN_IN_NPC_CALL and call.arguments:
+            symbol = call.arguments[TURN_IN_NPC_ARGUMENT]
+            if not turn_in_npc_symbol and symbol:
+                turn_in_npc_symbol = symbol
+                npc = npc_positions.get(symbol)
+                if npc is not None and npc.position is not None:
+                    position = npc.position
+                    assert position is not None
+                    turn_in_npc_destination = QuestDestination(position.x, position.z)
+
+    if accept_npc_symbol:
+        npc = npc_positions.get(accept_npc_symbol)
+        if npc is not None and npc.position is not None:
+            position = npc.position
+            assert position is not None
+            accept_npc_destination = QuestDestination(position.x, position.z)
 
     resolved_items = tuple(
         QuestItemRequirement(
@@ -272,6 +304,10 @@ def _build_quest(
         reward_items=tuple(reward_items),
         reward_gold=reward_gold,
         reward_experience=reward_experience,
+        accept_npc_symbol=accept_npc_symbol,
+        turn_in_npc_symbol=turn_in_npc_symbol,
+        accept_npc_position=accept_npc_destination,
+        turn_in_npc_position=turn_in_npc_destination,
     )
 
 

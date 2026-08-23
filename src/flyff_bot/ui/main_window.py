@@ -30,8 +30,14 @@ from PySide6.QtWidgets import (
 from flyff_bot.constants import (
     DEFAULT_CLIENT_WORLD_ROOT,
     DEFAULT_QUEST_DATABASE_PATH,
+    DEFAULT_QUEST_NPC_POSITIONS_PATH,
     DEFAULT_WORLD_MAP_DIRECTORY,
     DEFAULT_WORLD_MONSTER_IDS_PATH,
+)
+from flyff_bot.features.automation.controllers import (
+    MELEE_ENGAGEMENT_DISTANCE_UNITS,
+    RANGED_ENGAGEMENT_DISTANCE_UNITS,
+    CombatClassProfile,
 )
 from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import KillGoalConfig
@@ -43,9 +49,11 @@ from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
 )
+from flyff_bot.features.quests.goals import QuestNpc
 from flyff_bot.features.quests.persistence import (
     QuestDatabaseError,
     load_quest_database,
+    load_quest_npc_positions,
 )
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.i18n import Language, Message, Translator
@@ -55,6 +63,7 @@ from flyff_bot.ui.dashboard import (
     WindowStatus,
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget
+from flyff_bot.ui.dungeon_panel import DungeonCooldownPanel
 from flyff_bot.ui.event_log_panel import EventLogPanel
 from flyff_bot.ui.main_window_parts.combat_settings import CombatSettingsPanel
 from flyff_bot.ui.main_window_parts.dashboard import DashboardSummary, StatusHeaderCard
@@ -88,14 +97,15 @@ MINIMUM_WINDOW_HEIGHT = 520
 
 
 class DashboardTab(IntEnum):
-    """Stable indices for the five operator-facing dashboard views."""
+    """Stable indices for the operator-facing dashboard views."""
 
     DASHBOARD = 0
     COMBAT_TARGETS = 1
     VITALS_BUFFS = 2
     QUEST_GOALS = 3
-    NAVIGATION_WORLD = 4
-    DIAGNOSTICS_LOGS = 5
+    DUNGEONS_COOLDOWNS = 4
+    NAVIGATION_WORLD = 5
+    DIAGNOSTICS_LOGS = 6
 
 
 class MainWindow(QMainWindow):
@@ -111,6 +121,8 @@ class MainWindow(QMainWindow):
     powerup_config_changed = Signal(object)
     emergency_config_changed = Signal(object)
     combat_grace_changed = Signal(float)
+    combat_class_changed = Signal(object)
+    engagement_distance_changed = Signal(float)
     kill_verification_changed = Signal(bool)
     anchor_threshold_changed = Signal(float)
     target_selection_changed = Signal(object)
@@ -129,6 +141,7 @@ class MainWindow(QMainWindow):
         world_map_dir: Path | None = None,
         monster_names_path: Path | None = None,
         quest_database_path: Path | None = None,
+        quest_npc_positions_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._translator = translator
@@ -136,6 +149,9 @@ class MainWindow(QMainWindow):
         self._world_map_dir = world_map_dir or Path(DEFAULT_WORLD_MAP_DIRECTORY)
         self._monster_names_path = monster_names_path or Path(DEFAULT_WORLD_MONSTER_IDS_PATH)
         self._quest_database_path = quest_database_path or Path(DEFAULT_QUEST_DATABASE_PATH)
+        self._quest_npc_positions_path = quest_npc_positions_path or Path(
+            DEFAULT_QUEST_NPC_POSITIONS_PATH
+        )
         self._latest_update: DashboardUpdate | None = None
         # Persistent header cards
         self._status_card = StatusHeaderCard()
@@ -216,6 +232,7 @@ class MainWindow(QMainWindow):
         self._target_panel = TargetSelectionPanel(self._translator)
         self._quest_panel = QuestGoalPanel(self._translator)
         self._quest_controller = QuestDatabaseController(self._quest_panel, self._translator)
+        self._dungeon_panel = DungeonCooldownPanel(self._translator)
 
         self._target_debug_panel = TargetDebugPanel()
         self._target_anchor_val = self._target_debug_panel.anchor_value
@@ -372,6 +389,14 @@ class MainWindow(QMainWindow):
         return self._combat_panel
 
     @property
+    def combat_class_selector(self) -> QComboBox:
+        return self._combat_panel.class_selector
+
+    @property
+    def engagement_distance_spin(self) -> QDoubleSpinBox:
+        return self._combat_panel.engagement_distance_spin
+
+    @property
     def vitals_panel(self) -> QGroupBox:
         return self._vitals_panel
 
@@ -430,6 +455,12 @@ class MainWindow(QMainWindow):
 
         return self._quest_panel
 
+    @property
+    def dungeon_panel(self) -> DungeonCooldownPanel:
+        """Expose the dungeon cooldown panel for wiring and verification."""
+
+        return self._dungeon_panel
+
     def load_quest_database(self) -> None:
         """Load the extracted quest database into the quest panel, if one exists.
 
@@ -456,6 +487,14 @@ class MainWindow(QMainWindow):
                 Message.UI_QUEST_DATABASE_LOADED, count=len(database.quests), path=path
             ),
         )
+
+    @property
+    def quest_npc_positions(self) -> dict[str, QuestNpc]:
+        """Load explicit accept/turn-in locations, tolerating a missing optional file."""
+
+        if not self._quest_npc_positions_path.is_file():
+            return {}
+        return load_quest_npc_positions(self._quest_npc_positions_path)
 
     @property
     def powerup_panel(self) -> PowerUpPanel:
@@ -572,6 +611,10 @@ class MainWindow(QMainWindow):
             self._quest_panel,
         )
         self._add_scroll_tab(
+            DashboardTab.DUNGEONS_COOLDOWNS,
+            self._dungeon_panel,
+        )
+        self._add_scroll_tab(
             DashboardTab.NAVIGATION_WORLD,
             self._navigation,
             self._map_container,
@@ -628,6 +671,13 @@ class MainWindow(QMainWindow):
         self._placements_toggle.toggled.connect(self._on_placements_toggled)
         self._language_selector.currentIndexChanged.connect(self._switch_language)
         self._combat_panel.grace_spin.valueChanged.connect(self.combat_grace_changed)
+        self._combat_panel.class_selector.currentIndexChanged.connect(self._on_combat_class_changed)
+        self._combat_panel.engagement_distance_spin.valueChanged.connect(
+            self.engagement_distance_changed
+        )
+        self._combat_panel.engagement_distance_spin.valueChanged.connect(
+            self._on_engagement_distance_changed
+        )
         self._combat_panel.verification_toggle.toggled.connect(self._on_kill_verification_changed)
         self._combat_panel.anchor_spin.valueChanged.connect(self._on_anchor_threshold_changed)
         self._target_panel.selection_changed.connect(self._on_target_selection_changed)
@@ -644,6 +694,41 @@ class MainWindow(QMainWindow):
     def _on_vitals_changed(self) -> None:
         config = self._settings.save_vitals()
         self.vitals_config_changed.emit(config)
+
+    @Slot()
+    def _on_combat_class_changed(self) -> None:
+        selected_profile = self._combat_panel.class_selector.currentData()
+        if not isinstance(selected_profile, CombatClassProfile) and not isinstance(
+            selected_profile, str
+        ):
+            return
+        if isinstance(selected_profile, str):
+            selected_profile = CombatClassProfile(selected_profile)
+        if selected_profile is CombatClassProfile.MELEE:
+            distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
+        elif selected_profile is CombatClassProfile.RANGED:
+            distance = RANGED_ENGAGEMENT_DISTANCE_UNITS
+        else:
+            distance = self._combat_panel.engagement_distance_spin.value()
+        self._combat_panel.engagement_distance_spin.setValue(distance)
+        self.combat_class_changed.emit(selected_profile)
+
+    @Slot()
+    def _on_engagement_distance_changed(self, distance_units: float) -> None:
+        profile = (
+            CombatClassProfile.MELEE
+            if distance_units == MELEE_ENGAGEMENT_DISTANCE_UNITS
+            else CombatClassProfile.RANGED
+            if distance_units == RANGED_ENGAGEMENT_DISTANCE_UNITS
+            else CombatClassProfile.CUSTOM
+        )
+        current_profile = self._combat_panel.class_selector.currentData()
+        if not isinstance(current_profile, CombatClassProfile):
+            return
+        if profile is not current_profile:
+            self._combat_panel.class_selector.setCurrentIndex(
+                list(CombatClassProfile).index(profile)
+            )
 
     def show_error_dialog(self, title: str, message: str) -> None:
         QMessageBox.warning(self, title, message)
@@ -688,6 +773,7 @@ class MainWindow(QMainWindow):
         self._recovery_panel.retranslate(self._translator)
         self._target_panel.set_translator(self._translator)
         self._quest_panel.set_translator(self._translator)
+        self._dungeon_panel.set_translator(self._translator)
         self._target_debug_panel.retranslate(self._translator)
         self._monster_stats_panel.retranslate(self._translator)
         self._monster_stats_panel.render_metrics(
@@ -737,6 +823,10 @@ class MainWindow(QMainWindow):
             DashboardTab.QUEST_GOALS: (
                 Message.UI_TAB_QUESTS,
                 Message.UI_TAB_QUESTS_TOOLTIP,
+            ),
+            DashboardTab.DUNGEONS_COOLDOWNS: (
+                Message.UI_TAB_DUNGEONS,
+                Message.UI_TAB_DUNGEONS_TOOLTIP,
             ),
             DashboardTab.NAVIGATION_WORLD: (
                 Message.UI_TAB_NAVIGATION_WORLD,
@@ -806,6 +896,7 @@ class MainWindow(QMainWindow):
         self._quest_panel.set_progress(
             update.quest_title, update.quest_progress, update.quest_queue_completed
         )
+        self._dungeon_panel.set_snapshots(update.dungeons)
         self._event_log_panel.set_events(update.events)
         self._target_debug_panel.render_target(
             self._translator,

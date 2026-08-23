@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from flyff_bot.features.automation.controllers import (
@@ -62,6 +62,7 @@ DEFAULT_REPLAN_INTERVAL_SECONDS = 20.0
 DEFAULT_NAVMESH_LEASH_RADIUS_UNITS = 100.0
 DEFAULT_NAVMESH_WAYPOINT_ARRIVAL_UNITS = 1.5
 DEFAULT_NAVMESH_ENGAGEMENT_DISTANCE_UNITS = 3.0
+DEFAULT_QUEST_INTERACTION_DISTANCE_UNITS = 3.0
 EVASION_DIAGONAL_DURATION_SECONDS = 0.25
 EVASION_BACKSTEP_DURATION_SECONDS = 0.25
 REPEATED_STALL_RADIUS_UNITS = 3.0
@@ -113,6 +114,7 @@ class PathingConfig:
     navmesh_leash_radius_units: float = DEFAULT_NAVMESH_LEASH_RADIUS_UNITS
     navmesh_waypoint_arrival_units: float = DEFAULT_NAVMESH_WAYPOINT_ARRIVAL_UNITS
     navmesh_engagement_distance_units: float = DEFAULT_NAVMESH_ENGAGEMENT_DISTANCE_UNITS
+    quest_interaction_distance_units: float = DEFAULT_QUEST_INTERACTION_DISTANCE_UNITS
     stall: StallConfig = field(default_factory=StallConfig)
 
     def __post_init__(self) -> None:
@@ -128,6 +130,8 @@ class PathingConfig:
             raise ValueError("NavMesh waypoint arrival tolerance must be positive.")
         if self.navmesh_engagement_distance_units <= 0.0:
             raise ValueError("NavMesh engagement distance must be positive.")
+        if self.quest_interaction_distance_units <= 0.0:
+            raise ValueError("NavMesh quest interaction distance must be positive.")
 
 
 class PathingController:
@@ -455,6 +459,23 @@ class PathingController:
         self._mode = PathingMode.TRAVELING
         return True
 
+    def begin_position_approach(self, target: WorldPosition, at_seconds: float) -> bool:
+        """Start a NavMesh route to an exact world position such as a configured NPC."""
+
+        start = self._live_position
+        if start is None or self._camera_state is None or self._navmesh is None:
+            return False
+        route = self._navmesh.find_path(start, target)
+        if not route:
+            return False
+        self._navmesh_target = target
+        self._navigation_trajectory = [start]
+        self._world_waypoints = route
+        self._waypoint_index = 0
+        self._planned_at_seconds = at_seconds
+        self._mode = PathingMode.TRAVELING
+        return True
+
     def cancel_target_approach(self) -> None:
         """Discard a selected-target route."""
 
@@ -475,6 +496,26 @@ class PathingController:
         return (
             math.dist((position.x, position.y, position.z), (target.x, target.y, target.z))
             <= self._config.navmesh_engagement_distance_units
+        )
+
+    def position_target_in_interaction_range(self) -> bool:
+        """Report whether live GPS is close enough to interact with an exact target."""
+
+        target = self._navmesh_target
+        position = self._live_position
+        if target is None or position is None:
+            return False
+        return (
+            math.dist((position.x, position.y, position.z), (target.x, target.y, target.z))
+            <= self._config.quest_interaction_distance_units
+        )
+
+    def update_engagement_distance(self, distance_units: float) -> None:
+        """Apply a dynamic combat-class engagement distance without dropping the route."""
+
+        self._config = replace(
+            self._config,
+            navmesh_engagement_distance_units=distance_units,
         )
 
     def observe(self, state: WorldState, frame: CapturedFrame | None = None) -> None:

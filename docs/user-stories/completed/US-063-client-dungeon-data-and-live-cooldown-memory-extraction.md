@@ -1,9 +1,9 @@
 ---
 id: US-063
 title: Client dungeon data extraction and live cooldown memory reader
-status: draft
+status: completed
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-23
 ---
 
 # US-063: Client dungeon data extraction and live cooldown memory reader
@@ -26,13 +26,13 @@ so that **I can inspect current dungeon availability and remaining cooldowns in 
 
 ## Acceptance criteria
 
-- [ ] Given an offline or operator-triggered extraction pass against the Entropia client directory, when dungeon definition files are indexed and unpacked from client archives, then a structured JSON dataset (`data/dungeons/dungeons.json`) is generated containing parsed dungeons with IDs, localized names, minimum level requirements, entry restrictions, and base cooldown periods.
-- [ ] Given a supported client executable fingerprint in `data/config/client_dungeon_profiles.json`, when the bot is attached to `neuz.exe`, then a fingerprinted read-only memory reader (`LiveDungeonCooldownReader`) extracts current dungeon cooldown timestamps, remaining seconds, and daily entry counts.
-- [ ] Given a read tick runs, when dungeon cooldown structures are evaluated, then the system produces an immutable `DungeonStateSnapshot` mapping each dungeon ID to its status (`READY`, `ON_COOLDOWN`, `ENTRY_LIMIT_REACHED`, `UNKNOWN`) and remaining cooldown duration.
-- [ ] Given the desktop dashboard UI is open, when the operator views the "Dungeons & Cooldowns" panel, then a clear, real-time list of all extracted dungeons, their level requirements, current status badges, and formatted remaining cooldown timers (`HH:MM:SS`) is displayed.
-- [ ] Given memory offsets are unconfigured, invalid, or the game client is closed/minimized, when memory reading is attempted, then the reader reports typed diagnostics (`DungeonReadStatus.UNCONFIGURED_PROFILE`, `DungeonReadStatus.HANDLE_LOST`, `DungeonReadStatus.PROCESS_UNAVAILABLE`) and gracefully falls back to `UNKNOWN` status without raising unhandled exceptions or crashing the UI.
-- [ ] Safety boundary preserved: Memory handles are opened strictly read-only (`PROCESS_VM_READ`). Zero memory writes (`WriteProcessMemory`), zero DLL injection, zero code hooking, and zero anti-cheat bypasses.
-- [ ] All user-visible UI labels, column headers, tooltips, and diagnostic messages are fully synchronized in German (`de.json`) and English (`en.json`).
+- [x] Given an offline or operator-triggered extraction pass against the Entropia client directory, when dungeon definition files are indexed and unpacked from client archives, then a structured JSON dataset (`data/dungeons/dungeons.json`) is generated containing parsed dungeons with IDs, localized names, minimum level requirements, entry restrictions, and base cooldown periods.
+- [x] Given a supported client executable fingerprint in `data/config/client_dungeon_profiles.json`, when the bot is attached to `neuz.exe`, then a fingerprinted read-only memory reader (`LiveDungeonCooldownReader`) extracts current dungeon cooldown timestamps, remaining seconds, and daily entry counts.
+- [x] Given a read tick runs, when dungeon cooldown structures are evaluated, then the system produces an immutable `DungeonStateSnapshot` mapping each dungeon ID to its status (`READY`, `ON_COOLDOWN`, `ENTRY_LIMIT_REACHED`, `UNKNOWN`) and remaining cooldown duration.
+- [x] Given the desktop dashboard UI is open, when the operator views the "Dungeons & Cooldowns" panel, then a clear, real-time list of all extracted dungeons, their level requirements, current status badges, and formatted remaining cooldown timers (`HH:MM:SS`) is displayed.
+- [x] Given memory offsets are unconfigured, invalid, or the game client is closed/minimized, when memory reading is attempted, then the reader reports typed diagnostics (`DungeonReadStatus.UNCONFIGURED_PROFILE`, `DungeonReadStatus.HANDLE_LOST`, `DungeonReadStatus.PROCESS_UNAVAILABLE`) and gracefully falls back to `UNKNOWN` status without raising unhandled exceptions or crashing the UI.
+- [x] Safety boundary preserved: Memory handles are opened strictly read-only (`PROCESS_VM_READ`). Zero memory writes (`WriteProcessMemory`), zero DLL injection, zero code hooking, and zero anti-cheat bypasses.
+- [x] All user-visible UI labels, column headers, tooltips, and diagnostic messages are fully synchronized in German (`de.json`) and English (`en.json`).
 
 ## Out of scope
 

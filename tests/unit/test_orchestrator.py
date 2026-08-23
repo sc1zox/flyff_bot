@@ -18,6 +18,7 @@ from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_RIGHT,
     VIRTUAL_KEY_S,
     VIRTUAL_KEY_W,
+    CombatClassProfile,
     EngagementBreakReason,
 )
 from flyff_bot.features.automation.models import (
@@ -274,6 +275,99 @@ def test_navigation_pathing_continues_uninterrupted_across_a_kill_transition() -
     assert orchestrator.mode is FarmingMode.SEARCHING
     assert len(updates) == len(states)
     assert all(update.navigation is not None for update in updates)
+
+
+def _measured_mob(distance: float) -> VisibleMob:
+    return replace(
+        MOB,
+        world_x=distance,
+        world_y=0.0,
+        world_z=0.0,
+        navmesh_path_distance=distance,
+        navmesh_reachable=True,
+        navmesh_within_leash=True,
+    )
+
+
+def test_ranged_profile_clicks_a_far_straight_route_directly() -> None:
+    class StraightNavMesh:
+        def find_path(self, start: WorldPosition, goal: WorldPosition) -> tuple[WorldPosition, ...]:
+            del goal
+            return (start, WorldPosition(20.0, 0.0, 0.0))
+
+    live_reader = cast(
+        "LivePositionReader",
+        type(
+            "_Reader",
+            (),
+            {
+                "live_position": WorldPosition(0.0, 0.0, 0.0),
+                "navmesh": StraightNavMesh(),
+                "update_engagement_distance": lambda self, distance: None,
+            },
+        )(),
+    )
+    orchestrator = _orchestrator([_state(1.0, mobs=(_measured_mob(12.0),))], _InputAdapter())
+    orchestrator._pathing = cast("PathingController", live_reader)
+    orchestrator.configure_combat_class(CombatClassProfile.RANGED)
+
+    mob = _measured_mob(12.0)
+
+    assert orchestrator._should_dispatch_direct_click(mob) is True
+    assert orchestrator.pathing_engagement_distance == pytest.approx(15.0)
+
+
+def test_multi_waypoint_route_approaches_even_with_ranged_distance() -> None:
+    mob = _measured_mob(16.0)
+
+    class DetouredNavMesh:
+        def find_path(self, start: WorldPosition, goal: WorldPosition) -> tuple[WorldPosition, ...]:
+            return (
+                start,
+                WorldPosition(5.0, 0.0, 0.0),
+                WorldPosition(10.0, 0.0, 0.0),
+                WorldPosition(15.0, 0.0, 0.0),
+                WorldPosition(15.0, 0.0, 8.0),
+                goal,
+            )
+
+    live_reader = cast(
+        "LivePositionReader",
+        type(
+            "_Reader",
+            (),
+            {
+                "live_position": WorldPosition(0.0, 0.0, 0.0),
+                "navmesh": DetouredNavMesh(),
+                "update_engagement_distance": lambda self, distance: None,
+            },
+        )(),
+    )
+    orchestrator = _orchestrator([_state(1.0)], _InputAdapter())
+    orchestrator._pathing = cast("PathingController", live_reader)
+    orchestrator.configure_combat_class(CombatClassProfile.RANGED)
+
+    assert orchestrator._should_dispatch_direct_click(mob) is False
+
+
+def test_custom_distance_propagates_to_orchestration_and_pathing() -> None:
+    pathing = PathingController()
+    states = [_state(1.0)]
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline(states)),
+        _InputAdapter(),
+        WINDOW_HANDLE,
+        pathing=pathing,
+    )
+
+    orchestrator.configure_engagement_distance(8.0)
+    assert orchestrator.pathing_engagement_profile.value == CombatClassProfile.CUSTOM.value
+    assert pathing._config.navmesh_engagement_distance_units == pytest.approx(8.0)
+
+    orchestrator.configure_combat_class(CombatClassProfile.RANGED)
+    assert orchestrator.pathing_engagement_profile.value == CombatClassProfile.RANGED.value
+    assert orchestrator.pathing_engagement_distance == pytest.approx(15.0)
+    assert pathing._config.navmesh_engagement_distance_units == pytest.approx(15.0)
 
 
 def test_target_lost_without_damage_returns_to_search_without_looting() -> None:
@@ -579,18 +673,19 @@ def test_orchestrator_prioritizes_vitals_trigger_ahead_of_combat() -> None:
 
 
 def test_failed_acquisition_does_not_thrash_between_search_and_targeting() -> None:
-    """BUG-010: an unverified click must not be re-issued on every grace expiry."""
+    """US-060: a shortened lockout still prevents immediate thrashing while reselecting."""
 
     adapter = _InputAdapter()
-    states = [_state(index * 0.1, mobs=(MOB,)) for index in range(41)]
+    states = [_state(index * 0.1, mobs=(MOB,)) for index in range(45)]
     orchestrator = _orchestrator(states, adapter)
     orchestrator.start()
 
-    modes = [orchestrator.tick().mode for _ in states]
+    modes = [orchestrator.tick().mode for _ in range(len(states) - 2)]
 
-    assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
-    assert modes.count(FarmingMode.TARGETING) == 1
-    assert orchestrator.mode is FarmingMode.SEARCHING
+    assert len(adapter.clicks) == 3
+    assert all(click == (WINDOW_HANDLE, 30, 30) for click in adapter.clicks)
+    assert modes.count(FarmingMode.TARGETING) == 3
+    assert orchestrator.mode in {FarmingMode.SEARCHING, FarmingMode.TARGETING, FarmingMode.COMBAT}
 
 
 def test_stuck_engagement_breaks_and_repositions_before_searching() -> None:
@@ -632,7 +727,7 @@ def test_engagement_break_reason_is_published_to_the_dashboard() -> None:
 
 
 def test_locked_out_mob_lets_camera_search_recovery_take_over() -> None:
-    """BUG-010: repeated unverified clicks must not keep postponing search recovery."""
+    """US-060: the shortened lockout still lets camera search recovery take over."""
 
     adapter = _InputAdapter()
     states = [_state(index * 0.1, mobs=(MOB,)) for index in range(121)]
@@ -642,7 +737,7 @@ def test_locked_out_mob_lets_camera_search_recovery_take_over() -> None:
     for _ in states:
         orchestrator.tick()
 
-    assert len(adapter.clicks) < 4
+    assert len(adapter.clicks) < 8
     assert (VIRTUAL_KEY_RIGHT, 0.2) in adapter.keys
 
 

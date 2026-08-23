@@ -37,8 +37,8 @@ VIRTUAL_KEY_RIGHT = 0x27
 VIRTUAL_KEY_DOWN = 0x28
 DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS = 0.8
 DEFAULT_ENGAGEMENT_GRACE_SECONDS = 0.5
-DEFAULT_TARGET_LOCKOUT_SECONDS = 4.0
-DEFAULT_TARGET_LOCKOUT_RADIUS_PIXELS = 50
+DEFAULT_TARGET_LOCKOUT_SECONDS = 1.0
+DEFAULT_TARGET_LOCKOUT_RADIUS_PIXELS = 15
 DEFAULT_ENGAGEMENT_TIMEOUT_SECONDS = 10.0
 # A location that blocked two approaches in a row is treated as unreachable rather than
 # merely contested, so it is ignored long enough for the session to farm somewhere else
@@ -243,6 +243,22 @@ class CombatDecision:
     # The exact detection selected by the scoring pass.  Navigation and telemetry consume
     # this instead of matching a later candidate by rounded screen coordinates.
     selected_mob: VisibleMob | None = None
+
+
+class CombatClassProfile(StrEnum):
+    """Operator-selected engagement profile used by orchestration and pathing."""
+
+    MELEE = "melee"
+    RANGED = "ranged"
+    CUSTOM = "custom"
+
+
+MELEE_COMBAT_CLASS_PROFILE = CombatClassProfile.MELEE
+RANGED_COMBAT_CLASS_PROFILE = CombatClassProfile.RANGED
+CUSTOM_COMBAT_CLASS_PROFILE = CombatClassProfile.CUSTOM
+DEFAULT_COMBAT_CLASS_PROFILE = MELEE_COMBAT_CLASS_PROFILE
+MELEE_ENGAGEMENT_DISTANCE_UNITS = 3.0
+RANGED_ENGAGEMENT_DISTANCE_UNITS = 15.0
 
 
 @dataclass(frozen=True, slots=True)

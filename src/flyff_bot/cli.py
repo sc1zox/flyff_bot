@@ -19,6 +19,7 @@ from flyff_bot.constants import (
     DEFAULT_CLIENT_DATA_ROOT,
     DEFAULT_CLIENT_WORLD_ROOT,
     DEFAULT_DATASET_MANIFEST_PATH,
+    DEFAULT_DUNGEON_DATABASE_PATH,
     DEFAULT_KEY_DURATION_SECONDS,
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
@@ -44,6 +45,11 @@ from flyff_bot.features.automation.controllers import (
 )
 from flyff_bot.features.automation.models import DesiredState
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
+from flyff_bot.features.dungeons.extraction import (
+    DungeonExtractionDiagnostic,
+    extract_dungeon_definitions,
+)
+from flyff_bot.features.dungeons.persistence import save_dungeon_database
 from flyff_bot.features.input_control import (
     InputControlError,
     InputErrorCode,
@@ -257,6 +263,11 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         action="store_true",
         help=translator.text(Message.HELP_EXTRACT_TELEPORTERS),
     )
+    actions.add_argument(
+        "--extract-dungeons",
+        action="store_true",
+        help=translator.text(Message.HELP_EXTRACT_DUNGEONS),
+    )
     parser.add_argument(
         "--client-data-root",
         default=DEFAULT_CLIENT_DATA_ROOT,
@@ -278,6 +289,11 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         help=translator.text(
             Message.HELP_TELEPORTER_DATABASE, default=DEFAULT_TELEPORTER_DATABASE_PATH
         ),
+    )
+    parser.add_argument(
+        "--dungeon-database",
+        default=DEFAULT_DUNGEON_DATABASE_PATH,
+        help=translator.text(Message.HELP_DUNGEON_DATABASE, default=DEFAULT_DUNGEON_DATABASE_PATH),
     )
     actions.add_argument(
         "--detect-mobs",
@@ -434,6 +450,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return _extract_quests(args, translator)
         if args.extract_teleporters:
             return _extract_teleporters(args, translator)
+        if args.extract_dungeons:
+            return _extract_dungeons(args, translator)
         controller = WindowsInputController()
         windows = controller.find_windows(args.process)
         if not windows:
@@ -719,6 +737,37 @@ def _extract_teleporters(args: argparse.Namespace, translator: Translator) -> in
         translator.text(
             Message.TELEPORT_EXTRACTED,
             destinations=len(catalog.destinations),
+            path=output_path,
+        )
+    )
+    return ExitCode.SUCCESS
+
+
+def _extract_dungeons(args: argparse.Namespace, translator: Translator) -> int:
+    """Extract the client's dungeon declarations offline and write the JSON database."""
+
+    root = Path(args.client_data_root)
+    output_path = Path(args.dungeon_database)
+    diagnostics: list[DungeonExtractionDiagnostic] = []
+    try:
+        dungeons = extract_dungeon_definitions(root, diagnostics=diagnostics)
+    except (OSError, ClientArchiveError) as error:
+        print(
+            translator.text(Message.DUNGEON_EXTRACTION_FAILED, reason=error),
+            file=sys.stderr,
+        )
+        return ExitCode.DUNGEON_EXTRACTION_FAILURE
+    if not dungeons:
+        print(
+            translator.text(Message.DUNGEON_ARCHIVE_MISSING, path=root),
+            file=sys.stderr,
+        )
+        return ExitCode.DUNGEON_EXTRACTION_FAILURE
+    save_dungeon_database(dungeons, output_path, language="English", client_digest="")
+    print(
+        translator.text(
+            Message.DUNGEON_EXTRACTED,
+            dungeons=len(dungeons),
             path=output_path,
         )
     )

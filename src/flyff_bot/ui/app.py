@@ -29,6 +29,7 @@ from flyff_bot.features.automation.kill_persistence import (
 )
 from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
+from flyff_bot.features.automation.quest_execution_models import QuestMenuPerceiver
 from flyff_bot.features.automation.vitals_controller import VitalsTriggerConfig
 from flyff_bot.features.diagnostics import DEFAULT_SESSION_LOG_DIRECTORY, SessionEventLogger
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
@@ -331,6 +332,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 # The pathing controller polls the camera and owns the baked mesh, so it is
                 # what lets a perception tick unproject its own detections (US-057).
                 pipeline.attach_world_geometry(pathing)
+                quest_menu_perceiver = QuestMenuPerceiver(
+                    TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
+                )
                 orchestrator = FarmingOrchestrator(
                     pipeline,
                     controller,
@@ -357,11 +361,16 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         recorder=SqliteKillLog(Path(DEFAULT_KILL_LOG_PATH)),
                     ),
                     on_target_classes_changed=apply_target_classes,
+                    quest_menu_perceiver=quest_menu_perceiver,
                     event_logger=SessionEventLogger(DEFAULT_SESSION_LOG_DIRECTORY),
                     foreground_window_info=controller.foreground_window_info,
                 )
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
+                window.combat_class_changed.connect(orchestrator.configure_combat_class)
+                window.engagement_distance_changed.connect(
+                    orchestrator.configure_engagement_distance
+                )
                 window.kill_verification_changed.connect(orchestrator.configure_kill_verification)
                 window.anchor_threshold_changed.connect(target_verifier.update_anchor_threshold)
                 connect_target_selection(window, orchestrator)
@@ -377,7 +386,8 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     lambda: QuestGoalResolver(
                         None
                         if pathing.vector_navigator is None
-                        else pathing.vector_navigator.world_map
+                        else pathing.vector_navigator.world_map,
+                        window.quest_npc_positions,
                     ),
                 )
                 worker = SessionWorker(orchestrator.tick, STANDBY_TICK_INTERVAL_SECONDS)

@@ -73,8 +73,8 @@ def _tesseract_is_usable() -> bool:
 
     try:
         TesseractTextRecognizer().recognize(np.full((32, 64), 255, dtype=np.uint8))
-    except OcrError:
-        return False
+    except OcrError as error:
+        return error.code is not OcrErrorCode.ENGINE_UNAVAILABLE
     return True
 
 

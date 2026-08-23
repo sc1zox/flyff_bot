@@ -1,0 +1,271 @@
+"""Fingerprint-bound, read-only extraction of live client dungeon cooldowns."""
+
+from __future__ import annotations
+
+import struct
+import time
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
+
+from flyff_bot.constants import DEFAULT_CLIENT_DUNGEON_PROFILES_PATH
+from flyff_bot.features.dungeons.models import (
+    UNKNOWN_DUNGEON_ID,
+    DungeonDefinition,
+    DungeonRuntimeState,
+    DungeonStateSnapshot,
+    DungeonStatus,
+)
+from flyff_bot.features.dungeons.profiles import ClientDungeonProfile, load_client_dungeon_profiles
+from flyff_bot.features.navigation.live_position import (
+    EXPECTED_PROCESS_NAME,
+    ProcessMemoryApi,
+    executable_sha256,
+)
+
+DEFAULT_DUNGEON_POLL_HERTZ = 1.0
+SECONDS_PER_DAY = 86_400.0
+UINT32_SIZE_BYTES = 4
+UINT32_FORMAT = "<I"
+FLOAT32_FORMAT = "<f"
+
+
+class DungeonReadStatus(StrEnum):
+    """Typed reason a live dungeon poll could not produce authoritative state."""
+
+    UNCONFIGURED_PROFILE = "unconfigured_profile"
+    PROCESS_UNAVAILABLE = "process_unavailable"
+    HANDLE_LOST = "handle_lost"
+
+
+@dataclass(frozen=True, slots=True)
+class DungeonReadDiagnostic:
+    """One non-fatal live-read failure with its stable operator diagnostic code."""
+
+    status: DungeonReadStatus
+    detail: str = ""
+
+
+class LiveDungeonCooldownReader:
+    """Poll one exact client build's fixed cooldown array without scanning or writing."""
+
+    def __init__(
+        self,
+        window_handle: int,
+        definitions: Mapping[int, DungeonDefinition],
+        *,
+        api: ProcessMemoryApi | None = None,
+        profiles: Mapping[str, ClientDungeonProfile] | None = None,
+        profiles_path: Path = Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
+        poll_hertz: float = DEFAULT_DUNGEON_POLL_HERTZ,
+    ) -> None:
+        if poll_hertz <= 0.0:
+            raise ValueError("Live dungeon poll rate must be positive.")
+        if not all(definition.dungeon_id in definitions for definition in definitions.values()):
+            raise ValueError("Dungeon reader definitions must be keyed by their own IDs.")
+        self._window_handle = window_handle
+        self._definitions = dict(definitions)
+        self._api = api
+        self._profiles = profiles
+        self._profiles_path = profiles_path
+        self._profile_configuration_error: str | None = None
+        if profiles is None:
+            try:
+                self._profiles = load_client_dungeon_profiles(profiles_path)
+            except ValueError as error:
+                self._profiles = {}
+                self._profile_configuration_error = str(error)
+        self._poll_interval_seconds = 1.0 / poll_hertz
+        self._polled_at_seconds: float | None = None
+        self._last_snapshot: tuple[DungeonStateSnapshot, ...] | None = None
+        self._last_diagnostic: DungeonReadDiagnostic | None = None
+
+    @property
+    def last_diagnostic(self) -> DungeonReadDiagnostic | None:
+        """Return why the most recent poll degraded to unknown rows, if it did."""
+
+        return self._last_diagnostic
+
+    def poll(self, at_seconds: float | None = None) -> tuple[DungeonStateSnapshot, ...]:
+        """Return immutable state for every extracted definition at a bounded rate."""
+
+        monotonic_seconds = time.monotonic() if at_seconds is None else at_seconds
+        if (
+            self._last_snapshot is not None
+            and self._polled_at_seconds is not None
+            and monotonic_seconds - self._polled_at_seconds < self._poll_interval_seconds
+        ):
+            return self._last_snapshot
+        self._polled_at_seconds = monotonic_seconds
+        states, diagnostic = self._read_states()
+        snapshots = tuple(
+            self._snapshot(definition, states.get(definition.dungeon_id))
+            for definition in self._definitions.values()
+        )
+        self._last_snapshot = snapshots
+        self._last_diagnostic = diagnostic
+        return snapshots
+
+    def close(self) -> None:
+        """Retain no process resources; the fixed read opens and closes per poll."""
+
+        self._last_snapshot = None
+
+    def _read_states(
+        self,
+    ) -> tuple[dict[int, DungeonRuntimeState], DungeonReadDiagnostic | None]:
+        if self._profile_configuration_error is not None:
+            return {}, DungeonReadDiagnostic(
+                DungeonReadStatus.UNCONFIGURED_PROFILE,
+                self._profile_configuration_error,
+            )
+        assert self._profiles is not None
+        if not self._profiles:
+            return {}, DungeonReadDiagnostic(DungeonReadStatus.UNCONFIGURED_PROFILE)
+        api = self._api_or_raise()
+        if api is None:
+            return {}, DungeonReadDiagnostic(
+                DungeonReadStatus.PROCESS_UNAVAILABLE,
+                "Live dungeon reading is only available on Windows.",
+            )
+        try:
+            process_id = api.process_id_for_window(self._window_handle)
+            handle = api.open_read_process(process_id)
+        except OSError as error:
+            return {}, DungeonReadDiagnostic(DungeonReadStatus.PROCESS_UNAVAILABLE, str(error))
+        try:
+            executable = api.executable_path(handle)
+            if executable.name.casefold() != EXPECTED_PROCESS_NAME:
+                return {}, DungeonReadDiagnostic(
+                    DungeonReadStatus.PROCESS_UNAVAILABLE,
+                    f"Expected {EXPECTED_PROCESS_NAME}, got {executable.name}.",
+                )
+            digest = executable_sha256(executable)
+            profile = self._profiles.get(digest)
+            if profile is None:
+                return {}, DungeonReadDiagnostic(
+                    DungeonReadStatus.UNCONFIGURED_PROFILE,
+                    f"No dungeon profile exists for SHA-256 {digest}.",
+                )
+            module_base = api.main_module_base(process_id)
+            pointer_bytes = api.read(
+                handle,
+                module_base + profile.runtime_state_pointer_rva,
+                profile.pointer_size_bytes,
+            )
+            if len(pointer_bytes) != profile.pointer_size_bytes:
+                return {}, DungeonReadDiagnostic(
+                    DungeonReadStatus.HANDLE_LOST,
+                    "The runtime-state pointer read was incomplete.",
+                )
+            pointer_format = "<I" if profile.pointer_size_bytes == UINT32_SIZE_BYTES else "<Q"
+            array_address = int(struct.unpack(pointer_format, pointer_bytes)[0])
+            if array_address == 0:
+                return {}, DungeonReadDiagnostic(
+                    DungeonReadStatus.HANDLE_LOST,
+                    "The runtime-state pointer is null.",
+                )
+            payload = api.read(
+                handle,
+                array_address + profile.state_array_offset,
+                profile.array_read_size_bytes,
+            )
+            if len(payload) != profile.array_read_size_bytes:
+                return {}, DungeonReadDiagnostic(
+                    DungeonReadStatus.HANDLE_LOST,
+                    "The cooldown-array read was incomplete.",
+                )
+        except OSError as error:
+            return {}, DungeonReadDiagnostic(DungeonReadStatus.HANDLE_LOST, str(error))
+        finally:
+            api.close(handle)
+        return self._decode(profile, payload), None
+
+    def _api_or_raise(self) -> ProcessMemoryApi | None:
+        if self._api is None:
+            from flyff_bot.features.navigation.live_position import WindowsProcessMemoryApi
+
+            try:
+                self._api = WindowsProcessMemoryApi()
+            except OSError:
+                return None
+        return self._api
+
+    def _decode(
+        self,
+        profile: ClientDungeonProfile,
+        payload: bytes,
+    ) -> dict[int, DungeonRuntimeState]:
+        states: dict[int, DungeonRuntimeState] = {}
+        for index in range(profile.record_count):
+            start = profile.state_array_offset + index * profile.record_size_bytes
+            record = payload[start : start + profile.record_size_bytes]
+            dungeon_id = int(
+                struct.unpack_from(UINT32_FORMAT, record, profile.dungeon_id_offset)[0]
+            )
+            if dungeon_id == UNKNOWN_DUNGEON_ID or dungeon_id not in self._definitions:
+                continue
+            raw_timestamp = struct.unpack_from(
+                FLOAT32_FORMAT,
+                record,
+                profile.cooldown_end_timestamp_offset,
+            )[0]
+            entries_used = int(
+                struct.unpack_from(UINT32_FORMAT, record, profile.entries_used_offset)[0]
+            )
+            daily_limit = int(
+                struct.unpack_from(UINT32_FORMAT, record, profile.daily_entry_limit_offset)[0]
+            )
+            timestamp = float(raw_timestamp)
+            now_seconds = time.monotonic()
+            if timestamp <= 0.0 or timestamp > now_seconds + SECONDS_PER_DAY:
+                timestamp_value: float | None = None
+            else:
+                timestamp_value = timestamp
+            states[dungeon_id] = DungeonRuntimeState(
+                dungeon_id=dungeon_id,
+                cooldown_ends_at_monotonic_seconds=timestamp_value,
+                entries_used=entries_used,
+                daily_entry_limit=daily_limit,
+            )
+        return states
+
+    def _snapshot(
+        self,
+        definition: DungeonDefinition,
+        state: DungeonRuntimeState | None,
+    ) -> DungeonStateSnapshot:
+        diagnostic = self._last_diagnostic
+        if state is None:
+            return DungeonStateSnapshot(
+                definition,
+                DungeonStatus.UNKNOWN,
+                diagnostic_code=diagnostic.status.value if diagnostic else None,
+            )
+        entries_used = state.entries_used
+        daily_limit = state.daily_entry_limit
+        limit_reached = (
+            entries_used is not None
+            and daily_limit is not None
+            and daily_limit > 0
+            and entries_used >= daily_limit
+        )
+        if limit_reached:
+            return DungeonStateSnapshot(
+                definition,
+                DungeonStatus.ENTRY_LIMIT_REACHED,
+                entries_used=entries_used,
+                daily_entry_limit=daily_limit,
+            )
+        remaining = 0.0
+        if state.cooldown_ends_at_monotonic_seconds is not None:
+            remaining = max(0.0, state.cooldown_ends_at_monotonic_seconds - time.monotonic())
+        status = DungeonStatus.ON_COOLDOWN if remaining > 0.0 else DungeonStatus.READY
+        return DungeonStateSnapshot(
+            definition,
+            status,
+            remaining_cooldown_seconds=remaining,
+            entries_used=entries_used,
+            daily_entry_limit=daily_limit,
+        )

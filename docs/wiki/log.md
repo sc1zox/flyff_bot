@@ -899,3 +899,38 @@ consultation workflow, documented the GitBook `.md` endpoint and `llms.txt` inde
 Added the US-065 architecture section covering offline `TeleportOption.inc` extraction, typed
 destination records, guarded no-OCR UI dispatch, and closed-loop arrival confirmation. Recorded
 that live confirmation fails closed until a verified world-ID memory profile exists.
+## 2026-08-22 — US-060 architecture synthesis
+
+- Ingested implemented US-060 facts into architecture: combat class profiles, live engagement
+  distance configuration, straight-route direct targeting, obstacle-aware approach hand-off,
+  reduced spatial lockout, same-tick post-kill candidate evaluation, and localized dashboard controls.
+- Recorded scoped verification and explicitly excluded two unrelated pre-existing POSIX/Python
+  environment test failures from the story result.
+
+## [2026-08-22] synthesis | Configured NPC quest interaction (US-062)
+
+Synthesized configured NPC locations, position-based NavMesh approach, read-only dialogue evidence,
+bounded retry/backoff, and queue safety into `architecture.md`. Recorded that client NPC identity and
+live dialogue templates remain unverified and that Windows end-to-end validation is outstanding.
+
+## [2026-08-23] correction | US-060 completion audit
+
+Moved the combat-class story out of completed and synthesized its partial implementation status into
+`architecture.md`: lockout and post-kill recovery are tested, responsive-targeting regressions and UI
+wiring coverage are missing, preset engagement distances are unmeasured operator defaults, and live
+Windows validation is outstanding.
+
+## [2026-08-23] synthesis | Dungeon data and cooldown reader (US-063)
+
+Synthesized offline keyed-archive dungeon extraction, empty-by-default fingerprinted cooldown
+profiles, typed read-only degradation, dashboard presentation, and outstanding Windows/live-offset
+verification into `architecture.md`.
+
+## [2026-08-23] integration | Quest interaction dispatch (US-062 follow-up)
+
+Wired `QuestInteractionController` into `FarmingOrchestrator`: explicit NPC position approaches use
+NavMesh routing and interaction is now strictly click-based: the incorrect C-key fallback was removed.
+Arrival clicks the measured NPC screen box, then `QuestMenuPerceiver` proves a generic/configurable
+menu action with OCR before clicking its concrete row. Tesseract line geometry is parsed from bounded
+TSV output and supplies the guarded row centre. Timeout retreat retains exponential backoff. Live
+Windows OCR/menu validation remains outstanding.

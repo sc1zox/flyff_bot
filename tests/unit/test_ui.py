@@ -16,8 +16,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QScrollArea
+from PySide6.QtWidgets import (
+    QAbstractScrollArea,
+    QApplication,
+    QScrollArea,
+    QTableWidgetItem,
+)
 
+from flyff_bot.features.automation.controllers import CombatClassProfile
 from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import (
     KillGoalConfig,
@@ -48,6 +54,11 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalTriggerType,
 )
 from flyff_bot.features.diagnostics import SessionEvent, SessionEventKind
+from flyff_bot.features.dungeons.models import (
+    DungeonDefinition,
+    DungeonStateSnapshot,
+    DungeonStatus,
+)
 from flyff_bot.features.input_control import (
     InputControlError,
     InputErrorCode,
@@ -691,6 +702,38 @@ def test_main_window_combat_panel_in_tab_and_config_signals() -> None:
     assert kill_verification_values == [False]
 
 
+def test_main_window_combat_class_and_distance_signals_are_wired(tmp_path: Path) -> None:
+    del tmp_path
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.COMBAT_TARGETS)
+    application.processEvents()
+
+    class_values: list[object] = []
+    distance_values: list[float] = []
+    window.combat_class_changed.connect(class_values.append)
+    window.engagement_distance_changed.connect(distance_values.append)
+
+    window.combat_class_selector.setCurrentIndex(
+        list(CombatClassProfile).index(CombatClassProfile.RANGED)
+    )
+    application.processEvents()
+    assert class_values == [CombatClassProfile.RANGED]
+    assert window.engagement_distance_spin.value() == pytest.approx(15.0)
+    assert distance_values == [pytest.approx(15.0)]
+
+    window.combat_class_selector.setCurrentIndex(
+        list(CombatClassProfile).index(CombatClassProfile.CUSTOM)
+    )
+    application.processEvents()
+    window.engagement_distance_spin.setValue(8.5)
+    application.processEvents()
+    assert class_values[-1] is CombatClassProfile.CUSTOM
+    assert distance_values[-1] == pytest.approx(8.5)
+
+
 def test_main_window_target_debug_panel_in_tab_and_renders_failure_metrics() -> None:
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
@@ -1107,6 +1150,7 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
         "Combat & Targets",
         "Vitals & Buffs",
         "Quest Goals",
+        "Dungeons & Cooldowns",
         "Navigation & World",
         "Diagnostics & Logs",
     ]
@@ -1137,6 +1181,45 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
     quest_page = window.tab_scroll_area(DashboardTab.QUEST_GOALS).widget()
     assert quest_page is not None
     assert quest_page.isAncestorOf(window.quest_panel)
+    dungeon_page = window.tab_scroll_area(DashboardTab.DUNGEONS_COOLDOWNS).widget()
+    assert dungeon_page is not None
+    assert dungeon_page.isAncestorOf(window.dungeon_panel)
+
+
+def test_main_window_dungeon_panel_renders_extracted_and_live_rows() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.tab_widget.setCurrentIndex(DashboardTab.DUNGEONS_COOLDOWNS)
+    definition = DungeonDefinition(101, "Ominous", 60, 300, 3600)
+
+    window.update_dashboard(
+        DashboardUpdate(
+            _world_state(),
+            BotStatus.ACTIVE,
+            dungeons=(
+                DungeonStateSnapshot(definition, DungeonStatus.ON_COOLDOWN, 3661.0, 2, 3),
+                DungeonStateSnapshot(
+                    definition, DungeonStatus.UNKNOWN, diagnostic_code="unconfigured_profile"
+                ),
+            ),
+        )
+    )
+    application.processEvents()
+
+    table = window.dungeon_panel.table
+    assert window.dungeon_panel.title() == "Dungeons & Cooldowns"
+    status_items = [table.item(row, 2) for row in range(table.rowCount())]
+    assert all(item is not None for item in status_items)
+    assert all(isinstance(item, QTableWidgetItem) for item in status_items)
+    status_texts = [item.text() if item is not None else "" for item in status_items]
+    assert status_texts == [
+        "On cooldown",
+        "Unknown (unconfigured_profile)",
+    ]
+    cooldown_item = table.item(0, 3)
+    assert cooldown_item is not None
+    cooldown_text = cooldown_item.text() if cooldown_item is not None else ""
+    assert cooldown_text == "01:01:01"
 
 
 def test_main_window_tab_labels_and_tooltips_retranslate_in_place() -> None:
@@ -1153,6 +1236,7 @@ def test_main_window_tab_labels_and_tooltips_retranslate_in_place() -> None:
         "Kampf & Ziele",
         "Vitals & Buffs",
         "Quest-Ziele",
+        "Dungeons & Abklingzeiten",
         "Navigation & Karte",
         "Diagnose & Tools",
     ]

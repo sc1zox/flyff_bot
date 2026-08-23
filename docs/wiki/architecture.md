@@ -72,7 +72,9 @@ related:
   - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
   - ../user-stories/completed/US-059-authoritative-vector-navigation-legacy-removal-and-multi-zone-selection.md
   - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
+  - ../user-stories/US-062-automated-npc-quest-acceptance-and-turn-in.md
   - ../user-stories/completed/US-066-farming-and-navigation-value-model.md
+  - ../user-stories/US-063-client-dungeon-data-and-live-cooldown-memory-extraction.md
 ---
 
 # Architecture
@@ -1760,3 +1762,57 @@ keep their behaviour; only the import direction was corrected.
 The automated repository gate passed on 2026-08-21 at 719 passed, 2 skipped, and 89.70% coverage.
 Running the trainer on a real recorded Windows farming session and inspecting the produced
 artifacts remains outstanding and is not implied by the automated result.
+keep their behaviour; only the import direction was corrected.
+
+The automated repository gate passed on 2026-08-21 at 719 passed, 2 skipped, and 89.70% coverage.
+Running the trainer on a real recorded Windows farming session and inspecting the produced
+artifacts remains outstanding and is not implied by the automated result.
+
+## Combat class profiles and responsive direct targeting (US-060, partially implemented)
+
+`CombatClassProfile` provides melee, ranged, and custom engagement profiles with defaults of
+3.0 and 15.0 world units. `FarmingOrchestrator.configure_combat_class()` and
+`configure_engagement_distance()` apply the operator's choice live to both orchestration and
+`PathingController.update_engagement_distance()`. A selected measured target is clicked directly
+when it is already inside that distance; a melee target is also clicked directly when the
+NavMesh route is one straight segment. Only a longer multi-waypoint route enters
+`FarmingMode.APPROACHING`. Unmeasured, unreachable, or outside-leash candidates retain the
+existing safe fallbacks.
+
+The corpse lockout now defaults to one second at 15 pixels so dense packs remain selectable,
+while failed acquisition still suppresses immediate re-clicks. Post-kill reconciliation returns
+to searching and evaluates candidates in the same tick. The combat dashboard exposes a localized
+class dropdown plus engagement-distance control wired dynamically through the app boundary.
+Focus loss, pause, and emergency stop continue to abort all dispatch paths before input.
+
+The Windows gate passed on 2026-08-23 with Ruff and mypy clean, 746 tests passed, three platform
+skips, and 88.77% coverage. Regression coverage now proves the ranged preset, straight versus
+multi-waypoint route handling, profile/custom-distance propagation, and dashboard signal wiring.
+The 3.0 / 15.0 unit presets remain operator defaults rather than measured Entropia client ranges,
+and live Windows validation of actual attack-range selection remains required.
+
+## Client dungeon data and live cooldown extraction (US-063, completed)
+
+`flyff_bot.features.dungeons` adds a second keyed-archive consumer beside quests. The offline CLI
+pass (`--extract-dungeons`) reads `PartyDungeon.lua`, resolves world identifiers and localized
+labels from the dungeon text table, and writes only complete declarations to schema-versioned
+`data/dungeons/dungeons.json`. `SetCoolTime(MIN(minutes))` is interpreted as minutes; a declaration
+without verifiable level or cooldown fields is skipped rather than defaulted. No client file is
+written or modified.
+
+Live cooldowns use the existing documented read-only process boundary. A SHA-256 fingerprint in
+`data/config/client_dungeon_profiles.json` selects an exact module RVA, pointer width, bounded array
+shape, and field offsets. `LiveDungeonCooldownReader` performs one fixed pointer read plus one fixed
+range read per poll, closes its handle each time, and emits immutable snapshots with `READY`,
+`ON_COOLDOWN`, `ENTRY_LIMIT_REACHED`, or `UNKNOWN`. Missing/malformed profiles, unavailable processes,
+and failed reads produce typed `UNCONFIGURED_PROFILE`, `PROCESS_UNAVAILABLE`, or `HANDLE_LOST`
+diagnostics instead of inferred addresses. The shipped profile file is deliberately empty because no
+verified Entropia cooldown offsets have been observed yet; Windows live validation therefore remains
+outstanding.
+
+The dashboard's Dungeons & Cooldowns tab renders extracted names, level ranges, localized status,
+entry counts, and zero-padded `HH:MM:SS` timers from dashboard snapshots. Automated coverage includes
+synthetic archive extraction/persistence, mocked read-only memory buffers, status precedence, graceful
+degradation, panel rendering/retranslation, and locale synchronization. On this POSIX host the suite
+passes after excluding two unrelated pre-existing Python/POSIX environment failures in Windows struct
+sizing and OCR decoding.

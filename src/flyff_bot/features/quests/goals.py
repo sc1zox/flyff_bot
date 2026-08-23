@@ -8,10 +8,11 @@ spawn zones to patrol - and then walks a selected queue of quests through to com
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
+from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.vector_navigation import ZoneGoal
 from flyff_bot.features.navigation.world_extractor import VectorSpawnZone, WorldVectorMap
 from flyff_bot.features.quests.models import (
@@ -26,6 +27,7 @@ from flyff_bot.features.quests.models import (
 # a declared drop source is the smallest unit of progress a session can verify, so a
 # collection objective is farmed as this many kills per required item.
 KILLS_PER_REQUIRED_ITEM = 1
+DEFAULT_QUEST_INTERACTION_RADIUS_UNITS = 3.0
 
 
 class QuestResolutionIssue(StrEnum):
@@ -37,6 +39,50 @@ class QuestResolutionIssue(StrEnum):
     NO_WORLD_MAP = "no_world_map"
     # The loaded world map holds no spawn zone for one of the quest's monsters.
     NO_SPAWN_ZONE = "no_spawn_zone"
+    # The operator supplied no safe accept location for this quest.
+    MISSING_ACCEPT_NPC = "missing_accept_npc"
+    # The operator supplied no safe turn-in location for this quest.
+    MISSING_TURN_IN_NPC = "missing_turn_in_npc"
+
+
+@dataclass(frozen=True, slots=True)
+class QuestNpc:
+    """One NPC world position used to accept or turn a quest in."""
+
+    name: str
+    position: WorldPosition | None = None
+    interaction_radius_units: float = DEFAULT_QUEST_INTERACTION_RADIUS_UNITS
+
+    def __post_init__(self) -> None:
+        if self.interaction_radius_units <= 0.0:
+            raise ValueError("A quest NPC interaction radius must be positive.")
+        if self.position is not None and not all(
+            math.isfinite(value) for value in (self.position.x, self.position.y, self.position.z)
+        ):
+            raise ValueError("A quest NPC position must be finite.")
+
+    @property
+    def is_resolved(self) -> bool:
+        """Return whether the client data supplied an exact world coordinate."""
+
+        return self.position is not None
+
+    def is_interactable_from(self, position: WorldPosition) -> bool:
+        """Return whether a live position is within this NPC's bounded interaction radius."""
+
+        if self.position is None:
+            return False
+        return self.position.distance_to(position) <= self.interaction_radius_units
+
+
+UNRESOLVED_QUEST_NPC = QuestNpc("")
+
+
+class QuestNpcRole(StrEnum):
+    """Which part of a quest cycle an explicitly configured NPC serves."""
+
+    ACCEPT = "accept"
+    TURN_IN = "turn_in"
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +109,14 @@ class QuestResolution:
     quest: QuestDefinition
     targets: tuple[QuestTarget, ...] = ()
     issues: tuple[QuestResolutionIssue, ...] = ()
+    accept_npc: QuestNpc = UNRESOLVED_QUEST_NPC
+    turn_in_npc: QuestNpc = UNRESOLVED_QUEST_NPC
+
+    def __post_init__(self) -> None:
+        if self.accept_npc is UNRESOLVED_QUEST_NPC:
+            object.__setattr__(self, "accept_npc", QuestNpc(""))
+        if self.turn_in_npc is UNRESOLVED_QUEST_NPC:
+            object.__setattr__(self, "turn_in_npc", QuestNpc(""))
 
     @property
     def is_farmable(self) -> bool:
@@ -107,8 +161,13 @@ class QuestGoalResolver:
     world map an operator has extracted, where does this quest's work happen?
     """
 
-    def __init__(self, world_map: WorldVectorMap | None = None) -> None:
+    def __init__(
+        self,
+        world_map: WorldVectorMap | None = None,
+        npc_positions: Mapping[str, QuestNpc] | None = None,
+    ) -> None:
         self._world_map = world_map
+        self._npc_positions = npc_positions or {}
 
     @property
     def world_map(self) -> WorldVectorMap | None:
@@ -150,7 +209,45 @@ class QuestGoalResolver:
             issues.append(QuestResolutionIssue.NO_WORLD_MAP)
         elif any(target.zone is None for target in targets):
             issues.append(QuestResolutionIssue.NO_SPAWN_ZONE)
-        return QuestResolution(quest, tuple(targets), tuple(issues))
+        accept_npc = self._client_npc(
+            self._npc_positions.get(quest.accept_npc_symbol), quest.accept_npc_position
+        )
+        if not accept_npc.is_resolved:
+            accept_npc = self._npc_for(quest.quest_id, QuestNpcRole.ACCEPT)
+        turn_in_npc = self._client_npc(
+            self._npc_positions.get(quest.turn_in_npc_symbol), quest.turn_in_npc_position
+        )
+        if not turn_in_npc.is_resolved:
+            turn_in_npc = self._npc_for(quest.quest_id, QuestNpcRole.TURN_IN)
+        if targets and not accept_npc.is_resolved:
+            issues.append(QuestResolutionIssue.MISSING_ACCEPT_NPC)
+        if targets and not turn_in_npc.is_resolved:
+            issues.append(QuestResolutionIssue.MISSING_TURN_IN_NPC)
+        return QuestResolution(
+            quest, tuple(targets), tuple(issues), accept_npc=accept_npc, turn_in_npc=turn_in_npc
+        )
+
+    def _npc_for(self, quest_id: str, role: QuestNpcRole) -> QuestNpc:
+        npc = self._npc_positions.get(_npc_key(quest_id, role), UNRESOLVED_QUEST_NPC)
+        return npc if npc.position is not None else UNRESOLVED_QUEST_NPC
+
+    @staticmethod
+    def _client_npc(npc: QuestNpc | None, destination: QuestDestination | None) -> QuestNpc:
+        """Return a client-resolved NPC, preferring its exact 3D placement."""
+
+        if npc is None:
+            return UNRESOLVED_QUEST_NPC
+        if npc.position is None:
+            return npc
+        if destination is not None:
+            return replace(
+                npc,
+                position=WorldPosition(destination.x, npc.position.y, destination.z),
+            )
+        return replace(
+            npc,
+            position=npc.position,
+        )
 
     def resolve_all(self, quests: Iterable[QuestDefinition]) -> tuple[QuestResolution, ...]:
         """Return one resolution per quest, in the order the quests were given."""
@@ -263,3 +360,9 @@ class QuestFarmingQueue:
             self._index += 1
         self._kills.clear()
         return self.active
+
+
+def _npc_key(quest_id: str, role: QuestNpcRole) -> str:
+    """Return the stable override key for one quest's accept or turn-in NPC."""
+
+    return f"{quest_id}:{role.value}"

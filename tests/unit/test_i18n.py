@@ -85,6 +85,9 @@ def test_each_language_contains_every_message() -> None:
                 sessions=0,
                 strategy="x",
                 cost="0.0",
+                dungeons=0,
+                used=0,
+                limit=0,
             )
 
 
