@@ -1880,6 +1880,20 @@ straight approach distance, bounded local corridor clearance, turn error to targ
 distance to anticipated follow-up positions, then validated with one Funnel route before adoption.
 The existing direct-click hand-off remains at its configured engagement distance.
 
+## Offline tactical simulator (US-072, completed)
+
+`features.simulator` adds a seeded, in-memory tactical simulator over extracted world maps and
+spawn zones. `FarmingSimulator` models fixed-tick movement, heading turn time, terrain height,
+spawn capacity and respawn timing, log-normal combat duration, stochastic stall recovery, and the
+four US-072 objective kinds. It emits typed RL observations plus aggregate KPM, travel, combat,
+recovery, idle, distance, and stuck metrics.
+
+`SimulatorGymEnvironment` exposes reset/step/close and action masks without requiring Gymnasium as
+a runtime dependency. Calibration fits baselines from recorded kill cycles and rejects aggregate
+KPM or navigation-time drift beyond a configurable fraction. The simulator is strictly offline:
+it has no client-process, memory-read, input-dispatch, rendering, or network boundary. It validates
+simulation behavior only; live Windows/client performance still requires separate field checks.
+
 `PathingController` plans an attack point when NavMesh targeting starts and retains hysteresis:
 periodic replans preserve the route until the measured target has moved more than two world units.
 Timeout, disconnected geometry, or no contained candidate returns immediately to the unchanged

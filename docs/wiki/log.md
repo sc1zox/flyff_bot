@@ -988,6 +988,13 @@ Synthesized the review correction into `architecture.md`: invalid pointers are d
 malformed reads, unavailable snapshots retain the last complete field-name set across repeated
 failures, and profile bounds govern legitimate negative values.
 
+## [2026-08-24] synthesis | Offline tactical simulator (US-072)
+
+Synthesized US-072 into `architecture.md`: a seeded in-memory tactical simulator over extracted
+maps with movement, spawn/respawn, calibrated combat/stall timing, quest objectives, typed RL
+observations, Gymnasium-shaped reset/step semantics, and aggregate calibration. The boundary is
+strictly offline and adds no client access.
+
 ## [2026-08-24] synthesis | Player-stat story completion (US-076)
 
 Completed the US-076 acceptance record and moved the story to `completed/`. The implementation

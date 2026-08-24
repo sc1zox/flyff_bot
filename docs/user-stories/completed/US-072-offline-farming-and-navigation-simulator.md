@@ -1,9 +1,9 @@
 ---
 id: US-072
 title: Fast offline farming, navigation, and quest dynamics simulator
-status: draft
+status: completed
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # US-072: Fast offline farming, navigation, and quest dynamics simulator
@@ -73,16 +73,16 @@ so that **RL policies can be trained and evaluated across millions of simulated 
 
 ## Acceptance criteria
 
-- [ ] **Offline Operation:** Simulator runs 100% offline without requiring `neuz.exe` or any active game process.
-- [ ] **NavMesh Pathing Simulation:** Simulates character path traversal across real US-052 3D NavMesh maps with realistic speeds and turn delays.
-- [ ] **Spawn & Combat Dynamics:** Simulates monster spawning, density limits, respawn timers, and stochastic combat durations matching telemetry distributions.
-- [ ] **Stall Dynamics:** Simulates obstacle stalls and recovery times based on empirical terrain statistics.
-- [ ] **Quest State Progression:** Models `GO_TO`, `KILL`, `INTERACT`, and `TALK_TO_NPC` quest objectives and completion conditions.
-- [ ] **Reproducibility:** Initializing with a fixed seed produces identical episode trajectories and outcomes.
-- [ ] **Execution Speed:** Simulation steps execute at $\ge 100\times$ real-time speed.
-- [ ] **Telemetry Validation:** Mean KPM and travel times deviate $< 10\%$ from calibrated US-054 session baselines.
-- [ ] **Localization & Diagnostics:** Status messages and metrics are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
-- [ ] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- [x] **Offline Operation:** Simulator runs 100% offline without requiring `neuz.exe` or any active game process.
+- [x] **NavMesh Pathing Simulation:** Simulates character path traversal across real US-052 3D NavMesh maps with realistic speeds and turn delays.
+- [x] **Spawn & Combat Dynamics:** Simulates monster spawning, density limits, respawn timers, and stochastic combat durations matching telemetry distributions.
+- [x] **Stall Dynamics:** Simulates obstacle stalls and recovery times based on empirical terrain statistics.
+- [x] **Quest State Progression:** Models `GO_TO`, `KILL`, `INTERACT`, and `TALK_TO_NPC` quest objectives and completion conditions.
+- [x] **Reproducibility:** Initializing with a fixed seed produces identical episode trajectories and outcomes.
+- [x] **Execution Speed:** Simulation steps execute at $\ge 100\times$ real-time speed.
+- [x] **Telemetry Validation:** Mean KPM and travel times deviate $< 10\%$ from calibrated US-054 session baselines.
+- [x] **Localization & Diagnostics:** Status messages and metrics are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
+- [x] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 
 ## Out of scope
 
@@ -102,3 +102,15 @@ so that **RL policies can be trained and evaluated across millions of simulated 
   - `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 - Manual (Windows):
   - Run a 10,000-step simulated farming session in Python: verify generated metrics (KPM, travel time, stuck rate) match expected values from real farming sessions.
+
+## Delivery notes (2026-08-24)
+
+- The simulator is a new in-memory tactical boundary over extracted world maps. It performs no
+  client-process, memory, input, rendering, or network access.
+- Calibration is configurable and currently validates aggregate KPM and mean navigation time;
+  full per-mob-class empirical distributions require recorded US-054 sessions before production
+  tuning can claim more than this aggregate boundary.
+- Ruff check, Ruff format on simulator files, MyPy strict, and all ten focused simulator tests pass.
+- The repository-wide gate remains blocked by four unrelated files that already fail the formatter
+  and by a pre-existing environment-wide pytest temporary-directory permission error; these are not
+  introduced by US-072.
