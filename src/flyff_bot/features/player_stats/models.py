@@ -52,6 +52,44 @@ class PlayerStatsSource(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class TargetFieldType(StrEnum):
+    """The bounded selected-target fields supported by a client-state profile."""
+
+    MOVER_ID = "target_mover_id"
+    CURRENT_HP = "target_current_hp"
+    MAX_HP = "target_max_hp"
+    STATE = "target_state"
+
+
+class ClientTargetState(StrEnum):
+    """The authoritative client-side selected-target lifecycle state."""
+
+    NONE = "none"
+    ALIVE = "alive"
+    DEAD = "dead"
+
+
+@dataclass(frozen=True, slots=True)
+class ClientTargetSnapshot:
+    """The bounded decoded state of the client currently selected actor."""
+
+    pointer: int | None = None
+    mover_id: int | None = None
+    current_hp: float | None = None
+    max_hp: float | None = None
+    state: ClientTargetState | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("pointer", "mover_id"):
+            value = getattr(self, name)
+            if value is not None and value < 0:
+                raise ValueError(f"The target {name} must not be negative.")
+        for name in ("current_hp", "max_hp"):
+            value = getattr(self, name)
+            if value is not None and (not math.isfinite(value) or value < 0.0):
+                raise ValueError(f"The target {name} must be finite and non-negative.")
+
+
 @dataclass(frozen=True, slots=True)
 class ClientPlayerStatsSnapshot:
     """An immutable result of one bounded client-memory polling operation."""
@@ -60,6 +98,7 @@ class ClientPlayerStatsSnapshot:
     sampled_at_seconds: float | None = None
     client_sha256: str | None = None
     fields: tuple[PlayerStatField, ...] = ()
+    target: ClientTargetSnapshot | None = None
     error: PlayerStatsReadError | None = None
     unavailable_field_names: tuple[str, ...] = ()
     unknown_field_names: tuple[str, ...] = ()

@@ -67,7 +67,7 @@ related:
   - ../user-stories/completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md
   - ../user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md
   - ../user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md
-  - ../user-stories/US-076-complete-client-player-stats-reader.md
+  - ../user-stories/completed/US-076-complete-client-player-stats-reader.md
   - ../user-stories/completed/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
   - ../user-stories/completed/US-058-navmesh-aware-targeting-and-telemetry-integration.md
   - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
@@ -1896,8 +1896,6 @@ degradation, panel rendering/retranslation, and locale synchronization. On this 
 passes after excluding two unrelated pre-existing Python/POSIX environment failures in Windows struct
 sizing and OCR decoding.
 
-## Fingerprinted player-stat snapshots (US-076, implementation draft)
-
 ## Initial setup and unified client extraction (US-078, completed)
 
 `flyff_bot.features.setup` provides the first-run detector and sequential extraction orchestrator.
@@ -1914,7 +1912,7 @@ binary. Missing or malformed proven profiles are typed diagnostics; no offset is
 preserves ADR-006 and the empty shipped player-stat registry until controlled static-analysis and
 live evidence supplies real offsets.
 
-## Fingerprinted player-stat snapshots (US-076, implementation draft)
+## Fingerprinted player-stat snapshots (US-076)
 
 `flyff_bot.features.player_stats` adds a second stage for authoritative vitals: `PerceptionPipeline`
 now accepts an optional `LivePlayerStatsReader`. When that provider is present it polls a frozen
@@ -1938,6 +1936,9 @@ reads; a non-positive player pointer is reported separately as an invalid pointe
 snapshot retains the field names from the most recent complete snapshot so repeated failures remain
 diagnostically stable. Profile-declared signed or floating-point fields may legitimately be negative;
 the profile bounds remain the authority for value validity.
+Automated synthetic-process coverage validates snapshots, profile rejection, diagnostics, handle
+lifecycle, throttling, recovery, foreground loss, and OCR-free perception integration. Live
+x86/x64 offset verification against a running client remains separate operator validation.
 
 No verified player-stat field offsets exist in repository evidence today. The shipped registry is
 therefore intentionally empty: production sessions receive typed unavailable snapshots rather than

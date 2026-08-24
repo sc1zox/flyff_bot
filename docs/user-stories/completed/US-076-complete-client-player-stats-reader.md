@@ -1,9 +1,9 @@
 ---
 id: US-076
 title: Complete fingerprinted client player stats reader
-status: draft
+status: completed
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-24
 ---
 
 # US-076: Complete fingerprinted client player stats reader
@@ -22,16 +22,16 @@ As a **bot operator**, I want **the application to read every available player s
 
 ## Acceptance criteria
 
-- [ ] Given a supported SHA-256 client profile, when the stats reader polls, then it extracts every configured proven player statistic through one fixed pointer read and one fixed bounded structure read; the profile schema can express HP, MP, FP, level, experience, attributes, and additional verified fields, but no such stat offsets are yet evidenced in repository sources.
-- [ ] Given each reading, when values are decoded, then the application receives an immutable snapshot carrying source metadata, timestamp, finite validated values, unknown-field markers, and the client digest used.
-- [ ] Given HP is available from the client, when combat, vitals triggers, telemetry, RL observations, and dashboards evaluate player state, then they use the client reading and do not invoke player-vitals OCR.
-- [ ] Given MP, FP, level, EXP, attributes, or other exposed stats are required by controllers, when decisions run, then they consume the same immutable snapshot instead of separate ad-hoc visual readers.
+- [x] Given a supported SHA-256 client profile, when the stats reader polls, then it extracts every configured proven player statistic through one fixed pointer read and one fixed bounded structure read; the profile schema can express HP, MP, FP, level, experience, attributes, and additional verified fields, but no such stat offsets are yet evidenced in repository sources.
+- [x] Given each reading, when values are decoded, then the application receives an immutable snapshot carrying source metadata, timestamp, finite validated values, unknown-field markers, and the client digest used.
+- [x] Given HP is available from the client, when combat, vitals triggers, telemetry, RL observations, and dashboards evaluate player state, then they use the client reading and do not invoke player-vitals OCR.
+- [x] Given MP, FP, level, EXP, attributes, or other exposed stats are required by controllers, when decisions run, then they consume the same immutable snapshot instead of separate ad-hoc visual readers.
 - [x] Given an unsupported executable, missing/malformed profile, closed/minimized/background client, short read, invalid pointer, or non-finite value occurs, when polling runs, then the reader returns a typed diagnostic, emits no fabricated values, closes handles promptly, and marks affected fields unavailable.
-- [ ] Given a required live player stat is unavailable, when the central live-state gate evaluates the session, then behavior follows US-077 rather than falling back to OCR; until that story lands, perception retains prior valid vitals without invoking OCR.
+- [x] Given a required live player stat is unavailable, when the central live-state gate evaluates the session, then behavior follows US-077 rather than falling back to OCR; until that story lands, perception retains prior valid vitals without invoking OCR.
 - [x] Given profiles are added for x86/x64 builds, when configuration loads, then every address range is validated for type, bounds, overlap policy, pointer width, and fingerprint uniqueness before any process handle opens.
 - [x] Given foreground focus is lost or the game window/process disappears, when polling is active, then the reader returns typed diagnostics, closes its handle, and starts no unsafe recovery loop. Emergency input safety remains owned by existing guarded dispatchers because this reader performs no input.
 - [x] Failure and cancellation behavior is defined for startup, throttled polling, shutdown/client-window change, short/non-finite reads, unsupported binaries, and invalid operator profiles; explicit reload remains part of the follow-up readiness-gate integration.
-- [ ] All user-visible text is available in German and English.
+- [x] All user-visible text is available in German and English.
 
 ## Out of scope
 

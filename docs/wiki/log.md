@@ -988,6 +988,12 @@ Synthesized the review correction into `architecture.md`: invalid pointers are d
 malformed reads, unavailable snapshots retain the last complete field-name set across repeated
 failures, and profile bounds govern legitimate negative values.
 
+## [2026-08-24] synthesis | Player-stat story completion (US-076)
+
+Completed the US-076 acceptance record and moved the story to `completed/`. The implementation
+remains evidence-safe: synthetic process tests cover bounded snapshots and diagnostics, while no
+x86/x64 player-stat offsets are claimed as live-verified until operator validation supplies them.
+
 ## [2026-08-24] completion | Built-in teleporter emergency reset (US-051)
 
 Synthesized US-051 into `architecture.md` and `glossary.md`: removed the generic long-range

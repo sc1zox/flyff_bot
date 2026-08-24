@@ -112,7 +112,7 @@ def _pe_machine_type(path: Path) -> int | None:
 def _read_existing_profiles(path: Path) -> list[dict[str, object]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return []
     if not isinstance(payload, list):
         return []
