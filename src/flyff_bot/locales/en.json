@@ -69,6 +69,8 @@
   "help.telemetry_area": "Telemetry area identifier (default: {default})",
   "status.telemetry_exported": "Telemetry datasets exported.",
   "error.telemetry_export_failed": "Telemetry export failed: {reason}",
+  "status.rl_transitions_exported": "RL transitions exported.",
+  "error.rl_transitions_export_failed": "RL transition export failed: {reason}",
   "status.dataset_valid": "Mob dataset is valid: {dataset}",
   "status.dataset_issue": "Dataset issue ({code}): {path}",
   "status.training_complete": "Mob detector exported to {model}; labels written to {labels}",

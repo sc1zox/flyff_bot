@@ -69,6 +69,8 @@
   "help.telemetry_area": "Telemetrie-Gebietskennung (Standard: {default})",
   "status.telemetry_exported": "Telemetrie-Datensätze wurden exportiert.",
   "error.telemetry_export_failed": "Telemetrie-Export fehlgeschlagen: {reason}",
+  "status.rl_transitions_exported": "RL-Übergänge wurden exportiert.",
+  "error.rl_transitions_export_failed": "RL-Übergangs-Export fehlgeschlagen: {reason}",
   "status.dataset_valid": "Monsterdatensatz ist gültig: {dataset}",
   "status.dataset_issue": "Datensatzproblem ({code}): {path}",
   "status.training_complete": "Monsterdetektor nach {model} exportiert; Labels in {labels} geschrieben",

@@ -88,6 +88,8 @@ class Message(StrEnum):
     HELP_TELEMETRY_AREA = "help.telemetry_area"
     TELEMETRY_EXPORTED = "status.telemetry_exported"
     TELEMETRY_EXPORT_FAILED = "error.telemetry_export_failed"
+    RL_TRANSITIONS_EXPORTED = "status.rl_transitions_exported"
+    RL_TRANSITIONS_EXPORT_FAILED = "error.rl_transitions_export_failed"
     DATASET_VALID = "status.dataset_valid"
     DATASET_ISSUE = "status.dataset_issue"
     TRAINING_COMPLETE = "status.training_complete"

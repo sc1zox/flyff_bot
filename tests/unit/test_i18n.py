@@ -102,6 +102,17 @@ def test_languages_return_different_application_descriptions() -> None:
     assert german != english
 
 
+@pytest.mark.parametrize(
+    "message",
+    [Message.RL_TRANSITIONS_EXPORTED, Message.RL_TRANSITIONS_EXPORT_FAILED],
+)
+def test_rl_export_diagnostics_are_localized(message: Message) -> None:
+    texts = {language: Translator(language).text(message, reason="test") for language in Language}
+
+    assert all(text.strip() for text in texts.values())
+    assert len(set(texts.values())) == len(Language)
+
+
 @pytest.mark.parametrize("reason", list(EngagementBreakReason))
 def test_every_engagement_break_reason_has_a_distinct_localized_sentence(
     reason: EngagementBreakReason,
