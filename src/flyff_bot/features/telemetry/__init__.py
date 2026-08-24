@@ -10,6 +10,7 @@ from flyff_bot.features.telemetry.exporter import TelemetryDatasetExporter
 from flyff_bot.features.telemetry.kinematics import KinematicsDeriver
 from flyff_bot.features.telemetry.models import (
     TELEMETRY_SCHEMA_VERSION,
+    TRAJECTORY_SCHEMA_VERSION,
     AttackAction,
     CandidateFeatures,
     CombatEpisode,
@@ -27,6 +28,7 @@ from flyff_bot.features.telemetry.storage import JsonlTelemetryWorker, SqliteTel
 
 __all__ = [
     "TELEMETRY_SCHEMA_VERSION",
+    "TRAJECTORY_SCHEMA_VERSION",
     "AttackAction",
     "CandidateFeatures",
     "CombatEpisode",

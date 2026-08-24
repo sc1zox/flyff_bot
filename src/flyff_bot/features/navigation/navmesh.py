@@ -12,11 +12,18 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 from itertools import count, pairwise
+from typing import TYPE_CHECKING
 
 from flyff_bot.features.navigation.live_camera import Vector3D
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.raycast import NavMeshRayIndex, RayHit
 from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
+
+if TYPE_CHECKING:
+    from flyff_bot.features.navigation.empirical_routing import (
+        EmpiricalCostIndex,
+        ExperienceRoutingConfig,
+    )
 
 DEFAULT_MAXIMUM_WALKABLE_SLOPE_DEGREES = 45.0
 DEFAULT_AGENT_RADIUS_UNITS = 1.0
@@ -96,6 +103,7 @@ class BakedNavMesh:
         adjacency: dict[int, tuple[int, ...]],
         spans: tuple[SurfaceSpan, ...],
         config: AgentNavigationConfig,
+        empirical_costs: EmpiricalCostIndex | None = None,
     ) -> None:
         self._polygons = polygons
         self._by_id = {polygon.polygon_id: polygon for polygon in polygons}
@@ -105,6 +113,19 @@ class BakedNavMesh:
         # Built on the first cast and reused for the mesh's lifetime: indexing every
         # walkable triangle once is what keeps a batch of detections off a full scan.
         self._ray_index: NavMeshRayIndex | None = None
+        self._empirical_costs = empirical_costs
+
+    def attach_empirical_cost_index(
+        self,
+        index: EmpiricalCostIndex,
+        *,
+        mesh_digest: str,
+    ) -> None:
+        """Attach digest-matched empirical weights without changing mesh connectivity."""
+
+        if index.mesh_digest != mesh_digest:
+            raise ValueError("Empirical cost digest does not match the loaded NavMesh.")
+        self._empirical_costs = index
 
     @property
     def polygons(self) -> tuple[NavMeshPolygon, ...]:
@@ -158,20 +179,22 @@ class BakedNavMesh:
         endpoints = self._endpoints(start, goal)
         return endpoints is not None and endpoints[0][0].region_id == endpoints[1][0].region_id
 
-    def find_path(self, start: WorldPosition, goal: WorldPosition) -> tuple[WorldPosition, ...]:
+    def find_path(
+        self,
+        start: WorldPosition,
+        goal: WorldPosition,
+        *,
+        routing_config: ExperienceRoutingConfig | None = None,
+    ) -> tuple[WorldPosition, ...]:
         """Return collision-surface waypoints, or an empty tuple when endpoints disconnect."""
 
+        polygon_path = self.find_polygon_path(start, goal, routing_config=routing_config)
+        if not polygon_path:
+            return ()
         endpoints = self._endpoints(start, goal)
         if endpoints is None:
             return ()
-        (start_polygon, projected_start), (goal_polygon, projected_goal) = endpoints
-        if start_polygon.region_id != goal_polygon.region_id:
-            return ()
-        polygon_path = _a_star(
-            self._adjacency, self._by_id, start_polygon.polygon_id, goal_polygon.polygon_id
-        )
-        if not polygon_path:
-            return ()
+        (_start_polygon, projected_start), (_goal_polygon, projected_goal) = endpoints
         portals: list[_Portal] = []
         for current, following in pairwise(polygon_path):
             portal = _portal_between(self._by_id[current], self._by_id[following])
@@ -183,6 +206,32 @@ class BakedNavMesh:
                 )
             portals.append(portal)
         return _string_pull(projected_start, tuple(portals), projected_goal)
+
+    def find_polygon_path(
+        self,
+        start: WorldPosition,
+        goal: WorldPosition,
+        *,
+        routing_config: ExperienceRoutingConfig | None = None,
+    ) -> tuple[int, ...]:
+        """Return the stable polygon corridor used by weighted A*, for diagnostics/tests."""
+
+        endpoints = self._endpoints(start, goal)
+        if endpoints is None:
+            return ()
+        (start_polygon, projected_start), (goal_polygon, projected_goal) = endpoints
+        if start_polygon.region_id != goal_polygon.region_id:
+            return ()
+        # A* operates on stable IDs; projected endpoints are intentionally unused here.
+        del projected_start, projected_goal
+        return _a_star(
+            self._adjacency,
+            self._by_id,
+            start_polygon.polygon_id,
+            goal_polygon.polygon_id,
+            self._empirical_costs,
+            routing_config,
+        )
 
     def path_distance(self, start: WorldPosition, goal: WorldPosition) -> float | None:
         """Return the exact sum of the returned 3D path segments, or ``None`` if blocked."""
@@ -458,6 +507,8 @@ def _a_star(
     polygons: dict[int, NavMeshPolygon],
     start: int,
     goal: int,
+    empirical_costs: EmpiricalCostIndex | None,
+    routing_config: ExperienceRoutingConfig | None,
 ) -> tuple[int, ...]:
     queue: list[tuple[float, int, int]] = [(0.0, 0, start)]
     sequence = count(1)
@@ -472,8 +523,11 @@ def _a_star(
                 path.append(current)
             return tuple(reversed(path))
         for neighbour in adjacency[current]:
-            candidate = cost[current] + _distance(
-                polygons[current].centroid, polygons[neighbour].centroid
+            distance = _distance(polygons[current].centroid, polygons[neighbour].centroid)
+            candidate = cost[current] + (
+                empirical_costs.weighted_edge_cost(distance, current, neighbour, routing_config)
+                if empirical_costs is not None
+                else distance
             )
             if candidate >= cost.get(neighbour, math.inf):
                 continue

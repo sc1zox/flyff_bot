@@ -460,6 +460,9 @@ class Message(StrEnum):
     VALUE_MODEL_ONNX_REQUIRED = "error.value_model_onnx_required"
     VALUE_MODEL_INVALID_OPTION = "error.value_model_invalid_option"
     POLICY_MODEL_UNAVAILABLE = "status.policy_model_unavailable"
+    EMPIRICAL_ROUTE_COST = "status.empirical_route_cost"
+    EMPIRICAL_ROUTE_UNWEIGHTED = "status.empirical_route_unweighted"
+    EMPIRICAL_ROUTE_INDEX_REJECTED = "error.empirical_route_index_rejected"
 
 
 class Translator:

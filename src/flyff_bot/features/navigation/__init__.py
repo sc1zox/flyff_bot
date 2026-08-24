@@ -1,5 +1,21 @@
 """Authoritative 3D vector navigation, NavMesh routing, and closed-loop control."""
 
+from flyff_bot.features.navigation.empirical_routing import (
+    DEFAULT_EXPERIENCE_WEIGHT,
+    DEFAULT_MINIMUM_EDGE_SAMPLES,
+    DEFAULT_NOMINAL_SPEED_UNITS_PER_SECOND,
+    DEFAULT_SPARSE_SAMPLE_WEIGHT_FRACTION,
+    EMPIRICAL_NAVMESH_SCHEMA_VERSION,
+    EdgeTraversalStats,
+    EmpiricalCostArtifact,
+    EmpiricalCostError,
+    EmpiricalCostIndex,
+    ExperienceRoutingConfig,
+    PolygonTraversalStats,
+    load_empirical_cost_index,
+    save_empirical_cost_index,
+    world_empirical_path,
+)
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
 from flyff_bot.features.navigation.live_camera import (
     CameraReadError,
@@ -115,6 +131,11 @@ from flyff_bot.features.navigation.world_geometry import (
 )
 
 __all__ = [
+    "DEFAULT_EXPERIENCE_WEIGHT",
+    "DEFAULT_MINIMUM_EDGE_SAMPLES",
+    "DEFAULT_NOMINAL_SPEED_UNITS_PER_SECOND",
+    "DEFAULT_SPARSE_SAMPLE_WEIGHT_FRACTION",
+    "EMPIRICAL_NAVMESH_SCHEMA_VERSION",
     "AgentNavigationConfig",
     "BakedNavMesh",
     "CameraReadError",
@@ -124,6 +145,11 @@ __all__ = [
     "ClientCameraProfile",
     "CollisionMesh",
     "DynamicObjectPlacement",
+    "EdgeTraversalStats",
+    "EmpiricalCostArtifact",
+    "EmpiricalCostError",
+    "EmpiricalCostIndex",
+    "ExperienceRoutingConfig",
     "ExtractionDiagnostic",
     "ExtractionWarning",
     "LiveCameraReader",
@@ -144,6 +170,7 @@ __all__ = [
     "PathingInputAdapter",
     "PathingInputDispatcher",
     "PathingMode",
+    "PolygonTraversalStats",
     "PositionReadError",
     "PositionReadErrorCode",
     "PositionReading",
@@ -190,15 +217,18 @@ __all__ = [
     "fuse_world_geometry",
     "heading_error_degrees",
     "load_baked_navmesh",
+    "load_empirical_cost_index",
     "load_monster_names",
     "load_world_map",
     "parse_dynamic_placements",
     "save_baked_navmesh",
+    "save_empirical_cost_index",
     "save_world_map",
     "summarize",
     "terrain_triangles",
     "transform_collision_mesh",
     "unproject_screen_ray",
+    "world_empirical_path",
     "world_map_path",
     "world_navmesh_path",
     "world_terrain_directory",

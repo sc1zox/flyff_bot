@@ -86,7 +86,7 @@ class TelemetryDatasetExporter:
         for event in self._store.events(TelemetryEventKind.NAVIGATION_EPISODE):
             payload = event["payload"]
             for index, point in enumerate(payload["trajectory"]):
-                timestamp_ns, position, speed = point
+                timestamp_ns, position, speed = point[:3]
                 rows.append(
                     {
                         "session_id": event["session_id"],
@@ -97,6 +97,8 @@ class TelemetryDatasetExporter:
                         "y": position["y"],
                         "z": position["z"],
                         "speed": speed,
+                        "navmesh_polygon_id": point[3] if len(point) > 3 else None,
+                        "is_stalled": point[4] if len(point) > 4 else False,
                         "outcome": payload["outcome"],
                         "path_efficiency": _path_efficiency(payload),
                         "start_x": _coordinate(payload.get("start_position"), "x"),

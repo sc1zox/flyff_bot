@@ -19,6 +19,7 @@ from flyff_bot.features.telemetry.geometry import (
 )
 from flyff_bot.features.telemetry.kinematics import KinematicsDeriver
 from flyff_bot.features.telemetry.models import (
+    TELEMETRY_SCHEMA_VERSION,
     AttackAction,
     CandidateFeatures,
     CombatEpisode,
@@ -42,7 +43,9 @@ class _ActiveNavigation:
     start_position: TelemetryPosition
     target_position: TelemetryPosition
     planned_route: tuple[TelemetryPosition, ...]
-    trajectory: list[tuple[int, TelemetryPosition, float | None]] = field(default_factory=list)
+    trajectory: list[tuple[int, TelemetryPosition, float | None, str | None, bool]] = field(
+        default_factory=list
+    )
     replans_count: int = 0
     stall_events: int = 0
     stall_started_at_ns: int | None = None
@@ -146,7 +149,13 @@ class TelemetryRecorder:
             and position_source is PositionSource.LIVE
         ):
             navigation.trajectory.append(
-                (timestamp_ns, position, None if velocity is None else velocity.speed)
+                (
+                    timestamp_ns,
+                    position,
+                    None if velocity is None else velocity.speed,
+                    snapshot.player_navmesh_polygon_id,
+                    navigation.stall_started_at_ns is not None,
+                )
             )
 
     def record_target_selection(
@@ -318,10 +327,14 @@ class TelemetryRecorder:
                 _previous_time,
                 previous,
                 _previous_speed,
+                _previous_polygon_id,
+                _previous_stalled,
             ), (
                 _current_time,
                 current,
                 _current_speed,
+                _current_polygon_id,
+                _current_stalled,
             ) in zip(navigation.trajectory, navigation.trajectory[1:], strict=False)
         )
         planned_length = sum(
@@ -465,7 +478,7 @@ class TelemetryRecorder:
     ) -> None:
         self._worker.submit(
             {
-                "schema_version": 1,
+                "schema_version": TELEMETRY_SCHEMA_VERSION,
                 "event_kind": kind.value,
                 "session_id": self._metadata.session_id,
                 "timestamp_ns": self._clock_ns() if timestamp_ns is None else timestamp_ns,

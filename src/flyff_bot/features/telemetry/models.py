@@ -8,7 +8,8 @@ from math import sqrt
 from typing import Any
 from uuid import uuid4
 
-TELEMETRY_SCHEMA_VERSION = 1
+TELEMETRY_SCHEMA_VERSION = 2
+TRAJECTORY_SCHEMA_VERSION = 2
 
 
 class TelemetryEventKind(StrEnum):
@@ -148,7 +149,7 @@ class NavigationEpisode:
     planned_route: tuple[TelemetryPosition, ...]
     planned_length: float | None
     actual_travel_distance: float
-    trajectory: tuple[tuple[int, TelemetryPosition, float | None], ...]
+    trajectory: tuple[tuple[int, TelemetryPosition, float | None, str | None, bool], ...]
     replans_count: int
     stall_events: int
     stall_duration_seconds: float

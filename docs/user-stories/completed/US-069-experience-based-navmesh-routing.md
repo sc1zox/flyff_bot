@@ -1,9 +1,9 @@
 ---
 id: US-069
 title: Experience-based NavMesh routing and empirical traversal cost integration
-status: draft
+status: completed
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # US-069: Experience-based NavMesh routing and empirical traversal cost integration
@@ -60,15 +60,15 @@ so that **the bot selects practically faster and obstacle-free routes over geome
 
 ## Acceptance criteria
 
-- [ ] **Telemetry Correlation:** GPS trajectory logs and stall events are aggregated into per-polygon and per-edge empirical traversal statistics.
-- [ ] **Cost Formulation:** Edge cost incorporates travel time, stuck probability, and recovery duration alongside geometric length.
-- [ ] **Router Weighting:** A* path planner supports configurable empirical weight $\alpha \in [0.0, 1.0]$ with default $\alpha = 0.5$.
-- [ ] **Cold-Start Fallback:** Unobserved or sparse NavMesh edges fall back to standard geometric distances without errors.
-- [ ] **Reachability Preservation:** Valid NavMesh corridors remain reachable regardless of empirical penalty values.
-- [ ] **Path Preference:** Validated test cases demonstrate preference for slightly longer, obstacle-free paths over short, stall-prone corridors.
-- [ ] **Performance:** Empirical cost lookup adds $< 0.5\text{ ms}$ overhead to A* route calculation.
-- [ ] **Localization & Diagnostics:** Path cost metrics and diagnostic logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
-- [ ] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- [x] **Telemetry Correlation:** GPS trajectory logs and stall events are aggregated into per-polygon and per-edge empirical traversal statistics.
+- [x] **Cost Formulation:** Edge cost incorporates travel time, stuck probability, and recovery duration alongside geometric length.
+- [x] **Router Weighting:** A* path planner supports configurable empirical weight $\alpha \in [0.0, 1.0]$ with default $\alpha = 0.5$.
+- [x] **Cold-Start Fallback:** Unobserved or sparse NavMesh edges fall back to standard geometric distances without errors.
+- [x] **Reachability Preservation:** Valid NavMesh corridors remain reachable regardless of empirical penalty values.
+- [x] **Path Preference:** Validated test cases demonstrate preference for slightly longer, obstacle-free paths over short, stall-prone corridors.
+- [x] **Performance:** Empirical cost lookup adds $< 0.5\text{ ms}$ overhead to A* route calculation.
+- [x] **Localization & Diagnostics:** Path cost metrics and diagnostic logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
+- [x] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 
 ## Out of scope
 
@@ -86,3 +86,10 @@ so that **the bot selects practically faster and obstacle-free routes over geome
   - `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 - Manual (Windows):
   - In a known tricky terrain area (e.g. rocky paths near Flaris bridge / Darkon mountains), verify the bot navigates around troublesome obstacles instead of repeatedly bumping into corners.
+
+## Delivery
+
+Completed on 2026-08-24. The automated gate passed (`817 passed, 5 skipped`; 88.24% coverage), including
+digest-bound aggregation/persistence, open-detour routing, sparse fallback, reachability preservation,
+localized diagnostics, and synthetic performance guards. The manual rocky-terrain walkthrough remains a
+separate live Windows/client validation and was not performed.

@@ -8,6 +8,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from flyff_bot.features.navigation.empirical_routing import load_empirical_cost_index
 from flyff_bot.features.navigation.navmesh import (
     NAVMESH_SCHEMA_VERSION,
     AgentNavigationConfig,
@@ -41,6 +42,8 @@ def save_baked_navmesh(mesh: BakedNavMesh, path: Path) -> NavMeshArtifact:
     """Write a versioned mesh artifact without changing client assets."""
 
     document = _document(mesh)
+    if getattr(mesh, "_empirical_costs", None) is not None:
+        document["has_empirical_costs"] = True
     encoded = _encode(document)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(encoded)
@@ -74,6 +77,11 @@ def load_baked_navmesh(path: Path) -> NavMeshArtifact:
     adjacency = _adjacency(document.get("adjacency"), polygons)
     spans = _spans(document.get("surface_spans"), polygons, config)
     mesh = BakedNavMesh(polygons, adjacency, spans, config)
+    artifact_digest = _digest(_encode(_document(mesh)))
+    if document.get("has_empirical_costs"):
+        empirical_path = path.with_suffix(".empirical.json")
+        index = load_empirical_cost_index(empirical_path, artifact_digest)
+        mesh.attach_empirical_cost_index(index, mesh_digest=artifact_digest)
     return NavMeshArtifact(mesh, path, _digest(_encode(_document(mesh))))
 
 

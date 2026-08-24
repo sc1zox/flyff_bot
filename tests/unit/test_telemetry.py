@@ -58,7 +58,7 @@ def test_recorder_writes_versioned_header_snapshots_and_explicit_nulls(tmp_path:
         "world_snapshot",
         "target_selected",
     ]
-    assert records[0]["schema_version"] == 1
+    assert records[0]["schema_version"] == 2
     assert records[1]["payload"]["player_position"] is None
     assert records[2]["payload"]["candidates"][0]["world_position"] is None
 
@@ -177,7 +177,9 @@ def test_recorder_persists_only_live_terrain_route_trajectory_and_stalls(tmp_pat
     episode = next(
         record["payload"] for record in records if record["event_kind"] == "navigation_episode"
     )
-    assert episode["trajectory"] == [[4_000_000_000, {"x": 1.0, "y": 2.0, "z": 3.0}, None]]
+    assert episode["trajectory"] == [
+        [4_000_000_000, {"x": 1.0, "y": 2.0, "z": 3.0}, None, None, False]
+    ]
     assert episode["planned_length"] == 3.0
     assert episode["stall_events"] == 1
     assert episode["stall_duration_seconds"] == 1.0

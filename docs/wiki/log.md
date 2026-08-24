@@ -1,5 +1,11 @@
 # Wiki log
 
+## [2026-08-24] synthesis | Experience-weighted NavMesh routing (US-069)
+
+Added the US-069 architecture section covering digest-bound empirical polygon/edge storage,
+trajectory schema v2 correlation, weighted A* costs, smooth cold-start fallback, preserved
+reachability, localized diagnostics, and synthetic performance guards.
+
 ## [2026-08-24] completion | Rolling-horizon multi-target planning (US-068)
 
 Synthesized the bounded learned lookahead into `architecture.md` and defined its advisory

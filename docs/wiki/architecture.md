@@ -75,6 +75,7 @@ related:
   - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
   - ../user-stories/US-062-automated-npc-quest-acceptance-and-turn-in.md
   - ../user-stories/completed/US-066-farming-and-navigation-value-model.md
+  - ../user-stories/US-069-experience-based-navmesh-routing.md
   - ../user-stories/completed/US-068-rolling-horizon-multi-target-planning.md
   - ../user-stories/US-063-client-dungeon-data-and-live-cooldown-memory-extraction.md
   - ../user-stories/completed/US-078-initial-setup-wizard-and-unified-client-data-extraction.md
@@ -1826,6 +1827,27 @@ The planner performs no input dispatch, reachability bypass, memory access, or p
 commitment. Automated coverage includes sequence validity, first-target commitment, per-snapshot
 replanning, fallback behavior, and a synthetic twenty-candidate timing check; live dense-spawn
 Windows validation remains outstanding.
+
+## Experience-weighted NavMesh routing (US-069, completed)
+
+`navigation.empirical_routing` adds an immutable, schema-versioned empirical cost index beside the
+baked NavMesh artifact (`<world>.empirical.json`). The index records per-polygon and directed edge
+traversal counts, observed travel duration, stall counts, stuck probability, mean recovery time, and
+mean segment distance. Its payload digest is validated on load and its stored SHA-256 must exactly
+match `NavMeshArtifact.content_digest`, so evidence is never applied to regenerated geometry.
+
+`telemetry.navmesh_correlation` maps consecutive live GPS samples to stable polygon IDs, validates
+that transitions are present in the unchanged mesh adjacency, and aggregates mapped segments into
+the index. Trajectory schema v2 now carries each sample's polygon ID and sampled stall state; Parquet
+export exposes these as `navmesh_polygon_id` and `is_stalled`. Samples without mesh attribution or
+with non-adjacent IDs are excluded rather than guessed.
+
+`BakedNavMesh.find_path()` now evaluates A* edges with configurable empirical weights while funnel
+string-pulling remains geometric. The default blend is 0.5 nominal geometry and 0.5 empirical cost.
+Sparse edges scale confidence by sample count toward geometric cost, so unobserved corridors remain
+fully reachable and penalties cannot remove topology. Tests cover open-detour preference,
+digest/integrity rejection, sparse fallback, reachability preservation, localized diagnostics, and
+per-edge lookup below 0.5 ms with route generation below 2 ms in synthetic fixtures.
 
 ## Client dungeon data and live cooldown extraction (US-063, completed)
 
