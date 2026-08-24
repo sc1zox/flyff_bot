@@ -1,9 +1,9 @@
 ---
 id: US-071
 title: Unified RL environment formulation, state-action space, and progress reward modeling
-status: draft
+status: completed
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # US-071: Unified RL environment formulation, state-action space, and progress reward modeling
@@ -78,14 +78,14 @@ so that **offline and simulation-based RL agents can be trained to maximize oper
 
 ## Acceptance criteria
 
-- [ ] **State Representation:** Encapsulates kinematics, vitals, NavMesh context, mob perception matrix, and active quest progress into typed observation arrays.
-- [ ] **Tactical Action Catalog:** Supports discrete tactical action variants without exposing raw keyboard/mouse inputs.
-- [ ] **Action Masking:** Generates deterministic action masks for dead, locked out, unreachable, or out-of-leash targets.
-- [ ] **Reward Engine:** Calculates progress-driven rewards (positive for kills and quest steps, negative for travel, idle, stuck, and failed actions).
-- [ ] **Telemetry Transition Exporter:** Converts recorded session JSONL/Parquet datasets into valid $(s, a, r, s', m, d)$ transition batches.
-- [ ] **Gymnasium Interface:** Implements `gymnasium.Env` compliant interface for offline training frameworks.
-- [ ] **Localization & Diagnostics:** Reward configs and diagnostic logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
-- [ ] **Quality Gate:** Automated checks pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- [x] **State Representation:** Encapsulates kinematics, vitals, NavMesh context, mob perception matrix, and active quest progress into typed observation arrays.
+- [x] **Tactical Action Catalog:** Supports discrete tactical action variants without exposing raw keyboard/mouse inputs.
+- [x] **Action Masking:** Generates deterministic action masks for dead, locked out, unreachable, or out-of-leash targets.
+- [x] **Reward Engine:** Calculates progress-driven rewards (positive for kills and quest steps, negative for travel, idle, stuck, and failed actions).
+- [x] **Telemetry Transition Exporter:** Converts recorded session JSONL/Parquet datasets into valid $(s, a, r, s', m, d)$ transition batches.
+- [x] **Gymnasium Interface:** Implements `gymnasium.Env` compliant interface for offline training frameworks.
+- [x] **Localization & Diagnostics:** Reward configs and diagnostic logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
+- [x] **Quality Gate:** Automated checks pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 
 ## Out of scope
 

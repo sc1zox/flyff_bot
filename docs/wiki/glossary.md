@@ -13,6 +13,7 @@ related:
   - project-overview.md
   - architecture.md
   - ../decisions/ADR-006-read-only-process-memory-access.md
+  - ../user-stories/completed/US-071-unified-rl-environment-and-reward.md
 ---
 
 # Glossary
@@ -411,3 +412,8 @@ related:
 - **Provisional multi-kill plan** — The advisory target sequence exposed by
   `RollingHorizonPlanner`. Only its first target is committed; every fresh perception snapshot can
   replace it, and it never bypasses deterministic masks or guarded execution.
+- **Offline tactical transition** — A schema-versioned RL tuple recorded from observed telemetry:
+  observation, discrete tactical action, reward, next observation, action mask, and termination.
+  It is exported for training only and never dispatches input.
+- **Tactical action mask** — The deterministic legality vector for the seven tactical RL actions.
+  Dead, locked-out, unreachable, out-of-leash, or position-invalid targets cannot be selected.

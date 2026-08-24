@@ -33,6 +33,7 @@ related:
   - ../user-stories/completed/US-019-intelligent-pathing-and-spawn-heatmap.md
   - ../user-stories/completed/US-020-visual-navigation-path-and-heatmap-inspector.md
   - ../user-stories/completed/US-021-navigation-map-profiles-and-session-reset.md
+  - ../user-stories/completed/US-071-unified-rl-environment-and-reward.md
   - ../user-stories/completed/US-035-measured-minimap-odometry-and-tracking-quality.md
   - ../user-stories/completed/US-036-navigation-profile-anchoring-across-sessions.md
   - ../user-stories/US-037-measured-spawn-distance-and-enforced-leash.md
@@ -1807,6 +1808,26 @@ by PolicyRunner through immediate heuristic fallback; runtime modes are HEURISTI
 ML_SHADOW (record learned intent only), and ML_ACTIVE (execute learned intent when legal).
 This action vocabulary leaves room for US-068 sequences, US-069 corridor preferences, and
 US-071/073 RL policies without moving safety into the policy layer.
+
+## Offline tactical RL environment (US-071, completed)
+
+`features.rl` formulates recorded tactical experience as an offline MDP. A typed observation
+combines normalized kinematics, vitals and buff cooldowns, NavMesh context, a bounded candidate
+matrix, operational state, and quest progress. The stable seven-action catalog maps target,
+navigate, attack-point, corridor, object/NPC interaction, and wait intents to discrete indices; it
+reuses the US-067 action payloads and contains no raw key, scan-code, or click contract.
+`build_action_mask()` deterministically disables dead, locked-out, unreachable, out-of-leash, and
+missing-world-position candidates plus invalid destinations, corridors, and interactions. The
+versioned `RewardEngine` computes verified kills, quest-step deltas, objective completion, travel,
+idle, stuck, recovery, and failed-action costs from observed facts only.
+
+`TelemetryTransitionExporter` correlates snapshots, selected decisions, and linked kill cycles into
+schema-versioned `(observation, action, reward, next_observation, action_mask, terminated)` Parquet
+batches with deterministic provenance. `TacticalRlEnvironment` exposes those transitions through a
+Gymnasium-compatible reset/step shape for external training frameworks. Every path is offline and
+read-only: no RL component dispatches input, touches live control, expands process access, or
+performs online exploration. Automated coverage proves state bounds, masks, rewards, Parquet export,
+and masked-action behavior. Real telemetry export and training remain operator validation.
 
 The automated gate passed on 2026-08-24 at 806 passed, 5 skipped, and 88.14% coverage. Live
 Windows/client validation remains outstanding.

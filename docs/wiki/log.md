@@ -1010,3 +1010,10 @@ dispatch, exposed the combat-controller completion reset at the orchestration bo
 US-060 to completed, and synthesized the closed criterion set into `architecture.md`. Preset
 engagement distances remain unmeasured operator defaults and live Windows validation remains
 outstanding.
+
+## [2026-08-24] synthesis | Offline tactical RL environment (US-071)
+
+Synthesized the completed US-071 contracts into `architecture.md` and `glossary.md`: typed bounded
+observations, seven discrete tactical actions, deterministic masking, versioned progress rewards,
+Parquet transition export, and a Gymnasium-compatible offline adapter. No live input dispatch or
+expanded client access was added.

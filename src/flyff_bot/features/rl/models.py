@@ -1,0 +1,255 @@
+"""Typed state contracts for the offline tactical RL environment."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+import numpy as np
+from numpy.typing import NDArray
+
+from flyff_bot.features.telemetry.models import CandidateFeatures
+
+OBSERVATION_DIMENSION = 52
+CANDIDATE_SLOTS = 4
+CANDIDATE_FEATURE_COUNT = 7
+FloatArray = NDArray[np.float64]
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerKinematics:
+    position_x: float
+    position_y: float
+    position_z: float
+    heading_radians: float
+    velocity_x: float = 0.0
+    velocity_y: float = 0.0
+    velocity_z: float = 0.0
+
+    @property
+    def speed(self) -> float:
+        return float(np.linalg.norm((self.velocity_x, self.velocity_y, self.velocity_z)))
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerVitals:
+    hp_percentage: float
+    mp_percentage: float
+    fp_percentage: float
+    buff_cooldowns: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class NavMeshContext:
+    current_polygon_id: str | None
+    terrain_slope: float | None
+    active_route_distance: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateObservation:
+    candidate_index: int
+    class_id: int
+    confidence: float
+    position_x: float | None
+    position_y: float | None
+    position_z: float | None
+    path_distance: float | None
+    relative_elevation: float | None
+    is_dead: bool = False
+    is_locked_out: bool = False
+    is_unreachable: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class OperationalState:
+    current_target_index: int | None
+    recent_kill_rate_per_minute: float
+    recent_stuck_count: int
+    mode: Literal["farming", "navigation", "quest"] | str
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectiveState:
+    quest_id: str | None
+    objective_progress: tuple[tuple[int, float], ...]
+    objective_target_distance: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class RlObservation:
+    kinematics: PlayerKinematics
+    vitals: PlayerVitals
+    navmesh: NavMeshContext
+    candidates: tuple[CandidateObservation, ...]
+    operational: OperationalState
+    objective: ObjectiveState
+
+
+@dataclass(frozen=True, slots=True)
+class Transition:
+    observation: RlObservation
+    action: int
+    reward: float
+    next_observation: RlObservation
+    action_mask: tuple[bool, ...]
+    terminated: bool
+
+
+class ObservationSpace:
+    """Convert typed observations into bounded normalized vectors."""
+
+    @staticmethod
+    def encode(observation: RlObservation) -> FloatArray:
+        values = [
+            ObservationSpace._position(observation.kinematics.position_x),
+            ObservationSpace._position(observation.kinematics.position_y),
+            ObservationSpace._position(observation.kinematics.position_z),
+            np.sin(observation.kinematics.heading_radians),
+            np.cos(observation.kinematics.heading_radians),
+            *_clipped_vector(
+                (
+                    observation.kinematics.velocity_x,
+                    observation.kinematics.velocity_y,
+                    observation.kinematics.velocity_z,
+                ),
+                10.0,
+            ),
+            min(observation.kinematics.speed / 10.0, 1.0),
+        ]
+        values.extend(
+            [
+                _unit(observation.vitals.hp_percentage),
+                _unit(observation.vitals.mp_percentage),
+                _unit(observation.vitals.fp_percentage),
+            ]
+        )
+        cooldowns = list(observation.vitals.buff_cooldowns[:3])
+        cooldowns.extend([0.0] * (3 - len(cooldowns)))
+        values.extend(_unit(value) for value in cooldowns)
+        polygon_known = observation.navmesh.current_polygon_id is not None
+        slope = observation.navmesh.terrain_slope
+        route_distance = observation.navmesh.active_route_distance
+        values.extend(
+            [
+                float(polygon_known),
+                _optional_unit(slope, 90.0),
+                _optional_unit(route_distance, 1000.0),
+            ]
+        )
+        candidate_values = [0.0] * (CANDIDATE_SLOTS * CANDIDATE_FEATURE_COUNT)
+        for slot, candidate in enumerate(observation.candidates[:CANDIDATE_SLOTS]):
+            offset = slot * CANDIDATE_FEATURE_COUNT
+            candidate_values[offset : offset + CANDIDATE_FEATURE_COUNT] = [
+                _unit(candidate.confidence),
+                float(candidate.class_id % 1000) / 1000.0,
+                _optional_unit(candidate.path_distance, 1000.0),
+                _optional_unit(candidate.relative_elevation, 100.0),
+                _optional_unit(candidate.position_x, 10000.0),
+                _optional_unit(candidate.position_y, 10000.0),
+                float(candidate.is_dead or candidate.is_locked_out or candidate.is_unreachable),
+            ]
+        values.extend(candidate_values)
+        values.extend(
+            [
+                float(observation.operational.current_target_index is not None),
+                min(max(observation.operational.recent_kill_rate_per_minute / 60.0, 0.0), 1.0),
+                min(observation.operational.recent_stuck_count / 10.0, 1.0),
+                float(observation.objective.quest_id is not None),
+                _optional_unit(observation.objective.objective_target_distance, 1000.0),
+                sum(progress[1] for progress in observation.objective.objective_progress)
+                / max(sum(progress[0] for progress in observation.objective.objective_progress), 1),
+            ]
+        )
+        encoded = np.asarray(values, dtype=np.float64)
+        if encoded.shape != (OBSERVATION_DIMENSION,) or not np.all(np.isfinite(encoded)):
+            raise ValueError("An RL observation could not be normalized.")
+        if np.any((encoded < -1.0) | (encoded > 1.0)):
+            raise ValueError("An RL observation fell outside [-1, 1].")
+        return encoded
+
+    @staticmethod
+    def _position(value: float | None) -> float:
+        return _optional_unit(value, 10000.0)
+
+    @classmethod
+    def from_telemetry_snapshot(
+        cls,
+        snapshot: dict[str, object],
+        candidates: tuple[CandidateFeatures, ...] = (),
+    ) -> RlObservation:
+        position = _mapping(snapshot.get("player_position"))
+        velocity = _mapping(snapshot.get("player_velocity"))
+        buff_values = list(_mapping(snapshot.get("buff_cooldowns")).values())[:3]
+        buff_cooldowns = tuple(float(str(value)) for value in buff_values)
+        while len(buff_cooldowns) < 3:
+            buff_cooldowns = (*buff_cooldowns, 0.0)
+
+        candidate_observations: list[CandidateObservation] = []
+        for candidate in candidates[:4]:
+            world = candidate.world_position
+            candidate_observations.append(
+                CandidateObservation(
+                    candidate.candidate_index,
+                    candidate.class_id,
+                    candidate.confidence,
+                    None if world is None else world.x,
+                    None if world is None else world.y,
+                    None if world is None else world.z,
+                    candidate.path_distance,
+                    candidate.relative_elevation,
+                    is_locked_out=candidate.is_locked_out,
+                )
+            )
+
+        return RlObservation(
+            PlayerKinematics(
+                float(str(position["x"])),
+                float(str(position["y"])),
+                float(str(position["z"])),
+                0.0,
+                float(str(velocity["x"])),
+                float(str(velocity["y"])),
+                float(str(velocity["z"])),
+            ),
+            PlayerVitals(
+                float(str(snapshot.get("hp_percentage", 0.0))),
+                float(str(snapshot.get("mp_percentage", 0.0))),
+                float(str(snapshot.get("fp_percentage", 0.0))),
+                buff_cooldowns,
+            ),
+            NavMeshContext(
+                _optional_text(snapshot.get("player_navmesh_polygon_id")),
+                _optional_number(snapshot.get("player_terrain_slope")),
+                None,
+            ),
+            tuple(candidate_observations),
+            OperationalState(None, 0.0, 0, str(snapshot.get("farming_mode", "unknown"))),
+            ObjectiveState(None, (), None),
+        )
+
+
+def _clipped_vector(values: tuple[float, ...], maximum_abs: float) -> tuple[float, ...]:
+    return tuple(min(max(value / maximum_abs, -1.0), 1.0) for value in values)
+
+
+def _unit(value: float) -> float:
+    return min(max(float(value) / 100.0, 0.0), 1.0)
+
+
+def _optional_unit(value: float | None, maximum: float) -> float:
+    if value is None:
+        return 0.0
+    return min(max(float(value) / maximum, 0.0), 1.0)
+
+
+def _mapping(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _optional_number(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) else None
+
+
+def _optional_text(value: object) -> str | None:
+    return str(value) if value is not None else None
