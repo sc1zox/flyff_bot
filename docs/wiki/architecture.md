@@ -1849,6 +1849,23 @@ fully reachable and penalties cannot remove topology. Tests cover open-detour pr
 digest/integrity rejection, sparse fallback, reachability preservation, localized diagnostics, and
 per-edge lookup below 0.5 ms with route generation below 2 ms in synthetic fixtures.
 
+## Learned attack points and local waypoint optimization (US-070, completed)
+
+`navigation.attack_point_planner` adds deterministic attack-point sampling for active target
+approaches. Melee samples the 2.5–3.5 unit engagement annulus and ranged samples 12–15 units; both
+rings are filtered through a strict X/Z containment query that uses interpolated surface height and
+the baked walkability/slope rules instead of nearest-surface projection. Candidates are scored by
+straight approach distance, bounded local corridor clearance, turn error to target, and weighted
+distance to anticipated follow-up positions, then validated with one Funnel route before adoption.
+The existing direct-click hand-off remains at its configured engagement distance.
+
+`PathingController` plans an attack point when NavMesh targeting starts and retains hysteresis:
+periodic replans preserve the route until the measured target has moved more than two world units.
+Timeout, disconnected geometry, or no contained candidate returns immediately to the unchanged
+direct-Funnel path, so reachability and emergency/stall behavior stay intact. Automated tests cover
+strict containment, class bands, scoring, timeout fallback, dynamic movement, and synthetic
+sub-millisecond planning; live Windows/client positioning remains outstanding.
+
 ## Client dungeon data and live cooldown extraction (US-063, completed)
 
 `flyff_bot.features.dungeons` adds a second keyed-archive consumer beside quests. The offline CLI

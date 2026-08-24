@@ -1,5 +1,11 @@
 # Wiki log
 
+## [2026-08-24] completion | Learned attack point positioning (US-070)
+
+Added the US-070 architecture section covering deterministic melee/ranged attack-point annuli,
+strict X/Z containment, bounded multi-criteria scoring, two-unit target-movement hysteresis, and
+direct-Funnel fallback. Live Windows/client validation remains outstanding.
+
 ## [2026-08-24] synthesis | Experience-weighted NavMesh routing (US-069)
 
 Added the US-069 architecture section covering digest-bound empirical polygon/edge storage,

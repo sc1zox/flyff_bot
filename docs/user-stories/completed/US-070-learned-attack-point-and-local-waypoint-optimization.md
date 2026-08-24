@@ -1,9 +1,9 @@
 ---
 id: US-070
 title: Learned attack point positioning and local waypoint optimization
-status: draft
+status: completed
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # US-070: Learned attack point positioning and local waypoint optimization
@@ -61,15 +61,15 @@ so that **the character minimizes approach travel time, avoids geometry obstacle
 
 ## Acceptance criteria
 
-- [ ] **Attack Point Sampling:** Generates candidate attack points within class engagement radius on walkable NavMesh polygons.
-- [ ] **Multi-Criteria Scoring:** Scores points using approach travel time, terrain clearance, turn angle, and distance to anticipated follow-up targets.
-- [ ] **Corridor Boundary Safety:** All generated attack points and local waypoints stay strictly inside validated NavMesh polygons.
-- [ ] **Melee & Ranged Profile Support:** Correctly sizes engagement radii for melee (3m) and ranged (12–15m) profiles.
-- [ ] **Target Movement Handling:** Re-samples and updates attack points dynamically when targets move.
-- [ ] **Deterministic Fallback:** Times out or unresolvable geometries fall back cleanly to direct Funnel navigation.
-- [ ] **Performance:** Attack point sampling and scoring complete in $< 1\text{ ms}$.
-- [ ] **Localization & Diagnostics:** Debug overlays and logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
-- [ ] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- [x] **Attack Point Sampling:** Generates candidate attack points within class engagement radius on walkable NavMesh polygons.
+- [x] **Multi-Criteria Scoring:** Scores points using approach travel time, terrain clearance, turn angle, and distance to anticipated follow-up targets.
+- [x] **Corridor Boundary Safety:** All generated attack points and local waypoints stay strictly inside validated NavMesh polygons.
+- [x] **Melee & Ranged Profile Support:** Correctly sizes engagement radii for melee (3m) and ranged (12–15m) profiles.
+- [x] **Target Movement Handling:** Re-samples and updates attack points dynamically when targets move.
+- [x] **Deterministic Fallback:** Times out or unresolvable geometries fall back cleanly to direct Funnel navigation.
+- [x] **Performance:** Attack point sampling and scoring complete in $< 1\text{ ms}$.
+- [x] **Localization & Diagnostics:** Debug overlays and logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
+- [x] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 
 ## Out of scope
 
@@ -83,5 +83,8 @@ so that **the character minimizes approach travel time, avoids geometry obstacle
   - Unit tests in `tests/unit/test_attack_point_sampler.py` validating polygon clamping, radius enforcement, and slope filtering.
   - Unit tests in `tests/unit/test_attack_point_scoring.py` validating travel time, turning cost, and follow-up cluster weighting.
   - `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- Delivery:
+  - Completed on 2026-08-24. Strict X/Z containment reuses the baked walkability/slope filters; scoring is deterministic and bounded. Ranged uses the acceptance-criterion band 12–15 units while the existing 15-unit direct-click hand-off remains unchanged.
+  - The automated quality gate passed on 2026-08-24. No user-visible locale strings or debug controls were added, so localization parity remains unchanged.
 - Manual (Windows):
   - In Flyff, observe target approaches: verify the character stops at optimal attack distance and positions itself closer to subsequent monster spawns rather than running into the monster center.

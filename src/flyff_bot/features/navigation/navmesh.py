@@ -30,6 +30,7 @@ DEFAULT_AGENT_RADIUS_UNITS = 1.0
 DEFAULT_AGENT_HEIGHT_UNITS = 2.0
 DEFAULT_MAXIMUM_STEP_HEIGHT_UNITS = 1.0
 DEFAULT_NAVMESH_CELL_SIZE_UNITS = 4.0
+STRICT_CONTAINMENT_TOLERANCE = 1e-9
 NAVMESH_SCHEMA_VERSION = 1
 _EDGE_PRECISION = 6
 
@@ -113,6 +114,7 @@ class BakedNavMesh:
         # Built on the first cast and reused for the mesh's lifetime: indexing every
         # walkable triangle once is what keeps a batch of detections off a full scan.
         self._ray_index: NavMeshRayIndex | None = None
+        self._containment_index: dict[tuple[int, int], tuple[NavMeshPolygon, ...]] | None = None
         self._empirical_costs = empirical_costs
 
     def attach_empirical_cost_index(
@@ -160,6 +162,54 @@ class BakedNavMesh:
 
         nearest = self._nearest(position)
         return None if nearest is None else nearest[1]
+
+    def contained_surface(
+        self, position: WorldPosition, *, tolerance: float = STRICT_CONTAINMENT_TOLERANCE
+    ) -> tuple[NavMeshPolygon, WorldPosition] | None:
+        """Return a polygon that strictly contains the X/Z point, without projecting it."""
+
+        if not math.isfinite(tolerance) or tolerance < STRICT_CONTAINMENT_TOLERANCE:
+            return None
+        index = self._containment_index
+        if index is None:
+            grouped: defaultdict[tuple[int, int], list[NavMeshPolygon]] = defaultdict(list)
+            for polygon in self._polygons:
+                vertices = polygon.triangle.first, polygon.triangle.second, polygon.triangle.third
+                minimum_x = min(vertex.x for vertex in vertices)
+                maximum_x = max(vertex.x for vertex in vertices)
+                minimum_z = min(vertex.z for vertex in vertices)
+                maximum_z = max(vertex.z for vertex in vertices)
+                for cell_x in range(
+                    _containment_cell(minimum_x - tolerance, self.config.cell_size_units),
+                    _containment_cell(maximum_x + tolerance, self.config.cell_size_units) + 1,
+                ):
+                    for cell_z in range(
+                        _containment_cell(minimum_z - tolerance, self.config.cell_size_units),
+                        _containment_cell(maximum_z + tolerance, self.config.cell_size_units) + 1,
+                    ):
+                        grouped[(cell_x, cell_z)].append(polygon)
+            index = {cell: tuple(polys) for cell, polys in grouped.items()}
+            self._containment_index = index
+        candidates = index.get(
+            _containment_key(position.x, position.z, self.config.cell_size_units)
+        )
+        matches: list[tuple[float, int, NavMeshPolygon, float]] = []
+        for polygon in candidates or ():
+            height = _height_at_xz(
+                polygon.triangle,
+                position.x,
+                position.z,
+            )
+            if height is None or not math.isfinite(height):
+                continue
+            distance_to_point = abs(height - position.y)
+            if distance_to_point > tolerance:
+                continue
+            matches.append((distance_to_point, polygon.polygon_id, polygon, height))
+        if not matches:
+            return None
+        _, _, polygon, height = min(matches)
+        return polygon, WorldPosition(position.x, height, position.z)
 
     def polygon_or_region_id(self, position: WorldPosition) -> int | None:
         """Return the stable polygon ID of the nearest walkable surface."""
@@ -654,6 +704,14 @@ def _point_tuple(point: WorldPosition) -> tuple[float, float, float]:
 
 def _point_key(point: WorldPosition) -> tuple[float, float, float]:
     return tuple(round(value, _EDGE_PRECISION) for value in _point_tuple(point))  # type: ignore[return-value]
+
+
+def _containment_cell(value: float, cell_size_units: float) -> int:
+    return math.floor(value / cell_size_units)
+
+
+def _containment_key(x: float, z: float, cell_size_units: float) -> tuple[int, int]:
+    return _containment_cell(x, cell_size_units), _containment_cell(z, cell_size_units)
 
 
 def _same_xz(first: WorldPosition, second: WorldPosition) -> bool:

@@ -16,6 +16,13 @@ from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.automation.models import VisibleMob, WorldState
+from flyff_bot.features.navigation.attack_point_planner import (
+    MELEE_ATTACK_MAXIMUM_DISTANCE_UNITS,
+    MELEE_ATTACK_MINIMUM_DISTANCE_UNITS,
+    AttackPointPlanner,
+    EngagementRadii,
+    should_replan_attack_target,
+)
 from flyff_bot.features.navigation.live_camera import (
     CameraReadErrorCode,
     CameraState,
@@ -165,6 +172,8 @@ class PathingController:
         self._camera_state: CameraState | None = None
         self._camera_sampled_at_seconds: float | None = None
         self._camera_error_code: CameraReadErrorCode | None = None
+        self._attack_point_planner: AttackPointPlanner | None = None
+        self._planned_attack_target: WorldPosition | None = None
         self._world_waypoints: tuple[WorldPosition, ...] = ()
         self._teleport = TeleportController(teleport_config)
         self._teleporter_dispatcher = teleporter_dispatcher
@@ -448,9 +457,10 @@ class PathingController:
             or mob.navmesh_within_leash is not True
         ):
             return False
-        route = self._navmesh.find_path(start, target)
+        route = self._plan_target_route(start, target)
         if not route:
             return False
+        self._planned_attack_target = target
         self._navmesh_target = target
         self._navigation_trajectory = [start]
         self._world_waypoints = route
@@ -458,6 +468,36 @@ class PathingController:
         self._planned_at_seconds = at_seconds
         self._mode = PathingMode.TRAVELING
         return True
+
+    def _plan_target_route(
+        self,
+        start: WorldPosition,
+        target: WorldPosition,
+    ) -> tuple[WorldPosition, ...]:
+        """Prefer a contained attack point and fall back to direct Funnel routing."""
+
+        mesh = self._navmesh
+        if mesh is None:
+            return ()
+        planner = self._attack_point_planner
+        if planner is None and mesh.polygons:
+            planner = AttackPointPlanner(mesh)
+            self._attack_point_planner = planner
+        route: tuple[WorldPosition, ...] | None = None
+        if planner is not None:
+            configured_distance = self._config.navmesh_engagement_distance_units
+            plan = planner.plan(
+                start,
+                target,
+                EngagementRadii(
+                    min(configured_distance, MELEE_ATTACK_MINIMUM_DISTANCE_UNITS),
+                    max(configured_distance, MELEE_ATTACK_MAXIMUM_DISTANCE_UNITS),
+                ),
+                heading_degrees=self.heading_degrees,
+            )
+            route = plan.waypoints if plan is not None else None
+            self._planned_attack_target = target
+        return route if route is not None else mesh.find_path(start, target)
 
     def begin_position_approach(self, target: WorldPosition, at_seconds: float) -> bool:
         """Start a NavMesh route to an exact world position such as a configured NPC."""
@@ -836,7 +876,10 @@ class PathingController:
         if start is None or mesh is None:
             self.cancel_target_approach()
             return True
-        route = mesh.find_path(start, target)
+        previous_target = self._planned_attack_target
+        if previous_target is not None and not should_replan_attack_target(previous_target, target):
+            return False
+        route = self._plan_target_route(start, target)
         if not route:
             self.cancel_target_approach()
             return True
