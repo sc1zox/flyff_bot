@@ -44,6 +44,7 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
+from flyff_bot.features.automation.orchestrator import PolicyRuntimeMode
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig, PowerUpEntry
 from flyff_bot.features.automation.powerup_persistence import (
     load_powerup_config,
@@ -218,6 +219,9 @@ def test_farming_controls_connect_dashboard_intent() -> None:
     class Session:
         def __init__(self) -> None:
             self.requests: list[str] = []
+
+        def configure_policy_mode(self, mode: PolicyRuntimeMode) -> None:
+            self.requests.append(f"policy:{mode.value}")
 
         def start(self) -> None:
             self.requests.append("start")

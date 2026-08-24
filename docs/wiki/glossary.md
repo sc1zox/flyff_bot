@@ -232,13 +232,12 @@ related:
 - **Unrecoverable stuck** — A continuous span, default 60.0 s and configurable between 10.0 s and
   300.0 s, in which the session produced no verified displacement, no landed damage, and no kill.
   It is the state every micro-unstuck mechanism having failed looks like from the session loop.
-- **Emergency teleport** — The operator-assigned quickslot hotkey (default `F4`) holding a teleport
-  item or skill such as a Town Blinkwing, dispatched under the usual foreground and `END` guards as
-  the last resort out of un-walkable geometry. Leaving it unassigned pauses the session instead.
-- **Teleport settle delay** — The 2.0 s span (`FarmingMode.TELEPORTING`) in which the session
-  observes nothing into the map and steps no controller while the client finishes the transition.
-- **Spawn anchor** — The town or respawn coordinate an emergency teleport arrives at, mapped per
-  navigation profile and persisted with it. Without one, the reset falls back to the session origin.
+- **Emergency teleport** — A client-declared destination selected by the operator and executed through
+  Flyff's built-in teleporter UI under combat, foreground, and END guards as the last resort out of
+  un-walkable geometry or death recovery. No selected destination pauses the session instead.
+- **Emergency reset confirmation** — Authoritative world ID plus live position matching the extracted
+  destination anchor within 2.0 seconds. Timeout latches emergency stop with
+  `emergency_reset_unconfirmed`.
 - **World vector map** - The extracted, serializable description of one client region: its block
   grid and `MPU`, its `VectorSpawnZone` records, and its impassable rectangles. Stored as versioned
   JSON under `data/navigation/worlds/<world>.json` and read before a session's first step, unlike

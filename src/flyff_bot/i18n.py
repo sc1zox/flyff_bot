@@ -201,6 +201,11 @@ class Message(StrEnum):
     UI_COMBAT_CLASS_MELEE = "ui.combat_class_melee"
     UI_COMBAT_CLASS_RANGED = "ui.combat_class_ranged"
     UI_COMBAT_CLASS_CUSTOM = "ui.combat_class_custom"
+    UI_POLICY_MODE = "ui.policy_mode"
+    UI_POLICY_MODE_TOOLTIP = "ui.policy_mode_tooltip"
+    UI_POLICY_MODE_HEURISTIC = "ui.policy_mode_heuristic"
+    UI_POLICY_MODE_SHADOW = "ui.policy_mode_shadow"
+    UI_POLICY_MODE_ACTIVE = "ui.policy_mode_active"
     UI_ENGAGEMENT_DISTANCE = "ui.engagement_distance"
     UI_ENGAGEMENT_DISTANCE_TOOLTIP = "ui.engagement_distance_tooltip"
     UI_TARGET_GRACE_PERIOD = "ui.target_grace_period"
@@ -454,6 +459,7 @@ class Message(StrEnum):
     VALUE_MODEL_EXPORT_FAILED = "error.value_model_export_failed"
     VALUE_MODEL_ONNX_REQUIRED = "error.value_model_onnx_required"
     VALUE_MODEL_INVALID_OPTION = "error.value_model_invalid_option"
+    POLICY_MODEL_UNAVAILABLE = "status.policy_model_unavailable"
 
 
 class Translator:

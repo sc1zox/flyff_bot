@@ -48,6 +48,7 @@ from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
     WorldState,
 )
+from flyff_bot.features.automation.orchestrator import PolicyRuntimeMode
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
@@ -127,6 +128,7 @@ class MainWindow(QMainWindow):
     emergency_config_changed = Signal(object)
     combat_grace_changed = Signal(float)
     combat_class_changed = Signal(object)
+    policy_mode_changed = Signal(object)
     engagement_distance_changed = Signal(float)
     kill_verification_changed = Signal(bool)
     anchor_threshold_changed = Signal(float)
@@ -398,6 +400,10 @@ class MainWindow(QMainWindow):
     @property
     def combat_class_selector(self) -> QComboBox:
         return self._combat_panel.class_selector
+
+    @property
+    def policy_mode_selector(self) -> QComboBox:
+        return self._combat_panel.policy_mode_selector
 
     @property
     def engagement_distance_spin(self) -> QDoubleSpinBox:
@@ -679,6 +685,9 @@ class MainWindow(QMainWindow):
         self._language_selector.currentIndexChanged.connect(self._switch_language)
         self._combat_panel.grace_spin.valueChanged.connect(self.combat_grace_changed)
         self._combat_panel.class_selector.currentIndexChanged.connect(self._on_combat_class_changed)
+        self._combat_panel.policy_mode_selector.currentIndexChanged.connect(
+            self._on_policy_mode_changed
+        )
         self._combat_panel.engagement_distance_spin.valueChanged.connect(
             self.engagement_distance_changed
         )
@@ -719,6 +728,12 @@ class MainWindow(QMainWindow):
             distance = self._combat_panel.engagement_distance_spin.value()
         self._combat_panel.engagement_distance_spin.setValue(distance)
         self.combat_class_changed.emit(selected_profile)
+
+    @Slot()
+    def _on_policy_mode_changed(self) -> None:
+        selected_mode = self._combat_panel.policy_mode_selector.currentData()
+        if isinstance(selected_mode, PolicyRuntimeMode):
+            self.policy_mode_changed.emit(selected_mode)
 
     @Slot()
     def _on_engagement_distance_changed(self, distance_units: float) -> None:

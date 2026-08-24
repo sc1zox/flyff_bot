@@ -27,7 +27,11 @@ from flyff_bot.features.automation.kill_persistence import (
     DEFAULT_KILL_LOG_PATH,
     SqliteKillLog,
 )
-from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
+from flyff_bot.features.automation.orchestrator import (
+    FarmingConfig,
+    FarmingOrchestrator,
+    PolicyRuntimeMode,
+)
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.quest_execution_models import QuestMenuPerceiver
 from flyff_bot.features.automation.vitals_controller import VitalsTriggerConfig
@@ -89,6 +93,8 @@ class FarmingControls(Protocol):
     def request_camera_alignment(self) -> None: ...
 
     def configure_auto_align(self, enabled: bool) -> None: ...
+
+    def configure_policy_mode(self, mode: PolicyRuntimeMode) -> None: ...
 
 
 class VectorNavigationControls(Protocol):
@@ -370,6 +376,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
                 window.combat_class_changed.connect(orchestrator.configure_combat_class)
+                window.policy_mode_changed.connect(orchestrator.configure_policy_mode)
                 window.engagement_distance_changed.connect(
                     orchestrator.configure_engagement_distance
                 )

@@ -340,7 +340,13 @@ class CombatController:
         if self._mode is CombatMode.TARGETING:
             self._targeting_started_at_seconds = observed_at_seconds
 
-    def step(self, state: WorldState, *, approach_stalled: bool = False) -> CombatDecision:
+    def step(
+        self,
+        state: WorldState,
+        *,
+        approach_stalled: bool = False,
+        requested_target: VisibleMob | None = None,
+    ) -> CombatDecision:
         """Advance one state-machine tick without dispatching platform input.
 
         ``approach_stalled`` carries the session's verdict that the client-driven walk
@@ -350,7 +356,10 @@ class CombatController:
         """
 
         if self._mode is CombatMode.IDLE:
-            candidate = self._best_candidate(state)
+            eligible = self._eligible_candidates(state)
+            candidate = (requested_target if requested_target in eligible else None) or (
+                self._best_candidate(state)
+            )
             if candidate is None:
                 return CombatDecision(CombatMode.IDLE)
             self._mode = CombatMode.TARGETING
@@ -427,15 +436,20 @@ class CombatController:
         self._reset()
         return CombatDecision(CombatMode.IDLE)
 
-    def _best_candidate(self, state: WorldState) -> VisibleMob | None:
+    def _eligible_candidates(self, state: WorldState) -> list[VisibleMob]:
+        """Return the deterministic candidate mask used by policies and fallback."""
+
         self._purge_lockouts(state.observed_at_seconds)
-        candidates = [
+        return [
             mob
             for mob in self._allowed_mobs(state)
             if not self._is_locked_out(_mob_center(mob))
             and mob.navmesh_reachable is not False
             and mob.navmesh_within_leash is not False
         ]
+
+    def _best_candidate(self, state: WorldState) -> VisibleMob | None:
+        candidates = self._eligible_candidates(state)
         if not candidates:
             return None
         if not state.viewport.has_size:

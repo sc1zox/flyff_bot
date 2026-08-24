@@ -7,6 +7,7 @@ import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from flyff_bot.features.automation.camera_alignment import (
@@ -37,7 +38,6 @@ from flyff_bot.features.automation.emergency_recovery import (
     EmergencyRecoveryConfig,
     EmergencyRecoveryMonitor,
     EmergencyTeleportDispatcher,
-    EmergencyTeleportInputAdapter,
 )
 from flyff_bot.features.automation.kill_goals import (
     KillGoalConfig,
@@ -80,6 +80,12 @@ from flyff_bot.features.navigation.live_position import (
 )
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
+from flyff_bot.features.policy.models import (
+    PolicyCandidate,
+    PolicyContext,
+    TargetAction,
+)
+from flyff_bot.features.policy.runner import PolicyRunner
 from flyff_bot.features.telemetry.models import CombatVerificationSource
 from flyff_bot.features.vision.models import (
     CapturedFrame,
@@ -134,8 +140,19 @@ class FarmingMode(StrEnum):
     COMBAT = "combat"
     TELEPORTING = "teleporting"
     RECONCILING = "reconciling"
-    COMPLETED = "completed"
     EMERGENCY_STOPPED = "emergency_stopped"
+    COMPLETED = "completed"
+
+
+class PolicyRuntimeMode(StrEnum):
+    """Selectable policy execution modes (US-067)."""
+
+    HEURISTIC = "HEURISTIC"
+    ML_SHADOW = "ML_SHADOW"
+    ML_ACTIVE = "ML_ACTIVE"
+
+
+DEFAULT_POLICY_RUNTIME_MODE = PolicyRuntimeMode.HEURISTIC
 
 
 STANDBY_MODES = frozenset(
@@ -171,7 +188,6 @@ class FarmingInputAdapter(
     PathingInputAdapter,
     VitalsInputAdapter,
     PowerUpInputAdapter,
-    EmergencyTeleportInputAdapter,
     SessionShutdownAdapter,
     Protocol,
 ):
@@ -194,6 +210,8 @@ class FarmingConfig:
     powerups: PowerUpConfig = field(default_factory=PowerUpConfig)
     emergency: EmergencyRecoveryConfig = field(default_factory=EmergencyRecoveryConfig)
     auto_align_camera: bool = DEFAULT_AUTO_ALIGN_CAMERA
+    policy_mode: PolicyRuntimeMode = DEFAULT_POLICY_RUNTIME_MODE
+    policy_model_directory: str | None = None
 
     def __post_init__(self) -> None:
         if self.tick_interval_seconds <= 0.0:
@@ -290,7 +308,7 @@ class FarmingOrchestrator:
         self._event_logger = event_logger
         self._foreground_window_info = foreground_window_info
         self._last_capture_error: FrameCaptureErrorCode | None = None
-        self._teleport_settled_at_seconds = 0.0
+        self._emergency_recovery_started_at_seconds: float | None = None
         self._emergency_teleport_unavailable = False
         self._telemetry = telemetry
         self._telemetry_observed_at_seconds: float | None = None
@@ -298,6 +316,22 @@ class FarmingOrchestrator:
         self._session_active = False
         self._pathing_engagement_distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
         self._pathing_engagement_profile: CombatClassProfile = MELEE_COMBAT_CLASS_PROFILE
+        self._policy_mode = self._config.policy_mode
+        self._policy_runner = PolicyRunner()
+        self._policy_learned_error: str | None = None
+        if self._config.policy_model_directory:
+            try:
+                from flyff_bot.features.policy.learned import LearnedPolicy
+
+                learned = LearnedPolicy(Path(self._config.policy_model_directory))
+            except (OSError, ValueError) as error:
+                self._policy_learned_error = str(error) or type(error).__name__
+                self._learned_policy = None
+            else:
+                self._learned_policy = learned
+        else:
+            self._learned_policy = None
+        self._last_policy_action: TargetAction | None = None
 
     @property
     def mode(self) -> FarmingMode:
@@ -502,6 +536,53 @@ class FarmingOrchestrator:
         self._config = replace(self._config, combat=combat)
         self._combat.update_config(combat)
 
+    def configure_policy_mode(self, mode: PolicyRuntimeMode | str) -> None:
+        """Select the runtime tactical-policy mode and reset fallback telemetry."""
+
+        selected_mode = (
+            mode if isinstance(mode, PolicyRuntimeMode) else PolicyRuntimeMode(str(mode).upper())
+        )
+        self._policy_mode = selected_mode
+        self._policy_runner.last_fallback_reason = None
+
+    def _policy_candidates(self) -> tuple[PolicyCandidate, ...]:
+        candidates = self._combat._eligible_candidates(self._state)
+        allowed = self._config.combat.allowed_class_names
+        return tuple(
+            PolicyCandidate(
+                mob=mob,
+                is_alive_and_recognized=bool(mob.confidence) and bool(mob.class_name),
+                is_unlocked=True,
+                is_within_leash=mob.navmesh_within_leash is not False,
+                is_navmesh_reachable=mob.navmesh_reachable is not False,
+                has_valid_world_position=(
+                    mob.world_x is not None and mob.world_y is not None and mob.world_z is not None
+                ),
+            )
+            for mob in candidates
+            if not allowed or mob.class_name in allowed
+        )
+
+    def _evaluate_policy_target(self) -> VisibleMob | None:
+        """Return a policy-selected candidate only when every deterministic mask passes."""
+
+        if self._policy_mode is PolicyRuntimeMode.HEURISTIC:
+            return None
+        candidates = self._policy_candidates()
+        locked_out = tuple(not candidate.is_unlocked for candidate in candidates)
+        context = PolicyContext(candidates, self._config.combat.allowed_class_names, locked_out)
+        action = self._policy_runner.evaluate(self._state, context)
+        self._last_policy_action = action if isinstance(action, TargetAction) else None
+        if not isinstance(action, TargetAction):
+            return None
+        for candidate in candidates:
+            if candidate.mob.class_id != action.target_id:
+                continue
+            center = Position(candidate.mob.x, candidate.mob.y)
+            if action.target_pos == center:
+                return candidate.mob
+        return None
+
     def configure_vitals(self, config: VitalsTriggerConfig) -> None:
         """Apply vitals trigger configuration before or during a session."""
 
@@ -673,7 +754,8 @@ class FarmingOrchestrator:
         if self._quest_interaction is not None:
             self._advance_quest_interaction()
         if self._mode is FarmingMode.SEARCHING:
-            combat = self._combat.step(self._state)
+            requested_target = self._evaluate_policy_target()
+            combat = self._combat.step(self._state, requested_target=requested_target)
             if combat.mode is not CombatMode.IDLE:
                 if self._telemetry is not None and combat.position is not None:
                     self._telemetry.record_target_selection(
@@ -681,7 +763,14 @@ class FarmingOrchestrator:
                         combat.position.x,
                         combat.position.y,
                         reason=(
-                            "shortest_navmesh_path"
+                            f"policy_{self._policy_mode.value.lower()}"
+                            if requested_target is not None
+                            else (
+                                "policy_fallback"
+                                if self._last_policy_action is not None
+                                and self._policy_runner.last_fallback_reason
+                                else "shortest_navmesh_path"
+                            )
                             if combat.selected_mob is not None
                             and combat.selected_mob.navmesh_path_distance is not None
                             else "nearest_to_viewport_center"
@@ -1086,32 +1175,33 @@ class FarmingOrchestrator:
             return False
         if decision.action is not EmergencyRecoveryAction.TELEPORT:
             return False
-        if not self._emergency_dispatcher.dispatch(decision):
+
+        pathing = self._pathing
+        dispatcher = pathing._teleporter_dispatcher if pathing is not None else None
+        destination = decision.destination
+        if dispatcher is None or destination is None:
             return False
-        self._begin_teleport_recovery()
+        dispatcher.request(destination, self._state.observed_at_seconds)
+        self._begin_emergency_recovery()
         return True
 
     def _engagement_progressed(self) -> bool:
         return self._combat.damage_dealt or self._mode is FarmingMode.RECONCILING
 
-    def _begin_teleport_recovery(self) -> None:
+    def _begin_emergency_recovery(self) -> None:
         self._emergency.halt()
-        self._teleport_settled_at_seconds = (
-            self._state.observed_at_seconds + self._config.emergency.settle_delay_seconds
-        )
+        self._emergency_recovery_started_at_seconds = self._state.observed_at_seconds
         self._set_mode(FarmingMode.TELEPORTING, reason="emergency_teleport")
 
     def _settle_teleport(self) -> FarmingTick:
-        if self._state.observed_at_seconds < self._teleport_settled_at_seconds:
+        started_at = self._emergency_recovery_started_at_seconds
+        if (
+            started_at is None
+            or self._state.observed_at_seconds - started_at
+            < self._config.emergency.confirmation_timeout_seconds
+        ):
             return self._publish(False)
-        self._combat = CombatController(self._config.combat)
-        self._engagement_break = None
-        self._engaged_monster_name = None
-        self._approach_stalls.reset()
-        self._search.reset()
-        self._reposition.reset()
-        self._emergency.reset()
-        self._set_mode(FarmingMode.SEARCHING)
+        self.emergency_stop(reason="emergency_reset_unconfirmed")
         return self._publish(False)
 
     def _register_navigation_obstacle(self) -> None:

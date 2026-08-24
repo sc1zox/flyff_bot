@@ -14,6 +14,10 @@ from flyff_bot.features.automation.controllers import (
     MELEE_ENGAGEMENT_DISTANCE_UNITS,
     CombatClassProfile,
 )
+from flyff_bot.features.automation.orchestrator import (
+    DEFAULT_POLICY_RUNTIME_MODE,
+    PolicyRuntimeMode,
+)
 from flyff_bot.features.vision.target_verification import (
     DEFAULT_ANCHOR_MATCH_THRESHOLD,
     MAXIMUM_MATCH_THRESHOLD,
@@ -42,6 +46,14 @@ class CombatSettingsPanel(QGroupBox):
             self.class_selector.addItem("", userData=profile)
         self.class_selector.setCurrentIndex(
             list(CombatClassProfile).index(DEFAULT_COMBAT_CLASS_PROFILE)
+        )
+
+        self._policy_label = QLabel()
+        self.policy_mode_selector = QComboBox()
+        for mode in PolicyRuntimeMode:
+            self.policy_mode_selector.addItem("", userData=mode)
+        self.policy_mode_selector.setCurrentIndex(
+            list(PolicyRuntimeMode).index(DEFAULT_POLICY_RUNTIME_MODE)
         )
 
         self._engagement_label = QLabel()
@@ -73,14 +85,16 @@ class CombatSettingsPanel(QGroupBox):
         layout = QGridLayout(self)
         layout.addWidget(self._class_label, 0, 0)
         layout.addWidget(self.class_selector, 0, 1)
-        layout.addWidget(self._engagement_label, 1, 0)
-        layout.addWidget(self.engagement_distance_spin, 1, 1)
-        layout.addWidget(self._grace_label, 2, 0)
-        layout.addWidget(self.grace_spin, 2, 1)
-        layout.addWidget(self._verification_label, 3, 0)
-        layout.addWidget(self.verification_toggle, 3, 1)
-        layout.addWidget(self._anchor_label, 4, 0)
-        layout.addWidget(self.anchor_spin, 4, 1)
+        layout.addWidget(self._policy_label, 1, 0)
+        layout.addWidget(self.policy_mode_selector, 1, 1)
+        layout.addWidget(self._engagement_label, 2, 0)
+        layout.addWidget(self.engagement_distance_spin, 2, 1)
+        layout.addWidget(self._grace_label, 3, 0)
+        layout.addWidget(self.grace_spin, 3, 1)
+        layout.addWidget(self._verification_label, 4, 0)
+        layout.addWidget(self.verification_toggle, 4, 1)
+        layout.addWidget(self._anchor_label, 5, 0)
+        layout.addWidget(self.anchor_spin, 5, 1)
 
     def retranslate(self, translator: Translator) -> None:
         self.setTitle(translator.text(Message.UI_COMBAT_SETTINGS))
@@ -97,6 +111,19 @@ class CombatSettingsPanel(QGroupBox):
                     else Message.UI_COMBAT_CLASS_CUSTOM
                 )
                 self.class_selector.setItemText(index, translator.text(key))
+        self._policy_label.setText(translator.text(Message.UI_POLICY_MODE))
+        self.policy_mode_selector.setToolTip(translator.text(Message.UI_POLICY_MODE_TOOLTIP))
+        for mode in PolicyRuntimeMode:
+            index = self.policy_mode_selector.findData(mode)
+            if index >= 0:
+                key = (
+                    Message.UI_POLICY_MODE_HEURISTIC
+                    if mode is PolicyRuntimeMode.HEURISTIC
+                    else Message.UI_POLICY_MODE_SHADOW
+                    if mode is PolicyRuntimeMode.ML_SHADOW
+                    else Message.UI_POLICY_MODE_ACTIVE
+                )
+                self.policy_mode_selector.setItemText(index, translator.text(key))
         self._engagement_label.setText(translator.text(Message.UI_ENGAGEMENT_DISTANCE))
         self.engagement_distance_spin.setToolTip(
             translator.text(Message.UI_ENGAGEMENT_DISTANCE_TOOLTIP)

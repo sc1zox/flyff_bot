@@ -1,5 +1,12 @@
 # Wiki log
 
+## [2026-08-24] completion | Unified tactical policy integration (US-067)
+
+Synthesized the completed US-067 policy boundary into `architecture.md`: pure TacticalPolicy
+decisions, deterministic masking, heuristic baseline, US-066 five-head ONNX inference,
+deadline-guarded fallback, and HEURISTIC/ML_SHADOW/ML_ACTIVE modes. Safety execution remains
+downstream, and live Windows/client validation remains outstanding.
+
 ## [2026-08-24] synthesis | Dungeon reader foreground and resource correction (BUG-022)
 
 Synthesized the BUG-022 correction into `architecture.md`: dungeon cooldown polling is foregrounded
@@ -961,6 +968,15 @@ explicitly unavailable until static-analysis and in-game verification provide x8
 Synthesized the review correction into `architecture.md`: invalid pointers are distinct from
 malformed reads, unavailable snapshots retain the last complete field-name set across repeated
 failures, and profile bounds govern legitimate negative values.
+
+## [2026-08-24] completion | Built-in teleporter emergency reset (US-051)
+
+Synthesized US-051 into `architecture.md` and `glossary.md`: removed the generic long-range
+anchor/blinkwing controller, made Flyff's built-in teleporter UI (US-065) the only teleport
+boundary, and routed emergency reset through its guarded deterministic sequence. The operator now
+selects a client-declared destination from extracted data; confirmation requires authoritative world
+identity plus live position at that anchor within 2.0 seconds, while timeout latches emergency stop.
+The story records live Windows validation as outstanding.
 
 ## [2026-08-24] completion | Combat class profiles and responsive targeting (US-060)
 

@@ -1203,13 +1203,12 @@ with a read-only minimap map because its temporary world-coordinate block is tra
 trustworthy writable minimap map retains its learned obstacle penalty too; without a supported live
 sample, the existing minimap/frame-based approach recovery remains the fallback.
 
-Long-range travel is configuration, not a fact inferred from `teleport.bin`. At more than 150 world
-units, `navigation.teleport.TeleportController` may select the configured anchor nearest the goal and
-dispatch its configured hotkey once. A fresh live sample near that anchor confirms completion. A
-disabled or unavailable dispatch, an in-range goal, or missing confirmation stays on ground
-pathing. The client evidence proves that `teleport.bin` contains option identifiers but no names,
-worlds, coordinates, costs, requirements, or cooldowns, so those anchor semantics remain explicit
-operator configuration rather than extracted authority.
+Long-range travel uses ground pathing; the obsolete generic anchor/blinkwing controller was removed.
+The only teleport boundary is Flyff's built-in teleporter UI (US-065), driven from the extracted
+client destination catalog. Emergency reset reuses that guarded dispatcher: the operator selects one
+client-declared destination, combat/focus/END guards are enforced, and confirmation requires both the
+authoritative world identity and a position at the extracted anchor within 2 seconds. Failure latches
+emergency stop with `emergency_reset_unconfirmed` instead of guessing that arrival occurred.
 
 The dashboard exposes the position-source boundary instead of hiding it: green GPS means a finite
 XYZ sample from a hash-supported client, while an unavailable GPS state displays its typed reason.
@@ -1788,6 +1787,27 @@ same tick. Regression coverage also proves the ranged preset, straight versus mu
 handling, profile/custom-distance propagation, and dashboard signal wiring. The 3.0 / 15.0 unit
 presets remain operator defaults rather than measured Entropia client ranges, and live Windows
 validation of actual attack-range selection remains required.
+
+## Unified tactical policy boundary (US-067, completed)
+
+The TacticalPolicy layer is pure decision logic: it receives an immutable WorldState, a
+deterministic candidate/action mask, and optional versioned features, then returns one typed
+TacticalAction or no action. It never dispatches input. Alive/recognition, spatial-lockout,
+leash, NavMesh reachability, and valid 3D-position predicates are applied before policy choice;
+foreground checks, emergency stop (Escape/END), stall recovery, route planning, and guarded
+Win32 execution remain downstream and independent of policy selection.
+
+HeuristicPolicy preserves the deterministic targeting baseline. LearnedPolicy loads the
+US-066 five-head ONNX set with schema-versioned metadata and ranks eligible candidates by
+expected farming cost using cached in-memory sessions. Missing/incompatible models, malformed
+features, NaN predictions, exceptions, no valid action, or exceeding the 5 ms budget are handled
+by PolicyRunner through immediate heuristic fallback; runtime modes are HEURISTIC,
+ML_SHADOW (record learned intent only), and ML_ACTIVE (execute learned intent when legal).
+This action vocabulary leaves room for US-068 sequences, US-069 corridor preferences, and
+US-071/073 RL policies without moving safety into the policy layer.
+
+The automated gate passed on 2026-08-24 at 806 passed, 5 skipped, and 88.14% coverage. Live
+Windows/client validation remains outstanding.
 
 ## Client dungeon data and live cooldown extraction (US-063, completed)
 

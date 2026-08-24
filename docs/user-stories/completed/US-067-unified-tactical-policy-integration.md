@@ -1,9 +1,9 @@
 ---
 id: US-067
 title: Unified tactical policy interface, heuristic baseline, and learned policy integration
-status: draft
+status: completed
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # US-067: Unified tactical policy interface, heuristic baseline, and learned policy integration
@@ -18,12 +18,12 @@ so that **heuristic, ML, and future RL policies can be used interchangeably and 
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
 - Relates to:
-  - [`docs/wiki/architecture.md`](../wiki/architecture.md) & [`docs/wiki/glossary.md`](../wiki/glossary.md).
-  - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md): Read-only client assets and 3D NavMesh data.
-  - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../decisions/ADR-006-read-only-process-memory-access.md): Read-only memory access for live GPS coordinates and world state.
-  - [`docs/user-stories/completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md): Parquet telemetry dataset foundation.
-  - [`docs/user-stories/completed/US-066-farming-and-navigation-value-model.md`](completed/US-066-farming-and-navigation-value-model.md): Offline trained value models and metadata.
-  - Follow-up stories: [`US-068`](US-068-rolling-horizon-multi-target-planning.md), [`US-069`](US-069-experience-based-navmesh-routing.md), [`US-071`](US-071-unified-rl-environment-and-reward.md).
+  - [`docs/wiki/architecture.md`](../../../../wiki/architecture.md) & [`docs/wiki/glossary.md`](../../../../wiki/glossary.md).
+  - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../../../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md): Read-only client assets and 3D NavMesh data.
+  - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../../../decisions/ADR-006-read-only-process-memory-access.md): Read-only memory access for live GPS coordinates and world state.
+  - [`docs/user-stories/completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](US-054-farming-telemetry-and-adaptive-navigation-dataset.md): Parquet telemetry dataset foundation.
+  - [`docs/user-stories/completed/US-066-farming-and-navigation-value-model.md`](US-066-farming-and-navigation-value-model.md): Offline trained value models and metadata.
+  - Follow-up stories: [`US-068`](../US-068-rolling-horizon-multi-target-planning.md), [`US-069`](../US-069-experience-based-navmesh-routing.md), [`US-071`](../US-071-unified-rl-environment-and-reward.md).
 - **Target Architecture:**
   ```text
   WorldState Snapshot
@@ -106,17 +106,17 @@ so that **heuristic, ML, and future RL policies can be used interchangeably and 
 
 ## Acceptance criteria
 
-- [ ] **Unified Protocol:** `TacticalPolicy` protocol is defined with typed `TacticalAction` return types.
-- [ ] **Heuristic Policy Parity:** `HeuristicPolicy` encapsulates legacy bot decision logic and produces identical operational behavior.
-- [ ] **Learned Policy Execution:** `LearnedPolicy` evaluates pre-qualified candidates using US-066 ONNX models and ranks valid actions.
-- [ ] **Deterministic Pre-Filtering:** Only candidates satisfying alive, unlocked, in-leash, and NavMesh reachability rules are provided to policies.
-- [ ] **Zero-Crash Fallback:** Missing models, NaN outputs, exceptions, or timeouts trigger an immediate fallback to `HeuristicPolicy`.
-- [ ] **Runtime Modes:** Modes `HEURISTIC`, `ML_SHADOW`, and `ML_ACTIVE` are selectable via configuration and UI.
-- [ ] **Shadow Mode Safety:** In `ML_SHADOW` mode, learned evaluations are recorded in telemetry without affecting live movement or combat.
-- [ ] **Safety Decoupling:** Foreground checking, emergency stop (`ESC`/`END`), and obstacle stall recovery remain downstream and independent of policies.
-- [ ] **Performance Budget:** Policy evaluation completes in $< 5\text{ ms}$ per cycle without tick-level file I/O.
-- [ ] **Localization & Diagnostics:** All new configuration labels, status indicators, and logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
-- [ ] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+ - [x] **Unified Protocol:** `TacticalPolicy` protocol is defined with typed `TacticalAction` return types.
+ - [x] **Heuristic Policy Parity:** `HeuristicPolicy` encapsulates legacy bot decision logic and produces identical operational behavior.
+ - [x] **Learned Policy Execution:** `LearnedPolicy` evaluates pre-qualified candidates using US-066 ONNX models and ranks valid actions.
+ - [x] **Deterministic Pre-Filtering:** Only candidates satisfying alive, unlocked, in-leash, and NavMesh reachability rules are provided to policies.
+ - [x] **Zero-Crash Fallback:** Missing models, NaN outputs, exceptions, or timeouts trigger an immediate fallback to `HeuristicPolicy`.
+ - [x] **Runtime Modes:** Modes `HEURISTIC`, `ML_SHADOW`, and `ML_ACTIVE` are selectable via configuration and UI.
+ - [x] **Shadow Mode Safety:** In `ML_SHADOW` mode, learned evaluations are recorded in telemetry without affecting live movement or combat.
+ - [x] **Safety Decoupling:** Foreground checking, emergency stop (`ESC`/`END`), and obstacle stall recovery remain downstream and independent of policies.
+ - [x] **Performance Budget:** Policy evaluation completes in $< 5\text{ ms}$ per cycle without tick-level file I/O.
+ - [x] **Localization & Diagnostics:** All new configuration labels, status indicators, and logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
+ - [x] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 
 ## Out of scope
 
@@ -135,6 +135,7 @@ so that **heuristic, ML, and future RL policies can be used interchangeably and 
   - Unit tests in `tests/unit/test_policy_fallback.py` validating automatic fallback to heuristic on corrupted input, NaN, or timeout.
   - Unit tests in `tests/unit/test_policy_shadow_mode.py` validating telemetry output and action isolation in shadow mode.
   - `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- Automated gate passed on 2026-08-24: 806 passed, 5 skipped, coverage 88.14%. Live Windows/client validation remains outstanding and is not claimed.
 - Manual (Windows):
   - Run bot in `ML_SHADOW` mode: confirm smooth farming and inspect telemetry to verify parallel policy logging.
   - Run bot in `ML_ACTIVE` mode: confirm seamless target selection and transitions to combat.
