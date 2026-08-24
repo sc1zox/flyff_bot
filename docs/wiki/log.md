@@ -1,5 +1,12 @@
 # Wiki log
 
+## [2026-08-24] completion | Rolling-horizon multi-target planning (US-068)
+
+Synthesized the bounded learned lookahead into `architecture.md` and defined its advisory
+provisional plan in `glossary.md`: deterministic masks, expected-cost accumulation, first-target-only
+commitment, per-snapshot replanning, and heuristic fallback. Live dense-spawn Windows validation
+remains outstanding.
+
 ## [2026-08-24] completion | Unified tactical policy integration (US-067)
 
 Synthesized the completed US-067 policy boundary into `architecture.md`: pure TacticalPolicy

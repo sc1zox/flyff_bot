@@ -1,9 +1,9 @@
 ---
 id: US-068
 title: Rolling-horizon multi-target sequencing and lookahead planning
-status: draft
+status: completed
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 ---
 
 # US-068: Rolling-horizon multi-target sequencing and lookahead planning
@@ -23,7 +23,8 @@ so that **the bot optimizes overall farming throughput and kills-per-minute rath
   - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../decisions/ADR-006-read-only-process-memory-access.md)
   - [`docs/user-stories/completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md)
   - [`docs/user-stories/completed/US-066-farming-and-navigation-value-model.md`](completed/US-066-farming-and-navigation-value-model.md): Transition cost and value models.
-  - [`docs/user-stories/US-067-unified-tactical-policy-integration.md`](US-067-unified-tactical-policy-integration.md): Tactical policy protocol integration.
+  - [`docs/user-stories/completed/US-067-unified-tactical-policy-integration.md`](US-067-unified-tactical-policy-integration.md):
+    Tactical policy protocol integration.
 - **Problem Statement:**
   Greedy nearest-neighbor selection often leads the character into isolated corners or high-stuck areas, leaving no nearby monsters after the kill.
   A rolling-horizon planner evaluates candidate chains:
@@ -69,15 +70,15 @@ so that **the bot optimizes overall farming throughput and kills-per-minute rath
 
 ## Acceptance criteria
 
-- [ ] **Sequence Generation:** Evaluates acyclic candidate mob sequences up to horizon $H \in [2, 4]$.
-- [ ] **Cost Formulation:** Accumulates travel time, kill duration, stuck risk, and final follow-up cluster density using US-066 value models.
-- [ ] **Bounded Search Budget:** Beam search maintains execution time $< 5\text{ ms}$ for typical clusters ($\le 20$ visible mobs).
-- [ ] **Receding Horizon Execution:** Executes only the first target of the sequence while maintaining a provisional multi-kill plan.
-- [ ] **Dynamic Replanning:** Re-evaluates target sequences upon mob death, new YOLO detections, target despawns, or navigation stalls.
-- [ ] **Deterministic Fallback:** Times out or empty sequence sets immediately fall back to single-target greedy selection.
-- [ ] **Safety Isolation:** Planning logic does not manipulate keyboard/mouse controls or bypass reachability checks.
-- [ ] **Localization & Diagnostics:** Status indicators and logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
-- [ ] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- [x] **Sequence Generation:** Evaluates acyclic candidate mob sequences up to horizon $H \in [2, 4]$.
+- [x] **Cost Formulation:** Accumulates travel time, kill duration, stuck risk, and final follow-up cluster density using US-066 value models.
+- [x] **Bounded Search Budget:** Beam search maintains execution time $< 5\text{ ms}$ for typical clusters ($\le 20$ visible mobs).
+- [x] **Receding Horizon Execution:** Executes only the first target of the sequence while maintaining a provisional multi-kill plan.
+- [x] **Dynamic Replanning:** Re-evaluates target sequences upon mob death, new YOLO detections, target despawns, or navigation stalls.
+- [x] **Deterministic Fallback:** Times out or empty sequence sets immediately fall back to single-target greedy selection.
+- [x] **Safety Isolation:** Planning logic does not manipulate keyboard/mouse controls or bypass reachability checks.
+- [x] **Localization & Diagnostics:** Status indicators and logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
+- [x] **Quality Gate:** Automated tests pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 
 ## Out of scope
 
@@ -93,5 +94,9 @@ so that **the bot optimizes overall farming throughput and kills-per-minute rath
   - Unit tests in `tests/unit/test_receding_horizon.py` validating first-action execution, provisional plan updates, and replanning triggers.
   - Benchmark test verifying $< 5\text{ ms}$ search execution under simulated 20-mob fields.
   - `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- Automated gate passed on 2026-08-24. The synthetic timing check is not a hardware guarantee; the
+  existing 5 ms policy deadline still enforces fallback at runtime.
 - Manual (Windows):
-  - Run bot in a dense spawn area (e.g. Aibatts / Lawolfs / Mushpoies): observe the bot planning multi-kill paths and moving systematically through mob clusters rather than bouncing back and forth between isolated targets.
+  - [ ] Run bot in a dense spawn area (e.g. Aibatts / Lawolfs / Mushpoies): observe the bot planning
+        multi-kill paths and moving systematically through mob clusters rather than bouncing back and
+        forth between isolated targets.

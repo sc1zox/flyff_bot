@@ -107,6 +107,7 @@ class PolicyCandidate:
     is_within_leash: bool
     is_navmesh_reachable: bool
     has_valid_world_position: bool
+    original_position: int | None = None
 
     @property
     def is_eligible(self) -> bool:

@@ -11,7 +11,12 @@ import cv2
 import numpy as np
 
 from flyff_bot.features.automation.models import Position, WorldState
-from flyff_bot.features.ml.cost import ExpectedCostWeights, expected_costs
+from flyff_bot.features.ml.cost import (
+    DEFAULT_COST_WEIGHTS,
+    ExpectedCostWeights,
+    FarmingValuePrediction,
+    expected_costs,
+)
 from flyff_bot.features.ml.features import FEATURE_NAMES
 from flyff_bot.features.policy.models import (
     PolicyCandidate,
@@ -59,7 +64,7 @@ class LearnedPolicy:
         self,
         model_directory: Path,
         *,
-        cost_weights: ExpectedCostWeights | None = None,
+        cost_weights: ExpectedCostWeights = DEFAULT_COST_WEIGHTS,
         network_loader: NetworkLoader | None = None,
     ) -> None:
         metadata_path = model_directory / "metadata.json"
@@ -85,7 +90,7 @@ class LearnedPolicy:
             kind: loader(model_directory / filename) for kind, filename in models.items()
         }
         self._input_name = input_name
-        self._cost_weights = cost_weights or ExpectedCostWeights()
+        self._cost_weights = cost_weights
 
     def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
         eligible = [candidate for candidate in context.candidates if candidate.is_eligible]
@@ -126,6 +131,29 @@ class LearnedPolicy:
         if output.shape[0] != rows.shape[0] or not np.isfinite(output).all():
             raise LearnedPolicyError("invalid_prediction")
         return output.reshape(-1, MODEL_OUTPUT_WIDTH)
+
+    def predictions(self, rows: np.ndarray) -> FarmingValuePrediction:
+        """Return the five-head prediction for a single raw feature row."""
+
+        if rows.shape != (1, MODEL_INPUT_WIDTH):
+            raise LearnedPolicyError("invalid_feature_shape")
+        (
+            travel_time,
+            stuck_probability,
+            recovery_time,
+            kill_time,
+            followup_value,
+        ) = (
+            self._predict(self._networks[kind], self._input_name, rows)
+            for kind in REQUIRED_MODEL_KINDS
+        )
+        return FarmingValuePrediction(
+            travel_time=float(np.asarray(travel_time).reshape(())),
+            stuck_probability=float(np.asarray(stuck_probability).reshape(())),
+            recovery_time=float(np.asarray(recovery_time).reshape(())),
+            kill_time=float(np.asarray(kill_time).reshape(())),
+            followup_value=float(np.asarray(followup_value).reshape(())),
+        )
 
     @staticmethod
     def _action(candidate: PolicyCandidate, expected_cost: float) -> TacticalAction:

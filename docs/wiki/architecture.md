@@ -75,6 +75,7 @@ related:
   - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
   - ../user-stories/US-062-automated-npc-quest-acceptance-and-turn-in.md
   - ../user-stories/completed/US-066-farming-and-navigation-value-model.md
+  - ../user-stories/completed/US-068-rolling-horizon-multi-target-planning.md
   - ../user-stories/US-063-client-dungeon-data-and-live-cooldown-memory-extraction.md
   - ../user-stories/completed/US-078-initial-setup-wizard-and-unified-client-data-extraction.md
   - ../bugs/fixed/BUG-029-tesseract-ocr-tsv-argument-ordering-causes-empty-stdout-and-unreadable-target-names.md
@@ -1808,6 +1809,23 @@ US-071/073 RL policies without moving safety into the policy layer.
 
 The automated gate passed on 2026-08-24 at 806 passed, 5 skipped, and 88.14% coverage. Live
 Windows/client validation remains outstanding.
+
+## Rolling-horizon multi-target lookahead (US-068, completed)
+
+`RollingHorizonPlanner` extends the learned US-066 policy with bounded acyclic beam search over the
+deterministic eligible mask. It evaluates horizons of two to four steps and beam widths of one to
+five, accumulates travel, kill, stuck-risk recovery, and follow-up value through the same expected
+farming-cost model, and commits only the first candidate. `TargetAction.expected_cost` carries the
+sequence cost; `provisional_sequence` and `last_sequence_cost` expose the remaining plan as advisory
+diagnostics only. Every orchestration cycle rebuilds candidates from a fresh perception snapshot,
+which makes death, despawn, new detections, lockout changes, stalls, and selection timeout natural
+receding-horizon replanning triggers. Missing features, no valid sequence, model faults, or the
+existing 5 ms deadline immediately use `PolicyRunner`'s heuristic fallback.
+
+The planner performs no input dispatch, reachability bypass, memory access, or persistent route
+commitment. Automated coverage includes sequence validity, first-target commitment, per-snapshot
+replanning, fallback behavior, and a synthetic twenty-candidate timing check; live dense-spawn
+Windows validation remains outstanding.
 
 ## Client dungeon data and live cooldown extraction (US-063, completed)
 

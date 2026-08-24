@@ -546,6 +546,11 @@ class FarmingOrchestrator:
     def _policy_candidates(self) -> tuple[PolicyCandidate, ...]:
         candidates = self._combat._eligible_candidates(self._state)
         allowed = self._config.combat.allowed_class_names
+        eligible_positions = [
+            index
+            for index, mob in enumerate(candidates)
+            if not allowed or mob.class_name in allowed
+        ]
         return tuple(
             PolicyCandidate(
                 mob=mob,
@@ -556,9 +561,10 @@ class FarmingOrchestrator:
                 has_valid_world_position=(
                     mob.world_x is not None and mob.world_y is not None and mob.world_z is not None
                 ),
+                original_position=index,
             )
-            for mob in candidates
-            if not allowed or mob.class_name in allowed
+            for index in eligible_positions
+            for mob in (candidates[index],)
         )
 
     def _evaluate_policy_target(self) -> VisibleMob | None:

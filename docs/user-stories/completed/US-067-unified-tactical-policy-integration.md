@@ -23,7 +23,7 @@ so that **heuristic, ML, and future RL policies can be used interchangeably and 
   - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../../../decisions/ADR-006-read-only-process-memory-access.md): Read-only memory access for live GPS coordinates and world state.
   - [`docs/user-stories/completed/US-054-farming-telemetry-and-adaptive-navigation-dataset.md`](US-054-farming-telemetry-and-adaptive-navigation-dataset.md): Parquet telemetry dataset foundation.
   - [`docs/user-stories/completed/US-066-farming-and-navigation-value-model.md`](US-066-farming-and-navigation-value-model.md): Offline trained value models and metadata.
-  - Follow-up stories: [`US-068`](../US-068-rolling-horizon-multi-target-planning.md), [`US-069`](../US-069-experience-based-navmesh-routing.md), [`US-071`](../US-071-unified-rl-environment-and-reward.md).
+  - Follow-up stories: [`US-068`](US-068-rolling-horizon-multi-target-planning.md), [`US-069`](../US-069-experience-based-navmesh-routing.md), [`US-071`](../US-071-unified-rl-environment-and-reward.md).
 - **Target Architecture:**
   ```text
   WorldState Snapshot

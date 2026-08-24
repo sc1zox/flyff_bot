@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-23
+updated: 2026-08-24
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -408,3 +408,6 @@ related:
   gated, SHA-256-bound, bounded read. It carries decoded profile-declared fields, unknown-field
   markers, timestamp, client digest, unavailable field names, or a typed diagnostic; it never
   substitutes defaults for unread statistics.
+- **Provisional multi-kill plan** — The advisory target sequence exposed by
+  `RollingHorizonPlanner`. Only its first target is committed; every fresh perception snapshot can
+  replace it, and it never bypasses deterministic masks or guarded execution.
