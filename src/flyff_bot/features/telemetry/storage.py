@@ -226,7 +226,7 @@ class JsonlTelemetryWorker:
                         stream.flush()
                         if self._store is not None:
                             self._store.persist(record)
-                    except OSError, TypeError, ValueError, sqlite3.DatabaseError:
+                    except (OSError, TypeError, ValueError, sqlite3.DatabaseError):
                         self.failed_records += 1
         except OSError:
             self.failed_records += 1

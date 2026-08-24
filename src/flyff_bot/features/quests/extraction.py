@@ -217,7 +217,7 @@ def _npc_positions(client_data_root: Path) -> dict[str, QuestNpc]:
     for object_path in world_root.glob("**/*.dyo"):
         try:
             placements = dynamic_object_placements(object_path.read_bytes())
-        except OSError, WorldExtractionError:
+        except (OSError, WorldExtractionError):
             continue
         for symbol, position in placements:
             if not symbol or symbol in positions:
