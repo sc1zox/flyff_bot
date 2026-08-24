@@ -72,6 +72,11 @@ from flyff_bot.features.navigation.live_position import (
     PositionSource,
     WorldPosition,
 )
+from flyff_bot.features.navigation.teleporter_extraction import save_teleporter_catalog
+from flyff_bot.features.navigation.teleporter_models import (
+    TeleporterCatalog,
+    TeleporterDestination,
+)
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import TargetVerifier
@@ -105,6 +110,16 @@ from flyff_bot.ui.theme import apply_theme, load_theme_stylesheet
 
 CLOSE_EVENT_WINDOW_HANDLE = 4711
 CLOSE_EVENT_VISIT_TIME_SECONDS = 1.0
+
+RESET_DESTINATION = TeleporterDestination(
+    destination_id=7,
+    name="Eden",
+    search_text="Eden",
+    world_id=2,
+    anchor_x=100.0,
+    anchor_z=200.0,
+)
+TELEPORTER_CATALOG = TeleporterCatalog((RESET_DESTINATION,))
 
 
 def test_main_window_receives_dashboard_signal_and_renders_overlay() -> None:
@@ -1819,12 +1834,17 @@ def test_the_world_data_button_is_localized() -> None:
     assert window.world_data_button.text() == "Weltdaten & Karten"
 
 
-def test_the_recovery_panel_persists_the_timeout_and_teleport_hotkey(tmp_path: Path) -> None:
-    """US-040: the operator's stuck timeout and teleport hotkey survive a restart."""
+def test_the_recovery_panel_persists_the_timeout_and_reset_destination(
+    tmp_path: Path,
+) -> None:
+    """US-051: the operator's stuck timeout and teleporter reset target survive a restart."""
 
     application = QApplication.instance() or QApplication([])
     config_path = tmp_path / "emergency.json"
+    destination_path = tmp_path / "teleporters.json"
+    save_teleporter_catalog(TELEPORTER_CATALOG, destination_path)
     window = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
+    window.set_teleporter_destinations(TELEPORTER_CATALOG.destinations)
 
     window.show()
     window.tab_widget.setCurrentIndex(DashboardTab.COMBAT_TARGETS)
@@ -1835,26 +1855,41 @@ def test_the_recovery_panel_persists_the_timeout_and_teleport_hotkey(tmp_path: P
     window.emergency_config_changed.connect(configs.append)
 
     window.recovery_timeout_spin.setValue(90.0)
-    window.recovery_hotkey_combo.setCurrentIndex(window.recovery_hotkey_combo.findData("F7"))
+    window.recovery_destination_combo.setCurrentIndex(
+        window.recovery_destination_combo.findData(RESET_DESTINATION.destination_id)
+    )
     application.processEvents()
 
     assert configs[-1].stuck_timeout_seconds == pytest.approx(90.0)
-    assert configs[-1].teleport_virtual_key == parse_virtual_key("F7")
+    assert configs[-1].destination is RESET_DESTINATION
 
-    restored = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
+    restored = MainWindow(
+        Translator(Language.ENGLISH),
+        emergency_config_path=config_path,
+        teleporter_database_path=destination_path,
+    )
     assert restored.get_emergency_config() == configs[-1]
 
 
-def test_an_unassigned_teleport_hotkey_is_stored_and_restored(tmp_path: Path) -> None:
-    """US-040: switching the teleport off is a choice, not a missing setting."""
+def test_an_unselected_teleporter_destination_is_stored_and_restored(tmp_path: Path) -> None:
+    """US-051: selecting no reset target is a choice, not a missing setting."""
 
     application = QApplication.instance() or QApplication([])
     config_path = tmp_path / "emergency.json"
+    destination_path = tmp_path / "teleporters.json"
+    save_teleporter_catalog(TELEPORTER_CATALOG, destination_path)
     window = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
+    window.set_teleporter_destinations(TELEPORTER_CATALOG.destinations)
 
-    window.recovery_hotkey_combo.setCurrentIndex(window.recovery_hotkey_combo.findData(None))
+    window.recovery_destination_combo.setCurrentIndex(
+        window.recovery_destination_combo.findData(None)
+    )
     application.processEvents()
 
-    assert window.get_emergency_config().teleport_virtual_key is None
-    restored = MainWindow(Translator(Language.ENGLISH), emergency_config_path=config_path)
-    assert restored.get_emergency_config().teleport_virtual_key is None
+    assert window.get_emergency_config().destination is None
+    restored = MainWindow(
+        Translator(Language.ENGLISH),
+        emergency_config_path=config_path,
+        teleporter_database_path=destination_path,
+    )
+    assert restored.get_emergency_config().destination is None

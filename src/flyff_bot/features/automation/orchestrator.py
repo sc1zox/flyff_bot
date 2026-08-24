@@ -37,7 +37,6 @@ from flyff_bot.features.automation.emergency_recovery import (
     EmergencyRecoveryAction,
     EmergencyRecoveryConfig,
     EmergencyRecoveryMonitor,
-    EmergencyTeleportDispatcher,
 )
 from flyff_bot.features.automation.kill_goals import (
     KillGoalConfig,
@@ -281,7 +280,6 @@ class FarmingOrchestrator:
         self._search_dispatcher = SearchInputDispatcher(input_adapter, window_handle)
         self._vitals_dispatcher = VitalsInputDispatcher(input_adapter, window_handle)
         self._powerup_dispatcher = PowerUpInputDispatcher(input_adapter, window_handle)
-        self._emergency_dispatcher = EmergencyTeleportDispatcher(input_adapter, window_handle)
         self._quest_interaction: QuestInteractionController | None = None
         self._quest_menu_perceiver = quest_menu_perceiver
         self._quest_input_dispatcher = QuestInputDispatcher(input_adapter, window_handle)

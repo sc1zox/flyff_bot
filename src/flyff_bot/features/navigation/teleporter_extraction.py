@@ -337,3 +337,39 @@ def save_teleporter_catalog(catalog: TeleporterCatalog, path: Path) -> Path:
         json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
     )
     return path
+
+
+def load_teleporter_catalog(path: Path) -> TeleporterCatalog:
+    """Load a canonical schema-v1 catalog, or an empty catalog when it is absent."""
+
+    if not path.is_file():
+        return TeleporterCatalog(())
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        records = document["destinations"]
+        if document["schema_version"] != TELEPORTER_DATABASE_SCHEMA_VERSION or not isinstance(
+            records,
+            list,
+        ):
+            raise ValueError("Unsupported teleporter catalog")
+        destinations = tuple(
+            TeleporterDestination(
+                destination_id=int(record["destination_id"]),
+                name=str(record["name"]),
+                search_text=str(record["search_text"]),
+                world_id=int(record["world_id"]),
+                anchor_x=float(record.get("anchor_x", 0.0)),
+                anchor_z=float(record.get("anchor_z", 0.0)),
+                description=str(record.get("description", "")),
+                minimum_level=int(record.get("minimum_level", 0)),
+                maximum_level=(
+                    None if record.get("maximum_level") is None else int(record["maximum_level"])
+                ),
+                category=str(record.get("category", "general")),
+            )
+            for record in records
+            if isinstance(record, dict)
+        )
+        return TeleporterCatalog(destinations)
+    except OSError, json.JSONDecodeError, KeyError, TypeError, ValueError:
+        return TeleporterCatalog(())

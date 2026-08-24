@@ -34,6 +34,7 @@ from flyff_bot.constants import (
     DEFAULT_DUNGEON_DATABASE_PATH,
     DEFAULT_QUEST_DATABASE_PATH,
     DEFAULT_QUEST_NPC_POSITIONS_PATH,
+    DEFAULT_TELEPORTER_DATABASE_PATH,
     DEFAULT_WORLD_MAP_DIRECTORY,
     DEFAULT_WORLD_MONSTER_IDS_PATH,
 )
@@ -53,6 +54,8 @@ from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
 )
+from flyff_bot.features.navigation.teleporter_extraction import load_teleporter_catalog
+from flyff_bot.features.navigation.teleporter_models import TeleporterDestination
 from flyff_bot.features.quests.goals import QuestNpc
 from flyff_bot.features.quests.persistence import (
     QuestDatabaseError,
@@ -144,6 +147,7 @@ class MainWindow(QMainWindow):
         vitals_config_path: Path | None = None,
         powerup_config_path: Path | None = None,
         emergency_config_path: Path | None = None,
+        teleporter_database_path: Path | None = None,
         client_world_root: Path | None = None,
         world_map_dir: Path | None = None,
         monster_names_path: Path | None = None,
@@ -158,6 +162,9 @@ class MainWindow(QMainWindow):
         self._quest_database_path = quest_database_path or Path(DEFAULT_QUEST_DATABASE_PATH)
         self._quest_npc_positions_path = quest_npc_positions_path or Path(
             DEFAULT_QUEST_NPC_POSITIONS_PATH
+        )
+        teleporter_database_path = teleporter_database_path or Path(
+            DEFAULT_TELEPORTER_DATABASE_PATH
         )
         self._latest_update: DashboardUpdate | None = None
         # Persistent header cards
@@ -275,6 +282,7 @@ class MainWindow(QMainWindow):
             vitals_path=vitals_config_path,
             powerup_path=powerup_config_path,
             emergency_path=emergency_config_path,
+            teleporter_destinations=load_teleporter_catalog(teleporter_database_path).destinations,
         )
 
         self._build_layout()
@@ -586,8 +594,11 @@ class MainWindow(QMainWindow):
         return self._settings.recovery_panel.timeout_spin
 
     @property
-    def recovery_hotkey_combo(self) -> QComboBox:
-        return self._settings.recovery_panel.hotkey_combo
+    def recovery_destination_combo(self) -> QComboBox:
+        return self._settings.recovery_panel.destination_combo
+
+    def set_teleporter_destinations(self, destinations: tuple[TeleporterDestination, ...]) -> None:
+        self._settings.recovery_panel.set_destinations(destinations)
 
     def _build_layout(self) -> None:
         preview_controls = QWidget()
@@ -699,7 +710,9 @@ class MainWindow(QMainWindow):
         self._target_panel.selection_changed.connect(self._on_target_selection_changed)
         self._quest_panel.selection_changed.connect(self.quest_selection_changed)
         self._recovery_panel.timeout_spin.valueChanged.connect(self._on_emergency_changed)
-        self._recovery_panel.hotkey_combo.currentIndexChanged.connect(self._on_emergency_changed)
+        self._recovery_panel.destination_combo.currentIndexChanged.connect(
+            self._on_emergency_changed
+        )
         for controls in self._vitals_panel.rows:
             controls.enabled.toggled.connect(self._on_vitals_changed)
             controls.threshold.valueChanged.connect(self._on_vitals_changed)

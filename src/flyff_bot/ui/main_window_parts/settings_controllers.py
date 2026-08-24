@@ -22,6 +22,7 @@ from flyff_bot.features.automation.vitals_persistence import (
     load_vitals_config,
     save_vitals_config,
 )
+from flyff_bot.features.navigation.teleporter_models import TeleporterDestination
 from flyff_bot.i18n import Translator
 from flyff_bot.ui.main_window_parts.recovery_settings import RecoverySettingsPanel
 from flyff_bot.ui.main_window_parts.vitals_settings import VitalsSettingsPanel
@@ -45,6 +46,7 @@ class SettingsController(QObject):
         vitals_path: Path | None = None,
         powerup_path: Path | None = None,
         emergency_path: Path | None = None,
+        teleporter_destinations: tuple[TeleporterDestination, ...] = (),
     ) -> None:
         super().__init__()
         self.recovery_panel = recovery_panel
@@ -53,6 +55,7 @@ class SettingsController(QObject):
         self._vitals_path = vitals_path or DEFAULT_VITALS_CONFIG_PATH
         self._powerup_path = powerup_path or DEFAULT_POWERUP_CONFIG_PATH
         self._emergency_path = emergency_path or DEFAULT_EMERGENCY_CONFIG_PATH
+        self._teleporter_destinations = teleporter_destinations
         self.load_vitals()
         self.load_powerups()
         self.load_emergency()
@@ -82,13 +85,21 @@ class SettingsController(QObject):
             self.powerup_changed.emit(config)
 
     def load_emergency(self) -> None:
+        self.recovery_panel.set_destinations(self._teleporter_destinations)
         self.recovery_panel.load_config(
-            load_emergency_config(self._emergency_path),
+            load_emergency_config(
+                self._emergency_path,
+                destinations=self._teleporter_destinations,
+            ),
         )
 
     def save_emergency(self) -> EmergencyRecoveryConfig:
         config = self.recovery_panel.get_config()
-        save_emergency_config(config, self._emergency_path)
+        save_emergency_config(
+            config,
+            self._emergency_path,
+            destinations=self._teleporter_destinations,
+        )
         return config
 
     @property

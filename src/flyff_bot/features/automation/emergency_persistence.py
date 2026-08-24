@@ -1,4 +1,4 @@
-"""Disk persistence for the unrecoverable-stuck emergency teleport settings (US-040)."""
+"""Disk persistence for the unrecoverable-stuck built-in teleporter reset (US-051)."""
 
 from __future__ import annotations
 
@@ -7,15 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
+from flyff_bot.features.navigation.teleporter_models import TeleporterDestination
 
 DEFAULT_EMERGENCY_CONFIG_PATH = Path("data/emergency_recovery_config.json")
 JSON_INDENT_SPACES = 2
-# An explicitly unassigned hotkey has to survive a restart, so ``null`` is a stored value
-# rather than a missing key: a reader that fell back to the default would silently re-arm a
-# teleport the operator switched off.
-TELEPORT_KEY_FIELD = "teleport_virtual_key"
+# The selected client destination has to survive restarts; an absent value deliberately
+# means "no reset target", so no default destination can silently arm itself.
+DESTINATION_FIELD = "destination_id"
 STUCK_TIMEOUT_FIELD = "stuck_timeout_seconds"
-SETTLE_DELAY_FIELD = "settle_delay_seconds"
+CONFIRMATION_TIMEOUT_FIELD = "confirmation_timeout_seconds"
 # Named so the handlers below stay single-name `except` clauses. The pinned formatter
 # rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
 # what the group of failures means.
@@ -27,33 +27,50 @@ def emergency_config_to_dict(config: EmergencyRecoveryConfig) -> dict[str, Any]:
     """Serialize an EmergencyRecoveryConfig to a JSON-compatible dictionary."""
 
     return {
-        TELEPORT_KEY_FIELD: config.teleport_virtual_key,
+        DESTINATION_FIELD: (
+            None if config.destination is None else config.destination.destination_id
+        ),
         STUCK_TIMEOUT_FIELD: config.stuck_timeout_seconds,
-        SETTLE_DELAY_FIELD: config.settle_delay_seconds,
+        CONFIRMATION_TIMEOUT_FIELD: config.confirmation_timeout_seconds,
     }
 
 
-def emergency_config_from_dict(data: dict[str, Any]) -> EmergencyRecoveryConfig:
+def emergency_config_from_dict(
+    data: dict[str, Any],
+    destinations: tuple[TeleporterDestination, ...] = (),
+) -> EmergencyRecoveryConfig:
     """Deserialize a dictionary into an EmergencyRecoveryConfig, or return the defaults."""
 
     if not isinstance(data, dict):
         return EmergencyRecoveryConfig()
     defaults = EmergencyRecoveryConfig()
-    stored_key = data.get(TELEPORT_KEY_FIELD, defaults.teleport_virtual_key)
+    stored_destination_id = data.get(DESTINATION_FIELD)
+    destination = next(
+        (
+            candidate
+            for candidate in destinations
+            if stored_destination_id == candidate.destination_id
+        ),
+        None,
+    )
     try:
         return EmergencyRecoveryConfig(
-            teleport_virtual_key=None if stored_key is None else int(stored_key),
+            destination=destination,
             stuck_timeout_seconds=float(
                 data.get(STUCK_TIMEOUT_FIELD, defaults.stuck_timeout_seconds)
             ),
-            settle_delay_seconds=float(data.get(SETTLE_DELAY_FIELD, defaults.settle_delay_seconds)),
+            confirmation_timeout_seconds=float(
+                data.get(CONFIRMATION_TIMEOUT_FIELD, defaults.confirmation_timeout_seconds)
+            ),
         )
     except CONFIG_FIELD_ERRORS:
         return defaults
 
 
 def save_emergency_config(
-    config: EmergencyRecoveryConfig, path: Path = DEFAULT_EMERGENCY_CONFIG_PATH
+    config: EmergencyRecoveryConfig,
+    path: Path = DEFAULT_EMERGENCY_CONFIG_PATH,
+    destinations: tuple[TeleporterDestination, ...] = (),
 ) -> None:
     """Persist the emergency teleport configuration to disk as JSON."""
 
@@ -64,6 +81,7 @@ def save_emergency_config(
 
 def load_emergency_config(
     path: Path = DEFAULT_EMERGENCY_CONFIG_PATH,
+    destinations: tuple[TeleporterDestination, ...] = (),
 ) -> EmergencyRecoveryConfig:
     """Load the emergency teleport configuration from disk, or return the defaults."""
 
@@ -71,6 +89,6 @@ def load_emergency_config(
         return EmergencyRecoveryConfig()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return emergency_config_from_dict(data)
+        return emergency_config_from_dict(data, destinations)
     except CONFIG_READ_ERRORS:
         return EmergencyRecoveryConfig()
