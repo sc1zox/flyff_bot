@@ -1024,3 +1024,11 @@ Synthesized the completed US-071 contracts into `architecture.md` and `glossary.
 observations, seven discrete tactical actions, deterministic masking, versioned progress rewards,
 Parquet transition export, and a Gymnasium-compatible offline adapter. No live input dispatch or
 expanded client access was added.
+
+## [2026-08-25] synthesis | Hierarchical policy and interactive world map (US-073, US-074)
+
+Synthesized the completed two-tier policy and interactive map into `architecture.md` and `glossary.md`.
+Evidence is offline simulator/training, ONNX metadata and deterministic fallback, Qt interaction and
+culling tests, localization checks, and synthetic timing budgets. The gate passed at 866 passed, 5
+skipped, and 88.30% coverage. No Windows/live-client walkthrough, real-client convergence, exact
+client performance, arbitrary object interaction, or live map-FPS measurement is claimed.

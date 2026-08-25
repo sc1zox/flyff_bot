@@ -26,6 +26,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flyff_bot.features.navigation.navmesh import BakedNavMesh
+from flyff_bot.features.navigation.navmesh_persistence import (
+    NavMeshPersistenceError,
+    load_baked_navmesh,
+    world_navmesh_path,
+)
 from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationRequest,
     ZoneGoal,
@@ -127,6 +133,7 @@ class WorldDataDialog(QDialog):
 
     vector_navigation_requested = Signal(object)
     vector_navigation_cleared = Signal()
+    world_map_changed = Signal(object, object)
 
     def __init__(
         self,
@@ -143,6 +150,7 @@ class WorldDataDialog(QDialog):
         self._client_world_root = client_world_root
         self._world_map_directory = world_map_directory
         self._loaded_map: WorldVectorMap | None = None
+        self._loaded_navmesh: BakedNavMesh | None = None
         self._target_mob = ALL_TARGET_MOBS
         self._settings = settings or QSettings(_SETTINGS_ORGANIZATION, _SETTINGS_APPLICATION)
 
@@ -239,6 +247,12 @@ class WorldDataDialog(QDialog):
         """Return the extracted map currently selected, if one could be read."""
 
         return self._loaded_map
+
+    @property
+    def loaded_navmesh(self) -> BakedNavMesh | None:
+        """Return the sibling baked NavMesh loaded for map visualization, if present."""
+
+        return self._loaded_navmesh
 
     def set_target_mob(self, class_name: str) -> None:
         """Follow the dashboard's monster selection, which decides the farming goals."""
@@ -391,6 +405,7 @@ class WorldDataDialog(QDialog):
     def _on_map_selected(self) -> None:
         path = self._map_selector.currentData()
         self._loaded_map = None
+        self._loaded_navmesh = None
         if isinstance(path, Path) and path.is_file():
             try:
                 self._loaded_map = load_world_map(path)
@@ -398,7 +413,20 @@ class WorldDataDialog(QDialog):
                 self._status_label.setText(
                     self._translator.text(Message.UI_WORLD_DATA_FAILED, reason=str(error))
                 )
+            if self._loaded_map is not None:
+                navmesh_path = world_navmesh_path(path.parent, self._loaded_map.world_name)
+                if navmesh_path.is_file():
+                    try:
+                        self._loaded_navmesh = load_baked_navmesh(navmesh_path).mesh
+                    except NavMeshPersistenceError as error:
+                        self._status_label.setText(
+                            self._translator.text(
+                                Message.UI_WORLD_DATA_NAVMESH_FAILED,
+                                reason=str(error),
+                            )
+                        )
         self._refresh_zones()
+        self.world_map_changed.emit(self._loaded_map, self._loaded_navmesh)
 
     def _refresh_zones(self) -> None:
         checked = {self._zone_key(zone) for zone in self.active_zones} or self._saved_zone_keys()
@@ -458,14 +486,43 @@ class WorldDataDialog(QDialog):
         # The first checked camp is where the session starts; the navigator walks the rest
         # of the selection in list order as each quota completes (US-059).
         anchor = active_zones[0]
-        request = VectorNavigationRequest(
+        self.vector_navigation_requested.emit(self._request(world_map, anchor, active_zones))
+        self._status_label.setText(self._activation_text(world_map, active_zones))
+
+    def activate_zone(self, zone: VectorSpawnZone) -> None:
+        """Make a clicked map camp the first active goal while retaining checked camps."""
+
+        world_map = self._loaded_map
+        if world_map is None or zone not in world_map.zones:
+            return
+        for index in range(self._zone_list.count()):
+            item = self._zone_list.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == zone:
+                item.setCheckState(Qt.CheckState.Checked)
+                break
+        active_zones = (zone, *(item for item in self.active_zones if item != zone))
+        self.vector_navigation_requested.emit(self._request(world_map, zone, active_zones))
+        self._status_label.setText(
+            self._translator.text(
+                Message.UI_MAP_SELECTED_ZONE,
+                monster=zone.monster_name or str(zone.monster_id),
+                x=f"{zone.center_x:.1f}",
+                z=f"{zone.center_z:.1f}",
+            )
+        )
+
+    def _request(
+        self,
+        world_map: WorldVectorMap,
+        anchor: VectorSpawnZone,
+        active_zones: tuple[VectorSpawnZone, ...],
+    ) -> VectorNavigationRequest:
+        return VectorNavigationRequest(
             world_map=world_map,
             anchor_zone=anchor,
             active_zones=active_zones,
             goals=self._goals(world_map),
         )
-        self.vector_navigation_requested.emit(request)
-        self._status_label.setText(self._activation_text(world_map, active_zones))
 
     def _activation_text(
         self, world_map: WorldVectorMap, active_zones: tuple[VectorSpawnZone, ...]
@@ -565,4 +622,13 @@ def _extracted_map_paths(directory: Path) -> tuple[Path, ...]:
 
     if not directory.is_dir():
         return ()
-    return tuple(sorted(directory.glob("*.json"), key=lambda path: path.name.lower()))
+    return tuple(
+        sorted(
+            (
+                path
+                for path in directory.glob("*.json")
+                if not path.name.lower().endswith((".navmesh.json", ".empirical.json"))
+            ),
+            key=lambda path: path.name.lower(),
+        )
+    )

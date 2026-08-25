@@ -31,8 +31,13 @@ class NavigationController:
             monster_names_path=monster_names_path,
             parent=parent_window,
         )
+        self.dialog.world_map_changed.connect(self.navigation.inspector.set_world_data)
+        self.navigation.inspector.zone_selected.connect(self.dialog.activate_zone)
+        self.navigation.inspector.set_world_data(
+            self.dialog.loaded_map,
+            self.dialog.loaded_navmesh,
+        )
 
-    @property
     @property
     def world_data_button(self) -> QPushButton:
         return self.navigation.world_data_button

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
 from flyff_bot.i18n import Message, Translator
@@ -18,6 +20,9 @@ class NavigationSection(QWidget):
         self.map_window = NavigationMapWindow(translator)
         self.world_data_button = QPushButton()
         self.popout_button = QPushButton()
+        self.follow_button = QPushButton()
+        self.follow_button.setCheckable(True)
+        self.fit_button = QPushButton()
         self.map_container = QWidget()
         self.map_layout = QVBoxLayout(self.map_container)
         self.is_popped_out = False
@@ -27,7 +32,16 @@ class NavigationSection(QWidget):
         controls_layout.setContentsMargins(0, 0, 0, 0)
         controls_layout.addWidget(self.world_data_button)
         controls_layout.addWidget(self.popout_button)
+        controls_layout.addWidget(self.follow_button)
+        controls_layout.addWidget(self.fit_button)
         controls_layout.addStretch()
+
+        self.follow_button.toggled.connect(self.inspector.set_follow_player)
+        self.inspector.follow_mode_changed.connect(self._sync_follow_button)
+        self.fit_button.clicked.connect(self.inspector.fit_world)
+        self._follow_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Home), self.inspector)
+        self._follow_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._follow_shortcut.activated.connect(self._toggle_follow_shortcut)
 
         self.map_layout.setContentsMargins(0, 0, 0, 0)
         self.map_layout.addWidget(self.inspector)
@@ -42,6 +56,10 @@ class NavigationSection(QWidget):
         self.inspector.set_translator(translator)
         self.map_window.set_translator(translator)
         self._update_popout_text()
+        self.follow_button.setText(translator.text(Message.UI_MAP_FOLLOW_PLAYER))
+        self.follow_button.setToolTip(translator.text(Message.UI_MAP_FOLLOW_PLAYER_TOOLTIP))
+        self.fit_button.setText(translator.text(Message.UI_MAP_FIT_WORLD))
+        self.fit_button.setToolTip(translator.text(Message.UI_MAP_FIT_WORLD_TOOLTIP))
 
     def render_navigation(self, navigation: NavigationSnapshot | None) -> None:
         self.inspector.set_navigation(navigation)
@@ -71,3 +89,9 @@ class NavigationSection(QWidget):
     def _update_popout_text(self) -> None:
         message = Message.UI_DOCK_MAP if self.is_popped_out else Message.UI_POPOUT_MAP
         self.popout_button.setText(self.translator.text(message))
+
+    def _sync_follow_button(self, enabled: bool) -> None:
+        self.follow_button.setChecked(enabled)
+
+    def _toggle_follow_shortcut(self) -> None:
+        self.inspector.set_follow_player(not self.inspector.follow_player)

@@ -92,6 +92,7 @@ def test_each_language_contains_every_message() -> None:
                 fields=0,
                 used=0,
                 limit=0,
+                heading="0",
             )
 
 

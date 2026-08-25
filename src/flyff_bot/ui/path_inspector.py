@@ -3,23 +3,44 @@
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 from collections.abc import Callable
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QFont,
+    QImage,
+    QMouseEvent,
     QPainter,
     QPainterPath,
     QPen,
     QPolygonF,
+    QResizeEvent,
+    QWheelEvent,
 )
 from PySide6.QtWidgets import QWidget
 
 from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
+from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshPolygon
+from flyff_bot.features.navigation.world_extractor import (
+    LAND_BLOCK_VERTICES_PER_SIDE,
+    LandBlock,
+    ObstacleKind,
+    VectorSpawnZone,
+    WorldCoordinate,
+    WorldVectorMap,
+)
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import NavigationSnapshot, VectorZoneSnapshot
+from flyff_bot.ui.world_map_view import (
+    ScreenPoint,
+    ViewportLimits,
+    ViewportTransform,
+    WorldBounds,
+    WorldMapScene,
+)
 
 
 def _with_alpha(color: QColor, alpha: int) -> QColor:
@@ -73,16 +94,24 @@ HUD_MAXIMUM_WIDTH_PIXELS = 520.0
 LEASH_NOTICE_COLOR = QColor(250, 173, 20)
 TERRAIN_LOW_COLOR = QColor(23, 55, 45, 150)
 TERRAIN_HIGH_COLOR = QColor(118, 104, 53, 190)
+NAVMESH_FILL_COLOR = QColor(59, 130, 246, 52)
+NAVMESH_EDGE_COLOR = QColor(96, 165, 250, 115)
+SLOPE_OBSTACLE_COLOR = QColor(239, 68, 68, 95)
+OBJECT_OBSTACLE_COLOR = QColor(249, 115, 22, 120)
+SELECTED_ZONE_COLOR = QColor(250, 204, 21, 245)
 ELEVATION_PROFILE_COLOR = QColor(134, 239, 172)
 ELEVATION_STRIP_HEIGHT_PIXELS = 42.0
 
 LEGEND_ITEMS: tuple[tuple[str, QColor, Message], ...] = (
     ("▲", PLAYER_COLOR, Message.UI_NAV_LEGEND_PLAYER),
+    ("■", TERRAIN_HIGH_COLOR, Message.UI_NAV_LEGEND_TERRAIN),
+    ("△", NAVMESH_EDGE_COLOR, Message.UI_NAV_LEGEND_NAVMESH),
+    ("□", ZONE_COLOR, Message.UI_NAV_LEGEND_ZONE),
+    ("▧", OBJECT_OBSTACLE_COLOR, Message.UI_NAV_LEGEND_OBSTACLE),
     ("━", ROUTE_COLOR, Message.UI_NAV_LEGEND_ROUTE),
     ("●", NAVMESH_REACHABLE_COLOR, Message.UI_NAV_LEGEND_NAVMESH_TARGET),
     ("●", NAVMESH_UNREACHABLE_COLOR, Message.UI_NAV_LEGEND_NAVMESH_UNREACHABLE),
     ("┄", NAVIGATION_TRAJECTORY_COLOR, Message.UI_NAV_LEGEND_GPS_TRAJECTORY),
-    ("□", ZONE_COLOR, Message.UI_NAV_LEGEND_ZONE),
 )
 
 PADDING_FRACTION = 0.2
@@ -92,6 +121,9 @@ WIDGET_MIN_HEIGHT = 280
 GRID_STEP_UNITS = 20.0
 FOV_DEGREES = 60.0
 FOV_DISTANCE_UNITS = 25.0
+TERRAIN_DETAIL_MINIMUM_PIXELS = 48.0
+TERRAIN_CACHE_LIMIT = 64
+MAXIMUM_NAVMESH_POLYGONS_PER_FRAME = 5000
 
 
 def _calculate_grid_step(scale: float) -> float:
@@ -106,14 +138,37 @@ def _calculate_grid_step(scale: float) -> float:
 class PathInspectorWidget(QWidget):
     """Render 3D authoritative terrain, vector spawn zones, NavMesh route, and player position."""
 
+    zone_selected = Signal(object)
+    follow_mode_changed = Signal(bool)
+
     def __init__(
         self,
         translator: Translator,
         parent: QWidget | None = None,
+        *,
+        viewport_limits: ViewportLimits | None = None,
     ) -> None:
         super().__init__(parent)
         self._translator = translator
         self._snapshot: NavigationSnapshot | None = None
+        self._scene: WorldMapScene | None = None
+        self._viewport = ViewportTransform(
+            center_x=0.0,
+            center_z=0.0,
+            scale=1.0,
+            width=max(self.width(), 1),
+            height=max(self.height(), 1),
+            limits=viewport_limits or ViewportLimits(),
+        )
+        self._view_initialized = False
+        self._follow_player = False
+        self._right_drag_anchor: QPointF | None = None
+        self._selected_zone: VectorSpawnZone | None = None
+        self._hovered_zone: VectorSpawnZone | None = None
+        self._terrain_images: OrderedDict[tuple[int, int], QImage] = OrderedDict()
+        self._terrain_average_colors: dict[tuple[int, int], QColor] = {}
+        self._last_visible_terrain_block_count = 0
+        self.setMouseTracking(True)
         self.setMinimumSize(WIDGET_MIN_WIDTH, WIDGET_MIN_HEIGHT)
 
     @property
@@ -122,16 +177,171 @@ class PathInspectorWidget(QWidget):
 
         return self._snapshot
 
+    @property
+    def world_map(self) -> WorldVectorMap | None:
+        """Return the static extracted map currently backing the scene."""
+
+        return None if self._scene is None else self._scene.world_map
+
+    @property
+    def navmesh(self) -> BakedNavMesh | None:
+        """Return the optional baked passability mesh currently shown."""
+
+        return None if self._scene is None else self._scene.navmesh
+
+    @property
+    def selected_zone(self) -> VectorSpawnZone | None:
+        """Return the spawn camp most recently selected in the map."""
+
+        return self._selected_zone
+
+    @property
+    def follow_player(self) -> bool:
+        """Return whether live GPS updates continuously recenter the map."""
+
+        return self._follow_player
+
+    @property
+    def view_center(self) -> WorldCoordinate:
+        """Return the persistent viewport centre in client world units."""
+
+        return WorldCoordinate(self._viewport.center_x, self._viewport.center_z)
+
+    @property
+    def zoom_scale(self) -> float:
+        """Return the current bounded pixels-per-world-unit scale."""
+
+        return self._viewport.scale
+
+    @property
+    def visible_world_bounds(self) -> WorldBounds:
+        """Return the current inverse-transformed frustum on the X/Z plane."""
+
+        self._sync_viewport_size()
+        return self._viewport.visible_world_bounds
+
+    @property
+    def last_visible_terrain_block_count(self) -> int:
+        """Return how many terrain blocks survived culling during the last paint."""
+
+        return self._last_visible_terrain_block_count
+
+    def set_world_data(
+        self, world_map: WorldVectorMap | None, navmesh: BakedNavMesh | None = None
+    ) -> None:
+        """Adopt a static extracted scene without coupling it to the live update cadence."""
+
+        if world_map is None:
+            self._scene = None
+            self._selected_zone = None
+            self._terrain_images.clear()
+            self._terrain_average_colors.clear()
+            self._view_initialized = False
+            self.update()
+            return
+        if (
+            self._scene is not None
+            and self._scene.world_map is world_map
+            and self._scene.navmesh is navmesh
+        ):
+            return
+        self._scene = WorldMapScene(world_map, navmesh)
+        self._selected_zone = None
+        self._terrain_images.clear()
+        self._terrain_average_colors.clear()
+        self.fit_world()
+
+    def set_selected_zone(self, zone: VectorSpawnZone | None) -> None:
+        """Highlight an externally activated camp without emitting a new intent."""
+
+        self._selected_zone = zone
+        self.update()
+
+    def set_follow_player(self, enabled: bool) -> None:
+        """Enable or disable continuous live-GPS viewport centering."""
+
+        enabled = bool(enabled)
+        if enabled == self._follow_player:
+            if enabled:
+                self._center_on_live_player()
+            return
+        self._follow_player = enabled
+        if enabled:
+            self._center_on_live_player()
+        self.follow_mode_changed.emit(enabled)
+        self.update()
+
+    def fit_world(self) -> None:
+        """Fit the full extracted map, or the current dynamic route if no map is loaded."""
+
+        self._sync_viewport_size()
+        bounds = self._scene.world_bounds if self._scene is not None else self._dynamic_bounds()
+        if bounds is not None:
+            self._viewport.fit(bounds)
+            self._view_initialized = True
+        self.update()
+
+    def world_to_screen(self, point: WorldCoordinate) -> QPointF:
+        """Return a Qt point for one world X/Z coordinate."""
+
+        self._sync_viewport_size()
+        screen = self._viewport.world_to_screen(point)
+        return QPointF(screen.x, screen.y)
+
+    def screen_to_world(self, point: QPointF) -> WorldCoordinate:
+        """Return the world X/Z coordinate beneath one widget-local point."""
+
+        self._sync_viewport_size()
+        return self._viewport.screen_to_world(ScreenPoint(point.x(), point.y()))
+
+    def pan_by_pixels(self, delta_x: float, delta_y: float) -> None:
+        """Pan by a screen-space drag delta and suspend player follow mode."""
+
+        if delta_x == 0.0 and delta_y == 0.0:
+            return
+        self._viewport.pan_by_pixels(delta_x, delta_y)
+        self._view_initialized = True
+        if self._follow_player:
+            self.set_follow_player(False)
+        self.update()
+
+    def zoom_at(self, factor: float, cursor: QPointF) -> None:
+        """Apply bounded cursor-anchored zoom for tests and wheel input."""
+
+        self._sync_viewport_size()
+        self._viewport.zoom_at(factor, ScreenPoint(cursor.x(), cursor.y()))
+        self._view_initialized = True
+        self.update()
+
+    def visible_terrain_blocks(self) -> tuple[LandBlock, ...]:
+        """Return the heightfield blocks surviving current frustum culling."""
+
+        if self._scene is None:
+            return ()
+        return self._scene.visible_terrain_blocks(self.visible_world_bounds)
+
+    def zone_at(self, point: QPointF) -> VectorSpawnZone | None:
+        """Return the extracted camp beneath a widget-local point."""
+
+        if self._scene is None:
+            return None
+        return self._scene.zone_at(self.screen_to_world(point))
+
     def set_navigation(self, snapshot: NavigationSnapshot | None) -> None:
         """Update the rendered navigation snapshot and trigger a repaint."""
 
         self._snapshot = snapshot
+        if not self._view_initialized and snapshot is not None:
+            self.fit_world()
+        if self._follow_player:
+            self._center_on_live_player()
         self.update()
 
     def set_translator(self, translator: Translator) -> None:
         """Update the translator instance and repaint localized labels."""
 
         self._translator = translator
+        self._update_zone_tooltip(self._hovered_zone)
         self.update()
 
     def sizeHint(self) -> QSize:
@@ -149,84 +359,189 @@ class PathInspectorWidget(QWidget):
 
         painter.fillRect(0, 0, width, height, BG_COLOR)
 
-        if self._snapshot is None or (
+        snapshot_is_empty = self._snapshot is None or (
             not self._snapshot.terrain_samples
             and self._snapshot.world_position is None
             and self._snapshot.player_x == 0.0
             and self._snapshot.player_y == 0.0
-        ):
+        )
+        if self._scene is None and snapshot_is_empty:
             self._draw_standby_message(painter, width, height)
             painter.end()
             return
 
-        scale, offset_x, offset_y, min_x, max_x, min_y, max_y = self._calculate_viewport_transform(
-            width, height
-        )
+        self._sync_viewport_size()
+        if not self._view_initialized:
+            self.fit_world()
+        scale = self._viewport.scale
+        visible = self._viewport.visible_world_bounds
 
         def to_screen(wx: float, wy: float) -> QPointF:
-            return QPointF(offset_x + wx * scale, offset_y - wy * scale)
+            point = self._viewport.world_to_screen(WorldCoordinate(wx, wy))
+            return QPointF(point.x, point.y)
 
         self._draw_grid_and_axes(
-            painter, width, height, to_screen, min_x, max_x, min_y, max_y, scale
+            painter,
+            width,
+            height,
+            to_screen,
+            visible.minimum_x,
+            visible.maximum_x,
+            visible.minimum_z,
+            visible.maximum_z,
+            scale,
         )
-        self._draw_terrain(painter, to_screen, scale)
-        self._draw_vector_zones(painter, to_screen, scale)
-        self._draw_active_route(painter, to_screen)
-        self._draw_navigation_trajectory(painter, to_screen)
-        self._draw_navmesh_mobs(painter, to_screen)
-        self._draw_player_marker(painter, to_screen, scale)
-        self._draw_elevation_profile(painter, width, height)
-        self._draw_overlay_hud(painter, width)
+        if self._scene is not None:
+            self._draw_world_terrain(painter, to_screen, scale, visible)
+            self._draw_navmesh_passability(painter, to_screen, visible)
+            self._draw_obstacles(painter, to_screen, visible)
+            self._draw_world_zones(painter, to_screen, visible)
+        else:
+            self._draw_terrain(painter, to_screen, scale)
+            self._draw_vector_zones(painter, to_screen, scale)
+        if self._snapshot is not None:
+            self._draw_active_route(painter, to_screen)
+            self._draw_navigation_trajectory(painter, to_screen)
+            self._draw_navmesh_mobs(painter, to_screen)
+            self._draw_player_marker(painter, to_screen, scale)
+            self._draw_elevation_profile(painter, width, height)
+            self._draw_overlay_hud(painter, width)
         self._draw_legend(painter, width, height)
         painter.end()
 
-    def _calculate_viewport_transform(
-        self, width: int, height: int
-    ) -> tuple[float, float, float, float, float, float, float]:
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Keep the inverse transform synchronized with the drawable widget size."""
+
+        self._viewport.resize(event.size().width(), event.size().height())
+        super().resizeEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Reserve RMB for panning and LMB for extracted-zone selection."""
+
+        if event.button() is Qt.MouseButton.RightButton:
+            self._right_drag_anchor = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        if event.button() is Qt.MouseButton.LeftButton:
+            zone = self.zone_at(event.position())
+            if zone is not None:
+                self._selected_zone = zone
+                self.zone_selected.emit(zone)
+                self.update()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Pan an active RMB drag, otherwise update the localized zone tooltip."""
+
+        if self._right_drag_anchor is not None and event.buttons() & Qt.MouseButton.RightButton:
+            delta = event.position() - self._right_drag_anchor
+            self._right_drag_anchor = event.position()
+            self.pan_by_pixels(delta.x(), delta.y())
+            event.accept()
+            return
+        zone = self.zone_at(event.position())
+        if zone is not self._hovered_zone:
+            self._hovered_zone = zone
+            self._update_zone_tooltip(zone)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """Finish a captured RMB pan without running selection hit-testing."""
+
+        if event.button() is Qt.MouseButton.RightButton:
+            self._right_drag_anchor = None
+            self.unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        """Apply smooth, bounded, cursor-centred wheel zoom."""
+
+        steps = event.angleDelta().y() / 120.0
+        if steps == 0.0:
+            event.ignore()
+            return
+        factor = self._viewport.limits.wheel_zoom_factor**steps
+        self.zoom_at(factor, event.position())
+        event.accept()
+
+    def _dynamic_bounds(self) -> WorldBounds | None:
         snapshot = self._snapshot
-        assert snapshot is not None
+        if snapshot is None:
+            return None
 
         xs: list[float] = [snapshot.player_x]
-        ys: list[float] = [snapshot.player_y]
+        zs: list[float] = [snapshot.player_y]
 
-        for wx, wy in snapshot.waypoints:
+        for wx, wz in snapshot.waypoints:
             xs.append(wx)
-            ys.append(wy)
+            zs.append(wz)
 
         for mob in snapshot.navmesh_mobs:
             xs.append(mob.world_x)
-            ys.append(mob.world_z)
+            zs.append(mob.world_z)
 
         for point in snapshot.navigation_trajectory:
             xs.append(point.x)
-            ys.append(point.z)
+            zs.append(point.z)
 
         if snapshot.vector_zone is not None:
             vz = snapshot.vector_zone
             xs.extend([vz.center_x - vz.half_width_pixels, vz.center_x + vz.half_width_pixels])
-            ys.extend([vz.center_y - vz.half_depth_pixels, vz.center_y + vz.half_depth_pixels])
+            zs.extend([vz.center_y - vz.half_depth_pixels, vz.center_y + vz.half_depth_pixels])
         elif snapshot.vector_zones:
             for vz in snapshot.vector_zones[:3]:
                 xs.extend([vz.center_x - vz.half_width_pixels, vz.center_x + vz.half_width_pixels])
-                ys.extend([vz.center_y - vz.half_depth_pixels, vz.center_y + vz.half_depth_pixels])
+                zs.extend([vz.center_y - vz.half_depth_pixels, vz.center_y + vz.half_depth_pixels])
 
         min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
+        min_z, max_z = min(zs), max(zs)
+        half_x = max(MINIMUM_VIEW_EXTENT, (max_x - min_x) * (1.0 + PADDING_FRACTION) / 2.0)
+        half_z = max(MINIMUM_VIEW_EXTENT, (max_z - min_z) * (1.0 + PADDING_FRACTION) / 2.0)
+        center_x = (min_x + max_x) / 2.0
+        center_z = (min_z + max_z) / 2.0
+        return WorldBounds(
+            center_x - half_x,
+            center_z - half_z,
+            center_x + half_x,
+            center_z + half_z,
+        )
 
-        span_x = max(MINIMUM_VIEW_EXTENT * 2.0, (max_x - min_x) * (1.0 + PADDING_FRACTION))
-        span_y = max(MINIMUM_VIEW_EXTENT * 2.0, (max_y - min_y) * (1.0 + PADDING_FRACTION))
+    def _sync_viewport_size(self) -> None:
+        self._viewport.resize(self.width(), self.height())
 
-        center_world_x = (min_x + max_x) / 2.0
-        center_world_y = (min_y + max_y) / 2.0
+    def _center_on_live_player(self) -> None:
+        snapshot = self._snapshot
+        if (
+            snapshot is None
+            or snapshot.position_source is not PositionSource.LIVE
+            or snapshot.world_position is None
+        ):
+            return
+        self._viewport.center_x = snapshot.world_position.x
+        self._viewport.center_z = snapshot.world_position.z
+        self._view_initialized = True
 
-        avail_w = max(10, width - 40)
-        avail_h = max(10, height - 85)
-        scale = min(avail_w / span_x, avail_h / span_y)
-
-        screen_center_x = width / 2.0 - center_world_x * scale
-        screen_center_y = (height - 35) / 2.0 + center_world_y * scale
-
-        return scale, screen_center_x, screen_center_y, min_x, max_x, min_y, max_y
+    def _update_zone_tooltip(self, zone: VectorSpawnZone | None) -> None:
+        if zone is None:
+            self.setToolTip("")
+            return
+        self.setToolTip(
+            self._translator.text(
+                Message.UI_MAP_ZONE_TOOLTIP,
+                monster=zone.monster_name or str(zone.monster_id),
+                identifier=zone.monster_id,
+                capacity=zone.capacity,
+                seconds=zone.respawn_seconds,
+                x=f"{zone.center_x:.1f}",
+                y=f"{zone.center_y:.1f}",
+                z=f"{zone.center_z:.1f}",
+            )
+        )
 
     def _draw_standby_message(self, painter: QPainter, width: int, height: int) -> None:
         painter.setPen(QPen(MUTED_TEXT_COLOR))
@@ -300,7 +615,186 @@ class PathInspectorWidget(QWidget):
         painter.setPen(QPen(AXIS_TEXT_COLOR))
         painter.setFont(QFont("", 8))
         painter.drawText(
-            QRectF(float(width) - 65, 12, 55, 18), Qt.AlignmentFlag.AlignRight, "▲ N (0°)"
+            QRectF(float(width) - 120, 12, 110, 18),
+            Qt.AlignmentFlag.AlignRight,
+            self._translator.text(Message.UI_MAP_NORTH),
+        )
+
+    def _draw_world_terrain(
+        self,
+        painter: QPainter,
+        to_screen: Callable[[float, float], QPointF],
+        scale: float,
+        visible: WorldBounds,
+    ) -> None:
+        scene = self._scene
+        assert scene is not None
+        blocks = scene.visible_terrain_blocks(visible)
+        self._last_visible_terrain_block_count = len(blocks)
+        span = scene.world_map.dimensions.block_span_units
+        for block in blocks:
+            minimum_x = block.block_x * span
+            minimum_z = block.block_z * span
+            rect = QRectF(
+                to_screen(minimum_x, minimum_z + span),
+                to_screen(minimum_x + span, minimum_z),
+            ).normalized()
+            if span * scale < TERRAIN_DETAIL_MINIMUM_PIXELS:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(self._terrain_average_color(block)))
+                painter.drawRect(rect)
+                continue
+            painter.drawImage(rect, self._terrain_image(block))
+
+    def _terrain_average_color(self, block: LandBlock) -> QColor:
+        key = block.block_x, block.block_z
+        cached = self._terrain_average_colors.get(key)
+        if cached is not None:
+            return cached
+        stride = max(1, len(block.heights) // 128)
+        sampled = block.heights[::stride]
+        average = sum(sampled) / max(len(sampled), 1)
+        intensity = 0.5 + math.atan(average / 200.0) / math.pi
+        color = _lerp_color(TERRAIN_LOW_COLOR, TERRAIN_HIGH_COLOR, intensity)
+        self._terrain_average_colors[key] = color
+        return color
+
+    def _terrain_image(self, block: LandBlock) -> QImage:
+        key = block.block_x, block.block_z
+        cached = self._terrain_images.pop(key, None)
+        if cached is not None:
+            self._terrain_images[key] = cached
+            return cached
+
+        side = LAND_BLOCK_VERTICES_PER_SIDE
+        image = QImage(side, side, QImage.Format.Format_ARGB32_Premultiplied)
+        minimum = min(block.heights)
+        maximum = max(block.heights)
+        height_span = max(maximum - minimum, 1.0)
+        for row in range(side):
+            for column in range(side):
+                height = block.height(column, row)
+                color = _lerp_color(
+                    TERRAIN_LOW_COLOR,
+                    TERRAIN_HIGH_COLOR,
+                    (height - minimum) / height_span,
+                )
+                image.setPixelColor(column, side - 1 - row, color)
+        self._terrain_images[key] = image
+        while len(self._terrain_images) > TERRAIN_CACHE_LIMIT:
+            self._terrain_images.popitem(last=False)
+        return image
+
+    def _draw_navmesh_passability(
+        self,
+        painter: QPainter,
+        to_screen: Callable[[float, float], QPointF],
+        visible: WorldBounds,
+    ) -> None:
+        scene = self._scene
+        assert scene is not None
+        polygons = scene.visible_navmesh_polygons(visible)
+        if not polygons:
+            return
+        stride = max(1, math.ceil(len(polygons) / MAXIMUM_NAVMESH_POLYGONS_PER_FRAME))
+        painter.setPen(QPen(NAVMESH_EDGE_COLOR, 0.75))
+        painter.setBrush(QBrush(NAVMESH_FILL_COLOR))
+        for polygon in polygons[::stride]:
+            painter.drawPolygon(self._navmesh_polygon(polygon, to_screen))
+
+    @staticmethod
+    def _navmesh_polygon(
+        polygon: NavMeshPolygon,
+        to_screen: Callable[[float, float], QPointF],
+    ) -> QPolygonF:
+        triangle = polygon.triangle
+        return QPolygonF(
+            [
+                to_screen(triangle.first.x, triangle.first.z),
+                to_screen(triangle.second.x, triangle.second.z),
+                to_screen(triangle.third.x, triangle.third.z),
+            ]
+        )
+
+    def _draw_obstacles(
+        self,
+        painter: QPainter,
+        to_screen: Callable[[float, float], QPointF],
+        visible: WorldBounds,
+    ) -> None:
+        scene = self._scene
+        assert scene is not None
+        for obstacle in scene.world_map.obstacles:
+            bounds = WorldBounds(
+                obstacle.minimum_x,
+                obstacle.minimum_z,
+                obstacle.maximum_x,
+                obstacle.maximum_z,
+            )
+            if not bounds.intersects(visible):
+                continue
+            color = (
+                OBJECT_OBSTACLE_COLOR
+                if obstacle.kind is ObstacleKind.OBJECT
+                else SLOPE_OBSTACLE_COLOR
+            )
+            painter.setPen(QPen(color, 1.0))
+            painter.setBrush(QBrush(_with_alpha(color, 45)))
+            painter.drawRect(
+                QRectF(
+                    to_screen(obstacle.minimum_x, obstacle.maximum_z),
+                    to_screen(obstacle.maximum_x, obstacle.minimum_z),
+                ).normalized()
+            )
+
+    def _draw_world_zones(
+        self,
+        painter: QPainter,
+        to_screen: Callable[[float, float], QPointF],
+        visible: WorldBounds,
+    ) -> None:
+        scene = self._scene
+        assert scene is not None
+        for zone in scene.visible_zones(visible):
+            is_selected = zone == self._selected_zone
+            is_active = self._is_active_zone(zone)
+            color = SELECTED_ZONE_COLOR if is_selected else ZONE_COLOR
+            alpha = 235 if is_selected or is_active else 115
+            pen_width = 2.5 if is_selected else 2.0 if is_active else 1.0
+            pen_style = Qt.PenStyle.SolidLine if is_selected or is_active else Qt.PenStyle.DashLine
+            rect = QRectF(
+                to_screen(zone.minimum_x, zone.maximum_z),
+                to_screen(zone.maximum_x, zone.minimum_z),
+            ).normalized()
+            painter.setPen(QPen(_with_alpha(color, alpha), pen_width, pen_style))
+            painter.setBrush(QBrush(_with_alpha(color, 45 if is_selected else 25)))
+            painter.drawRect(rect)
+            if is_selected or is_active or (rect.width() >= 70.0 and rect.height() >= 30.0):
+                painter.setPen(QPen(_with_alpha(color, alpha)))
+                painter.setFont(
+                    QFont(
+                        "",
+                        8,
+                        QFont.Weight.Bold if is_selected or is_active else QFont.Weight.Normal,
+                    )
+                )
+                label = zone.monster_name or str(zone.monster_id)
+                if not is_selected and not is_active:
+                    label = f"{label} ({zone.capacity})"
+                painter.drawText(rect.topLeft() + QPointF(4.0, 13.0), label)
+
+    def _is_active_zone(self, zone: VectorSpawnZone) -> bool:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return False
+        candidates = (
+            () if snapshot.vector_zone is None else (snapshot.vector_zone,)
+        ) + snapshot.vector_zones
+        return any(
+            candidate.monster_name == (zone.monster_name or str(zone.monster_id))
+            and math.isclose(candidate.center_x, zone.center_x)
+            and math.isclose(candidate.center_y, zone.center_z)
+            for candidate in candidates
         )
 
     def _draw_terrain(
@@ -543,19 +1037,22 @@ class PathInspectorWidget(QWidget):
         snapshot = self._snapshot
         assert snapshot is not None
 
-        compass = _heading_to_compass(snapshot.heading_degrees)
         hud_w = min(float(width - 20), HUD_MAXIMUM_WIDTH_PIXELS)
         gps_status = (
             self._translator.text(Message.UI_GPS_LIVE)
             if snapshot.position_source is PositionSource.LIVE
-            else self._translator.text(Message.UI_GPS_OFFLINE)
+            else self._translator.text(Message.UI_GPS_UNAVAILABLE)
         )
         rows: list[tuple[str, QColor]] = [
             (
-                f"GPS: ({snapshot.player_x:+.1f}, {snapshot.player_y:+.1f})  "
-                f"Facing: {snapshot.heading_degrees:.0f}° ({compass})  "
-                f"Waypoints: {len(snapshot.waypoints)}  "
-                f"Status: {gps_status}",
+                self._translator.text(
+                    Message.UI_MAP_HUD,
+                    x=f"{snapshot.player_x:+.1f}",
+                    z=f"{snapshot.player_y:+.1f}",
+                    heading=f"{snapshot.heading_degrees:.0f}",
+                    count=len(snapshot.waypoints),
+                    status=gps_status,
+                ),
                 TEXT_COLOR,
             )
         ]
@@ -613,10 +1110,3 @@ def _gps_error_message(code: PositionReadErrorCode) -> Message:
             Message.UI_GPS_ERROR_INVALID_PROFILE_CONFIGURATION
         ),
     }[code]
-
-
-def _heading_to_compass(heading: float) -> str:
-    norm = (heading % 360.0 + 360.0) % 360.0
-    directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-    index = int((norm + 22.5) / 45.0) % 8
-    return directions[index]

@@ -77,6 +77,13 @@ from flyff_bot.features.navigation.teleporter_models import (
     TeleporterCatalog,
     TeleporterDestination,
 )
+from flyff_bot.features.navigation.vector_navigation import VectorNavigationRequest
+from flyff_bot.features.navigation.world_extractor import (
+    VectorSpawnZone,
+    WorldDimensions,
+    WorldVectorMap,
+    save_world_map,
+)
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import TargetVerifier
@@ -560,6 +567,89 @@ def test_main_window_navigation_tab_controls() -> None:
     application.processEvents()
     assert window.world_data_button.isVisibleTo(window)
     assert window.path_inspector.isVisibleTo(window)
+
+
+def test_navigation_map_follow_and_fit_controls_are_localized() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window_en = MainWindow(Translator(Language.ENGLISH))
+    window_de = MainWindow(Translator(Language.GERMAN))
+
+    assert window_en.follow_player_button.text() == "Follow Player"
+    assert window_en.fit_world_button.text() == "Fit World"
+    assert window_de.follow_player_button.text() == "Spieler folgen"
+    assert "Pos1" in window_de.follow_player_button.toolTip()
+
+
+def test_navigation_tab_lazily_loads_the_restored_world_scene_and_map_click_activates_camp(
+    tmp_path: Path,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    zone = VectorSpawnZone(
+        1453,
+        50.0,
+        10.0,
+        60.0,
+        40.0,
+        50.0,
+        60.0,
+        70.0,
+        12,
+        30,
+        "Flame",
+    )
+    save_world_map(
+        WorldVectorMap("WdTest", WorldDimensions(1, 1, 1.0), zones=(zone,)),
+        tmp_path / "worlds",
+    )
+    window = MainWindow(
+        Translator(Language.ENGLISH),
+        client_world_root=tmp_path / "client",
+        world_map_dir=tmp_path / "worlds",
+    )
+    requests: list[object] = []
+    window.vector_navigation_requested.connect(requests.append)
+    assert window.world_data_dialog is None
+
+    window.show()
+    window.tab_widget.setCurrentIndex(DashboardTab.NAVIGATION_WORLD)
+    application.processEvents()
+
+    assert window.world_data_dialog is not None
+    assert window.path_inspector.world_map is not None
+    assert window.path_inspector.world_map.world_name == "WdTest"
+    point = window.path_inspector.world_to_screen(zone.centroid).toPoint()
+    QTest.mouseClick(window.path_inspector, Qt.MouseButton.LeftButton, pos=point)
+    application.processEvents()
+
+    assert len(requests) == 1
+    request = requests[0]
+    assert isinstance(request, VectorNavigationRequest)
+    assert request.anchor_zone == zone
+    assert request.active_zones == (zone,)
+
+
+def test_follow_player_control_centers_on_each_live_navigation_update() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.follow_player_button.click()
+
+    for x, z in ((10.0, 20.0), (90.0, 120.0)):
+        window.update_dashboard(
+            DashboardUpdate(
+                _world_state(),
+                BotStatus.ACTIVE,
+                navigation=NavigationSnapshot(
+                    x,
+                    z,
+                    45.0,
+                    position_source=PositionSource.LIVE,
+                    world_position=WorldPosition(x, 5.0, z),
+                ),
+            )
+        )
+        application.processEvents()
+        assert window.path_inspector.view_center.x == pytest.approx(x)
+        assert window.path_inspector.view_center.z == pytest.approx(z)
 
 
 def test_main_window_shows_live_gps_and_world_coordinates() -> None:

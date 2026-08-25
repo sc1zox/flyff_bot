@@ -25,6 +25,7 @@ class TargetAction:
     target_id: int
     target_pos: Position | None
     expected_cost: float | None = None
+    attack_point: AttackPointAction | None = None
     kind: TacticalActionKind = TacticalActionKind.TARGET
 
 

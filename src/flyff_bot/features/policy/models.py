@@ -20,6 +20,7 @@ from flyff_bot.features.policy.action_payloads import (
     CorridorAction,
     InteractAction,
     NavigateAction,
+    TacticalActionKind,
     TargetAction,
     WaitAction,
 )
@@ -29,6 +30,9 @@ __all__ = [
     "CorridorAction",
     "InteractAction",
     "NavigateAction",
+    "StrategicDecision",
+    "StrategicGoalKind",
+    "TacticalActionKind",
     "TargetAction",
     "WaitAction",
 ]
@@ -37,15 +41,28 @@ POLICY_LATENCY_BUDGET_SECONDS = 0.005
 DEFAULT_POLICY_WAIT_SECONDS = 0.1
 
 
-class TacticalActionKind(StrEnum):
-    """The discrete tactical intents exposed to policies and future RL environments."""
+class StrategicGoalKind(StrEnum):
+    """Macro sub-goals selected only by the high-level policy tier."""
 
     TARGET = "target"
     NAVIGATE = "navigate"
-    ATTACK_POINT = "attack_point"
-    CORRIDOR = "corridor"
     INTERACT = "interact"
     WAIT = "wait"
+
+
+@dataclass(frozen=True, slots=True)
+class StrategicDecision:
+    """An immutable high-level intent consumed by the mid-level tactical tier."""
+
+    goal: StrategicGoalKind
+    reason: str
+    quest_id: str | None = None
+    objective_index: int = 0
+    progress: float = 0.0
+    destination: tuple[float, float, float] | None = None
+    target_candidate_index: int | None = None
+    interaction_target_id: str | None = None
+    interaction_type: str | None = None
 
 
 TacticalAction = (
@@ -82,12 +99,22 @@ class PolicyCandidate:
 
 @dataclass(frozen=True, slots=True)
 class PolicyContext:
-    """The deterministic action mask and session facts supplied to every policy."""
+    """Prevalidated options and session facts supplied to every policy.
+
+    Coordinates, corridor identifiers, and interaction identifiers are populated only by the
+    deterministic navigation/quest layers. A policy may rank these values but cannot invent new
+    ones and still pass the runner's final mask validation.
+    """
 
     candidates: tuple[PolicyCandidate, ...]
     allowed_class_names: frozenset[str]
     is_locked_out: tuple[bool, ...]
     feature_matrix: npt.NDArray[np.float64] | None = None
+    valid_destinations: frozenset[tuple[float, float, float]] = frozenset()
+    valid_corridor_ids: frozenset[str] = frozenset()
+    valid_interactions: frozenset[tuple[str, str]] = frozenset()
+    valid_attack_points: tuple[AttackPointAction, ...] = ()
+    macro_event_token: tuple[object, ...] = ()
 
 
 class TacticalPolicy(Protocol):

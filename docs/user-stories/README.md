@@ -56,6 +56,7 @@ stories are moved to `docs/user-stories/completed/`.
 - [x] [**US-032: Tesseract OCR target name verification and robust whitelist matching**](completed/US-032-tesseract-ocr-target-name-verification.md) — Robust OCR-based target name verification replacing rigid template matching.
 - [ ] [**US-033: Automated Tesseract OCR installation via winget and live reload**](obsolete/US-033-tesseract-ocr-automated-installation-and-detection.md) — One-click background `winget` installation of Tesseract OCR with UI guidance and non-restarting live reload.
 - [x] [**US-050: Responsive tabbed dashboard and UI design overhaul**](completed/US-050-responsive-tabbed-dashboard-and-ui-refactoring.md) — Pinned session controls above five scrollable functional tabs, stable geometry, localized switch controls, and independent live state feeds.
+- [x] [**US-074: Interactive world map and spawn zone inspector**](completed/US-074-interactive-world-map-and-spawn-zone-visualizer.md) — Extracted terrain, NavMesh, and spawn-zone visualization with guarded pan/zoom, follow mode, tooltips, and camp selection. Synthetic render timing passed; Windows/live-client validation remains open.
 
 ### Phase 5: Navigation Accuracy (Planned)
 
@@ -96,7 +97,7 @@ Focuses on tactical optimization, offline transition modeling, empirical NavMesh
 - [x] [**US-070: Learned attack point positioning and local waypoint optimization**](completed/US-070-learned-attack-point-and-local-waypoint-optimization.md) — Deterministic NavMesh attack-point sampling, bounded multi-criteria scoring, strict corridor containment, dynamic target replanning, and direct-Funnel fallback. Live Windows validation remains outstanding.
 - [x] [**US-071: Unified RL environment formulation, state-action space, and progress reward modeling**](completed/US-071-unified-rl-environment-and-reward.md) — Standardized MDP observation space, discrete tactical actions, action masking, progress rewards, telemetry transition exporter, and an offline Gymnasium-compatible adapter.
 - [x] [**US-072: Fast offline farming, navigation, and quest dynamics simulator**](completed/US-072-offline-farming-and-navigation-simulator.md) — 100x+ faster-than-real-time Python simulator modeling NavMesh pathing, mob spawns, combat TTK, stuck dynamics, and quests calibrated against real telemetry.
-- [ ] [**US-073: Hierarchical RL policy for unified farming, navigation, and quest optimization**](US-073-hierarchical-rl-farming-navigation-and-quest-policy.md) — Two-tier hierarchical RL policy (High-Level Strategic / Mid-Level Tactical) trained in simulation to maximize farming KPM and quest progress per unit time.
+- [x] [**US-073: Hierarchical RL policy for unified farming, navigation, and quest optimization**](completed/US-073-hierarchical-rl-farming-navigation-and-quest-policy.md) — Two-tier hierarchical RL policy (High-Level Strategic / Mid-Level Tactical) trained in simulation with masking, ONNX export, deterministic fallback, and synthetic latency evidence; live-client validation remains open.
 
 ### Completed Teleport Reset
 

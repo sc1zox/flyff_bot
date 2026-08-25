@@ -8,6 +8,7 @@ from typing import Protocol
 
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.policy.heuristic import HeuristicPolicy
+from flyff_bot.features.policy.hierarchical_masking import validate_policy_action
 from flyff_bot.features.policy.models import (
     POLICY_LATENCY_BUDGET_SECONDS,
     PolicyContext,
@@ -56,9 +57,11 @@ class PolicyRunner:
                 elapsed = self._monotonic() - started_at
                 if elapsed > POLICY_LATENCY_BUDGET_SECONDS:
                     raise TimeoutError("policy_latency_budget_exceeded")
-                if action is not None:
+                if action is not None and validate_policy_action(action, context):
                     self.last_fallback_reason = None
                     return action
+                if action is not None:
+                    raise ValueError("invalid_or_masked_action")
                 self.last_fallback_reason = "no_valid_action"
             except (AttributeError, TypeError, ValueError, OSError, TimeoutError) as error:
                 self.last_fallback_reason = str(error) or type(error).__name__

@@ -84,7 +84,7 @@ from flyff_bot.features.policy.models import (
     PolicyContext,
     TargetAction,
 )
-from flyff_bot.features.policy.runner import PolicyRunner
+from flyff_bot.features.policy.runner import LearnedPolicyProtocol, PolicyRunner
 from flyff_bot.features.telemetry.models import CombatVerificationSource
 from flyff_bot.features.vision.models import (
     CapturedFrame,
@@ -315,13 +315,21 @@ class FarmingOrchestrator:
         self._pathing_engagement_distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
         self._pathing_engagement_profile: CombatClassProfile = MELEE_COMBAT_CLASS_PROFILE
         self._policy_mode = self._config.policy_mode
-        self._policy_runner = PolicyRunner()
         self._policy_learned_error: str | None = None
         if self._config.policy_model_directory:
             try:
-                from flyff_bot.features.policy.learned import LearnedPolicy
+                model_directory = Path(self._config.policy_model_directory)
+                learned: LearnedPolicyProtocol
+                if (model_directory / "hierarchical-metadata.json").is_file():
+                    from flyff_bot.features.policy.hierarchical_onnx import (
+                        HierarchicalOnnxPolicy,
+                    )
 
-                learned = LearnedPolicy(Path(self._config.policy_model_directory))
+                    learned = HierarchicalOnnxPolicy(model_directory)
+                else:
+                    from flyff_bot.features.policy.learned import LearnedPolicy
+
+                    learned = LearnedPolicy(model_directory)
             except (OSError, ValueError) as error:
                 self._policy_learned_error = str(error) or type(error).__name__
                 self._learned_policy = None
@@ -329,6 +337,7 @@ class FarmingOrchestrator:
                 self._learned_policy = learned
         else:
             self._learned_policy = None
+        self._policy_runner = PolicyRunner(self._learned_policy)
         self._last_policy_action: TargetAction | None = None
 
     @property
@@ -577,6 +586,8 @@ class FarmingOrchestrator:
         context = PolicyContext(candidates, self._config.combat.allowed_class_names, locked_out)
         action = self._policy_runner.evaluate(self._state, context)
         self._last_policy_action = action if isinstance(action, TargetAction) else None
+        if self._policy_mode is PolicyRuntimeMode.ML_SHADOW:
+            return None
         if not isinstance(action, TargetAction):
             return None
         for candidate in candidates:

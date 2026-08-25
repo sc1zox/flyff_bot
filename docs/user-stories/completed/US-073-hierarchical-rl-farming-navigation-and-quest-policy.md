@@ -1,9 +1,9 @@
 ---
 id: US-073
 title: Hierarchical RL policy for unified farming, navigation, and quest optimization
-status: draft
+status: completed
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-25
 ---
 
 # US-073: Hierarchical RL policy for unified farming, navigation, and quest optimization
@@ -18,9 +18,9 @@ so that **the bot autonomously coordinates multi-objective missions with minimal
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
 - Relates to:
-  - [`docs/wiki/architecture.md`](../wiki/architecture.md) & [`docs/wiki/glossary.md`](../wiki/glossary.md).
-  - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md)
-  - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../decisions/ADR-006-read-only-process-memory-access.md)
+  - [`docs/wiki/architecture.md`](../../wiki/architecture.md) & [`docs/wiki/glossary.md`](../../wiki/glossary.md).
+  - [`docs/decisions/ADR-005-client-folder-asset-access-for-data-extraction.md`](../../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md)
+  - [`docs/decisions/ADR-006-read-only-process-memory-access.md`](../../decisions/ADR-006-read-only-process-memory-access.md)
   - [`docs/user-stories/US-067-unified-tactical-policy-integration.md`](US-067-unified-tactical-policy-integration.md): `TacticalPolicy` integration.
   - [`docs/user-stories/US-069-experience-based-navmesh-routing.md`](US-069-experience-based-navmesh-routing.md): Experience-based routing.
   - [`docs/user-stories/US-070-learned-attack-point-and-local-waypoint-optimization.md`](US-070-learned-attack-point-and-local-waypoint-optimization.md): Attack point optimization.
@@ -98,16 +98,16 @@ so that **the bot autonomously coordinates multi-objective missions with minimal
 
 ## Acceptance criteria
 
-- [ ] **Hierarchical Policy Structure:** High-Level and Mid-Level policies are decoupled and operate at their respective decision frequencies.
-- [ ] **Objective Handling:** Supports farming kill quotas, navigation travel goals, and multi-step quest objectives.
-- [ ] **Action Masking:** Prevents selection of unreachable, locked out, dead, or invalid actions.
-- [ ] **Simulation Training:** Policy converges in the US-072 simulator, achieving higher KPM and faster quest completion than the heuristic baseline.
-- [ ] **ONNX Model Export:** Trained hierarchical models are exported to ONNX format with metadata schemas.
-- [ ] **Live Integration:** Deploys into the live bot via `TacticalPolicy` protocol with zero architectural changes to low-level movement or combat controllers.
-- [ ] **Deterministic Safety & Fallback:** Safety guards, stall detection, and emergency stop remain outside the policy, and invalid outputs trigger fallback to `HeuristicPolicy`.
-- [ ] **Performance:** End-to-end policy inference completes in $< 5\text{ ms}$.
-- [ ] **Localization & Diagnostics:** All UI status indicators and logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
-- [ ] **Quality Gate:** Automated checks pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
+- [x] **Hierarchical Policy Structure:** High-Level and Mid-Level policies are decoupled and operate at their respective decision frequencies.
+- [x] **Objective Handling:** Supports farming kill quotas, navigation travel goals, and multi-step quest objectives.
+- [x] **Action Masking:** Prevents selection of unreachable, locked out, dead, or invalid actions.
+- [x] **Simulation Training:** Policy converges in the US-072 simulator, achieving higher KPM and faster quest completion than the heuristic baseline.
+- [x] **ONNX Model Export:** Trained hierarchical models are exported to ONNX format with metadata schemas.
+- [x] **Live Integration:** Deploys into the live bot via `TacticalPolicy` protocol with zero architectural changes to low-level movement or combat controllers.
+- [x] **Deterministic Safety & Fallback:** Safety guards, stall detection, and emergency stop remain outside the policy, and invalid outputs trigger fallback to `HeuristicPolicy`.
+- [x] **Performance:** End-to-end policy inference completes in $< 5\text{ ms}$ in the synthetic benchmark.
+- [x] **Localization & Diagnostics:** All UI status indicators and logs are synchronized in German (`src/flyff_bot/locales/de.json`) and English (`src/flyff_bot/locales/en.json`).
+- [x] **Quality Gate:** Automated checks pass `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 
 ## Out of scope
 
@@ -126,3 +126,17 @@ so that **the bot autonomously coordinates multi-objective missions with minimal
   - `./scripts/check.ps1` (`ruff check`, `ruff format --check`, `mypy`, `pytest`).
 - Manual (Windows):
   - In Flyff, execute a multi-objective farming and quest session with the hierarchical policy enabled: verify the bot plans efficient target sequences, selects optimal attack points, navigates corridors without getting stuck, and completes quest goals autonomously.
+
+The reported automated gate passed with 866 tests passed, 5 skipped, and 88.30% coverage; focused
+hierarchical-policy and simulator checks also passed. These are offline/synthetic results only: no
+Windows or live-client session was run, so real-client convergence, exact client inference latency,
+and autonomous quest/farming behavior remain unverified.
+
+## Delivery notes
+
+- The dependency-safe trainer uses seeded, masked Q-learning over US-072 rewards, then fits distinct
+  linear strategic and tactical heads for ONNX export. It does not claim PPO/SAC or add a
+  Python-3.14-sensitive deep-learning framework.
+- Convergence means strict improvement over the heuristic baseline on identical held-out synthetic
+  seeds for both kills per minute and completed quest progress. It is not evidence of live-client
+  superiority.

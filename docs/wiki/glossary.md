@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-24
+updated: 2026-08-25
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -417,3 +417,11 @@ related:
   It is exported for training only and never dispatches input.
 - **Tactical action mask** — The deterministic legality vector for the seven tactical RL actions.
   Dead, locked-out, unreachable, out-of-leash, or position-invalid targets cannot be selected.
+- **Hierarchical policy** — The US-073 two-tier boundary where a macro-event-driven strategic head
+  selects a sub-goal and a tactical head selects a prevalidated action; deterministic controllers
+  and safety guards remain outside it.
+- **World-map scene** — The read-only Qt scene built from one `WorldVectorMap` and optional baked
+  NavMesh, rendering extracted terrain, passability, routes, and spawn zones with culling and X/Z
+  hit-testing without injecting input into the client.
+- **Follow mode** — Map presentation mode that recenters on finite live position snapshots and
+  retains player heading; right-button dragging disables it.

@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-24
+updated: 2026-08-25
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -1979,3 +1979,34 @@ No verified player-stat field offsets exist in repository evidence today. The sh
 therefore intentionally empty: production sessions receive typed unavailable snapshots rather than
 guessed addresses or fabricated values. Adding x86/x64 profiles requires new static-analysis evidence
 and controlled in-game verification; until then this story cannot be marked complete.
+
+## Two-tier hierarchical policy (US-073, completed)
+
+`features.policy.hierarchical` separates macro strategic decisions from tactical action selection.
+The high-level policy retains a target until a macro-event token changes; the mid-level policy then
+chooses only a prevalidated attack point, NavMesh corridor, local destination, or interaction.
+`PolicyRunner` validates learned output against deterministic masks and falls back to `HeuristicPolicy`
+for invalid, missing, late, NaN, or faulting output. Movement, combat, stall recovery, foreground,
+and emergency-stop safeguards remain outside the learned heads.
+
+`hierarchical_training` runs masked Q-learning against the seeded US-072 simulator, compares KPM
+and objective throughput with a paired baseline, and exports distinct digest-checked linear ONNX
+heads with metadata.
+Automated tests cover dispatch, objectives, masking, fallback, export, and a synthetic five-
+millisecond inference budget. The 2026-08-25 gate passed at 866 passed, 5 skipped, and 88.30%
+coverage. These are offline results; real-client convergence and exact client latency remain
+unverified.
+
+## Interactive world-map inspector (US-074, completed)
+
+`WorldMapScene` and `PathInspectorWidget` provide a Qt map over an extracted `WorldVectorMap` and
+optional baked NavMesh. Terrain, passability, routes, trajectories, and spawn zones use distinct
+layers; transforms support bounded cursor-anchored zoom and right-button panning. Right-drag emits
+no camp-selection event and suspends follow mode. Follow mode recenters on finite live position
+snapshots while retaining heading; left-click selects the smallest containing zone and hover text
+shows available metadata. Terrain, polygons, and zones are frustum-culled before drawing.
+
+Automated Qt tests cover transforms, input semantics, culling, metadata, follow updates,
+localization, and a synthetic warm-render budget above 30 FPS. This is not a live map-FPS result:
+no Windows/client walkthrough was run, so live GPS convergence and large-region client performance
+remain unverified.

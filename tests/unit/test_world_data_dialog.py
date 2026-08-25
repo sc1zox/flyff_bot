@@ -19,11 +19,17 @@ from world_fixtures import (
     write_world_directory,
 )
 
+from flyff_bot.features.navigation.navmesh import NavMeshBaker
+from flyff_bot.features.navigation.navmesh_persistence import (
+    save_baked_navmesh,
+    world_navmesh_path,
+)
 from flyff_bot.features.navigation.vector_navigation import VectorNavigationRequest, ZoneGoal
 from flyff_bot.features.navigation.world_extractor import (
     WorldExtractionSummary,
     load_world_map,
 )
+from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
 from flyff_bot.i18n import Language, Translator
 from flyff_bot.ui.world_data_dialog import (
     ALL_TARGET_MOBS,
@@ -201,6 +207,54 @@ def test_several_checked_zones_are_all_armed_for_sequential_farming(
     assert request.anchor_zone is not None
     assert request.anchor_zone.monster_name == "Flame"
     assert "2" in dialog.status_label.text()
+
+
+def test_map_click_makes_that_camp_first_without_dropping_other_checked_zones(
+    client_root: Path, tmp_path: Path
+) -> None:
+    dialog = _dialog(client_root, tmp_path)
+    _extract(dialog, tmp_path / "worlds")
+    _set_checked(dialog, 0, True)
+    _set_checked(dialog, 1, True)
+    requests: list[object] = []
+    dialog.vector_navigation_requested.connect(requests.append)
+    assert dialog.loaded_map is not None
+
+    dialog.activate_zone(dialog.loaded_map.zones[1])
+
+    request = requests[0]
+    assert isinstance(request, VectorNavigationRequest)
+    assert [zone.monster_name for zone in request.active_zones] == ["Rapra", "Flame"]
+    assert request.anchor_zone is not None
+    assert request.anchor_zone.monster_name == "Rapra"
+    assert "Rapra" in dialog.status_label.text()
+
+
+def test_selected_world_map_loads_its_sibling_navmesh_for_visualization(
+    client_root: Path, tmp_path: Path
+) -> None:
+    dialog = _dialog(client_root, tmp_path)
+    _extract(dialog, tmp_path / "worlds")
+    mesh = NavMeshBaker().bake(
+        (
+            WorldTriangle(
+                WorldVertex(0.0, 100.0, 0.0),
+                WorldVertex(0.0, 100.0, 20.0),
+                WorldVertex(20.0, 100.0, 0.0),
+                "ground",
+            ),
+        )
+    )
+    save_baked_navmesh(mesh, world_navmesh_path(tmp_path / "worlds", "wdtest"))
+    scenes: list[tuple[object, object]] = []
+    dialog.world_map_changed.connect(lambda world_map, navmesh: scenes.append((world_map, navmesh)))
+
+    dialog.refresh()
+
+    assert dialog.map_selector.count() == 1
+    assert dialog.loaded_navmesh is not None
+    assert len(dialog.loaded_navmesh.polygons) == 1
+    assert scenes[-1] == (dialog.loaded_map, dialog.loaded_navmesh)
 
 
 def test_activation_is_refused_while_no_zone_is_checked(client_root: Path, tmp_path: Path) -> None:

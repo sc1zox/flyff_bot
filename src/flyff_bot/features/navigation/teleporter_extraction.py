@@ -371,5 +371,5 @@ def load_teleporter_catalog(path: Path) -> TeleporterCatalog:
             if isinstance(record, dict)
         )
         return TeleporterCatalog(destinations)
-    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except OSError, json.JSONDecodeError, KeyError, TypeError, ValueError:
         return TeleporterCatalog(())

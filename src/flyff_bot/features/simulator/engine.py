@@ -184,12 +184,15 @@ class FarmingSimulator:
         truncated = not terminated and self._elapsed_seconds >= (
             self._config.maximum_episode_seconds
         )
+        completed_count = len([item for item in self._progress if item])
         reward = self._reward(
             kill_count_delta=self._kill_count - self._previous_kill_count,
-            completed_count=len([item for item in self._progress if item]),
+            completed_count=completed_count,
             previous_completed_count=self._previous_completed_count,
             failed_action=failed_action,
         )
+        self._previous_kill_count = self._kill_count
+        self._previous_completed_count = completed_count
         step = self.step_result(reward, terminated, truncated, tuple(events))
         return (
             step.observation,
@@ -218,7 +221,22 @@ class FarmingSimulator:
     def action_mask(self) -> tuple[bool, ...]:
         """Return deterministic validity for each simulator action."""
 
-        return (False, False, True, True)
+        objective = self._active_objective()
+        alive_monsters = any(
+            monster.lifecycle is MonsterLifecycle.ALIVE for monster in self._monsters
+        )
+        target_selected = self._target is not None and self._target.lifecycle in (
+            MonsterLifecycle.ALIVE,
+            MonsterLifecycle.IN_COMBAT,
+        )
+        destination = self._objective_destination()
+        interaction_ready = objective is not None and self._objective_ready(objective)
+        return (
+            alive_monsters and not target_selected,
+            destination is not None and not interaction_ready,
+            interaction_ready,
+            True,
+        )
 
     @property
     def metrics(self) -> SimulationMetrics:
@@ -381,10 +399,10 @@ class FarmingSimulator:
         self._recovery_seconds = max(0.0, self._recovery_seconds - self._config.tick_seconds)
 
     def _advance_along(self, goal_x: float, goal_z: float, available_seconds: float) -> None:
-        if available_seconds <= 0.0:
-            return
         bearing = self._bearing(goal_x, goal_z)
         self._heading = bearing
+        if available_seconds <= 0.0:
+            return
         leg_distance = min(available_seconds * self.nominal_speed, self._distance(goal_x, goal_z))
         stuck = self._random.random() < (self._config.stuck_probability_per_unit * leg_distance)
         if stuck:
@@ -531,6 +549,7 @@ class FarmingSimulator:
             kill_count_delta
             + (completed_count - previous_completed_count) * 2.0
             - float(failed_action) * 0.25
+            - self._config.tick_seconds * 0.01
         )
 
     def _spawn_monster(self, zone: VectorSpawnZone, zone_index: int) -> SimulatedMonster:

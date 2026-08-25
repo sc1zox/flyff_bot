@@ -222,6 +222,8 @@ class MainWindow(QMainWindow):
         self._map_window = self._navigation.map_window
         self._popout_map_button = self._navigation.popout_button
         self._world_data_button = self._navigation.world_data_button
+        self._follow_player_button = self._navigation.follow_button
+        self._fit_world_button = self._navigation.fit_button
         self._teardowns: list[Callable[[], None]] = []
         self._setup_wizard: SetupWizard | None = None
         self._build_setup_menu()
@@ -360,6 +362,14 @@ class MainWindow(QMainWindow):
     @property
     def world_data_button(self) -> QPushButton:
         return self._world_data_button
+
+    @property
+    def follow_player_button(self) -> QPushButton:
+        return self._follow_player_button
+
+    @property
+    def fit_world_button(self) -> QPushButton:
+        return self._fit_world_button
 
     @property
     def world_data_dialog(self) -> WorldDataDialog | None:
@@ -689,6 +699,7 @@ class MainWindow(QMainWindow):
         self._camera_preview_toggle.toggled.connect(self._update_overlay_visibility)
         self._popout_map_button.clicked.connect(self._toggle_map_popout)
         self._world_data_button.clicked.connect(self._on_world_data_clicked)
+        self._tab_widget.currentChanged.connect(self._on_tab_changed)
         self._map_window.closed.connect(self._on_map_window_closed)
         self._map_window.emergency_stop_requested.connect(self._request_emergency_stop)
         self._powerup_panel.config_changed.connect(self._on_powerup_config_changed)
@@ -770,6 +781,14 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_world_data_clicked(self) -> None:
+        self._ensure_navigation_controller().show_world_data()
+
+    @Slot(int)
+    def _on_tab_changed(self, index: int) -> None:
+        if index == int(DashboardTab.NAVIGATION_WORLD) and self.isVisible():
+            self._ensure_navigation_controller()
+
+    def _ensure_navigation_controller(self) -> NavigationController:
         if self._navigation_controller is None:
             controller = NavigationController(
                 translator=self._translator,
@@ -782,7 +801,7 @@ class MainWindow(QMainWindow):
             controller.dialog.vector_navigation_requested.connect(self.vector_navigation_requested)
             controller.dialog.vector_navigation_cleared.connect(self.vector_navigation_cleared)
             self._navigation_controller = controller
-        self._navigation_controller.show_world_data()
+        return self._navigation_controller
 
     def _build_setup_menu(self) -> None:
         menu_bar = self.menuBar()
