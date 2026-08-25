@@ -22,10 +22,18 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class TargetAction:
+    """One selected target candidate.
+
+    ``target_id`` is the detector class identity and is ambiguous whenever two mobs of the same
+    class are visible. ``candidate_index`` is the per-instance identity of the chosen candidate
+    inside the decision it belongs to and is what the execution boundary matches on (BUG-031).
+    """
+
     target_id: int
     target_pos: Position | None
     expected_cost: float | None = None
     attack_point: AttackPointAction | None = None
+    candidate_index: int | None = None
     kind: TacticalActionKind = TacticalActionKind.TARGET
 
 
@@ -41,6 +49,7 @@ class AttackPointAction:
     target_id: int
     attack_point: tuple[float, float, float]
     approach_angle: float
+    candidate_index: int | None = None
     kind: TacticalActionKind = TacticalActionKind.ATTACK_POINT
 
 
@@ -48,6 +57,7 @@ class AttackPointAction:
 class CorridorAction:
     target_id: int
     preferred_corridor_id: str
+    candidate_index: int | None = None
     kind: TacticalActionKind = TacticalActionKind.CORRIDOR
 
 

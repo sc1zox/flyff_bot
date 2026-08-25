@@ -16,7 +16,6 @@ bugs are moved to `docs/bugs/fixed/`.
 
 - [ ] [**BUG-023: Player stats reader masks invalid pointer and malformed read diagnostics**](BUG-023-player-stats-reader-masks-invalid-pointer-and-malformed-read-diagnostics.md)
 - [ ] [**BUG-030: RL and ML stack cannot produce or execute a valid learned policy**](BUG-030-rl-ml-stack-invalid-training-and-live-execution.md) — Broad audit of the learning stack. Superseded in part by the narrower, re-verified BUG-031 and BUG-032.
-- [ ] [**BUG-031: The learning loop is open - recorded data is untrainable and no trained policy can act live**](BUG-031-learning-loop-is-open-recorded-data-and-live-inference.md) — Constant exported action, cross-session transition joins, unreachable model configuration, candidate-identity and coordinate-convention mismatch, fabricated live observation.
 - [ ] [**BUG-032: Simulator dynamics and paired evaluation invalidate every learned-policy metric**](BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md) — Teleporting combat, off-clock durations, single spawn zone, permanently open interaction mask, in-sample evaluation seeds, duplicated reward and observation definitions.
 
 ## Fixed Defects
@@ -48,3 +47,4 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-027: Arrival observer relies on private reader state**](fixed/BUG-027-arrival-observer-relies-on-private-reader-state.md)
 - [x] [**BUG-028: UI refactor retains private control coupling and stale gate evidence**](fixed/BUG-028-ui-refactor-retains-private-control-coupling-and-stale-gate-evidence.md)
 - [x] [**BUG-022: Dungeon live reader missing foreground guard and disk-thrashing SHA-256 hashing**](fixed/BUG-022-dungeon-live-reader-missing-foreground-guard-and-disk-thrashing.md)
+- [x] [**BUG-031: The learning loop is open - recorded data is untrainable and no trained policy can act live**](fixed/BUG-031-learning-loop-is-open-recorded-data-and-live-inference.md)

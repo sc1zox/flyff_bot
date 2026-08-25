@@ -3,6 +3,11 @@ from __future__ import annotations
 import pytest
 from test_rl_state_space import observation
 
+from flyff_bot.features.rl.actions import (
+    ParameterizedAction,
+    TacticalAction,
+    TacticalActionMask,
+)
 from flyff_bot.features.rl.environment import TacticalRlEnvironment
 from flyff_bot.features.rl.models import Transition
 
@@ -10,8 +15,9 @@ from flyff_bot.features.rl.models import Transition
 @pytest.fixture
 def minimal_transition() -> Transition:
     state = observation()
-    mask = (False, False, False, False, False, False, True)
-    return Transition(state, 6, 1.25, state, mask, False)
+    mask = TacticalActionMask((False, False, False, False, False, False, True))
+    action = ParameterizedAction(TacticalAction.WAIT, wait_seconds=0.1, wait_reason="idle")
+    return Transition(state, action, 1.25, state, mask, False, mask)
 
 
 def test_environment_rejects_masked_action(minimal_transition: Transition) -> None:
@@ -26,4 +32,4 @@ def test_environment_returns_standard_step_tuple(minimal_transition: Transition)
     assert reward == minimal_transition.reward
     assert observation is minimal_transition.next_observation
     assert (terminated, truncated) == (False, True)
-    assert info["action_mask"] == minimal_transition.action_mask
+    assert info["action_mask"] == minimal_transition.action_mask.actions

@@ -96,6 +96,8 @@ class FarmingControls(Protocol):
 
     def configure_policy_mode(self, mode: PolicyRuntimeMode) -> None: ...
 
+    def configure_policy_model_directory(self, directory: str | None) -> None: ...
+
 
 class VectorNavigationControls(Protocol):
     """The session-side surface that adopts or drops an extracted world map."""
@@ -377,6 +379,9 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
                 window.combat_class_changed.connect(orchestrator.configure_combat_class)
                 window.policy_mode_changed.connect(orchestrator.configure_policy_mode)
+                window.policy_model_directory_changed.connect(
+                    orchestrator.configure_policy_model_directory
+                )
                 window.engagement_distance_changed.connect(
                     orchestrator.configure_engagement_distance
                 )

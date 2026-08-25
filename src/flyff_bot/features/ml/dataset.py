@@ -19,9 +19,10 @@ from typing import Any
 import pyarrow.parquet as pq
 
 from flyff_bot.features.ml.features import (
+    NEARBY_CANDIDATE_DISTANCE_UNITS,
     WorldPoint,
-    angular_difference,
     bearing,
+    candidate_feature_row,
     corridor_metrics,
     route_slope,
 )
@@ -39,8 +40,6 @@ FOLLOWUP_LONG_WINDOW_SECONDS = 10.0
 # Backward window used for the historical rate features. Two minutes is long enough to smooth
 # single-kill noise and short enough to still describe the spot currently being farmed.
 RECENT_HISTORY_WINDOW_SECONDS = 120.0
-# World units within which another candidate counts as part of the same local cluster.
-NEARBY_CANDIDATE_DISTANCE_UNITS = 40.0
 DEFAULT_HOLDOUT_FRACTION = 0.25
 
 
@@ -440,30 +439,25 @@ def _features(
     recent_kill_rate, recent_stuck_rate = _recent_rates(
         session_cycles, decision.timestamp_ns, session_start_ns
     )
-    return {
-        "path_distance": selected.path_distance,
-        "relative_distance": selected.relative_distance,
-        "relative_elevation": selected.relative_elevation,
-        "player_heading": player_heading,
-        "target_bearing": target_bearing,
-        "heading_error": angular_difference(player_heading, target_bearing),
-        "terrain_slope": route_slope(start, target),
-        "corridor_length": corridor.length,
-        "corridor_waypoint_count": float(corridor.waypoint_count) if episode is not None else None,
-        "corridor_turn_angle_total": corridor.turn_angle_total,
-        "corridor_max_turn_angle": corridor.max_turn_angle,
-        "corridor_detour_ratio": corridor.detour_ratio,
-        "target_class_id": selected.class_id,
-        "detection_confidence": selected.confidence,
-        "visible_mob_count": float(len(decision.candidates)),
-        "reachable_mob_count": float(
+    return candidate_feature_row(
+        path_distance=selected.path_distance,
+        relative_distance=selected.relative_distance,
+        relative_elevation=selected.relative_elevation,
+        player_heading=player_heading,
+        target_bearing=target_bearing,
+        terrain_slope=route_slope(start, target),
+        corridor=corridor if episode is not None else None,
+        target_class_id=selected.class_id,
+        detection_confidence=selected.confidence,
+        visible_mob_count=float(len(decision.candidates)),
+        reachable_mob_count=float(
             sum(1 for candidate in decision.candidates if candidate.path_distance is not None)
         ),
-        "nearby_targetable_mob_count": _nearby_targetable_count(decision),
-        "recent_kill_rate": recent_kill_rate,
-        "recent_stuck_rate": recent_stuck_rate,
-        "decision_latency_ms": decision.decision_latency_ms,
-    }
+        nearby_targetable_mob_count=_nearby_targetable_count(decision),
+        recent_kill_rate=recent_kill_rate,
+        recent_stuck_rate=recent_stuck_rate,
+        decision_latency_ms=decision.decision_latency_ms,
+    )
 
 
 def _episode_start(episode: NavigationRecord | None) -> WorldPoint | None:

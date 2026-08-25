@@ -107,7 +107,7 @@ def test_each_snapshot_replans_from_current_candidates(tmp_path: Path) -> None:
     assert planner.provisional_sequence == (10, 11)
 
 
-def test_empty_or_invalid_sequence_falls_back_to_greedy_policy(tmp_path: Path) -> None:
+def test_empty_or_invalid_sequence_stops_instead_of_acting_heuristically(tmp_path: Path) -> None:
     from flyff_bot.features.automation.models import (
         Position,
         Viewport,
@@ -115,6 +115,7 @@ def test_empty_or_invalid_sequence_falls_back_to_greedy_policy(tmp_path: Path) -
         WorldState,
     )
     from flyff_bot.features.policy.heuristic import HeuristicPolicy
+    from flyff_bot.features.policy.runner import PolicyFaultCode
 
     planner = _planner(tmp_path / "model")
     runner = PolicyRunner(planner, heuristic_factory=HeuristicPolicy)
@@ -136,6 +137,7 @@ def test_empty_or_invalid_sequence_falls_back_to_greedy_policy(tmp_path: Path) -
     invalid_context = PolicyContext(candidates, frozenset(), (False, False))
     action = runner.evaluate(state, invalid_context)
 
-    assert isinstance(action, TargetAction)
-    assert runner.fell_back
+    assert action is None
+    assert runner.last_fault is not None
+    assert runner.last_fault.code is PolicyFaultCode.NO_VALID_ACTION
     assert planner.provisional_sequence == ()

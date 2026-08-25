@@ -1,9 +1,11 @@
-"""Deadline-guarded policy execution with immediate deterministic fallback."""
+"""Deadline-guarded policy execution that fails closed instead of degrading silently."""
 
 from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
 from flyff_bot.features.automation.models import WorldState
@@ -15,9 +17,35 @@ from flyff_bot.features.policy.models import (
     TacticalAction,
 )
 
+HEURISTIC_MODE_REASON = "heuristic_mode"
+
+
+class PolicyFaultCode(StrEnum):
+    """Machine-readable reasons learned automation must stop instead of continuing."""
+
+    MODEL_UNAVAILABLE = "model_unavailable"
+    NO_VALID_ACTION = "no_valid_action"
+    INVALID_OR_MASKED_ACTION = "invalid_or_masked_action"
+    LATENCY_BUDGET_EXCEEDED = "latency_budget_exceeded"
+    POLICY_EXCEPTION = "policy_exception"
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyFault:
+    """One learned-policy failure, ready to be shown as a localized diagnostic."""
+
+    code: PolicyFaultCode
+    detail: str | None = None
+
+    @property
+    def reason(self) -> str:
+        """Return the compact operator-facing reason string for this fault."""
+
+        return self.code.value if self.detail is None else f"{self.code.value}:{self.detail}"
+
 
 class LearnedPolicyProtocol(Protocol):
-    """The minimal learned-policy surface used by the fallback runner."""
+    """The minimal learned-policy surface used by the runner."""
 
     def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
         """Evaluate one legal learned action."""
@@ -27,7 +55,13 @@ FallbackPolicyFactory = Callable[[], LearnedPolicyProtocol]
 
 
 class PolicyRunner:
-    """Evaluate a learned policy and fall back on every invalid, late, or failed result."""
+    """Evaluate a learned policy, reporting a fault rather than quietly acting heuristically.
+
+    A missing, incompatible, non-finite, masked, or late learned result is a fault the session
+    has to react to. Substituting :class:`HeuristicPolicy` for it would present heuristic
+    behaviour as learned behaviour, so the runner refuses to do that (BUG-031). The
+    deterministic baseline is only produced when no learned policy is configured at all.
+    """
 
     def __init__(
         self,
@@ -35,11 +69,20 @@ class PolicyRunner:
         *,
         heuristic_factory: FallbackPolicyFactory = HeuristicPolicy,
         monotonic: Callable[[], float] = time.monotonic,
+        load_fault: PolicyFault | None = None,
     ) -> None:
         self._learned = learned
         self._heuristic_factory = heuristic_factory
         self._monotonic = monotonic
+        self._load_fault = load_fault
+        self.last_fault: PolicyFault | None = None
         self.last_fallback_reason: str | None = None
+
+    @property
+    def has_learned_policy(self) -> bool:
+        """Return whether a learned artifact is actually loaded and servable."""
+
+        return self._learned is not None
 
     @property
     def fell_back(self) -> bool:
@@ -47,29 +90,46 @@ class PolicyRunner:
 
         return self.last_fallback_reason is not None
 
-    def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
-        """Return one legal action, never propagating learned-policy faults upward."""
+    def reset_fault(self) -> None:
+        """Clear the recorded fault after an operator acknowledged it."""
 
-        if self._learned is not None:
-            started_at = self._monotonic()
-            try:
-                action = self._learned.evaluate(world_state, context)
-                elapsed = self._monotonic() - started_at
-                if elapsed > POLICY_LATENCY_BUDGET_SECONDS:
-                    raise TimeoutError("policy_latency_budget_exceeded")
-                if action is not None and validate_policy_action(action, context):
-                    self.last_fallback_reason = None
-                    return action
-                if action is not None:
-                    raise ValueError("invalid_or_masked_action")
-                self.last_fallback_reason = "no_valid_action"
-            except (AttributeError, TypeError, ValueError, OSError, TimeoutError) as error:
-                self.last_fallback_reason = str(error) or type(error).__name__
-            except Exception as error:
-                self.last_fallback_reason = f"policy_exception:{type(error).__name__}"
-        else:
-            self.last_fallback_reason = "heuristic_mode"
-        action = self._heuristic_factory().evaluate(world_state, context)
+        self.last_fault = None
+        self.last_fallback_reason = None
+
+    def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
+        """Return one legal learned action, or ``None`` alongside a recorded fault."""
+
+        if self._learned is None:
+            if self._load_fault is not None:
+                self._fail(self._load_fault)
+                return None
+            self.last_fault = None
+            self.last_fallback_reason = HEURISTIC_MODE_REASON
+            return self._heuristic_factory().evaluate(world_state, context)
+
+        started_at = self._monotonic()
+        try:
+            action = self._learned.evaluate(world_state, context)
+            elapsed = self._monotonic() - started_at
+        except (AttributeError, TypeError, ValueError, OSError) as error:
+            self._fail(PolicyFault(PolicyFaultCode.POLICY_EXCEPTION, str(error) or None))
+            return None
+        except Exception as error:
+            self._fail(PolicyFault(PolicyFaultCode.POLICY_EXCEPTION, type(error).__name__))
+            return None
+        if elapsed > POLICY_LATENCY_BUDGET_SECONDS:
+            self._fail(PolicyFault(PolicyFaultCode.LATENCY_BUDGET_EXCEEDED))
+            return None
         if action is None:
-            self.last_fallback_reason = self.last_fallback_reason or "no_heuristic_action"
+            self._fail(PolicyFault(PolicyFaultCode.NO_VALID_ACTION))
+            return None
+        if not validate_policy_action(action, context):
+            self._fail(PolicyFault(PolicyFaultCode.INVALID_OR_MASKED_ACTION))
+            return None
+        self.last_fault = None
+        self.last_fallback_reason = None
         return action
+
+    def _fail(self, fault: PolicyFault) -> None:
+        self.last_fault = fault
+        self.last_fallback_reason = fault.reason

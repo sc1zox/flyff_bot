@@ -1032,3 +1032,14 @@ Evidence is offline simulator/training, ONNX metadata and deterministic fallback
 culling tests, localization checks, and synthetic timing budgets. The gate passed at 866 passed, 5
 skipped, and 88.30% coverage. No Windows/live-client walkthrough, real-client convergence, exact
 client performance, arbitrary object interaction, or live map-FPS measurement is claimed.
+
+## [2026-08-25] synthesis | Closed learning loop (BUG-031)
+
+Synthesized the repaired learning loop into `architecture.md` and recorded its invariants in
+`../decisions/ADR-008-closed-learning-loop-invariants.md`: parameterized actions with per-instance
+candidate identity, session- and episode-scoped transitions, per-interval reward attribution, a
+75-column observation with explicit missing indicators, a supported CLI and UI path to a trained
+artifact, and learned automation that fails closed with a synchronized diagnostic. Corrected the
+stale US-073 claim that `PolicyRunner` substitutes `HeuristicPolicy` on a learned fault. The gate
+passed at 906 passed, 6 skipped, and 88.2% coverage. No Windows or live-client walkthrough was run,
+so live promotion of a trained artifact remains unverified.

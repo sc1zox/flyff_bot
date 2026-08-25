@@ -23,7 +23,12 @@ from flyff_bot.features.ml.export import (
     ModelArtifact,
     export_linear_model,
 )
-from flyff_bot.features.ml.features import FEATURE_NAMES, feature_matrix, label_vector
+from flyff_bot.features.ml.features import (
+    FEATURE_NAMES,
+    candidate_feature_row,
+    feature_matrix,
+    label_vector,
+)
 from flyff_bot.features.ml.models import (
     LinearValueModel,
     ModelError,
@@ -62,6 +67,7 @@ __all__ = [
     "TrainingReport",
     "ValueModelKind",
     "build_samples",
+    "candidate_feature_row",
     "expected_cost",
     "expected_costs",
     "export_linear_model",

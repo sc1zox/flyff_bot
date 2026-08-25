@@ -1,7 +1,7 @@
 ---
 id: BUG-031
 title: The learning loop is open - recorded data is untrainable and no trained policy can act live
-status: reported
+status: resolved
 severity: critical
 created: 2026-08-25
 updated: 2026-08-25
@@ -10,7 +10,7 @@ updated: 2026-08-25
 # BUG-031: The learning loop is open - recorded data is untrainable and no trained policy can act live
 
 Narrow, individually verified successor to the broad audit in
-[BUG-030](BUG-030-rl-ml-stack-invalid-training-and-live-execution.md). Every defect below was
+[BUG-030](../BUG-030-rl-ml-stack-invalid-training-and-live-execution.md). Every defect below was
 re-confirmed against the current worktree revision, so BUG-030 items that have since been repaired
 (the `PolicyRunner` now receives the loaded policy; hierarchical training now fits and evaluates the
 exported weights) are deliberately not repeated here.
@@ -138,22 +138,56 @@ Concretely:
 
 ## Regression verification
 
-- [ ] A multi-session telemetry fixture proves no observation, action, reward, mask, termination or
+- [x] A multi-session telemetry fixture proves no observation, action, reward, mask, termination or
       outcome crosses a `session_id`, episode or decision boundary.
-- [ ] A round-trip test proves the exported action preserves candidate, destination, attack point,
+- [x] A round-trip test proves the exported action preserves candidate, destination, attack point,
       corridor, interaction target and wait parameters, and that the mask rejects the exact
       parameterized choice.
-- [ ] A reward test proves every configured component is populated from its own observed interval
+- [x] A reward test proves every configured component is populated from its own observed interval
       and awarded exactly once per interval.
-- [ ] An end-to-end test loads a real minimal artifact through the supported application boundary,
+- [x] An end-to-end test loads a real minimal artifact through the supported application boundary,
       builds decision-time features, and executes a learned selection against two same-class
       candidates, choosing the intended instance.
-- [ ] `ML_SHADOW` records a learned decision without dispatching input; `ML_ACTIVE` dispatches it.
+- [x] `ML_SHADOW` records a learned decision without dispatching input; `ML_ACTIVE` dispatches it.
       The two modes are proven distinct.
-- [ ] A train/serve parity test asserts that the live observation encoder and the training
+- [x] A train/serve parity test asserts that the live observation encoder and the training
       observation encoder produce equal vectors for the same state.
-- [ ] Encoding a missing value and a measured zero produces different vectors.
-- [ ] A missing, incompatible, non-finite, masked or late model result stops or pauses learned
+- [x] Encoding a missing value and a measured zero produces different vectors.
+- [x] A missing, incompatible, non-finite, masked or late model result stops or pauses learned
       automation with a synchronized German and English diagnostic and never falls back to
       `HeuristicPolicy` silently.
-- [ ] `./scripts/check.ps1` passes; Windows and live-client validation is listed separately.
+- [x] `./scripts/check.ps1` passes; Windows and live-client validation is listed separately.
+
+## Resolution
+
+Fixed on 2026-08-25. The invariants are recorded in
+[ADR-008](../../decisions/ADR-008-closed-learning-loop-invariants.md) and the mechanism is described
+in the closed-learning-loop section of [architecture.md](../../wiki/architecture.md).
+
+- **A.** `ParameterizedAction` carries the candidate instance and every other decision parameter;
+  `TacticalActionCatalog.encode`/`decode` round-trip all six payload families. The exporter emits
+  the selected `candidate_index` and class identity, builds `next_observation` from the *next*
+  decision's own candidates, and no longer terminates an episode on a kill.
+- **B.** `TelemetryTransitionExporter` groups events by `session_id` before reconstructing any
+  interval; `Transition` names its session and episode. `TelemetryDatasetExporter` keys kill cycles
+  by `(session_id, timestamp)`.
+- **C.** `--policy-mode` and `--policy-model-dir` on the CLI and a directory control in the combat
+  settings panel both reach `FarmingConfig.policy_model_directory`;
+  `configure_policy_model_directory` loads and warms up the artifact. The orchestrator populates
+  `PolicyContext.feature_matrix` from live candidates via the shared `candidate_feature_row`.
+- **D.** Target, attack-point, and corridor actions carry `candidate_index`, and both
+  `validate_policy_action` and `FarmingOrchestrator._evaluate_policy_target` resolve a selection by
+  that index. `LearnedPolicy._action` reports the same top-left screen convention every other layer
+  uses.
+- **E.** `live_observation` builds the hierarchical observation from measured kinematics and NavMesh
+  context supplied through `LiveObservationState`, fails closed when they are unavailable, and the
+  orchestrator binds the active quest objective before each evaluation.
+- **F.** `ObservationSpace` is 75 columns (`bug031-v1`): every optional value is paired with an
+  explicit missing indicator and signed quantities keep their sign.
+- **Fail-closed.** `PolicyRunner` reports a typed `PolicyFault` instead of substituting
+  `HeuristicPolicy`; the orchestrator halts learned automation and publishes a synchronized German
+  and English diagnostic.
+
+Regression coverage lives in `tests/unit/test_learning_loop.py`. Windows and live-client validation
+- recording a real session, training an artifact from it, and promoting it into `ML_ACTIVE` -
+remains outstanding operator work.

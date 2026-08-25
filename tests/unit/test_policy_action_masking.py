@@ -10,7 +10,7 @@ from flyff_bot.features.policy.action_payloads import (
 )
 from flyff_bot.features.policy.hierarchical_masking import validate_policy_action
 from flyff_bot.features.policy.models import PolicyCandidate, PolicyContext
-from flyff_bot.features.policy.runner import PolicyRunner
+from flyff_bot.features.policy.runner import PolicyFault, PolicyFaultCode, PolicyRunner
 
 
 def _candidate(*, eligible: bool = True) -> PolicyCandidate:
@@ -41,17 +41,17 @@ def _context(candidate: PolicyCandidate) -> PolicyContext:
 def test_only_exact_prevalidated_target_route_corridor_and_interaction_are_allowed() -> None:
     context = _context(_candidate())
 
-    assert validate_policy_action(TargetAction(7, Position(10, 20)), context)
+    assert validate_policy_action(TargetAction(7, Position(10, 20), candidate_index=0), context)
     assert validate_policy_action(NavigateAction((4.0, 5.0, 6.0), "goal"), context)
-    assert validate_policy_action(CorridorAction(7, "corridor-1"), context)
+    assert validate_policy_action(CorridorAction(7, "corridor-1", 0), context)
     assert validate_policy_action(InteractAction("npc-1", "quest"), context)
     assert validate_policy_action(context.valid_attack_points[0], context)
     assert not validate_policy_action(NavigateAction((9.0, 9.0, 9.0), "fabricated"), context)
-    assert not validate_policy_action(CorridorAction(7, "blocked"), context)
+    assert not validate_policy_action(CorridorAction(7, "blocked", 0), context)
     assert not validate_policy_action(InteractAction("unknown", "quest"), context)
 
 
-def test_masked_or_fabricated_learned_output_falls_back_to_heuristic() -> None:
+def test_masked_or_fabricated_learned_output_stops_instead_of_acting_heuristically() -> None:
     class _FabricatingPolicy:
         @staticmethod
         def evaluate(_state: WorldState, _context: PolicyContext) -> NavigateAction:
@@ -63,5 +63,5 @@ def test_masked_or_fabricated_learned_output_falls_back_to_heuristic() -> None:
 
     action = runner.evaluate(state, context)
 
-    assert action is not None and action.kind.value == "wait"
-    assert runner.last_fallback_reason == "invalid_or_masked_action"
+    assert action is None
+    assert runner.last_fault == PolicyFault(PolicyFaultCode.INVALID_OR_MASKED_ACTION)

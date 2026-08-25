@@ -85,7 +85,7 @@ def test_recorder_writes_versioned_header_snapshots_and_explicit_nulls(tmp_path:
         "world_snapshot",
         "target_selected",
     ]
-    assert records[0]["schema_version"] == 3
+    assert records[0]["schema_version"] == 4
     assert records[1]["payload"]["player_position"] is None
     assert records[1]["payload"]["readiness_state"] == "blocked"
     assert records[1]["payload"]["readiness_primary_reason"] == "unavailable"

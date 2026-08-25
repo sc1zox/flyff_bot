@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QGridLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QPushButton,
+    QWidget,
 )
 
 from flyff_bot.features.automation.controllers import (
@@ -34,11 +40,15 @@ TARGET_GRACE_DECIMALS = 1
 
 
 class CombatSettingsPanel(QGroupBox):
-    """Combat profile, targeting thresholds, and kill-verification controls."""
+    """Combat profile, policy artifacts, targeting thresholds, and verification controls."""
+
+    policy_model_directory_changed = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("CardPanel")
+        # Filled by ``retranslate``; every user-visible string comes from the locale bundle.
+        self._policy_model_dialog_title = ""
 
         self._class_label = QLabel()
         self.class_selector = QComboBox()
@@ -55,6 +65,20 @@ class CombatSettingsPanel(QGroupBox):
         self.policy_mode_selector.setCurrentIndex(
             list(PolicyRuntimeMode).index(DEFAULT_POLICY_RUNTIME_MODE)
         )
+
+        self._policy_model_label = QLabel()
+        self.policy_model_directory_edit = QLineEdit()
+        self.policy_model_browse_button = QPushButton()
+        self.policy_diagnostic_label = QLabel()
+        self.policy_diagnostic_label.setWordWrap(True)
+        self.policy_diagnostic_label.setVisible(False)
+        self._policy_model_row = QWidget()
+        policy_model_layout = QHBoxLayout(self._policy_model_row)
+        policy_model_layout.setContentsMargins(0, 0, 0, 0)
+        policy_model_layout.addWidget(self.policy_model_directory_edit)
+        policy_model_layout.addWidget(self.policy_model_browse_button)
+        self.policy_model_browse_button.clicked.connect(self._browse_policy_model_directory)
+        self.policy_model_directory_edit.editingFinished.connect(self._emit_policy_model_directory)
 
         self._engagement_label = QLabel()
         self.engagement_distance_spin = QDoubleSpinBox()
@@ -87,14 +111,38 @@ class CombatSettingsPanel(QGroupBox):
         layout.addWidget(self.class_selector, 0, 1)
         layout.addWidget(self._policy_label, 1, 0)
         layout.addWidget(self.policy_mode_selector, 1, 1)
-        layout.addWidget(self._engagement_label, 2, 0)
-        layout.addWidget(self.engagement_distance_spin, 2, 1)
-        layout.addWidget(self._grace_label, 3, 0)
-        layout.addWidget(self.grace_spin, 3, 1)
-        layout.addWidget(self._verification_label, 4, 0)
-        layout.addWidget(self.verification_toggle, 4, 1)
-        layout.addWidget(self._anchor_label, 5, 0)
-        layout.addWidget(self.anchor_spin, 5, 1)
+        layout.addWidget(self._policy_model_label, 2, 0)
+        layout.addWidget(self._policy_model_row, 2, 1)
+        layout.addWidget(self.policy_diagnostic_label, 3, 0, 1, 2)
+        layout.addWidget(self._engagement_label, 4, 0)
+        layout.addWidget(self.engagement_distance_spin, 4, 1)
+        layout.addWidget(self._grace_label, 5, 0)
+        layout.addWidget(self.grace_spin, 5, 1)
+        layout.addWidget(self._verification_label, 6, 0)
+        layout.addWidget(self.verification_toggle, 6, 1)
+        layout.addWidget(self._anchor_label, 7, 0)
+        layout.addWidget(self.anchor_spin, 7, 1)
+
+    def set_policy_diagnostic(self, translator: Translator, reason: str | None) -> None:
+        """Show why learned automation stopped, or hide the diagnostic when it is running."""
+
+        self.policy_diagnostic_label.setVisible(reason is not None)
+        self.policy_diagnostic_label.setText(
+            ""
+            if reason is None
+            else translator.text(Message.POLICY_MODEL_UNAVAILABLE, reason=reason)
+        )
+
+    def _browse_policy_model_directory(self) -> None:
+        directory = QFileDialog.getExistingDirectory(
+            self, self._policy_model_dialog_title, self.policy_model_directory_edit.text()
+        )
+        if directory:
+            self.policy_model_directory_edit.setText(directory)
+            self._emit_policy_model_directory()
+
+    def _emit_policy_model_directory(self) -> None:
+        self.policy_model_directory_changed.emit(self.policy_model_directory_edit.text().strip())
 
     def retranslate(self, translator: Translator) -> None:
         self.setTitle(translator.text(Message.UI_COMBAT_SETTINGS))
@@ -124,6 +172,12 @@ class CombatSettingsPanel(QGroupBox):
                     else Message.UI_POLICY_MODE_ACTIVE
                 )
                 self.policy_mode_selector.setItemText(index, translator.text(key))
+        self._policy_model_label.setText(translator.text(Message.UI_POLICY_MODEL_DIRECTORY))
+        self.policy_model_directory_edit.setToolTip(
+            translator.text(Message.UI_POLICY_MODEL_DIRECTORY_TOOLTIP)
+        )
+        self.policy_model_browse_button.setText(translator.text(Message.UI_POLICY_MODEL_BROWSE))
+        self._policy_model_dialog_title = translator.text(Message.UI_POLICY_MODEL_DIALOG)
         self._engagement_label.setText(translator.text(Message.UI_ENGAGEMENT_DISTANCE))
         self.engagement_distance_spin.setToolTip(
             translator.text(Message.UI_ENGAGEMENT_DISTANCE_TOOLTIP)

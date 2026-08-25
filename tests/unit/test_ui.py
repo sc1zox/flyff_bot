@@ -296,6 +296,9 @@ def test_farming_controls_connect_dashboard_intent() -> None:
         def configure_policy_mode(self, mode: PolicyRuntimeMode) -> None:
             self.requests.append(f"policy:{mode.value}")
 
+        def configure_policy_model_directory(self, directory: str | None) -> None:
+            self.requests.append(f"policy_model:{directory}")
+
         def start(self) -> None:
             self.requests.append("start")
 

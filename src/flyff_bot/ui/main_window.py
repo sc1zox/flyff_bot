@@ -134,6 +134,7 @@ class MainWindow(QMainWindow):
     combat_grace_changed = Signal(float)
     combat_class_changed = Signal(object)
     policy_mode_changed = Signal(object)
+    policy_model_directory_changed = Signal(str)
     engagement_distance_changed = Signal(float)
     kill_verification_changed = Signal(bool)
     anchor_threshold_changed = Signal(float)
@@ -718,6 +719,9 @@ class MainWindow(QMainWindow):
         self._combat_panel.policy_mode_selector.currentIndexChanged.connect(
             self._on_policy_mode_changed
         )
+        self._combat_panel.policy_model_directory_changed.connect(
+            self.policy_model_directory_changed
+        )
         self._combat_panel.engagement_distance_spin.valueChanged.connect(
             self.engagement_distance_changed
         )
@@ -991,6 +995,7 @@ class MainWindow(QMainWindow):
         )
         self._dungeon_panel.set_snapshots(update.dungeons)
         self._readiness_panel.set_status(update.readiness)
+        self._combat_panel.set_policy_diagnostic(self._translator, update.policy_fault_reason)
         self._event_log_panel.set_events(update.events)
         self._target_debug_panel.render_target(
             self._translator,

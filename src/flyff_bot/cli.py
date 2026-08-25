@@ -44,7 +44,12 @@ from flyff_bot.features.automation.controllers import (
     SearchConfig,
 )
 from flyff_bot.features.automation.models import DesiredState
-from flyff_bot.features.automation.orchestrator import FarmingConfig, FarmingOrchestrator
+from flyff_bot.features.automation.orchestrator import (
+    DEFAULT_POLICY_RUNTIME_MODE,
+    FarmingConfig,
+    FarmingOrchestrator,
+    PolicyRuntimeMode,
+)
 from flyff_bot.features.dungeons.extraction import (
     DungeonExtractionDiagnostic,
     extract_dungeon_definitions,
@@ -376,6 +381,16 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         type=float,
         default=1.0,
         help=translator.text(Message.HELP_SEARCH_MOVEMENT_DURATION, default=1.0),
+    )
+    parser.add_argument(
+        "--policy-mode",
+        choices=[mode.value for mode in PolicyRuntimeMode],
+        default=DEFAULT_POLICY_RUNTIME_MODE.value,
+        help=translator.text(Message.HELP_POLICY_MODE),
+    )
+    parser.add_argument(
+        "--policy-model-dir",
+        help=translator.text(Message.HELP_POLICY_MODEL_DIR),
     )
     parser.add_argument("--goal-item", help=translator.text(Message.HELP_GOAL_ITEM))
     parser.add_argument("--goal-count", type=int, help=translator.text(Message.HELP_GOAL_COUNT))
@@ -843,6 +858,8 @@ def _farming_orchestrator(
                 rotation_settle_pause_seconds=args.search_settle_pause,
                 movement_step_duration_seconds=args.search_movement_duration,
             ),
+            policy_mode=PolicyRuntimeMode(args.policy_mode),
+            policy_model_directory=args.policy_model_dir,
         ),
         telemetry=_telemetry_recorder(
             args,

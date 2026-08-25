@@ -18,6 +18,7 @@ related:
   - ../decisions/ADR-003-clean-schema-over-backward-compatibility.md
   - ../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md
   - ../decisions/ADR-006-read-only-process-memory-access.md
+  - ../decisions/ADR-008-closed-learning-loop-invariants.md
   - ../user-stories/completed/US-002-vision-frame-capture.md
   - ../user-stories/completed/US-003-mob-detection-yolo.md
   - ../user-stories/completed/US-004-target-mob-verification.md
@@ -2006,8 +2007,9 @@ recovery walkthroughs remain operator validation and were not run for this story
 `features.policy.hierarchical` separates macro strategic decisions from tactical action selection.
 The high-level policy retains a target until a macro-event token changes; the mid-level policy then
 chooses only a prevalidated attack point, NavMesh corridor, local destination, or interaction.
-`PolicyRunner` validates learned output against deterministic masks and falls back to `HeuristicPolicy`
-for invalid, missing, late, NaN, or faulting output. Movement, combat, stall recovery, foreground,
+`PolicyRunner` validates learned output against deterministic masks and, since BUG-031, reports a
+typed fault for invalid, missing, late, NaN, or faulting output instead of substituting
+`HeuristicPolicy` (see the closed-loop section below). Movement, combat, stall recovery, foreground,
 and emergency-stop safeguards remain outside the learned heads.
 
 `hierarchical_training` runs masked Q-learning against the seeded US-072 simulator, compares KPM
@@ -2031,3 +2033,63 @@ Automated Qt tests cover transforms, input semantics, culling, metadata, follow 
 localization, and a synthetic warm-render budget above 30 FPS. This is not a live map-FPS result:
 no Windows/client walkthrough was run, so live GPS convergence and large-region client performance
 remain unverified.
+
+## Closed learning loop: trainable experience and servable policies (BUG-031, fixed)
+
+The loop the project is built toward - farm live, record, train offline, evaluate, promote - was
+open at both ends. `docs/decisions/ADR-008-closed-learning-loop-invariants.md` records the five
+invariants that close it; this section describes where they live.
+
+**Export.** `TelemetryTransitionExporter` groups recorded events by `session_id` first and rebuilds
+one transition per decision interval within a session: the snapshot preceding the decision with the
+decision's own candidates, the exact parameterized choice, the reward observed until the next
+decision, the state at that next decision, both masks, and how the interval ended. `Transition`
+carries `session_id`, `episode_index`, and `truncated` alongside `terminated`. A verified kill no
+longer terminates an episode; an observed objective completion does, and the last interval of a
+recording is truncated. `TelemetryDatasetExporter` keys kill cycles by `(session_id, timestamp)` for
+the same reason.
+
+**Actions.** `ParameterizedAction` and `TacticalActionCatalog.encode`/`decode` round-trip every
+typed payload - candidate instance, destination, attack point and approach angle, corridor,
+interaction target and type, wait duration - so the exported action is no longer a constant
+`SELECT_TARGET`. `TacticalActionMask` pairs the discrete mask with a per-candidate mask and
+`allows()` rejects one exact parameterized choice. `TargetAction`, `AttackPointAction`, and
+`CorridorAction` carry `candidate_index`; `validate_policy_action` and the orchestrator resolve a
+selection by that index rather than by an ambiguous detector class identifier or a coordinate
+convention.
+
+**Reward.** `interval_reward_event` fills every configured `RewardConfig` component from its own
+recorded observation: kill cycles, navigation-episode duration, stall duration, measured evasion
+seconds, combat-episode duration for the idle remainder, non-success outcomes for failed actions,
+and the new `objective_progress` telemetry event for quest progress and completion. An episode is
+attributed to the interval its end falls into, so nothing is rewarded twice.
+
+**Serving.** `FarmingConfig.policy_model_directory` is now writable from the CLI (`--policy-mode`,
+`--policy-model-dir`) and from the combat settings panel, and `configure_policy_model_directory`
+loads and warms up the artifact while the session is paused. The orchestrator builds
+`PolicyContext.feature_matrix` from live candidates through the shared `candidate_feature_row`, so
+the trainer and the live policy assemble identical columns; a quantity that is genuinely unobserved
+while the target is still being chosen stays missing rather than being fabricated. `PolicyContext`
+also carries `LiveObservationState`, and `live_observation` builds the hierarchical observation from
+measured position, heading, NavMesh polygon, terrain slope, and remaining route distance instead of
+zeroed placeholders. The hierarchical policy is bound to the session's active quest objective.
+
+**Observation encoding.** `ObservationSpace` is 75 columns (`bug031-v1`). Every optional value is
+encoded as a scaled measurement plus an explicit missing indicator, signed quantities keep their
+sign, and an unoccupied candidate slot reports all four of its optional columns as missing and the
+slot as unusable. This matches the `NaN`-plus-`__is_missing` convention of the supervised value
+models. Artifacts trained against the previous 56-column contract are rejected as
+`feature_schema_incompatible` rather than silently misread.
+
+**Failing closed.** `PolicyRunner` no longer runs `HeuristicPolicy` in place of a learned policy
+that failed. It records a typed `PolicyFault` - `model_unavailable`, `no_valid_action`,
+`invalid_or_masked_action`, `latency_budget_exceeded`, or `policy_exception` - and returns no
+action. The orchestrator halts learned automation, reverting the mode to `HEURISTIC` and pausing an
+`ML_ACTIVE` session, and publishes `policy_fault_reason` to the dashboard where the combat panel
+renders the synchronized German and English diagnostic. An empty candidate set is not a fault: the
+deterministic search path continues untouched.
+
+Automated repository verification passed on 2026-08-25 (906 tests passed, 6 skipped, 88.2% coverage;
+Ruff, format, mypy, and locked dependency synchronization passed). Windows and live-client
+validation - a real recorded session, an artifact trained from it, and its promotion into
+`ML_ACTIVE` - remains operator validation and was not run.

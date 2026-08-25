@@ -24,11 +24,13 @@ from flyff_bot.features.policy.action_payloads import (
     TargetAction,
     WaitAction,
 )
+from flyff_bot.features.rl.models import NavMeshContext, PlayerKinematics
 
 __all__ = [
     "AttackPointAction",
     "CorridorAction",
     "InteractAction",
+    "LiveObservationState",
     "NavigateAction",
     "StrategicDecision",
     "StrategicGoalKind",
@@ -68,6 +70,24 @@ class StrategicDecision:
 TacticalAction = (
     TargetAction | NavigateAction | AttackPointAction | CorridorAction | InteractAction | WaitAction
 )
+
+
+@dataclass(frozen=True, slots=True)
+class LiveObservationState:
+    """Decision-time world facts a learned policy needs beyond the visible candidates.
+
+    A model trained on simulator rollouts saw real coordinates, heading, velocity, route
+    distance, and objective progress. Serving it zeroed placeholders instead is a train/serve
+    mismatch, so these values are supplied explicitly or the learned policy fails closed
+    (BUG-031).
+    """
+
+    kinematics: PlayerKinematics
+    navmesh: NavMeshContext
+    current_target_index: int | None = None
+    recent_kill_rate_per_minute: float = 0.0
+    recent_stuck_count: int = 0
+    objective_target_distance: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +135,7 @@ class PolicyContext:
     valid_interactions: frozenset[tuple[str, str]] = frozenset()
     valid_attack_points: tuple[AttackPointAction, ...] = ()
     macro_event_token: tuple[object, ...] = ()
+    live_state: LiveObservationState | None = None
 
 
 class TacticalPolicy(Protocol):

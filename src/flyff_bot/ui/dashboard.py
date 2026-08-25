@@ -129,6 +129,9 @@ class DashboardUpdate:
     quest_queue_completed: bool = False
     dungeons: tuple[DungeonStateSnapshot, ...] | None = None
     readiness: LiveReadinessStatus = field(default_factory=LiveReadinessStatus)
+    # Set whenever learned automation was halted, so the operator is told instead of being
+    # shown heuristic behaviour under a learned label (BUG-031).
+    policy_fault_reason: str | None = None
 
 
 class DashboardFeed(QObject):

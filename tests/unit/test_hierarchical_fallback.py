@@ -11,8 +11,13 @@ from flyff_bot.features.navigation.world_extractor import WorldCoordinate, World
 from flyff_bot.features.policy.hierarchical_onnx import HierarchicalOnnxPolicy
 from flyff_bot.features.policy.hierarchical_training import train_hierarchical_policy
 from flyff_bot.features.policy.hierarchical_training_simulator import TrainingObjective
-from flyff_bot.features.policy.models import PolicyCandidate, PolicyContext
-from flyff_bot.features.policy.runner import PolicyRunner
+from flyff_bot.features.policy.models import (
+    LiveObservationState,
+    PolicyCandidate,
+    PolicyContext,
+)
+from flyff_bot.features.policy.runner import PolicyFaultCode, PolicyRunner
+from flyff_bot.features.rl.models import NavMeshContext, PlayerKinematics
 from flyff_bot.features.simulator.models import QuestObjective, QuestObjectiveKind
 
 
@@ -24,7 +29,7 @@ class _InvalidNetwork:
         return np.asarray([[np.nan, 0.0, 0.0, 0.0]])
 
 
-def test_nan_hierarchical_output_triggers_exact_heuristic_fallback(
+def test_nan_hierarchical_output_halts_learned_automation(
     tmp_path: Path, world_map: WorldVectorMap
 ) -> None:
     objective = TrainingObjective((QuestObjective(QuestObjectiveKind.KILL, monster_id=7),))
@@ -37,11 +42,20 @@ def test_nan_hierarchical_output_triggers_exact_heuristic_fallback(
     learned = HierarchicalOnnxPolicy(tmp_path, network_loader=lambda _path: _InvalidNetwork())
     mob = VisibleMob(7, "Aibatt", 0.9, 10, 20, 5, 5, 1.0, 2.0, 3.0)
     candidate = PolicyCandidate(mob, True, True, True, True, True, 0)
-    context = PolicyContext((candidate,), frozenset(), (False,))
+    context = PolicyContext(
+        (candidate,),
+        frozenset(),
+        (False,),
+        live_state=LiveObservationState(
+            PlayerKinematics(1.0, 2.0, 3.0, 0.5), NavMeshContext("poly-1", 0.0, 12.0)
+        ),
+    )
     state = WorldState(1.0, Position(50, 50), 1, (), 0, viewport=Viewport(100, 100))
     runner = PolicyRunner(learned)
 
     action = runner.evaluate(state, context)
 
-    assert action is not None and action.kind.value == "target"
-    assert runner.last_fallback_reason == "invalid_hierarchical_prediction"
+    assert action is None
+    assert runner.last_fault is not None
+    assert runner.last_fault.code is PolicyFaultCode.POLICY_EXCEPTION
+    assert runner.last_fault.detail == "invalid_hierarchical_prediction"
