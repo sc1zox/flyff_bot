@@ -6,6 +6,12 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .tmp-pytest/
+.pytest-tmp/
+.tmp/
+.tmp*/
+*.patch
+*.diff
+.setup-feature-stash/
 .uv-cache/
 .coverage
 htmlcov/
@@ -20,6 +26,7 @@ htmlcov/
 # Editors and operating systems
 .idea/
 .vscode/
+.claude/
 *.swp
 Thumbs.db
 Desktop.ini
@@ -31,6 +38,8 @@ dist/
 
 # Local game installation and runtime artifacts (about 20 GB)
 Entropia/
+tests/unit/neuz.exe
+tsv.txt
 *.log
 
 # Locally trained detector artifacts
