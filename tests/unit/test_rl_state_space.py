@@ -5,16 +5,17 @@ import numpy as np
 from flyff_bot.features.rl.actions import TacticalAction
 from flyff_bot.features.rl.masking import build_action_mask
 from flyff_bot.features.rl.models import (
+    OBSERVATION_DIMENSION,
     CandidateObservation,
     NavMeshContext,
     ObjectiveState,
+    ObservationSpace,
     OperationalState,
     PlayerKinematics,
     PlayerVitals,
     ReadinessObservation,
     RlObservation,
 )
-from flyff_bot.features.rl.state_space import OBSERVATION_DIMENSION, ObservationSpace
 
 
 def observation() -> RlObservation:

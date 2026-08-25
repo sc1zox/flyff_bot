@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
+from flyff_bot.features.rl.rewards import RewardConfig
 from flyff_bot.features.telemetry.models import KillCycle
 
-SIMULATOR_SCHEMA_VERSION = "us072-v1"
+SIMULATOR_SCHEMA_VERSION = "us072-v2"
 DEFAULT_TICK_SECONDS = 0.5
 DEFAULT_SPEED_UNITS_PER_SECOND = 10.0
 DEFAULT_TURN_RATE_RADIANS_PER_SECOND = 3.0
@@ -17,6 +18,9 @@ DEFAULT_COMBAT_TIME_SIGMA = 0.25
 DEFAULT_RECOVERY_TIME_SIGMA = 0.4
 DEFAULT_STUCK_PROBABILITY_PER_UNIT = 0.001
 MINIMUM_SAMPLED_SECONDS = 0.05
+# How far a monster is recognized from. Beyond this the client shows nothing to target, so
+# neither does the simulator: candidate visibility is a modeled state, not a map-wide listing.
+DEFAULT_VISIBILITY_RADIUS_UNITS = 120.0
 
 
 def sample_log_normal(random_source: random.Random, mean_seconds: float, sigma: float) -> float:
@@ -94,6 +98,8 @@ class SimulatorConfig:
     recovery_time_sigma: float = DEFAULT_RECOVERY_TIME_SIGMA
     maximum_episode_seconds: float = 3600.0
     schema_version: str = SIMULATOR_SCHEMA_VERSION
+    visibility_radius_units: float = DEFAULT_VISIBILITY_RADIUS_UNITS
+    reward: RewardConfig = field(default_factory=RewardConfig)
 
     def __post_init__(self) -> None:
         positive_fields = (
@@ -101,6 +107,7 @@ class SimulatorConfig:
             ("nominal_speed", self.nominal_speed_units_per_second),
             ("turn_rate", self.turn_rate_radians_per_second),
             ("maximum_episode_seconds", self.maximum_episode_seconds),
+            ("visibility_radius", self.visibility_radius_units),
         )
         if any(value <= 0.0 for _label, value in positive_fields):
             raise ValueError("Simulator timing, speed, and episode limits must be positive.")

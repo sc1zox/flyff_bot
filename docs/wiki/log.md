@@ -1,5 +1,15 @@
 # Wiki log
 
+## [2026-08-25] synthesis | Simulator dynamics and evaluation invariants (BUG-032)
+
+Recorded the repaired offline-simulator invariants in `architecture.md`: one budgeted tick clock
+whose buckets sum to elapsed time, movement only through the routed corridor, mask enforcement
+inside `step()`, all spawn zones active with an explicit visibility radius, objective-free farming
+as a continuing task, and the single versioned reward configuration. Also recorded the disjoint
+training/evaluation/calibration seed blocks, the state-derived mid-level labels, the exported
+trained-action sets, and the calibration gate in the training pipeline. Extended ADR-007 with the
+tactical-modeling condition these invariants enforce. Live-client validation remains outstanding.
+
 ## [2026-08-24] completion | Learned attack point positioning (US-070)
 
 Added the US-070 architecture section covering deterministic melee/ranged attack-point annuli,

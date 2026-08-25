@@ -27,3 +27,7 @@ existing navigation and automation features.
 - Simulator results are not evidence of live-client behavior until validated on Windows.
 - Calibration compares aggregate KPM and navigation time to recorded baselines within an
   explicit tolerance rather than claiming full game emulation.
+- Tactical-level modeling is only a defensible reward source while every modeled action pays a
+  cost the client would also charge. BUG-032 added the invariants that enforce this: one budgeted
+  clock per tick, movement only through the routed corridor, mask enforcement inside `step()`, and
+  a calibration gate the training pipeline must pass before it writes an artifact.

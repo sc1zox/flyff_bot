@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 
 from flyff_bot.features.simulator import (
@@ -11,36 +10,41 @@ from flyff_bot.features.simulator import (
     QuestObjective,
     QuestObjectiveKind,
     SimulatorConfig,
+    TacticalAction,
 )
+
+FARMING_PRIORITY = (
+    TacticalAction.INTERACT,
+    TacticalAction.GO_TO_OBJECTIVE,
+    TacticalAction.TARGET_NEAREST,
+    TacticalAction.WAIT,
+)
+
+
+def farm_until_first_kill(simulation: FarmingSimulator, *, step_limit: int = 400) -> int:
+    """Play the deterministic farming priority until the first kill is recorded."""
+
+    for step_index in range(step_limit):
+        mask = simulation.action_mask
+        action = next(item for item in FARMING_PRIORITY if mask[int(item)])
+        _observation, _reward, terminated, truncated, _info = simulation.step(int(action))
+        if simulation.metrics.kill_count or terminated or truncated:
+            return step_index
+    return step_limit
 
 
 def test_combat_samples_are_positive_and_deterministic(
     make_simulator: Callable[..., FarmingSimulator],
 ) -> None:
-    first = make_simulator(
-        SimulatorConfig(combat_time_mu=1.5, tick_seconds=0.1),
-        objectives=(QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=1),),
-    )
-    second = make_simulator(
-        SimulatorConfig(combat_time_mu=1.5, tick_seconds=0.1),
-        objectives=(QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=1),),
-    )
-    first.reset()
-    second.reset()
+    objectives = (QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=1),)
+    config = SimulatorConfig(combat_time_mu=1.5, tick_seconds=0.1)
+    first = make_simulator(config, objectives=objectives)
+    second = make_simulator(config, objectives=objectives)
+    first.reset(seed=42)
+    second.reset(seed=42)
 
-    nearest = min(
-        (monster for monster in first._monsters if monster.lifecycle is MonsterLifecycle.ALIVE),
-        key=lambda monster: math.hypot(
-            monster.position_x - 10.0,
-            monster.position_z - 10.0,
-        ),
-    )
-    first._target = nearest
-    second._monsters = [second._monsters[0]]
-    second._target = second._monsters[0]
-    first._monsters = [nearest]
-    first.step(2)
-    second.step(2)
+    farm_until_first_kill(first)
+    farm_until_first_kill(second)
 
     assert first.metrics.kill_count == 1
     assert second.metrics.kill_count == first.metrics.kill_count
@@ -48,29 +52,38 @@ def test_combat_samples_are_positive_and_deterministic(
     assert first.metrics.combat_seconds > 0.0
 
 
-def test_dead_monsters_respawn_after_the_zone_timer_without_exceeding_capacity(
-    make_simulator: Callable[[], FarmingSimulator],
+def test_a_kill_costs_the_sampled_combat_duration(
+    make_simulator: Callable[..., FarmingSimulator],
 ) -> None:
-    simulation = make_simulator()
-    observation, _info = simulation.reset()
-    initial_alive = sum(
-        monster.lifecycle is MonsterLifecycle.ALIVE for monster in simulation._monsters
+    simulation = make_simulator(
+        SimulatorConfig(combat_time_mu=3.0, combat_time_sigma=0.0, tick_seconds=0.5),
+        objectives=(QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=1),),
     )
+    simulation.reset(seed=5)
 
-    assert initial_alive == 2
+    farm_until_first_kill(simulation)
+
+    assert simulation.metrics.kill_count == 1
+    assert simulation.metrics.combat_seconds >= 3.0
+
+
+def test_dead_monsters_respawn_after_the_zone_timer_without_exceeding_capacity(
+    make_simulator: Callable[..., FarmingSimulator],
+) -> None:
+    simulation = make_simulator(
+        SimulatorConfig(tick_seconds=0.5),
+        objectives=(QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=4),),
+    )
+    observation, _info = simulation.reset(seed=3)
+
     assert len(observation.candidates) <= 4
-    simulation._monsters[0] = type(simulation._monsters[0])(
-        7,
-        0,
-        simulation._monsters[0].position_x,
-        simulation._monsters[0].position_z,
-        MonsterLifecycle.DEAD,
-        available_at_seconds=1.0,
-    )
-    simulation.step(3)
+    farm_until_first_kill(simulation)
+    dead_after_kill = [
+        monster for monster in simulation._monsters if monster.lifecycle is MonsterLifecycle.DEAD
+    ]
 
-    alive_after_tick = sum(
-        monster.lifecycle is MonsterLifecycle.ALIVE for monster in simulation._monsters
-    )
     assert len(simulation._monsters) == 2
-    assert alive_after_tick == 1
+    assert len(dead_after_kill) == 1
+    for _tick in range(4):
+        simulation.step(int(TacticalAction.WAIT))
+    assert all(monster.lifecycle is not MonsterLifecycle.DEAD for monster in simulation._monsters)

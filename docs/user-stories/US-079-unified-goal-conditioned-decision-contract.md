@@ -29,7 +29,7 @@ the simulator, the telemetry exporter, the offline trainer and the live policy a
     literals, and recorded a third time as `KillCycle.reward`.
 - The consequences are recorded in
   [BUG-031](../bugs/BUG-031-learning-loop-is-open-recorded-data-and-live-inference.md) and
-  [BUG-032](../bugs/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md).
+  [BUG-032](../bugs/fixed/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md).
 - [ADR-003](../decisions/ADR-003-clean-schema-over-backward-compatibility.md) authorizes deleting
   the superseded contracts rather than shimming them.
 - The user goal driving this work is autonomous quest completion, so the observation must be

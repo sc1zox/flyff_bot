@@ -13,7 +13,17 @@ from flyff_bot.features.policy.hierarchical_training import train_hierarchical_p
 from flyff_bot.features.policy.hierarchical_training_simulator import TrainingObjective
 from flyff_bot.features.policy.models import PolicyCandidate, PolicyContext
 from flyff_bot.features.policy.runner import PolicyRunner
-from flyff_bot.features.simulator.models import QuestObjective, QuestObjectiveKind
+from flyff_bot.features.simulator.models import (
+    CalibrationBaseline,
+    CalibrationTolerance,
+    QuestObjective,
+    QuestObjectiveKind,
+)
+
+# This test is about the fallback boundary, not about dynamics drift, so its calibration
+# gate is deliberately wide: it must be satisfied without pinning simulated throughput.
+UNCONSTRAINED_BASELINE = CalibrationBaseline(60.0, 8, 8.0, 6.0, 1.0, 0.0, 0.0)
+UNCONSTRAINED_TOLERANCE = CalibrationTolerance(100.0, 100.0)
 
 
 class _InvalidNetwork:
@@ -33,6 +43,8 @@ def test_nan_hierarchical_output_triggers_exact_heuristic_fallback(
         world_map=world_map,
         start=WorldCoordinate(10.0, 10.0),
         objective=objective,
+        calibration=UNCONSTRAINED_BASELINE,
+        calibration_tolerance=UNCONSTRAINED_TOLERANCE,
     )
     learned = HierarchicalOnnxPolicy(tmp_path, network_loader=lambda _path: _InvalidNetwork())
     mob = VisibleMob(7, "Aibatt", 0.9, 10, 20, 5, 5, 1.0, 2.0, 3.0)

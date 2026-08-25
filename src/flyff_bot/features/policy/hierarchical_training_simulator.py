@@ -9,9 +9,14 @@ import numpy as np
 from numpy.typing import NDArray
 
 from flyff_bot.features.navigation.world_extractor import WorldCoordinate, WorldVectorMap
+from flyff_bot.features.policy.action_payloads import TacticalActionKind
 from flyff_bot.features.rl.models import FloatArray, ObservationSpace, RlObservation
 from flyff_bot.features.simulator.engine import FarmingSimulator, TacticalAction
-from flyff_bot.features.simulator.models import QuestObjective, SimulatorConfig
+from flyff_bot.features.simulator.models import (
+    QuestObjective,
+    SimulationMetrics,
+    SimulatorConfig,
+)
 
 PolicyFunction = Callable[[RlObservation, tuple[bool, ...]], int]
 
@@ -59,12 +64,37 @@ class HierarchicalTrainingSimulator:
         objective: TrainingObjective,
         config: SimulatorConfig | None = None,
     ) -> None:
+        self.config = config or SimulatorConfig(maximum_episode_seconds=60.0)
         self._simulator = FarmingSimulator(
             world_map,
             start=start,
             objectives=objective.objectives,
-            config=config or SimulatorConfig(maximum_episode_seconds=60.0),
+            config=self.config,
         )
+
+    def tactical_kind(self, action: int) -> TacticalActionKind:
+        """Return the tactical action the current state gives one strategic action.
+
+        The two heads answer different questions, so their labels must be read from
+        different facts: the strategic action alone does not say whether travelling needs a
+        corridor detour or whether interacting means engaging a monster.
+        """
+
+        if action == TacticalAction.TARGET_NEAREST:
+            return TacticalActionKind.TARGET
+        if action == TacticalAction.GO_TO_OBJECTIVE:
+            return (
+                TacticalActionKind.CORRIDOR
+                if self._simulator.has_route_detour
+                else TacticalActionKind.NAVIGATE
+            )
+        if action == TacticalAction.INTERACT:
+            return (
+                TacticalActionKind.ATTACK_POINT
+                if self._simulator.is_combat_engagement
+                else TacticalActionKind.INTERACT
+            )
+        return TacticalActionKind.WAIT
 
     def reset(self, *, seed: int) -> tuple[RlObservation, tuple[bool, ...]]:
         observation, info = self._simulator.reset(seed=seed)
@@ -87,6 +117,12 @@ class HierarchicalTrainingSimulator:
     @staticmethod
     def encode(observation: RlObservation) -> FloatArray:
         return ObservationSpace.encode(observation)
+
+    @property
+    def metrics(self) -> SimulationMetrics:
+        """Return the aggregate outcome of the episode the simulator last ran."""
+
+        return self._simulator.metrics
 
     def run_episode(self, policy: PolicyFunction, *, seed: int) -> HierarchicalEpisodeMetrics:
         observation, mask = self.reset(seed=seed)

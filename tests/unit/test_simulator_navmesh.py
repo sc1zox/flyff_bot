@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from flyff_bot.features.rl.state_space import OBSERVATION_DIMENSION, ObservationSpace
+from flyff_bot.features.rl.models import OBSERVATION_DIMENSION, ObservationSpace
 from flyff_bot.features.simulator import FarmingSimulator, SimulatorConfig
 
 
