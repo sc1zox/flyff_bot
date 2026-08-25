@@ -97,7 +97,17 @@ Focuses on tactical optimization, offline transition modeling, empirical NavMesh
 - [x] [**US-070: Learned attack point positioning and local waypoint optimization**](completed/US-070-learned-attack-point-and-local-waypoint-optimization.md) — Deterministic NavMesh attack-point sampling, bounded multi-criteria scoring, strict corridor containment, dynamic target replanning, and direct-Funnel fallback. Live Windows validation remains outstanding.
 - [x] [**US-071: Unified RL environment formulation, state-action space, and progress reward modeling**](completed/US-071-unified-rl-environment-and-reward.md) — Standardized MDP observation space, discrete tactical actions, action masking, progress rewards, telemetry transition exporter, and an offline Gymnasium-compatible adapter.
 - [x] [**US-072: Fast offline farming, navigation, and quest dynamics simulator**](completed/US-072-offline-farming-and-navigation-simulator.md) — 100x+ faster-than-real-time Python simulator modeling NavMesh pathing, mob spawns, combat TTK, stuck dynamics, and quests calibrated against real telemetry.
-- [x] [**US-073: Hierarchical RL policy for unified farming, navigation, and quest optimization**](completed/US-073-hierarchical-rl-farming-navigation-and-quest-policy.md) — Two-tier hierarchical RL policy (High-Level Strategic / Mid-Level Tactical) trained in simulation with masking, ONNX export, deterministic fallback, and synthetic latency evidence; live-client validation remains open.
+- [x] [**US-073: Hierarchical RL policy for unified farming, navigation, and quest optimization**](completed/US-073-hierarchical-rl-farming-navigation-and-quest-policy.md) — Two-tier hierarchical RL policy (High-Level Strategic / Mid-Level Tactical) trained in simulation with masking, ONNX export, deterministic fallback, and synthetic latency evidence; live-client validation remains open. **Contract and dynamics defects are open under [BUG-031](../bugs/BUG-031-learning-loop-is-open-recorded-data-and-live-inference.md) and [BUG-032](../bugs/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md).**
+
+#### Phase 6b: Closing the self-optimization loop (Planned)
+
+Turns the experimental learning stack into one closed loop — farm, record, train, evaluate, promote,
+farm better — driven by explicit quest goals. Grounded in the review recorded as BUG-031 and BUG-032.
+
+- [ ] [**US-079: Unified versioned goal-conditioned decision contract**](US-079-unified-goal-conditioned-decision-contract.md) — One observation, parameterized action, mask and reward contract shared by simulator, exporter, trainer and live inference; duplicate action vocabularies removed; goal identity and progress carried in the observation.
+- [ ] [**US-080: Goal-driven quest execution and objective bus**](US-080-goal-driven-quest-execution-and-objective-bus.md) — A resolved quest becomes an ordered goal sequence that autonomously teleports, navigates, accepts, farms the resolved spawn zone, returns and turns in, and that the policy and telemetry both see.
+- [ ] [**US-081: Experience database and a reproducible train, evaluate, promote and deploy loop**](US-081-experience-database-and-train-evaluate-promote-loop.md) — Session-safe SQLite experience, offline CLI commands for export, training and evaluation, threshold-gated promotion, a model registry, and a selectable artifact that fails closed.
+- [ ] [**US-082: ML and RL engineering quality gate**](US-082-ml-rl-engineering-quality-gate.md) — Tests that state required behavior instead of pinning defects, an integration pipeline test, per-module coverage floors, one vocabulary per concept, named constants, and no bare assertions in production code.
 
 ### Completed Teleport Reset
 
