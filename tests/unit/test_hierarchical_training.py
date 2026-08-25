@@ -18,9 +18,18 @@ from flyff_bot.features.policy.hierarchical_training import (
     train_hierarchical_policy,
 )
 from flyff_bot.features.policy.hierarchical_training_simulator import TrainingObjective
-from flyff_bot.features.policy.models import PolicyCandidate, PolicyContext
+from flyff_bot.features.policy.models import (
+    LiveObservationState,
+    PolicyCandidate,
+    PolicyContext,
+)
 from flyff_bot.features.policy.runner import PolicyRunner
-from flyff_bot.features.rl.models import OBSERVATION_DIMENSION, RL_OBSERVATION_SCHEMA_VERSION
+from flyff_bot.features.rl.models import (
+    OBSERVATION_DIMENSION,
+    RL_OBSERVATION_SCHEMA_VERSION,
+    NavMeshContext,
+    PlayerKinematics,
+)
 from flyff_bot.features.rl.rewards import RewardConfig
 from flyff_bot.features.simulator import CalibrationBaseline, CalibrationError
 from flyff_bot.features.simulator.models import QuestObjective, QuestObjectiveKind
@@ -135,6 +144,10 @@ def test_an_untrained_action_class_is_never_selected_live(
         frozenset(),
         (False,),
         valid_corridor_ids=frozenset({"corridor-1"}),
+        live_state=LiveObservationState(
+            PlayerKinematics(10.0, 10.0, 10.0, 0.0),
+            NavMeshContext("zone_0_0", 0.0, 10.0),
+        ),
     )
     state = WorldState(1.0, Position(50, 50), 1, (), 0, viewport=Viewport(100, 100))
 
@@ -217,7 +230,15 @@ def test_cached_two_head_inference_stays_inside_five_millisecond_budget(
     policy = HierarchicalOnnxPolicy(tmp_path)
     mob = VisibleMob(7, "Aibatt", 0.9, 10, 20, 5, 5, 1.0, 2.0, 3.0)
     candidate = PolicyCandidate(mob, True, True, True, True, True, 0)
-    context = PolicyContext((candidate,), frozenset(), (False,))
+    context = PolicyContext(
+        (candidate,),
+        frozenset(),
+        (False,),
+        live_state=LiveObservationState(
+            PlayerKinematics(10.0, 10.0, 10.0, 0.0),
+            NavMeshContext("zone_0_0", 0.0, 10.0),
+        ),
+    )
     state = WorldState(1.0, Position(50, 50), 1, (), 0, viewport=Viewport(100, 100))
     runner = PolicyRunner(policy)
     runner.evaluate(state, context)
