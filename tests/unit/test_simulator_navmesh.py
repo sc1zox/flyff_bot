@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from flyff_bot.features.rl.state_space import ObservationSpace
+from flyff_bot.features.rl.state_space import OBSERVATION_DIMENSION, ObservationSpace
 from flyff_bot.features.simulator import FarmingSimulator, SimulatorConfig
 
 
@@ -24,7 +24,7 @@ def test_movement_uses_nominal_speed_turn_time_and_real_heights(
     assert observation.kinematics.position_y == pytest.approx(10.0)
     assert observation.kinematics.position_x == pytest.approx(15.0, abs=5.01)
     assert observation.kinematics.position_z == pytest.approx(10.0)
-    assert ObservationSpace.encode(observation).shape == (52,)
+    assert ObservationSpace.encode(observation).shape == (OBSERVATION_DIMENSION,)
 
 
 def test_a_completed_go_to_objective_terminates_the_episode(

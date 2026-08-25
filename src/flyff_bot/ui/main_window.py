@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from enum import IntEnum
 from pathlib import Path
 
@@ -94,6 +95,7 @@ from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
 from flyff_bot.ui.powerup_panel import PowerUpPanel
 from flyff_bot.ui.quest_panel import QuestGoalPanel
+from flyff_bot.ui.readiness_panel import ReadinessPanel
 from flyff_bot.ui.setup_wizard import SetupWizard
 from flyff_bot.ui.target_panel import TargetSelectionPanel
 from flyff_bot.ui.theme import apply_theme
@@ -251,6 +253,7 @@ class MainWindow(QMainWindow):
         self._quest_panel = QuestGoalPanel(self._translator)
         self._quest_controller = QuestDatabaseController(self._quest_panel, self._translator)
         self._dungeon_panel = DungeonCooldownPanel(self._translator)
+        self._readiness_panel = ReadinessPanel(self._translator)
 
         self._target_debug_panel = TargetDebugPanel()
         self._target_anchor_val = self._target_debug_panel.anchor_value
@@ -343,6 +346,10 @@ class MainWindow(QMainWindow):
 
     def tab_scroll_area(self, tab: DashboardTab) -> QScrollArea:
         return self._tab_scroll_areas[tab]
+
+    @property
+    def readiness_panel(self) -> ReadinessPanel:
+        return self._readiness_panel
 
     @property
     def camera_preview_toggle(self) -> QCheckBox:
@@ -626,6 +633,7 @@ class MainWindow(QMainWindow):
         self._add_scroll_tab(
             DashboardTab.DASHBOARD,
             self._summary_card,
+            self._readiness_panel,
             preview_controls,
             self._overlay_label,
         )
@@ -867,6 +875,7 @@ class MainWindow(QMainWindow):
         self._target_panel.set_translator(self._translator)
         self._quest_panel.set_translator(self._translator)
         self._dungeon_panel.set_translator(self._translator)
+        self._readiness_panel.set_translator(self._translator)
         self._target_debug_panel.retranslate(self._translator)
         self._monster_stats_panel.retranslate(self._translator)
         self._monster_stats_panel.render_metrics(
@@ -954,16 +963,7 @@ class MainWindow(QMainWindow):
     def update_status(self, status: BotStatus) -> None:
         if self._latest_update is None:
             return
-        self.update_dashboard(
-            DashboardUpdate(
-                self._latest_update.state,
-                status,
-                self._latest_update.goal,
-                self._latest_update.frame,
-                self._latest_update.navigation,
-                self._latest_update.window,
-            )
-        )
+        self.update_dashboard(replace(self._latest_update, status=status))
 
     def _render_status_badge(self, status: BotStatus) -> None:
         self._status_presenter.render_status(status)
@@ -990,6 +990,7 @@ class MainWindow(QMainWindow):
             update.quest_title, update.quest_progress, update.quest_queue_completed
         )
         self._dungeon_panel.set_snapshots(update.dungeons)
+        self._readiness_panel.set_status(update.readiness)
         self._event_log_panel.set_events(update.events)
         self._target_debug_panel.render_target(
             self._translator,

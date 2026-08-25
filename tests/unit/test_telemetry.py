@@ -5,6 +5,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from flyff_bot.features.automation.models import Position, Viewport, VisibleMob, WorldState
+from flyff_bot.features.automation.readiness import (
+    LiveReadinessStatus,
+    LiveStateSource,
+    ProviderHealth,
+    ReadinessReason,
+    ReadinessState,
+    SourceReadiness,
+)
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import NavMeshBaker
 from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
@@ -47,7 +55,26 @@ def test_recorder_writes_versioned_header_snapshots_and_explicit_nulls(tmp_path:
         utc_now=lambda: datetime(2026, 8, 19, tzinfo=UTC),
     )
     recorder.start()
-    recorder.record_snapshot(_state(), "searching", live_position=None)
+    failure = SourceReadiness(
+        LiveStateSource.GPS,
+        ProviderHealth.UNAVAILABLE,
+        0.25,
+        ReadinessReason.UNAVAILABLE,
+        "process_not_found",
+    )
+    recorder.record_snapshot(
+        _state(),
+        "searching",
+        live_position=None,
+        readiness=LiveReadinessStatus(
+            state=ReadinessState.BLOCKED,
+            sources=(failure,),
+            failures=(failure,),
+            primary_reason=ReadinessReason.UNAVAILABLE,
+            primary_source=LiveStateSource.GPS,
+            action_blocked=True,
+        ),
+    )
     recorder.record_target_selection(_state(), 50, 40, reason="nearest_to_viewport_center")
     recorder.close()
 
@@ -58,8 +85,13 @@ def test_recorder_writes_versioned_header_snapshots_and_explicit_nulls(tmp_path:
         "world_snapshot",
         "target_selected",
     ]
-    assert records[0]["schema_version"] == 2
+    assert records[0]["schema_version"] == 3
     assert records[1]["payload"]["player_position"] is None
+    assert records[1]["payload"]["readiness_state"] == "blocked"
+    assert records[1]["payload"]["readiness_primary_reason"] == "unavailable"
+    assert records[1]["payload"]["failed_source_codes"] == ["gps"]
+    assert records[1]["payload"]["sample_ages_seconds"] == [["gps", 0.25]]
+    assert records[1]["payload"]["action_blocked"] is True
     assert records[2]["payload"]["candidates"][0]["world_position"] is None
 
 

@@ -7,12 +7,14 @@ from flyff_bot.features.automation.models import Position, Viewport, VisibleMob,
 from flyff_bot.features.navigation.world_extractor import WorldCoordinate, WorldVectorMap
 from flyff_bot.features.policy.hierarchical_onnx import HierarchicalOnnxPolicy
 from flyff_bot.features.policy.hierarchical_training import (
+    HIERARCHICAL_METADATA_SCHEMA_VERSION,
     read_hierarchical_metadata,
     train_hierarchical_policy,
 )
 from flyff_bot.features.policy.hierarchical_training_simulator import TrainingObjective
 from flyff_bot.features.policy.models import PolicyCandidate, PolicyContext
 from flyff_bot.features.policy.runner import PolicyRunner
+from flyff_bot.features.rl.models import OBSERVATION_DIMENSION, RL_OBSERVATION_SCHEMA_VERSION
 from flyff_bot.features.simulator.models import QuestObjective, QuestObjectiveKind
 
 
@@ -51,6 +53,11 @@ def test_training_exports_distinct_heads_and_beats_paired_baseline(
     assert report.learned_objectives_per_minute > report.baseline_objectives_per_minute
     assert report.high_level_model_path.read_bytes() != report.mid_level_model_path.read_bytes()
     assert metadata["world_name"] == "WdTest"
+    assert metadata["schema_version"] == HIERARCHICAL_METADATA_SCHEMA_VERSION
+    assert metadata["feature_schema"] == {
+        "version": RL_OBSERVATION_SCHEMA_VERSION,
+        "width": OBSERVATION_DIMENSION,
+    }
 
 
 def test_model_digest_tampering_is_rejected(tmp_path: Path, world_map: WorldVectorMap) -> None:

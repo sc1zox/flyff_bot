@@ -14,6 +14,7 @@ related:
   - architecture.md
   - ../decisions/ADR-006-read-only-process-memory-access.md
   - ../user-stories/completed/US-071-unified-rl-environment-and-reward.md
+  - ../user-stories/completed/US-077-central-live-state-readiness-gate.md
 ---
 
 # Glossary
@@ -409,6 +410,16 @@ related:
   gated, SHA-256-bound, bounded read. It carries decoded profile-declared fields, unknown-field
   markers, timestamp, client digest, unavailable field names, or a typed diagnostic; it never
   substitutes defaults for unread statistics.
+- **Live readiness gate** — `LiveReadinessGate`, the single typed evaluator that combines registered
+  provider samples, freshness limits, capability dependency graphs, and terminal cancellation into
+  one immutable `LiveReadinessStatus` per session tick. It reports every failed source while exposing
+  a deterministic primary reason; capability blocks pause only dependent actions.
+- **Readiness provider sample** — A normalized `LiveProviderSample` for one live source, carrying
+  provider health, sample time, and a stable diagnostic code. The gate owns freshness, malformed
+  timestamp, and clock-discontinuity classification rather than provider-specific controllers.
+- **Readiness capability** — A `SessionCapability` dependency declaration. Navigation, combat,
+  vitals, dungeon automation, camera alignment, and read-only preview can therefore have distinct
+  required live sources and selective pause/recovery behavior.
 - **Provisional multi-kill plan** — The advisory target sequence exposed by
   `RollingHorizonPlanner`. Only its first target is committed; every fresh perception snapshot can
   replace it, and it never bypasses deterministic masks or guarded execution.

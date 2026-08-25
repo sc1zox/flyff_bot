@@ -50,6 +50,15 @@ from flyff_bot.features.automation.powerup_persistence import (
     load_powerup_config,
     save_powerup_config,
 )
+from flyff_bot.features.automation.readiness import (
+    LiveReadinessStatus,
+    LiveStateSource,
+    ProviderHealth,
+    ReadinessReason,
+    ReadinessState,
+    SessionCapability,
+    SourceReadiness,
+)
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerType,
@@ -153,6 +162,48 @@ def test_main_window_receives_dashboard_signal_and_renders_overlay() -> None:
 
     window.camera_preview_toggle.setChecked(True)
     assert not window.overlay_label.isHidden()
+
+
+def test_readiness_panel_localizes_source_health_age_code_and_consequence() -> None:
+    QApplication.instance() or QApplication([])
+    source = SourceReadiness(
+        LiveStateSource.GPS,
+        ProviderHealth.UNSUPPORTED,
+        0.75,
+        ReadinessReason.UNSUPPORTED,
+        "fingerprint_mismatch",
+        (SessionCapability.NAVIGATION,),
+    )
+    status = LiveReadinessStatus(
+        state=ReadinessState.BLOCKED,
+        sources=(source,),
+        failures=(source,),
+        primary_reason=ReadinessReason.UNSUPPORTED,
+        primary_source=LiveStateSource.GPS,
+        action_blocked=True,
+    )
+
+    english = MainWindow(Translator(Language.ENGLISH))
+    english.update_dashboard(DashboardUpdate(_world_state(), BotStatus.STANDBY, readiness=status))
+    table = english.readiness_panel.table
+    assert english.readiness_panel.summary_label.text() == (
+        "Actions blocked — GPS position: Unsupported client."
+    )
+    items = tuple(table.item(0, column) for column in range(5))
+    assert all(item is not None for item in items)
+    assert [item.text() for item in items if item is not None] == [
+        "GPS position",
+        "Unsupported client",
+        "0.75 s",
+        "fingerprint_mismatch",
+        "Blocks: navigation",
+    ]
+
+    german = MainWindow(Translator(Language.GERMAN))
+    german.update_dashboard(DashboardUpdate(_world_state(), BotStatus.STANDBY, readiness=status))
+    assert german.readiness_panel.summary_label.text() == (
+        "Aktionen blockiert — GPS-Position: Client nicht unterstützt."
+    )
 
 
 def test_controls_emit_intent_and_update_status() -> None:

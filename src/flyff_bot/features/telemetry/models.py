@@ -8,7 +8,7 @@ from math import sqrt
 from typing import Any
 from uuid import uuid4
 
-TELEMETRY_SCHEMA_VERSION = 2
+TELEMETRY_SCHEMA_VERSION = 3
 TRAJECTORY_SCHEMA_VERSION = 2
 
 
@@ -100,6 +100,11 @@ class WorldSnapshot:
     buff_cooldowns: dict[str, float]
     farming_mode: str
     visible_mob_count: int
+    readiness_state: str
+    readiness_primary_reason: str | None
+    failed_source_codes: tuple[str, ...]
+    sample_ages_seconds: tuple[tuple[str, float | None], ...]
+    action_blocked: bool
 
 
 @dataclass(frozen=True, slots=True)

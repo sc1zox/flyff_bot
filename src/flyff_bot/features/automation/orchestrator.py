@@ -61,6 +61,16 @@ from flyff_bot.features.automation.quest_execution_models import (
     DialoguePerceiver,
     QuestInteractionController,
 )
+from flyff_bot.features.automation.readiness import (
+    CapabilityRequirement,
+    LiveProviderSample,
+    LiveReadinessGate,
+    LiveReadinessStatus,
+    LiveStateSource,
+    ProviderHealth,
+    ProviderRegistration,
+    SessionCapability,
+)
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
 from flyff_bot.features.automation.vitals_controller import (
@@ -70,8 +80,11 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerController,
 )
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
+from flyff_bot.features.dungeons.live_reader import DungeonReadStatus
+from flyff_bot.features.dungeons.models import DungeonStateSnapshot
 from flyff_bot.features.input_control import ForegroundWindowInfo
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
+from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
 from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
     PositionSource,
@@ -79,6 +92,10 @@ from flyff_bot.features.navigation.live_position import (
 )
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
+from flyff_bot.features.player_stats.models import (
+    PlayerStatsReadErrorCode,
+    PlayerStatsSource,
+)
 from flyff_bot.features.policy.models import (
     PolicyCandidate,
     PolicyContext,
@@ -115,6 +132,12 @@ REPOSITION_SWEEP_CYCLES = 1
 # One full patrol lap of a camp without a confirmed kill is what exhausts it: the next
 # selected spawn zone is worth walking to rather than sweeping the empty one again.
 PATROL_SWEEPS_BEFORE_ZONE_CHANGE = 1
+FOREGROUND_FRESHNESS_SECONDS = 0.5
+PERCEPTION_FRAME_FRESHNESS_SECONDS = 0.5
+GPS_FRESHNESS_SECONDS = 0.5
+CAMERA_FRESHNESS_SECONDS = 0.5
+PLAYER_STATS_FRESHNESS_SECONDS = 1.0
+DUNGEON_STATE_FRESHNESS_SECONDS = 2.0
 
 
 def _default_reposition_config() -> SearchConfig:
@@ -181,6 +204,17 @@ class SessionShutdownAdapter(Protocol):
         """Ask the client window to close itself and report whether that was posted."""
 
 
+class DungeonStateProvider(Protocol):
+    """Optional bounded live dungeon feed owned by the session lifecycle."""
+
+    @property
+    def last_diagnostic(self) -> object | None: ...
+
+    def poll(self, at_seconds: float | None = None) -> tuple[DungeonStateSnapshot, ...]: ...
+
+    def close(self) -> None: ...
+
+
 class FarmingInputAdapter(
     CombatInputAdapter,
     SearchInputAdapter,
@@ -240,6 +274,7 @@ class FarmingTick:
     mode: FarmingMode
     dispatched: bool
     reconciliation: Reconciliation | None = None
+    readiness: LiveReadinessStatus = field(default_factory=LiveReadinessStatus)
 
 
 class FarmingOrchestrator:
@@ -263,6 +298,7 @@ class FarmingOrchestrator:
         event_logger: SessionEventLogger | None = None,
         foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
         telemetry: TelemetryRecorder | None = None,
+        dungeon_provider: DungeonStateProvider | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._input_adapter = input_adapter
@@ -309,6 +345,8 @@ class FarmingOrchestrator:
         self._emergency_recovery_started_at_seconds: float | None = None
         self._emergency_teleport_unavailable = False
         self._telemetry = telemetry
+        self._dungeon_provider = dungeon_provider
+        self._dungeon_snapshots: tuple[DungeonStateSnapshot, ...] | None = None
         self._telemetry_observed_at_seconds: float | None = None
         self._pending_target_click: CombatDecision | None = None
         self._session_active = False
@@ -339,12 +377,237 @@ class FarmingOrchestrator:
             self._learned_policy = None
         self._policy_runner = PolicyRunner(self._learned_policy)
         self._last_policy_action: TargetAction | None = None
+        self._readiness_gate = LiveReadinessGate()
+        self._readiness = LiveReadinessStatus()
+        self._readiness_was_blocked = False
+        self._configure_readiness_gate()
 
     @property
     def mode(self) -> FarmingMode:
         """Return the current session phase."""
 
         return self._mode
+
+    @property
+    def readiness(self) -> LiveReadinessStatus:
+        """Return the immutable status produced for the most recently published tick."""
+
+        return self._readiness
+
+    def _configure_readiness_gate(self) -> None:
+        registrations = (
+            ProviderRegistration(LiveStateSource.WINDOW_FOREGROUND, FOREGROUND_FRESHNESS_SECONDS),
+            ProviderRegistration(
+                LiveStateSource.PERCEPTION_FRAME, PERCEPTION_FRAME_FRESHNESS_SECONDS
+            ),
+            ProviderRegistration(LiveStateSource.GPS, GPS_FRESHNESS_SECONDS),
+            ProviderRegistration(LiveStateSource.CAMERA, CAMERA_FRESHNESS_SECONDS),
+            ProviderRegistration(LiveStateSource.PLAYER_STATS, PLAYER_STATS_FRESHNESS_SECONDS),
+            ProviderRegistration(LiveStateSource.DUNGEON_STATE, DUNGEON_STATE_FRESHNESS_SECONDS),
+        )
+        for registration in registrations:
+            self._readiness_gate.register_provider(registration)
+        self._readiness_gate.register_capability(
+            CapabilityRequirement(
+                SessionCapability.READ_ONLY_PREVIEW,
+                frozenset({LiveStateSource.PERCEPTION_FRAME}),
+                blocks_session_actions=False,
+            )
+        )
+        self._readiness_gate.register_capability(
+            CapabilityRequirement(
+                SessionCapability.CAMERA_ALIGNMENT,
+                frozenset({LiveStateSource.WINDOW_FOREGROUND, LiveStateSource.PERCEPTION_FRAME}),
+                blocks_session_actions=False,
+            )
+        )
+        player_stats_enabled = bool(getattr(self._pipeline, "has_player_stats_provider", False))
+        combat_sources = {
+            LiveStateSource.WINDOW_FOREGROUND,
+            LiveStateSource.PERCEPTION_FRAME,
+        }
+        if player_stats_enabled:
+            combat_sources.add(LiveStateSource.PLAYER_STATS)
+        self._readiness_gate.register_capability(
+            CapabilityRequirement(SessionCapability.COMBAT, frozenset(combat_sources))
+        )
+        if player_stats_enabled:
+            self._readiness_gate.register_capability(
+                CapabilityRequirement(
+                    SessionCapability.VITALS,
+                    frozenset({LiveStateSource.WINDOW_FOREGROUND, LiveStateSource.PLAYER_STATS}),
+                )
+            )
+        if self._pathing is not None:
+            navigation_sources = {
+                LiveStateSource.WINDOW_FOREGROUND,
+                LiveStateSource.PERCEPTION_FRAME,
+                LiveStateSource.GPS,
+            }
+            if bool(getattr(self._pathing, "has_camera_provider", False)):
+                navigation_sources.add(LiveStateSource.CAMERA)
+            self._readiness_gate.register_capability(
+                CapabilityRequirement(SessionCapability.NAVIGATION, frozenset(navigation_sources))
+            )
+        if self._dungeon_provider is not None:
+            self._readiness_gate.register_capability(
+                CapabilityRequirement(
+                    SessionCapability.DUNGEON_AUTOMATION,
+                    frozenset({LiveStateSource.WINDOW_FOREGROUND, LiveStateSource.DUNGEON_STATE}),
+                )
+            )
+
+    def _evaluate_readiness(self, at_seconds: float) -> LiveReadinessStatus:
+        self._refresh_readiness_samples(at_seconds)
+        self._readiness = self._readiness_gate.evaluate(at_seconds)
+        return self._readiness
+
+    def _refresh_readiness_samples(self, at_seconds: float) -> None:
+        foreground = self._input_adapter.is_foreground(self._window_handle)
+        self._readiness_gate.update(
+            LiveProviderSample(
+                LiveStateSource.WINDOW_FOREGROUND,
+                ProviderHealth.HEALTHY if foreground else ProviderHealth.UNAVAILABLE,
+                at_seconds,
+                "ok" if foreground else "window_not_foreground",
+            )
+        )
+        self._readiness_gate.update(
+            LiveProviderSample(
+                LiveStateSource.PERCEPTION_FRAME,
+                ProviderHealth.HEALTHY if self._has_live_frame else ProviderHealth.UNAVAILABLE,
+                self._state.observed_at_seconds if self._has_live_frame else at_seconds,
+                "ok"
+                if self._has_live_frame
+                else (
+                    self._last_capture_error.value
+                    if self._last_capture_error is not None
+                    else "no_frame"
+                ),
+            )
+        )
+        self._update_navigation_readiness(at_seconds)
+        self._update_player_stats_readiness(at_seconds)
+        self._update_dungeon_readiness(at_seconds)
+
+    def _update_navigation_readiness(self, at_seconds: float) -> None:
+        pathing = self._pathing
+        if pathing is None or not bool(getattr(pathing, "has_position_provider", False)):
+            gps_sample = LiveProviderSample(
+                LiveStateSource.GPS,
+                ProviderHealth.UNAVAILABLE,
+                at_seconds,
+                "not_configured",
+            )
+        elif pathing.is_gps_available:
+            gps_sample = LiveProviderSample(
+                LiveStateSource.GPS,
+                ProviderHealth.HEALTHY,
+                pathing.live_sampled_at_seconds,
+                "ok",
+            )
+        else:
+            error_code = pathing.position_error_code
+            gps_sample = LiveProviderSample(
+                LiveStateSource.GPS,
+                _position_provider_health(error_code),
+                at_seconds,
+                error_code.value if error_code is not None else "unavailable",
+            )
+        self._readiness_gate.update(gps_sample)
+        if pathing is None or not bool(getattr(pathing, "has_camera_provider", False)):
+            camera_sample = LiveProviderSample(
+                LiveStateSource.CAMERA,
+                ProviderHealth.UNAVAILABLE,
+                at_seconds,
+                "not_configured",
+            )
+        elif pathing.camera_state is not None:
+            camera_sample = LiveProviderSample(
+                LiveStateSource.CAMERA,
+                ProviderHealth.HEALTHY,
+                pathing.camera_sampled_at_seconds,
+                "ok",
+            )
+        else:
+            camera_error_code = pathing.camera_error_code
+            camera_sample = LiveProviderSample(
+                LiveStateSource.CAMERA,
+                _camera_provider_health(camera_error_code),
+                at_seconds,
+                camera_error_code.value if camera_error_code is not None else "unavailable",
+            )
+        self._readiness_gate.update(camera_sample)
+
+    def _update_player_stats_readiness(self, at_seconds: float) -> None:
+        if not bool(getattr(self._pipeline, "has_player_stats_provider", False)):
+            sample = LiveProviderSample(
+                LiveStateSource.PLAYER_STATS,
+                ProviderHealth.UNAVAILABLE,
+                at_seconds,
+                "not_configured",
+            )
+        else:
+            snapshot = self._state.player_stats_snapshot
+            if snapshot is None:
+                sample = LiveProviderSample(
+                    LiveStateSource.PLAYER_STATS,
+                    ProviderHealth.UNAVAILABLE,
+                    at_seconds,
+                    "no_sample",
+                )
+            elif snapshot.source is PlayerStatsSource.CLIENT_MEMORY:
+                required_fields = {"hp", "mp", "fp"}
+                if required_fields.issubset(snapshot.field_values):
+                    health = ProviderHealth.HEALTHY
+                    diagnostic = "ok"
+                else:
+                    health = ProviderHealth.MALFORMED
+                    diagnostic = "required_fields_missing"
+                sample = LiveProviderSample(
+                    LiveStateSource.PLAYER_STATS,
+                    health,
+                    snapshot.sampled_at_seconds,
+                    diagnostic,
+                )
+            else:
+                error_code = snapshot.error.code if snapshot.error is not None else None
+                sample = LiveProviderSample(
+                    LiveStateSource.PLAYER_STATS,
+                    _player_stats_provider_health(error_code),
+                    at_seconds,
+                    error_code.value if error_code is not None else "unavailable",
+                )
+        self._readiness_gate.update(sample)
+
+    def _update_dungeon_readiness(self, at_seconds: float) -> None:
+        provider = self._dungeon_provider
+        if provider is None:
+            sample = LiveProviderSample(
+                LiveStateSource.DUNGEON_STATE,
+                ProviderHealth.UNAVAILABLE,
+                at_seconds,
+                "not_configured",
+            )
+        else:
+            self._dungeon_snapshots = provider.poll(at_seconds)
+            diagnostic = provider.last_diagnostic
+            if diagnostic is None:
+                sample = LiveProviderSample(
+                    LiveStateSource.DUNGEON_STATE,
+                    ProviderHealth.HEALTHY,
+                    at_seconds,
+                    "ok",
+                )
+            else:
+                status = getattr(diagnostic, "status", None)
+                sample = LiveProviderSample(
+                    LiveStateSource.DUNGEON_STATE,
+                    _dungeon_provider_health(status),
+                    at_seconds,
+                    status.value if isinstance(status, DungeonReadStatus) else "unavailable",
+                )
+        self._readiness_gate.update(sample)
 
     def _set_mode(
         self,
@@ -426,19 +689,53 @@ class FarmingOrchestrator:
         """Latch a session-local emergency stop until a new session is created."""
 
         self._session_active = False
+        self._readiness_gate.emergency_stop()
+        self._clear_armed_actions()
         self._set_mode(
             FarmingMode.EMERGENCY_STOPPED, kind=SessionEventKind.EMERGENCY_STOPPED, reason=reason
         )
         if self._pathing is not None:
             self._pathing.emergency_stop()
+        close_pipeline = getattr(self._pipeline, "close", None)
+        if callable(close_pipeline):
+            close_pipeline()
+        if self._dungeon_provider is not None:
+            self._dungeon_provider.close()
 
     def close(self) -> None:
         """Release external resources during application teardown."""
 
+        self._readiness_gate.close()
+        self._clear_armed_actions()
         if self._pathing is not None:
             self._pathing.close()
+        close_pipeline = getattr(self._pipeline, "close", None)
+        if callable(close_pipeline):
+            close_pipeline()
+        if self._dungeon_provider is not None:
+            self._dungeon_provider.close()
         if self._telemetry is not None:
             self._telemetry.close()
+
+    def _clear_armed_actions(self) -> None:
+        """Discard ephemeral input intent while preserving durable session progress."""
+
+        self._pending_target_click = None
+        self._combat.reset()
+        self._search.reset()
+        self._reposition.reset()
+        self._vitals.reset()
+        self._powerups.halt()
+        self._emergency.halt()
+        self._approach_stalls.reset()
+        self._engagement_break = None
+        self._engaged_monster_name = None
+        if self._quest_interaction is not None:
+            self._quest_interaction.reset()
+        if self._pathing is not None:
+            block_pathing = getattr(self._pathing, "block_for_readiness", None)
+            if callable(block_pathing):
+                block_pathing()
 
     def configure_attack_key(self, virtual_key: int) -> None:
         """Apply one dashboard-selected attack key before a paused session starts."""
@@ -637,43 +934,51 @@ class FarmingOrchestrator:
     def tick(self) -> FarmingTick:
         """Perform at most one perception, decision, and guarded-dispatch cycle."""
 
+        if self._input_adapter.is_aborted():
+            self.emergency_stop(reason="killswitch")
+            self._readiness = self._readiness_gate.evaluate(self._state.observed_at_seconds)
+            return self._publish(False)
         if self._mode is FarmingMode.ALIGNING:
             return self._run_alignment()
         if self._mode in STANDBY_MODES:
             self._powerups.halt()
             self._emergency.halt()
-            self._observe()
-            if self._pathing is not None:
+            emergency_stopped = self._mode is FarmingMode.EMERGENCY_STOPPED
+            self._observe(poll_live_providers=not emergency_stopped)
+            if self._pathing is not None and not emergency_stopped:
                 self._pathing.track(self._state, self._last_frame)
+            if emergency_stopped:
+                self._readiness = self._readiness_gate.evaluate(self._state.observed_at_seconds)
+                return self._publish(False)
+            readiness = self._evaluate_readiness(self._state.observed_at_seconds)
             if (
                 self._session_active
                 and self._mode is FarmingMode.PAUSED
                 and self._has_live_frame
-                and self._input_adapter.is_foreground(self._window_handle)
-                and (self._pathing is None or self._pathing.is_gps_available)
+                and not readiness.action_blocked
             ):
+                self._readiness_was_blocked = False
                 self._set_mode(FarmingMode.SEARCHING, reason="resumed_auto")
-            return self._publish(False)
-        if self._input_adapter.is_aborted():
-            self.emergency_stop(reason="killswitch")
             return self._publish(False)
         if not self._input_adapter.is_foreground(self._window_handle):
             lookup_foreground = self._foreground_window_info
             foreground = lookup_foreground() if lookup_foreground is not None else None
             if self._pathing is not None:
                 self._pathing.mark_gps_offline(PositionReadErrorCode.WINDOW_NOT_FOREGROUND)
-            self.pause(
+            self._evaluate_readiness(self._state.observed_at_seconds)
+            self._pause_for_readiness(
                 kind=SessionEventKind.FOCUS_LOST,
-                reason="focus_lost",
                 foreground=foreground,
-                manual=False,
+                reason_override="focus_lost",
             )
             return self._publish(False)
         if not self._observe():
-            self.pause(
+            self._evaluate_readiness(self._state.observed_at_seconds)
+            self._pause_for_readiness(
                 kind=SessionEventKind.FRAME_CAPTURE_ERROR,
-                reason=self._last_capture_error.value if self._last_capture_error else None,
-                manual=False,
+                reason_override=(
+                    self._last_capture_error.value if self._last_capture_error is not None else None
+                ),
             )
             return self._publish(False)
 
@@ -687,11 +992,13 @@ class FarmingOrchestrator:
                 is_stuck=self._pathing.is_stalled,
                 visible_mobs=self._pathing.enrich_visible_mobs(self._state),
             )
-            if not self._pathing.is_gps_available:
-                self.pause(reason="gps_unavailable", manual=False)
-                return self._publish(False)
             if self._telemetry is not None:
                 self._telemetry.record_navigation_stall(stalled=self._pathing.is_stalled)
+        readiness = self._evaluate_readiness(self._state.observed_at_seconds)
+        if readiness.action_blocked:
+            self._pause_for_readiness()
+            return self._publish(False)
+        self._readiness_was_blocked = False
         if self._goal_completed():
             self._complete_session()
             return self._publish(False)
@@ -729,6 +1036,24 @@ class FarmingOrchestrator:
         if self._camera_aligner is None:
             self._set_mode(self._mode_after_alignment, reason="alignment_skipped")
             return self._publish(False)
+        if not self._observe():
+            self._evaluate_readiness(self._state.observed_at_seconds)
+            self._pause_for_readiness(
+                kind=SessionEventKind.FRAME_CAPTURE_ERROR,
+                reason_override=(
+                    self._last_capture_error.value if self._last_capture_error is not None else None
+                ),
+            )
+            return self._publish(False)
+        self._evaluate_readiness(self._state.observed_at_seconds)
+        alignment = next(
+            item
+            for item in self._readiness.capabilities
+            if item.capability is SessionCapability.CAMERA_ALIGNMENT
+        )
+        if alignment.blocked:
+            self._pause_for_readiness()
+            return self._publish(False)
         self._publish(False)
         status = self._camera_aligner.align()
         if status is CameraAlignmentStatus.ALIGNED:
@@ -741,11 +1066,20 @@ class FarmingOrchestrator:
             self.pause(reason=f"alignment_failed:{status.value}")
         return self._publish(False)
 
-    def _observe(self) -> bool:
+    def _observe(self, *, poll_live_providers: bool = True) -> bool:
         """Refresh read-only perception state and report whether a frame was captured."""
 
         try:
-            perception = self._pipeline.tick(self._window_handle, self._state)
+            if poll_live_providers or not bool(
+                getattr(self._pipeline, "has_player_stats_provider", False)
+            ):
+                perception = self._pipeline.tick(self._window_handle, self._state)
+            else:
+                perception = self._pipeline.tick(
+                    self._window_handle,
+                    self._state,
+                    poll_live_providers=False,
+                )
         except FrameCaptureError as error:
             self._window_status = WINDOW_STATUS_BY_CAPTURE_CODE.get(
                 error.code, WindowStatus.CAPTURE_FAILED
@@ -764,6 +1098,34 @@ class FarmingOrchestrator:
             else WindowStatus.NOT_FOREGROUND
         )
         return True
+
+    def _pause_for_readiness(
+        self,
+        *,
+        kind: SessionEventKind = SessionEventKind.MODE_TRANSITION,
+        foreground: ForegroundWindowInfo | None = None,
+        reason_override: str | None = None,
+    ) -> None:
+        if not self._readiness_was_blocked:
+            self._clear_armed_actions()
+        self._readiness_was_blocked = True
+        reason = self._readiness.primary_reason
+        source = self._readiness.primary_source
+        detail = ":".join(
+            item
+            for item in (
+                "readiness",
+                source.value if source is not None else None,
+                reason.value if reason is not None else None,
+            )
+            if item is not None
+        )
+        self.pause(
+            kind=kind,
+            reason=reason_override or detail,
+            foreground=foreground,
+            manual=False,
+        )
 
     def _advance(self) -> bool:
         if self._quest_interaction is not None:
@@ -1307,7 +1669,13 @@ class FarmingOrchestrator:
             if self._mode is FarmingMode.RECONCILING
             else None
         )
-        tick = FarmingTick(self._state, self._mode, dispatched, reconciliation)
+        tick = FarmingTick(
+            self._state,
+            self._mode,
+            dispatched,
+            reconciliation,
+            self._readiness,
+        )
         self._record_telemetry_snapshot()
         if self._dashboard_feed is not None:
             self._dashboard_feed.publish(
@@ -1340,6 +1708,8 @@ class FarmingOrchestrator:
                     events=(
                         self._event_logger.recent_events if self._event_logger is not None else ()
                     ),
+                    dungeons=self._dungeon_snapshots,
+                    readiness=self._readiness,
                 )
             )
         return tick
@@ -1363,6 +1733,7 @@ class FarmingOrchestrator:
             player_terrain_slope=(
                 self._pathing.terrain_slope if self._pathing is not None else None
             ),
+            readiness=self._readiness,
         )
 
 
@@ -1402,6 +1773,58 @@ def _dashboard_status(
     if mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:
         return BotStatus.COMBAT
     return BotStatus.ACTIVE
+
+
+def _position_provider_health(error: PositionReadErrorCode | None) -> ProviderHealth:
+    if error in {
+        PositionReadErrorCode.UNSUPPORTED_PLATFORM,
+        PositionReadErrorCode.UNSUPPORTED_BUILD,
+    }:
+        return ProviderHealth.UNSUPPORTED
+    if error in {
+        PositionReadErrorCode.MALFORMED_READ,
+        PositionReadErrorCode.INVALID_PROFILE_CONFIGURATION,
+    }:
+        return ProviderHealth.MALFORMED
+    return ProviderHealth.UNAVAILABLE
+
+
+def _camera_provider_health(error: CameraReadErrorCode | None) -> ProviderHealth:
+    if error in {
+        CameraReadErrorCode.UNSUPPORTED_PLATFORM,
+        CameraReadErrorCode.UNSUPPORTED_BUILD,
+    }:
+        return ProviderHealth.UNSUPPORTED
+    if error in {
+        CameraReadErrorCode.MALFORMED_READ,
+        CameraReadErrorCode.INVALID_PROFILE_CONFIGURATION,
+    }:
+        return ProviderHealth.MALFORMED
+    return ProviderHealth.UNAVAILABLE
+
+
+def _player_stats_provider_health(
+    error: PlayerStatsReadErrorCode | None,
+) -> ProviderHealth:
+    if error in {
+        PlayerStatsReadErrorCode.UNSUPPORTED_PLATFORM,
+        PlayerStatsReadErrorCode.UNSUPPORTED_BUILD,
+        PlayerStatsReadErrorCode.NO_PROFILE,
+    }:
+        return ProviderHealth.UNSUPPORTED
+    if error in {
+        PlayerStatsReadErrorCode.MALFORMED_READ,
+        PlayerStatsReadErrorCode.INVALID_POINTER,
+        PlayerStatsReadErrorCode.INVALID_PROFILE_CONFIGURATION,
+    }:
+        return ProviderHealth.MALFORMED
+    return ProviderHealth.UNAVAILABLE
+
+
+def _dungeon_provider_health(status: object | None) -> ProviderHealth:
+    if status is DungeonReadStatus.UNCONFIGURED_PROFILE:
+        return ProviderHealth.UNSUPPORTED
+    return ProviderHealth.UNAVAILABLE
 
 
 def _initial_world_state() -> WorldState:

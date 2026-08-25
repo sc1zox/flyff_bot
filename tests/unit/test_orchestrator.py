@@ -38,6 +38,15 @@ from flyff_bot.features.automation.orchestrator import (
     FarmingOrchestrator,
 )
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig, PowerUpEntry
+from flyff_bot.features.automation.readiness import (
+    LiveStateSource,
+    ReadinessReason,
+)
+from flyff_bot.features.automation.vitals_controller import (
+    VitalsTriggerConfig,
+    VitalTriggerRule,
+    VitalTriggerType,
+)
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control import ForegroundWindowInfo, parse_virtual_key
 from flyff_bot.features.navigation.live_position import (
@@ -50,6 +59,13 @@ from flyff_bot.features.navigation.pathing import (
     PathingController,
 )
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
+from flyff_bot.features.player_stats.models import (
+    ClientPlayerStatsSnapshot,
+    PlayerStatField,
+    PlayerStatsReadError,
+    PlayerStatsReadErrorCode,
+    PlayerStatsSource,
+)
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     ClientSize,
@@ -94,6 +110,28 @@ class _Pipeline:
         if self._capture_error is not None:
             raise FrameCaptureError(self._capture_error)
         return PerceptionTick(next(self._states), (), frozenset(), frame=self._frame)
+
+
+class _LiveStatsPipeline(_Pipeline):
+    has_player_stats_provider = True
+
+    def __init__(self, states: list[WorldState]) -> None:
+        super().__init__(states)
+        self.poll_live_flags: list[bool] = []
+        self.close_calls = 0
+
+    def tick(
+        self,
+        window_handle: int,
+        previous: WorldState,
+        *,
+        poll_live_providers: bool = True,
+    ) -> PerceptionTick:
+        self.poll_live_flags.append(poll_live_providers)
+        return super().tick(window_handle, previous)
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 class _InputAdapter:
@@ -158,6 +196,19 @@ def _state(
     )
 
 
+def _player_stats(at_seconds: float) -> ClientPlayerStatsSnapshot:
+    return ClientPlayerStatsSnapshot(
+        PlayerStatsSource.CLIENT_MEMORY,
+        sampled_at_seconds=at_seconds,
+        client_sha256="a" * 64,
+        fields=(
+            PlayerStatField("hp", 100.0, False),
+            PlayerStatField("mp", 100.0, False),
+            PlayerStatField("fp", 100.0, False),
+        ),
+    )
+
+
 def _orchestrator(
     states: list[WorldState],
     adapter: _InputAdapter,
@@ -201,6 +252,81 @@ def test_runs_full_target_combat_and_reconciliation_cycle_without_looting() -> N
     # Only attack keys: a confirmed fight restarts the search idle timeout (BUG-010),
     # so camera recovery must not fire on the tick right after a kill.
     assert [key for key, _duration in adapter.keys] == [0x20, 0x20]
+
+
+def test_readiness_blocks_every_action_and_recovers_without_replaying_pending_input() -> None:
+    adapter = _InputAdapter()
+    unavailable = ClientPlayerStatsSnapshot(
+        PlayerStatsSource.UNAVAILABLE,
+        error=PlayerStatsReadError(PlayerStatsReadErrorCode.NO_PROFILE),
+    )
+    blocked_state = replace(
+        _state(1.0, mobs=(MOB,), inventory=(InventoryEntry("Quest drop", 3),)),
+        player_stats_snapshot=unavailable,
+        player_vitals=PlayerVitals(100.0, 100.0, 100.0),
+    )
+    recovery_state = replace(
+        blocked_state, observed_at_seconds=2.0, player_stats_snapshot=_player_stats(2.0)
+    )
+    ready_state = replace(recovery_state, observed_at_seconds=3.0)
+    pipeline = _LiveStatsPipeline([blocked_state, recovery_state, ready_state])
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, pipeline),
+        adapter,
+        WINDOW_HANDLE,
+        config=FarmingConfig(
+            vitals=VitalsTriggerConfig(
+                rules=(VitalTriggerRule(VitalTriggerType.HP, 50.0, parse_virtual_key("F1")),)
+            ),
+            powerups=PowerUpConfig(
+                entries=(PowerUpEntry(parse_virtual_key("F2"), 1, enabled=True),)
+            ),
+        ),
+    )
+    orchestrator.start()
+
+    blocked = orchestrator.tick()
+
+    assert blocked.mode is FarmingMode.PAUSED
+    assert blocked.readiness.action_blocked
+    assert blocked.readiness.primary_source is LiveStateSource.PLAYER_STATS
+    assert adapter.clicks == []
+    assert adapter.keys == []
+    assert blocked.state.inventory == (InventoryEntry("Quest drop", 3),)
+
+    recovered = orchestrator.tick()
+    assert recovered.mode is FarmingMode.SEARCHING
+    assert not recovered.readiness.action_blocked
+    assert adapter.clicks == []
+    assert adapter.keys == []
+
+    dispatched = orchestrator.tick()
+    assert dispatched.mode is FarmingMode.TARGETING
+    assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
+
+
+def test_end_while_readiness_blocked_closes_live_providers_and_prevents_reopen() -> None:
+    adapter = _InputAdapter()
+    unavailable = ClientPlayerStatsSnapshot(
+        PlayerStatsSource.UNAVAILABLE,
+        error=PlayerStatsReadError(PlayerStatsReadErrorCode.HANDLE_LOST),
+    )
+    state = replace(_state(1.0), player_stats_snapshot=unavailable)
+    pipeline = _LiveStatsPipeline([state, state])
+    orchestrator = FarmingOrchestrator(cast(PerceptionPipeline, pipeline), adapter, WINDOW_HANDLE)
+    orchestrator.start()
+    assert orchestrator.tick().mode is FarmingMode.PAUSED
+
+    adapter.aborted = True
+    stopped = orchestrator.tick()
+    adapter.aborted = False
+    preview = orchestrator.tick()
+
+    assert stopped.mode is FarmingMode.EMERGENCY_STOPPED
+    assert stopped.readiness.primary_reason is ReadinessReason.EMERGENCY_STOP
+    assert pipeline.close_calls == 1
+    assert pipeline.poll_live_flags == [True, False]
+    assert preview.mode is FarmingMode.EMERGENCY_STOPPED
 
 
 def test_kill_confirmation_advances_progress_and_avoids_no_progress_pause() -> None:
@@ -898,19 +1024,20 @@ def test_farming_start_runs_the_camera_alignment_pre_flight_before_perception() 
     orchestrator.start()
     mode_before_tick = orchestrator.mode
     assert mode_before_tick is FarmingMode.ALIGNING
-    # No frame is captured while the camera is still being moved.
+    # The readiness gate has not evaluated until the worker tick begins.
     assert pipeline.calls == []
 
     orchestrator.tick()
 
     assert aligner.calls == 1
+    assert pipeline.calls == [WINDOW_HANDLE]
     assert orchestrator.mode is FarmingMode.SEARCHING
     # The dashboard shows the alignment state for the whole sequence, not only afterwards.
     assert updates[0].status is BotStatus.ALIGNING
     assert updates[-1].status is not BotStatus.ALIGNING
 
     orchestrator.tick()
-    assert pipeline.calls == [WINDOW_HANDLE]
+    assert pipeline.calls == [WINDOW_HANDLE, WINDOW_HANDLE]
     assert aligner.calls == 1
 
 

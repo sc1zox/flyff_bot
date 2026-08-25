@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -10,7 +10,8 @@ from numpy.typing import NDArray
 
 from flyff_bot.features.telemetry.models import CandidateFeatures
 
-OBSERVATION_DIMENSION = 52
+OBSERVATION_DIMENSION = 56
+RL_OBSERVATION_SCHEMA_VERSION = "us077-v2"
 CANDIDATE_SLOTS = 4
 CANDIDATE_FEATURE_COUNT = 7
 FloatArray = NDArray[np.float64]
@@ -77,6 +78,17 @@ class ObjectiveState:
 
 
 @dataclass(frozen=True, slots=True)
+class ReadinessObservation:
+    """Exact central readiness fields retained alongside the normalized vector."""
+
+    state: str = "ready"
+    primary_reason: str | None = None
+    failed_source_codes: tuple[str, ...] = ()
+    sample_ages_seconds: tuple[tuple[str, float | None], ...] = ()
+    action_blocked: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class RlObservation:
     kinematics: PlayerKinematics
     vitals: PlayerVitals
@@ -84,6 +96,7 @@ class RlObservation:
     candidates: tuple[CandidateObservation, ...]
     operational: OperationalState
     objective: ObjectiveState
+    readiness: ReadinessObservation = field(default_factory=ReadinessObservation)
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +135,19 @@ class ObservationSpace:
                 _unit(observation.vitals.hp_percentage),
                 _unit(observation.vitals.mp_percentage),
                 _unit(observation.vitals.fp_percentage),
+            ]
+        )
+        valid_ages = [
+            age
+            for _source, age in observation.readiness.sample_ages_seconds
+            if age is not None and np.isfinite(age) and age >= 0.0
+        ]
+        values.extend(
+            [
+                float(observation.readiness.state == "ready"),
+                float(observation.readiness.action_blocked),
+                min(len(observation.readiness.failed_source_codes) / 6.0, 1.0),
+                min(max(valid_ages, default=0.0) / 60.0, 1.0),
             ]
         )
         cooldowns = list(observation.vitals.buff_cooldowns[:3])
@@ -226,6 +252,13 @@ class ObservationSpace:
             tuple(candidate_observations),
             OperationalState(None, 0.0, 0, str(snapshot.get("farming_mode", "unknown"))),
             ObjectiveState(None, (), None),
+            ReadinessObservation(
+                state=str(snapshot.get("readiness_state", "ready")),
+                primary_reason=_optional_text(snapshot.get("readiness_primary_reason")),
+                failed_source_codes=_text_tuple(snapshot.get("failed_source_codes")),
+                sample_ages_seconds=_sample_ages(snapshot.get("sample_ages_seconds")),
+                action_blocked=bool(snapshot.get("action_blocked", False)),
+            ),
         )
 
 
@@ -253,3 +286,21 @@ def _optional_number(value: object) -> float | None:
 
 def _optional_text(value: object) -> str | None:
     return str(value) if value is not None else None
+
+
+def _text_tuple(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list | tuple):
+        return ()
+    return tuple(str(item) for item in value)
+
+
+def _sample_ages(value: object) -> tuple[tuple[str, float | None], ...]:
+    if not isinstance(value, list | tuple):
+        return ()
+    ages: list[tuple[str, float | None]] = []
+    for item in value:
+        if not isinstance(item, list | tuple) or len(item) != 2:
+            continue
+        age = item[1]
+        ages.append((str(item[0]), float(age) if isinstance(age, int | float) else None))
+    return tuple(ages)

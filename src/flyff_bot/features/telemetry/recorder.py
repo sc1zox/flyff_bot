@@ -9,6 +9,7 @@ from math import dist, hypot
 from time import monotonic_ns
 
 from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.automation.readiness import LiveReadinessStatus
 from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
@@ -109,6 +110,7 @@ class TelemetryRecorder:
         position_source: PositionSource = PositionSource.UNAVAILABLE,
         buff_cooldowns: dict[str, float] | None = None,
         player_terrain_slope: float | None = None,
+        readiness: LiveReadinessStatus | None = None,
     ) -> None:
         """Queue one compact numerical snapshot; absent GPS remains explicit ``null``."""
 
@@ -117,6 +119,7 @@ class TelemetryRecorder:
         timestamp_ns = self._clock_ns()
         position = _position(live_position)
         velocity = self._kinematics.observe(timestamp_ns, position)
+        readiness = readiness or LiveReadinessStatus()
         snapshot = WorldSnapshot(
             timestamp_ns=timestamp_ns,
             player_position=position,
@@ -140,6 +143,13 @@ class TelemetryRecorder:
             buff_cooldowns=buff_cooldowns or {},
             farming_mode=mode,
             visible_mob_count=len(state.visible_mobs),
+            readiness_state=readiness.state.value,
+            readiness_primary_reason=(
+                None if readiness.primary_reason is None else readiness.primary_reason.value
+            ),
+            failed_source_codes=readiness.failed_source_codes,
+            sample_ages_seconds=readiness.sample_ages_seconds,
+            action_blocked=readiness.action_blocked,
         )
         self._submit(TelemetryEventKind.WORLD_SNAPSHOT, primitive(snapshot), timestamp_ns)
         navigation = self._navigation

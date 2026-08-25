@@ -24,6 +24,11 @@ def test_exporter_writes_transition_batch(tmp_path: Path) -> None:
                 "hp_percentage": 100,
                 "mp_percentage": 90,
                 "fp_percentage": 80,
+                "readiness_state": "blocked",
+                "readiness_primary_reason": "stale",
+                "failed_source_codes": ["gps"],
+                "sample_ages_seconds": [["gps", 1.25]],
+                "action_blocked": True,
             },
         }
     )
@@ -62,6 +67,11 @@ def test_exporter_writes_transition_batch(tmp_path: Path) -> None:
                 "hp_percentage": 100,
                 "mp_percentage": 90,
                 "fp_percentage": 80,
+                "readiness_state": "ready",
+                "readiness_primary_reason": None,
+                "failed_source_codes": [],
+                "sample_ages_seconds": [["gps", 0.1]],
+                "action_blocked": False,
             },
         }
     )
@@ -69,6 +79,14 @@ def test_exporter_writes_transition_batch(tmp_path: Path) -> None:
     path, provenance = TelemetryTransitionExporter(store).export(tmp_path / "rl")
     row = pq.read_table(path).to_pylist()[0]
     assert row["action"] == 0
-    assert len(row["observation"]) == len(row["next_observation"]) == 52
+    assert len(row["observation"]) == len(row["next_observation"]) == 56
     assert len(row["action_mask"]) == 7
+    assert row["action_mask"] == [False, False, False, False, False, False, True]
+    assert row["readiness_state"] == "blocked"
+    assert row["readiness_primary_reason"] == "stale"
+    assert row["failed_source_codes"] == ["gps"]
+    assert row["sample_ages_seconds_json"] == '{"gps": 1.25}'
+    assert row["action_blocked"] is True
+    assert row["next_readiness_state"] == "ready"
+    assert row["next_action_blocked"] is False
     assert provenance.exists()

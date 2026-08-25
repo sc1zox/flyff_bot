@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flyff_bot.features.rl.actions import TACTICAL_ACTION_COUNT
+from flyff_bot.features.rl.actions import TACTICAL_ACTION_COUNT, TacticalAction
 from flyff_bot.features.rl.models import RlObservation
 
 
@@ -13,6 +13,9 @@ def build_action_mask(
     patrol_radius: float,
 ) -> tuple[bool, ...]:
     """Return a stable mask where invalid tactical actions are disabled."""
+
+    if observation.readiness.action_blocked:
+        return tuple(index == int(TacticalAction.WAIT) for index in range(TACTICAL_ACTION_COUNT))
 
     valid_candidates = [
         candidate

@@ -30,9 +30,15 @@ from flyff_bot.features.vision.target_verification import (
 class _StatsReader:
     def __init__(self, snapshot: ClientPlayerStatsSnapshot) -> None:
         self.snapshot = snapshot
+        self.poll_calls = 0
+        self.close_calls = 0
 
     def poll(self, at_seconds: float) -> ClientPlayerStatsSnapshot:
+        self.poll_calls += 1
         return self.snapshot
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 def test_client_stats_replace_vitals_ocr_when_complete() -> None:
@@ -108,3 +114,27 @@ def test_unavailable_client_stats_do_not_request_ocr() -> None:
     assert tick.state.player_stats_snapshot is not None
     assert tick.state.player_stats_snapshot.source is PlayerStatsSource.UNAVAILABLE
     assert tick.state.player_vitals == previous.player_vitals
+
+
+def test_capture_only_tick_and_close_do_not_reopen_player_stats_provider() -> None:
+    stats = ClientPlayerStatsSnapshot(
+        PlayerStatsSource.UNAVAILABLE,
+        error=PlayerStatsReadError(PlayerStatsReadErrorCode.HANDLE_LOST),
+    )
+    reader = _StatsReader(stats)
+    previous = _previous_state()
+    pipeline = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        player_stats_reader=reader,
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+
+    tick = pipeline.tick(WINDOW_HANDLE, previous, poll_live_providers=False)
+    pipeline.close()
+    pipeline.close()
+
+    assert tick.frame is not None
+    assert reader.poll_calls == 0
+    assert reader.close_calls == 2

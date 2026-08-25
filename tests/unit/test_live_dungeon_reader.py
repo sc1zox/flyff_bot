@@ -284,6 +284,21 @@ def test_malformed_runtime_pointer_closes_the_cached_handle(tmp_path: Path) -> N
     assert api.closed == [PROCESS_HANDLE]
 
 
+def test_close_releases_an_open_handle_idempotently(tmp_path: Path) -> None:
+    executable = tmp_path / "neuz.exe"
+    executable.write_bytes(b"dungeon close build")
+    api = FakeDungeonMemoryApi(executable)
+    reader, _profile = _reader(api)
+    reader.poll()
+    assert reader.is_open
+
+    reader.close()
+    reader.close()
+
+    assert not reader.is_open
+    assert api.closed == [PROCESS_HANDLE]
+
+
 def test_client_dungeon_profiles_round_trip_normalizes_fingerprints(tmp_path: Path) -> None:
     from flyff_bot.features.dungeons.profiles import load_client_dungeon_profiles
 

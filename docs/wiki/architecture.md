@@ -69,6 +69,7 @@ related:
   - ../user-stories/completed/US-052-client-archive-extraction-for-complete-3d-terrain-heightfields.md
   - ../user-stories/completed/US-056-client-camera-state-and-projection-matrix-reader.md
   - ../user-stories/completed/US-076-complete-client-player-stats-reader.md
+  - ../user-stories/completed/US-077-central-live-state-readiness-gate.md
   - ../user-stories/completed/US-055-authoritative-3d-world-geometry-and-navmesh-foundation.md
   - ../user-stories/completed/US-058-navmesh-aware-targeting-and-telemetry-integration.md
   - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
@@ -1979,6 +1980,26 @@ No verified player-stat field offsets exist in repository evidence today. The sh
 therefore intentionally empty: production sessions receive typed unavailable snapshots rather than
 guessed addresses or fabricated values. Adding x86/x64 profiles requires new static-analysis evidence
 and controlled in-game verification; until then this story cannot be marked complete.
+
+## Central live-state readiness (US-077, completed)
+
+`LiveReadinessGate` is the single readiness boundary for autonomous capabilities. The orchestrator
+registers foreground, perception, GPS, camera, player-stat, and dungeon providers with freshness
+limits and declares capability-specific dependencies. Each tick normalizes provider results into
+typed samples, evaluates freshness and clock continuity, and publishes one immutable
+`LiveReadinessStatus` containing every failure plus a deterministic primary reason.
+
+The gate pauses only capabilities whose dependencies are unhealthy; session-dispatching capabilities
+also set `action_blocked`, causing the orchestrator to clear armed actions and send no movement,
+combat, interaction, teleport, or skill input until recovery. Foreground checks and emergency teardown
+remain independent final guards. END/Escape and shutdown latch terminal cancellation, close live
+providers, and prevent later samples from reopening the session. Dashboard rows expose localized
+source health, age, diagnostic code, and consequence; telemetry and offline RL observations retain
+the aggregate state, failed source codes, sample ages, and action-blocked flag.
+
+Automated repository verification passed on 2026-08-25 (883 tests passed, 5 skipped, 88.35% coverage;
+Ruff, format, mypy, and locked dependency synchronization passed). Windows/live-client removal and
+recovery walkthroughs remain operator validation and were not run for this story.
 
 ## Two-tier hierarchical policy (US-073, completed)
 

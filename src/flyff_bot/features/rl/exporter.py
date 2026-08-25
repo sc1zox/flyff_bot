@@ -23,7 +23,7 @@ from flyff_bot.features.telemetry.storage import SqliteTelemetryStore
 PARQUET_COMPRESSION = "zstd"
 RL_TRANSITIONS_FILE = "rl_transitions.parquet"
 RL_PROVENANCE_FILE = "rl_provenance.json"
-RL_TRANSITION_SCHEMA_VERSION = "us071-v1"
+RL_TRANSITION_SCHEMA_VERSION = "us077-v2"
 DEFAULT_EXPORT_PATROL_RADIUS = 1000.0
 
 
@@ -154,6 +154,16 @@ class TelemetryTransitionExporter:
                 pa.field("next_observation", pa.list_(pa.float64()), nullable=False),
                 pa.field("action_mask", pa.list_(pa.bool_()), nullable=False),
                 pa.field("terminated", pa.bool_(), nullable=False),
+                pa.field("readiness_state", pa.string(), nullable=False),
+                pa.field("readiness_primary_reason", pa.string()),
+                pa.field("failed_source_codes", pa.list_(pa.string()), nullable=False),
+                pa.field("sample_ages_seconds_json", pa.string(), nullable=False),
+                pa.field("action_blocked", pa.bool_(), nullable=False),
+                pa.field("next_readiness_state", pa.string(), nullable=False),
+                pa.field("next_readiness_primary_reason", pa.string()),
+                pa.field("next_failed_source_codes", pa.list_(pa.string()), nullable=False),
+                pa.field("next_sample_ages_seconds_json", pa.string(), nullable=False),
+                pa.field("next_action_blocked", pa.bool_(), nullable=False),
             ]
         )
         rows = [
@@ -164,6 +174,22 @@ class TelemetryTransitionExporter:
                 "next_observation": ObservationSpace.encode(item.next_observation).tolist(),
                 "action_mask": list(item.action_mask),
                 "terminated": item.terminated,
+                "readiness_state": item.observation.readiness.state,
+                "readiness_primary_reason": item.observation.readiness.primary_reason,
+                "failed_source_codes": list(item.observation.readiness.failed_source_codes),
+                "sample_ages_seconds_json": json.dumps(
+                    dict(item.observation.readiness.sample_ages_seconds), sort_keys=True
+                ),
+                "action_blocked": item.observation.readiness.action_blocked,
+                "next_readiness_state": item.next_observation.readiness.state,
+                "next_readiness_primary_reason": item.next_observation.readiness.primary_reason,
+                "next_failed_source_codes": list(
+                    item.next_observation.readiness.failed_source_codes
+                ),
+                "next_sample_ages_seconds_json": json.dumps(
+                    dict(item.next_observation.readiness.sample_ages_seconds), sort_keys=True
+                ),
+                "next_action_blocked": item.next_observation.readiness.action_blocked,
             }
             for item in transitions
         ]

@@ -136,7 +136,9 @@ class LiveDungeonCooldownReader:
     def close(self) -> None:
         """Release the read-only process handle. Repeated close calls are safe."""
 
+        self._close_handle()
         self._last_snapshot = None
+        self._polled_at_seconds = None
 
     def _close_handle(self) -> None:
         if self._handle is not None:

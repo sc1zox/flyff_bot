@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from flyff_bot.features.rl.actions import TacticalAction
+from flyff_bot.features.rl.masking import build_action_mask
 from flyff_bot.features.rl.models import (
     CandidateObservation,
     NavMeshContext,
@@ -9,6 +11,7 @@ from flyff_bot.features.rl.models import (
     OperationalState,
     PlayerKinematics,
     PlayerVitals,
+    ReadinessObservation,
     RlObservation,
 )
 from flyff_bot.features.rl.state_space import OBSERVATION_DIMENSION, ObservationSpace
@@ -44,3 +47,25 @@ def test_observation_is_fixed_width_and_bounded() -> None:
     assert np.all(np.isfinite(encoded))
     assert np.all(encoded >= -1.0)
     assert np.all(encoded <= 1.0)
+
+
+def test_action_blocked_readiness_masks_every_action_except_wait() -> None:
+    blocked = RlObservation(
+        observation().kinematics,
+        observation().vitals,
+        observation().navmesh,
+        observation().candidates,
+        observation().operational,
+        observation().objective,
+        ReadinessObservation(
+            state="blocked",
+            primary_reason="stale",
+            failed_source_codes=("gps",),
+            sample_ages_seconds=(("gps", 1.25),),
+            action_blocked=True,
+        ),
+    )
+
+    mask = build_action_mask(blocked, patrol_center=(1.0, 2.0, 3.0), patrol_radius=10.0)
+
+    assert mask == tuple(index == int(TacticalAction.WAIT) for index in range(len(TacticalAction)))

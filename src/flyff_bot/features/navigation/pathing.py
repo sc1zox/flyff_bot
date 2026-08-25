@@ -198,6 +198,18 @@ class PathingController:
         return self._position_source is PositionSource.LIVE and self._live_position is not None
 
     @property
+    def has_position_provider(self) -> bool:
+        """Return whether authoritative GPS polling is configured."""
+
+        return self._position_reader is not None
+
+    @property
+    def has_camera_provider(self) -> bool:
+        """Return whether authoritative camera polling is configured."""
+
+        return self._camera_reader is not None
+
+    @property
     def mode(self) -> PathingMode:
         """Return the current pathing phase."""
 
@@ -240,6 +252,12 @@ class PathingController:
         """Return the latest camera read error code, if any."""
 
         return self._camera_error_code
+
+    @property
+    def camera_sampled_at_seconds(self) -> float | None:
+        """Return when the newest valid or failed camera poll was attempted."""
+
+        return self._camera_sampled_at_seconds
 
     @property
     def navmesh(self) -> BakedNavMesh | None:
@@ -723,6 +741,8 @@ class PathingController:
         self._last_live_stall = None
         self._stalls.reset()
         self._teleport.reset()
+        if self._teleporter_dispatcher is not None:
+            self._teleporter_dispatcher.cancel()
         if self._position_reader is not None:
             self._position_reader.close()
         if self._camera_reader is not None:
@@ -734,6 +754,16 @@ class PathingController:
         self._camera_error_code = None
         self._position_source = PositionSource.UNAVAILABLE
         self._position_error_code = None
+
+    def block_for_readiness(self) -> None:
+        """Clear ephemeral movement and teleporter intent without closing live readers."""
+
+        self._block_navigation()
+        self._navmesh_target = None
+        self._navigation_trajectory = []
+        self._teleport.reset()
+        if self._teleporter_dispatcher is not None:
+            self._teleporter_dispatcher.cancel()
 
     def close(self) -> None:
         """Release resources on teardown."""
@@ -810,7 +840,7 @@ class PathingController:
         if self._camera_state is not None and self._camera_sampled_at_seconds == at_seconds:
             return
         reading = reader.poll(at_seconds)
-        self._camera_sampled_at_seconds = at_seconds
+        self._camera_sampled_at_seconds = reading.sampled_at_seconds or at_seconds
         self._camera_state = reading.state
         self._camera_error_code = None if reading.error is None else reading.error.code
         if reading.state is not None:

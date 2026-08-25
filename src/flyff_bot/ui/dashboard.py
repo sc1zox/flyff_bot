@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from PySide6.QtCore import QObject, Signal
@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, Signal
 from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.kill_goals import MobKillProgress
 from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.automation.readiness import LiveReadinessStatus
 from flyff_bot.features.diagnostics import SessionEvent
 from flyff_bot.features.dungeons.models import DungeonStateSnapshot
 from flyff_bot.features.navigation.live_camera import CameraReadErrorCode, CameraState
@@ -127,6 +128,7 @@ class DashboardUpdate:
     quest_progress: tuple[QuestObjectiveProgress, ...] = ()
     quest_queue_completed: bool = False
     dungeons: tuple[DungeonStateSnapshot, ...] | None = None
+    readiness: LiveReadinessStatus = field(default_factory=LiveReadinessStatus)
 
 
 class DashboardFeed(QObject):

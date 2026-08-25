@@ -137,7 +137,19 @@ class PerceptionPipeline:
             None if geometry is None else MobWorldPositionEstimator(geometry)
         )
 
-    def tick(self, window_handle: int, previous_state: WorldState) -> PerceptionTick:
+    @property
+    def has_player_stats_provider(self) -> bool:
+        """Return whether exact client-memory player statistics are configured."""
+
+        return self._player_stats_reader is not None
+
+    def tick(
+        self,
+        window_handle: int,
+        previous_state: WorldState,
+        *,
+        poll_live_providers: bool = True,
+    ) -> PerceptionTick:
         """Build a new snapshot, retaining a feed's prior data if that feed fails."""
 
         frame = self._frame_source.capture(window_handle)
@@ -167,7 +179,7 @@ class PerceptionPipeline:
         observed_at_seconds = self._clock()
         player_stats_snapshot = previous_state.player_stats_snapshot
         try:
-            if self._player_stats_reader is not None:
+            if self._player_stats_reader is not None and poll_live_providers:
                 snapshot = self._player_stats_reader.poll(observed_at_seconds)
                 player_stats_snapshot = snapshot
                 if snapshot.source is PlayerStatsSource.CLIENT_MEMORY:
@@ -178,7 +190,7 @@ class PerceptionPipeline:
                             values["mp"],
                             values["fp"],
                         )
-            else:
+            elif self._player_stats_reader is None:
                 assert self._vitals_reader is not None
                 player_vitals = self._vitals_reader.read(frame)
         except FRAME_READ_ERRORS:
@@ -217,6 +229,13 @@ class PerceptionPipeline:
             monster_stats=monster_stats,
         )
         return PerceptionTick(state, _events(previous_state, state), frozenset(failures), frame)
+
+    def close(self) -> None:
+        """Release any read-only live provider owned by this pipeline."""
+
+        close = getattr(self._player_stats_reader, "close", None)
+        if callable(close):
+            close()
 
 
 def _visible_mob(detection: Detection) -> VisibleMob:

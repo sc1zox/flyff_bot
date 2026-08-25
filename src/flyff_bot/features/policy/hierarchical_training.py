@@ -22,16 +22,20 @@ from flyff_bot.features.policy.hierarchical_training_simulator import (
     TrainingObjective,
     policy_from_logits,
 )
-from flyff_bot.features.rl.models import OBSERVATION_DIMENSION, RlObservation
+from flyff_bot.features.rl.models import (
+    OBSERVATION_DIMENSION,
+    RL_OBSERVATION_SCHEMA_VERSION,
+    RlObservation,
+)
 from flyff_bot.features.simulator.engine import TacticalAction
 
 HIERARCHICAL_METADATA_FILENAME = "hierarchical-metadata.json"
-HIERARCHICAL_METADATA_SCHEMA_VERSION = 1
+HIERARCHICAL_METADATA_SCHEMA_VERSION = 2
 HIGH_LEVEL_INPUT_NAME = "strategic_features"
 MID_LEVEL_INPUT_NAME = "tactical_features"
 HIGH_LEVEL_OUTPUT_NAME = "strategic_logits"
 MID_LEVEL_OUTPUT_NAME = "tactical_logits"
-DEFAULT_ARTIFACT_VERSION = "us073-v1"
+DEFAULT_ARTIFACT_VERSION = "us077-v2"
 MINIMUM_TRAINING_EPISODES = 8
 EVALUATION_EPISODES = 4
 RANDOM_SEED = 73073
@@ -129,7 +133,7 @@ def train_hierarchical_policy(
         "onnx_opset": ONNX_OPSET_VERSION,
         "world_name": world_map.world_name,
         "feature_schema": {
-            "version": "us071-v1",
+            "version": RL_OBSERVATION_SCHEMA_VERSION,
             "width": OBSERVATION_DIMENSION,
         },
         "training": {
@@ -334,7 +338,11 @@ def read_hierarchical_metadata(path: Path) -> dict[str, object]:
     metrics = payload.get("metrics")
     if payload.get("schema_version") != HIERARCHICAL_METADATA_SCHEMA_VERSION:
         raise ValueError("schema_incompatible")
-    if not isinstance(feature_schema, dict) or feature_schema.get("width") != OBSERVATION_DIMENSION:
+    if (
+        not isinstance(feature_schema, dict)
+        or feature_schema.get("version") != RL_OBSERVATION_SCHEMA_VERSION
+        or feature_schema.get("width") != OBSERVATION_DIMENSION
+    ):
         raise ValueError("feature_schema_incompatible")
     if not isinstance(models, dict) or set(models) != {"high_level", "mid_level"}:
         raise ValueError("model_heads_missing")
