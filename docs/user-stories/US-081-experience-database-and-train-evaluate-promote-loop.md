@@ -35,7 +35,7 @@ model ever driving the client**.
   - `train_farming_value_models` exports every fitted head regardless of whether it beat its
     heuristic baseline (`features/ml/pipeline.py:202`), and `train_hierarchical_policy` gates only on
     two in-sample simulator metrics (see
-    [BUG-032](../bugs/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md)).
+    [BUG-032](../bugs/fixed/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md)).
 - Depends on [US-079](US-079-unified-goal-conditioned-decision-contract.md) for the contract and on
   [US-080](US-080-goal-driven-quest-execution-and-objective-bus.md) for goal-labelled experience.
 - Learning stays offline. Live sessions record experience; weights are never mutated in-process and

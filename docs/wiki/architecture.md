@@ -83,6 +83,8 @@ related:
   - ../user-stories/US-063-client-dungeon-data-and-live-cooldown-memory-extraction.md
   - ../user-stories/completed/US-078-initial-setup-wizard-and-unified-client-data-extraction.md
   - ../bugs/fixed/BUG-029-tesseract-ocr-tsv-argument-ordering-causes-empty-stdout-and-unreadable-target-names.md
+  - ../bugs/fixed/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md
+  - ../decisions/ADR-007-offline-tactical-simulation-boundary.md
 ---
 
 # Architecture
@@ -1896,6 +1898,23 @@ KPM or navigation-time drift beyond a configurable fraction. The simulator is st
 it has no client-process, memory-read, input-dispatch, rendering, or network boundary. It validates
 simulation behavior only; live Windows/client performance still requires separate field checks.
 
+BUG-032 fixed the dynamics that made simulated throughput unreachable in the client. The invariants
+the simulator now holds are:
+
+- One tick is a budget of simulated seconds partitioned into recovery, travel (turning included),
+  combat, and idle, so `elapsed_seconds` equals the sum of those buckets exactly.
+- Only travel moves the player. Combat is a multi-tick engagement that spends the sampled duration
+  from the same clock, and a monster out of engagement range must be walked to first.
+- `step()` rejects any action the current mask forbids with `IllegalSimulatorAction`. A pending
+  stall recovery blocks every action but `WAIT`.
+- All extracted spawn zones populate and respawn. Candidate visibility is an explicit radius over
+  live monsters; dead monsters are never offered as candidates.
+- Travel follows a `VectorRoutePlanner` corridor over the extracted obstacle geometry, so a blocked
+  straight line becomes a detour rather than a wall-crossing.
+- An episode without objectives is a valid continuing farming task and ends by truncation only.
+- The reward is `RewardEngine` under the versioned `RewardConfig` shared with the telemetry
+  exporter and recorder; the simulator holds no weights of its own.
+
 `PathingController` plans an attack point when NavMesh targeting starts and retains hysteresis:
 periodic replans preserve the route until the measured target has moved more than two world units.
 Timeout, disconnected geometry, or no contained candidate returns immediately to the unchanged
@@ -2014,7 +2033,11 @@ and emergency-stop safeguards remain outside the learned heads.
 
 `hierarchical_training` runs masked Q-learning against the seeded US-072 simulator, compares KPM
 and objective throughput with a paired baseline, and exports distinct digest-checked linear ONNX
-heads with metadata.
+heads with metadata. Since BUG-032 it draws training, evaluation, and calibration seeds from three
+disjoint blocks (`seed_ranges`), labels the mid-level head from the tactical state rather than from
+a relabeling of the strategic action, records the trained action classes per head so
+`HierarchicalOnnxPolicy` cannot select an untrained one live, and runs `validate_calibration` over
+held-out heuristic rollouts before any artifact is written.
 Automated tests cover dispatch, objectives, masking, fallback, export, and a synthetic five-
 millisecond inference budget. The 2026-08-25 gate passed at 866 passed, 5 skipped, and 88.30%
 coverage. These are offline results; real-client convergence and exact client latency remain

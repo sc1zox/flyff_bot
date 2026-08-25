@@ -3,6 +3,7 @@
 from flyff_bot.features.simulator.calibration import CalibrationError, validate_calibration
 from flyff_bot.features.simulator.engine import (
     FarmingSimulator,
+    IllegalSimulatorAction,
     SimulatedMonster,
     TacticalAction,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "CalibrationError",
     "CalibrationTolerance",
     "FarmingSimulator",
+    "IllegalSimulatorAction",
     "MonsterLifecycle",
     "QuestObjective",
     "QuestObjectiveKind",

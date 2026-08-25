@@ -13,6 +13,7 @@ from flyff_bot.features.automation.readiness import LiveReadinessStatus
 from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
+from flyff_bot.features.rl.rewards import RewardConfig, RewardEngine, RewardEvent
 from flyff_bot.features.telemetry.geometry import (
     ProjectedCandidate,
     navmesh_slope,
@@ -68,8 +69,10 @@ class TelemetryRecorder:
         clock_ns: Callable[[], int] = monotonic_ns,
         utc_now: Callable[[], datetime] = lambda: datetime.now(UTC),
         navmesh: BakedNavMesh | None = None,
+        reward_config: RewardConfig | None = None,
     ) -> None:
         self._metadata = metadata.with_generated_identity(session_start_utc=utc_now().isoformat())
+        self._rewards = RewardEngine(reward_config or RewardConfig())
         self._worker = worker_factory(self._metadata.session_id, self._metadata.area_id)
         self._clock_ns = clock_ns
         self._kinematics = KinematicsDeriver()
@@ -463,23 +466,28 @@ class TelemetryRecorder:
             prior = self._cycle_started_at_ns or self._last_verified_kill_at_ns or started[0]
             total_seconds = (ended_at_ns - prior) / 1_000_000_000
             combat_seconds = (ended_at_ns - started[0]) / 1_000_000_000
+            idle_seconds = max(
+                0.0,
+                total_seconds - self._decision_seconds - self._navigation_seconds - combat_seconds,
+            )
             self.record_kill_cycle(
                 KillCycle(
                     timestamp_ns=ended_at_ns,
                     decision_seconds=self._decision_seconds,
                     navigation_seconds=self._navigation_seconds,
                     combat_seconds=combat_seconds,
-                    idle_seconds=max(
-                        0.0,
-                        total_seconds
-                        - self._decision_seconds
-                        - self._navigation_seconds
-                        - combat_seconds,
-                    ),
+                    idle_seconds=idle_seconds,
                     damage_taken=max(0.0, started[2] - state.player_vitals.hp_percentage),
                     stall_seconds=self._stall_seconds,
                     verified_kill=True,
-                    reward=-total_seconds + 1.0,
+                    reward=self._rewards.reward(
+                        RewardEvent(
+                            verified_kill=True,
+                            travel_seconds=self._navigation_seconds,
+                            idle_seconds=idle_seconds,
+                            stuck_seconds=self._stall_seconds,
+                        )
+                    ),
                     target_decision_timestamp_ns=self._active_decision_timestamp_ns,
                 )
             )

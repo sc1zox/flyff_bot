@@ -69,6 +69,10 @@ class HierarchicalOnnxPolicy:
         self._mid_network = loader(model_directory / str(mid["file"]))
         self._high_input_name = str(high["input_name"])
         self._mid_input_name = str(mid["input_name"])
+        self._high_trained = _trained_kinds(high, HIGH_LEVEL_ACTION_ORDER)
+        self._mid_trained = _trained_kinds(mid, MID_LEVEL_ACTION_ORDER)
+        self._high_wait = HIGH_LEVEL_ACTION_ORDER.index(StrategicGoalKind.WAIT)
+        self._mid_wait = MID_LEVEL_ACTION_ORDER.index(TacticalActionKind.WAIT)
         self.objective = objective or HierarchicalObjective()
         self._mid_level = MidLevelTacticalPolicy()
         self.last_values: tuple[float, float] | None = None
@@ -93,7 +97,7 @@ class HierarchicalOnnxPolicy:
             self._high_input_name,
             len(HIGH_LEVEL_ACTION_ORDER),
         )
-        high_mask = self._high_mask(context)
+        high_mask = _restrict(self._high_mask(context), self._high_trained, self._high_wait)
         high_index = _masked_argmax(high_logits, high_mask)
         goal = StrategicGoalKind(HIGH_LEVEL_ACTION_ORDER[high_index])
         decision = self._decision(goal, world_state, context)
@@ -104,7 +108,9 @@ class HierarchicalOnnxPolicy:
             self._mid_input_name,
             len(MID_LEVEL_ACTION_ORDER),
         )
-        mid_mask = self._mid_mask(goal, decision, context)
+        mid_mask = _restrict(
+            self._mid_mask(goal, decision, context), self._mid_trained, self._mid_wait
+        )
         mid_index = _masked_argmax(mid_logits, mid_mask)
         mid_kind = TacticalActionKind(MID_LEVEL_ACTION_ORDER[mid_index])
         self.last_values = (float(high_logits[high_index]), float(mid_logits[mid_index]))
@@ -224,6 +230,36 @@ def _predict(
     if output.shape != (output_width,) or not np.isfinite(output).all():
         raise ValueError("invalid_hierarchical_prediction")
     return output
+
+
+def _trained_kinds(model: dict[object, object], action_order: tuple[str, ...]) -> tuple[bool, ...]:
+    """Return, per action slot, whether the exported head was fitted on that class.
+
+    A class the training run never produced a positive example for carries an unfitted
+    constant logit, so enabling it live would let noise win the argmax.
+    """
+
+    trained = model.get("trained_actions")
+    if not isinstance(trained, list):
+        raise ValueError("trained_actions_invalid")
+    names = {str(item) for item in trained}
+    enabled = tuple(name in names for name in action_order)
+    if not any(enabled):
+        raise ValueError("trained_actions_invalid")
+    return enabled
+
+
+def _restrict(
+    mask: tuple[bool, ...], trained: tuple[bool, ...], wait_index: int
+) -> tuple[bool, ...]:
+    """Return the mask with every untrained action class removed, never fully closed."""
+
+    restricted = tuple(
+        allowed and is_trained for allowed, is_trained in zip(mask, trained, strict=True)
+    )
+    if any(restricted):
+        return restricted
+    return tuple(index == wait_index for index in range(len(mask)))
 
 
 def _masked_argmax(logits: np.ndarray, mask: tuple[bool, ...]) -> int:
