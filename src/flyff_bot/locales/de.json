@@ -440,7 +440,7 @@
   "error.value_model_export_failed": "Das Modellartefakt konnte nicht geschrieben werden: {reason}.",
   "error.value_model_onnx_required": "Der ONNX-Export benötigt die optionale Abhängigkeitsgruppe ml.",
   "error.value_model_invalid_option": "Eine Trainingsoption wurde abgelehnt: {reason}.",
-  "status.policy_model_unavailable": "Gelernete Richtlinie nicht verfuegbar; Heuristik bleibt aktiv: {reason}",
+  "status.policy_model_unavailable": "Gelernte Automatisierung angehalten: {reason}. Es wird keine gelernte Entscheidung ausgefuehrt und die Heuristik uebernimmt nicht stillschweigend.",
   "status.empirical_route_cost": "Erfahrungsgewichtete NavMesh-Route gewählt: Polygone={polygons}, Kosten={cost}s.",
   "status.empirical_route_unweighted": "Keine Erfahrungsgewichte verfügbar; geometrische Routenwahl wird verwendet.",
   "status.simulator_summary": "Simulation: {elapsed}s in {steps} Schritten, Abschüsse={kills}, KPM={kpm}, Bewegung={travel}s, Feststecken={stalls}.",
@@ -495,5 +495,11 @@
   "ui.readiness_capability_navigation": "Navigation",
   "ui.readiness_capability_combat": "Kampf",
   "ui.readiness_capability_vitals": "Werte-Wiederherstellung",
-  "ui.readiness_capability_dungeon": "Dungeon-Automatisierung"
+  "ui.readiness_capability_dungeon": "Dungeon-Automatisierung",
+  "ui.policy_model_directory": "Verzeichnis des Richtlinienmodells",
+  "ui.policy_model_directory_tooltip": "Verzeichnis mit den trainierten Richtlinien-Artefakten fuer ML_SHADOW und ML_ACTIVE.",
+  "ui.policy_model_browse": "Durchsuchen...",
+  "ui.policy_model_dialog": "Verzeichnis des Richtlinienmodells waehlen",
+  "help.policy_mode": "Taktikmodus der Richtlinie: HEURISTIC, ML_SHADOW oder ML_ACTIVE",
+  "help.policy_model_dir": "Verzeichnis mit den zu ladenden trainierten Richtlinien-Artefakten"
 }

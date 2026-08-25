@@ -24,7 +24,7 @@ def validate_policy_action(action: TacticalAction, context: PolicyContext) -> bo
                 item
                 for item in context.candidates
                 if item.is_eligible
-                and item.mob.class_id == action.target_id
+                and _identifies(action.candidate_index, action.target_id, item)
                 and _target_position_matches(action, item)
             ),
             None,
@@ -44,18 +44,30 @@ def validate_policy_action(action: TacticalAction, context: PolicyContext) -> bo
         return _finite_position(action.attack_point) and action in context.valid_attack_points
     if isinstance(action, CorridorAction):
         return action.preferred_corridor_id in context.valid_corridor_ids and _eligible_target(
-            action.target_id, context
+            action.candidate_index, action.target_id, context
         )
     if isinstance(action, InteractAction):
         return (action.interaction_target_id, action.interaction_type) in context.valid_interactions
     return isinstance(action, WaitAction) and math.isfinite(action.duration_seconds)
 
 
-def _eligible_target(target_id: int, context: PolicyContext) -> bool:
+def _eligible_target(candidate_index: int | None, target_id: int, context: PolicyContext) -> bool:
     return any(
-        candidate.is_eligible and candidate.mob.class_id == target_id
+        candidate.is_eligible and _identifies(candidate_index, target_id, candidate)
         for candidate in context.candidates
     )
+
+
+def _identifies(candidate_index: int | None, target_id: int, candidate: PolicyCandidate) -> bool:
+    """Match a chosen candidate by its per-instance identity whenever the action declares one.
+
+    A detector class identifier cannot distinguish two mobs of the same class, so an action that
+    names a candidate index is resolved by that index alone (BUG-031).
+    """
+
+    if candidate_index is not None:
+        return candidate.original_position == candidate_index
+    return candidate.mob.class_id == target_id
 
 
 def _finite_position(position: tuple[float, float, float]) -> bool:

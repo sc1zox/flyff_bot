@@ -24,6 +24,7 @@ from flyff_bot.features.policy.hierarchical_training import (
     read_hierarchical_metadata,
 )
 from flyff_bot.features.policy.models import (
+    LiveObservationState,
     PolicyCandidate,
     PolicyContext,
     StrategicDecision,
@@ -31,12 +32,11 @@ from flyff_bot.features.policy.models import (
     TacticalAction,
 )
 from flyff_bot.features.rl.models import (
+    OBSERVATION_DIMENSION,
     CandidateObservation,
-    NavMeshContext,
     ObjectiveState,
     ObservationSpace,
     OperationalState,
-    PlayerKinematics,
     PlayerVitals,
     RlObservation,
 )
@@ -73,8 +73,20 @@ class HierarchicalOnnxPolicy:
         self._mid_level = MidLevelTacticalPolicy()
         self.last_values: tuple[float, float] | None = None
 
+    def warm_up(self) -> None:
+        """Run one throwaway inference per head so graph setup never delays a decision."""
+
+        features = np.zeros(OBSERVATION_DIMENSION, dtype=np.float64)
+        _predict(self._high_network, features, self._high_input_name, len(HIGH_LEVEL_ACTION_ORDER))
+        _predict(self._mid_network, features, self._mid_input_name, len(MID_LEVEL_ACTION_ORDER))
+
+    def configure_objective(self, objective: HierarchicalObjective) -> None:
+        """Bind the objective the session is actually pursuing before the next evaluation."""
+
+        self.objective = objective
+
     def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
-        features = ObservationSpace.encode(_observation(world_state, context, self.objective))
+        features = ObservationSpace.encode(live_observation(world_state, context, self.objective))
         high_logits = _predict(
             self._high_network,
             features,
@@ -96,22 +108,23 @@ class HierarchicalOnnxPolicy:
         mid_index = _masked_argmax(mid_logits, mid_mask)
         mid_kind = TacticalActionKind(MID_LEVEL_ACTION_ORDER[mid_index])
         self.last_values = (float(high_logits[high_index]), float(mid_logits[mid_index]))
+        selected = _decision_candidate(decision, context)
         if mid_kind is TacticalActionKind.ATTACK_POINT:
             return next(
                 (
                     item
                     for item in context.valid_attack_points
-                    if _decision_target_id(decision, context) == item.target_id
+                    if selected is not None
+                    and _names(item.candidate_index, item.target_id, selected)
                 ),
                 None,
             )
         if mid_kind is TacticalActionKind.CORRIDOR:
-            target_id = _decision_target_id(decision, context)
             corridor = next(iter(sorted(context.valid_corridor_ids)), None)
             return (
                 None
-                if target_id is None or corridor is None
-                else CorridorAction(target_id, corridor)
+                if selected is None or corridor is None
+                else CorridorAction(selected.mob.class_id, corridor, selected.original_position)
             )
         return self._mid_level.evaluate_for_goal(world_state, context, decision)
 
@@ -163,17 +176,21 @@ class HierarchicalOnnxPolicy:
         decision: StrategicDecision,
         context: PolicyContext,
     ) -> tuple[bool, ...]:
-        target_id = _decision_target_id(decision, context)
+        selected = _decision_candidate(decision, context)
         allowed = {
             TacticalActionKind.TARGET: goal is StrategicGoalKind.TARGET,
             TacticalActionKind.NAVIGATE: goal is StrategicGoalKind.NAVIGATE,
             TacticalActionKind.ATTACK_POINT: (
                 goal is StrategicGoalKind.TARGET
-                and any(item.target_id == target_id for item in context.valid_attack_points)
+                and selected is not None
+                and any(
+                    _names(item.candidate_index, item.target_id, selected)
+                    for item in context.valid_attack_points
+                )
             ),
             TacticalActionKind.CORRIDOR: (
                 goal is StrategicGoalKind.TARGET
-                and target_id is not None
+                and selected is not None
                 and bool(context.valid_corridor_ids)
             ),
             TacticalActionKind.INTERACT: goal is StrategicGoalKind.INTERACT,
@@ -226,10 +243,14 @@ def _candidate_key(candidate: PolicyCandidate, state: WorldState) -> tuple[bool,
     )
 
 
-def _decision_target_id(decision: StrategicDecision, context: PolicyContext) -> int | None:
+def _decision_candidate(
+    decision: StrategicDecision, context: PolicyContext
+) -> PolicyCandidate | None:
+    """Resolve the exact candidate instance a strategic decision selected."""
+
     return next(
         (
-            candidate.mob.class_id
+            candidate
             for candidate in context.candidates
             if candidate.original_position == decision.target_candidate_index
         ),
@@ -237,11 +258,29 @@ def _decision_target_id(decision: StrategicDecision, context: PolicyContext) -> 
     )
 
 
-def _observation(
+def _names(candidate_index: int | None, target_id: int, candidate: PolicyCandidate) -> bool:
+    """Match by per-instance identity when the option declares one, by class only otherwise."""
+
+    if candidate_index is not None:
+        return candidate_index == candidate.original_position
+    return target_id == candidate.mob.class_id
+
+
+def live_observation(
     state: WorldState,
     context: PolicyContext,
     objective: HierarchicalObjective,
 ) -> RlObservation:
+    """Build the decision-time observation in exactly the training-time layout.
+
+    Position, heading, velocity, NavMesh context, and objective progress come from the live
+    session instead of being fabricated as zeros, so the vector served to a model matches the
+    one it was trained on. Without those live facts the policy fails closed (BUG-031).
+    """
+
+    live = context.live_state
+    if live is None:
+        raise ValueError("live_observation_unavailable")
     candidates = tuple(
         CandidateObservation(
             candidate.original_position if candidate.original_position is not None else index,
@@ -251,7 +290,7 @@ def _observation(
             candidate.mob.world_y,
             candidate.mob.world_z,
             candidate.mob.navmesh_path_distance,
-            None,
+            _relative_elevation(candidate, live),
             is_dead=not candidate.is_alive_and_recognized,
             is_locked_out=not candidate.is_unlocked,
             is_unreachable=not candidate.is_navmesh_reachable,
@@ -259,18 +298,31 @@ def _observation(
         for index, candidate in enumerate(context.candidates)
     )
     return RlObservation(
-        PlayerKinematics(0.0, 0.0, 0.0, 0.0),
+        live.kinematics,
         PlayerVitals(
             state.player_vitals.hp_percentage,
             state.player_vitals.mp_percentage,
             state.player_vitals.fp_percentage,
         ),
-        NavMeshContext(None, None, None),
+        live.navmesh,
         candidates,
-        OperationalState(None, 0.0, int(state.is_stuck), objective.kind.value),
+        OperationalState(
+            live.current_target_index,
+            live.recent_kill_rate_per_minute,
+            live.recent_stuck_count,
+            objective.kind.value,
+        ),
         ObjectiveState(
             objective.quest_id,
             ((int(objective.required_progress), objective.progress),),
-            None,
+            live.objective_target_distance,
         ),
     )
+
+
+def _relative_elevation(candidate: PolicyCandidate, live: LiveObservationState) -> float | None:
+    """Return the measured height difference to a candidate, or ``None`` without a measurement."""
+
+    if candidate.mob.world_y is None:
+        return None
+    return candidate.mob.world_y - live.kinematics.position_y

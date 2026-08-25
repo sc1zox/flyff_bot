@@ -11,11 +11,13 @@ from flyff_bot.features.policy.action_payloads import (
 )
 from flyff_bot.features.rl.actions import (
     TACTICAL_ACTION_COUNT,
+    ParameterizedAction,
     TacticalAction,
     TacticalActionCatalog,
+    TacticalActionMask,
 )
 from flyff_bot.features.rl.environment import TacticalRlEnvironment
-from flyff_bot.features.rl.masking import build_action_mask
+from flyff_bot.features.rl.masking import build_action_mask, build_tactical_mask
 from flyff_bot.features.rl.models import (
     CandidateObservation,
     NavMeshContext,
@@ -41,6 +43,7 @@ __all__ = [
     "ObjectiveState",
     "ObservationSpace",
     "OperationalState",
+    "ParameterizedAction",
     "PlayerKinematics",
     "PlayerVitals",
     "ReadinessObservation",
@@ -50,9 +53,11 @@ __all__ = [
     "TacticalAction",
     "TacticalActionCatalog",
     "TacticalActionKind",
+    "TacticalActionMask",
     "TacticalRlEnvironment",
     "TargetAction",
     "Transition",
     "WaitAction",
     "build_action_mask",
+    "build_tactical_mask",
 ]

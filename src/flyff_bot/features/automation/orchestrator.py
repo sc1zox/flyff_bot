@@ -83,6 +83,13 @@ from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.dungeons.live_reader import DungeonReadStatus
 from flyff_bot.features.dungeons.models import DungeonStateSnapshot
 from flyff_bot.features.input_control import ForegroundWindowInfo
+from flyff_bot.features.ml.features import (
+    NEARBY_CANDIDATE_DISTANCE_UNITS,
+    bearing,
+    candidate_feature_row,
+    feature_matrix,
+    route_slope,
+)
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
 from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
 from flyff_bot.features.navigation.live_position import (
@@ -96,13 +103,28 @@ from flyff_bot.features.player_stats.models import (
     PlayerStatsReadErrorCode,
     PlayerStatsSource,
 )
+from flyff_bot.features.policy.hierarchical import (
+    HierarchicalObjective,
+    HierarchicalObjectiveKind,
+)
 from flyff_bot.features.policy.models import (
+    LiveObservationState,
     PolicyCandidate,
     PolicyContext,
     TargetAction,
 )
-from flyff_bot.features.policy.runner import LearnedPolicyProtocol, PolicyRunner
-from flyff_bot.features.telemetry.models import CombatVerificationSource
+from flyff_bot.features.policy.runner import (
+    LearnedPolicyProtocol,
+    PolicyFault,
+    PolicyFaultCode,
+    PolicyRunner,
+)
+from flyff_bot.features.rl.models import NavMeshContext, PlayerKinematics
+from flyff_bot.features.telemetry.models import (
+    CombatOutcome,
+    CombatVerificationSource,
+    NavigationOutcome,
+)
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     FrameCaptureError,
@@ -175,6 +197,9 @@ class PolicyRuntimeMode(StrEnum):
 
 
 DEFAULT_POLICY_RUNTIME_MODE = PolicyRuntimeMode.HEURISTIC
+HIERARCHICAL_METADATA_NAME = "hierarchical-metadata.json"
+POLICY_MODEL_NOT_CONFIGURED = "not_configured"
+LEARNED_POLICY_HALTED_REASON = "learned_policy_halted"
 
 
 STANDBY_MODES = frozenset(
@@ -353,30 +378,12 @@ class FarmingOrchestrator:
         self._pathing_engagement_distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
         self._pathing_engagement_profile: CombatClassProfile = MELEE_COMBAT_CLASS_PROFILE
         self._policy_mode = self._config.policy_mode
-        self._policy_learned_error: str | None = None
-        if self._config.policy_model_directory:
-            try:
-                model_directory = Path(self._config.policy_model_directory)
-                learned: LearnedPolicyProtocol
-                if (model_directory / "hierarchical-metadata.json").is_file():
-                    from flyff_bot.features.policy.hierarchical_onnx import (
-                        HierarchicalOnnxPolicy,
-                    )
-
-                    learned = HierarchicalOnnxPolicy(model_directory)
-                else:
-                    from flyff_bot.features.policy.learned import LearnedPolicy
-
-                    learned = LearnedPolicy(model_directory)
-            except (OSError, ValueError) as error:
-                self._policy_learned_error = str(error) or type(error).__name__
-                self._learned_policy = None
-            else:
-                self._learned_policy = learned
-        else:
-            self._learned_policy = None
-        self._policy_runner = PolicyRunner(self._learned_policy)
+        self._learned_policy: LearnedPolicyProtocol | None = None
+        self._policy_load_fault: PolicyFault | None = None
+        self._policy_runner = PolicyRunner(None)
+        self._policy_fault: PolicyFault | None = None
         self._last_policy_action: TargetAction | None = None
+        self._load_learned_policy(self._config.policy_model_directory)
         self._readiness_gate = LiveReadinessGate()
         self._readiness = LiveReadinessStatus()
         self._readiness_was_blocked = False
@@ -847,7 +854,59 @@ class FarmingOrchestrator:
             mode if isinstance(mode, PolicyRuntimeMode) else PolicyRuntimeMode(str(mode).upper())
         )
         self._policy_mode = selected_mode
-        self._policy_runner.last_fallback_reason = None
+        self._policy_fault = None
+        self._policy_runner.reset_fault()
+
+    def configure_policy_model_directory(self, directory: str | None) -> None:
+        """Point the session at a trained artifact directory while it is paused."""
+
+        if self._mode not in {FarmingMode.PAUSED, FarmingMode.COMPLETED}:
+            raise RuntimeError("A policy model can only be selected while farming is paused.")
+        self._config = replace(self._config, policy_model_directory=directory)
+        self._policy_fault = None
+        self._load_learned_policy(directory)
+
+    @property
+    def policy_fault(self) -> PolicyFault | None:
+        """Return the fault that halted learned automation, if any."""
+
+        return self._policy_fault
+
+    @property
+    def learned_policy_available(self) -> bool:
+        """Return whether a learned artifact is loaded and servable."""
+
+        return self._learned_policy is not None
+
+    def _load_learned_policy(self, directory: str | None) -> None:
+        """Load the configured artifact, or record why learned automation cannot run."""
+
+        self._learned_policy = None
+        if not directory:
+            self._policy_load_fault = PolicyFault(
+                PolicyFaultCode.MODEL_UNAVAILABLE, POLICY_MODEL_NOT_CONFIGURED
+            )
+        else:
+            try:
+                model_directory = Path(directory)
+                learned: LearnedPolicyProtocol
+                if (model_directory / HIERARCHICAL_METADATA_NAME).is_file():
+                    from flyff_bot.features.policy.hierarchical_onnx import HierarchicalOnnxPolicy
+
+                    learned = HierarchicalOnnxPolicy(model_directory)
+                else:
+                    from flyff_bot.features.policy.learned import LearnedPolicy
+
+                    learned = LearnedPolicy(model_directory)
+                learned.warm_up()
+            except (OSError, ValueError) as error:
+                self._policy_load_fault = PolicyFault(
+                    PolicyFaultCode.MODEL_UNAVAILABLE, str(error) or type(error).__name__
+                )
+            else:
+                self._learned_policy = learned
+                self._policy_load_fault = None
+        self._policy_runner = PolicyRunner(self._learned_policy, load_fault=self._policy_load_fault)
 
     def _policy_candidates(self) -> tuple[PolicyCandidate, ...]:
         candidates = self._combat._eligible_candidates(self._state)
@@ -873,27 +932,152 @@ class FarmingOrchestrator:
             for mob in (candidates[index],)
         )
 
+    def _policy_context(self, candidates: tuple[PolicyCandidate, ...]) -> PolicyContext:
+        """Build the decision-time options, features, and live world facts for a policy."""
+
+        return PolicyContext(
+            candidates,
+            self._config.combat.allowed_class_names,
+            tuple(not candidate.is_unlocked for candidate in candidates),
+            feature_matrix(self._policy_feature_rows(candidates)),
+            live_state=self._live_observation_state(),
+        )
+
+    def _policy_feature_rows(
+        self, candidates: tuple[PolicyCandidate, ...]
+    ) -> tuple[dict[str, float | None], ...]:
+        """Build one decision-time feature row per candidate in the trained column order.
+
+        A quantity that only exists after the bot has travelled -- the observed heading and the
+        planned corridor geometry -- is genuinely unobserved while the target is still being
+        chosen, so it stays missing rather than being replaced by a fabricated number.
+        """
+
+        player = self._pathing.live_position if self._pathing is not None else None
+        origin = None if player is None else (player.x, player.y, player.z)
+        reachable = sum(1 for item in candidates if item.mob.navmesh_path_distance is not None)
+        nearby = self._nearby_candidate_count(candidates, origin)
+        return tuple(
+            candidate_feature_row(
+                path_distance=item.mob.navmesh_path_distance,
+                relative_distance=_world_distance(origin, item.mob),
+                relative_elevation=_world_elevation(origin, item.mob),
+                player_heading=None,
+                target_bearing=_world_bearing(origin, item.mob),
+                terrain_slope=route_slope(origin, _mob_point(item.mob)),
+                corridor=None,
+                target_class_id=float(item.mob.class_id),
+                detection_confidence=item.mob.confidence,
+                visible_mob_count=float(len(candidates)),
+                reachable_mob_count=float(reachable),
+                nearby_targetable_mob_count=nearby,
+                recent_kill_rate=None,
+                recent_stuck_rate=None,
+                decision_latency_ms=None,
+            )
+            for item in candidates
+        )
+
+    @staticmethod
+    def _nearby_candidate_count(
+        candidates: tuple[PolicyCandidate, ...], origin: tuple[float, float, float] | None
+    ) -> float | None:
+        measured = [
+            distance
+            for item in candidates
+            if (distance := _world_distance(origin, item.mob)) is not None
+        ]
+        if not measured:
+            return None
+        return float(sum(1 for value in measured if value <= NEARBY_CANDIDATE_DISTANCE_UNITS))
+
+    def _live_observation_state(self) -> LiveObservationState | None:
+        """Return the measured kinematics and NavMesh context, or ``None`` without live GPS."""
+
+        pathing = self._pathing
+        position = None if pathing is None else pathing.live_position
+        if pathing is None or position is None:
+            return None
+        heading_radians = math.radians(pathing.heading_degrees)
+        navmesh = pathing.navmesh
+        polygon_id = None if navmesh is None else navmesh.polygon_or_region_id(position)
+        return LiveObservationState(
+            PlayerKinematics(position.x, position.y, position.z, heading_radians),
+            NavMeshContext(
+                None if polygon_id is None else str(polygon_id),
+                pathing.terrain_slope,
+                _route_distance(position, pathing.world_waypoints),
+            ),
+            recent_stuck_count=int(self._state.is_stuck),
+        )
+
     def _evaluate_policy_target(self) -> VisibleMob | None:
         """Return a policy-selected candidate only when every deterministic mask passes."""
 
         if self._policy_mode is PolicyRuntimeMode.HEURISTIC:
             return None
         candidates = self._policy_candidates()
-        locked_out = tuple(not candidate.is_unlocked for candidate in candidates)
-        context = PolicyContext(candidates, self._config.combat.allowed_class_names, locked_out)
+        if not any(candidate.is_eligible for candidate in candidates):
+            # Nothing legal to choose between is an empty option set, not a serving failure:
+            # the deterministic search path keeps running and no fault is raised.
+            self._last_policy_action = None
+            return None
+        context = self._policy_context(candidates)
+        self._bind_policy_objective()
         action = self._policy_runner.evaluate(self._state, context)
+        fault = self._policy_runner.last_fault
+        if fault is not None:
+            self._halt_learned_automation(fault)
+            return None
         self._last_policy_action = action if isinstance(action, TargetAction) else None
-        if self._policy_mode is PolicyRuntimeMode.ML_SHADOW:
+        if self._policy_mode is PolicyRuntimeMode.ML_SHADOW or not isinstance(action, TargetAction):
             return None
-        if not isinstance(action, TargetAction):
-            return None
-        for candidate in candidates:
-            if candidate.mob.class_id != action.target_id:
-                continue
-            center = Position(candidate.mob.x, candidate.mob.y)
-            if action.target_pos == center:
-                return candidate.mob
-        return None
+        return next(
+            (
+                candidate.mob
+                for candidate in candidates
+                if candidate.original_position == action.candidate_index
+            ),
+            None,
+        )
+
+    def _bind_policy_objective(self) -> None:
+        """Hand the active quest or farming objective to a hierarchical learned policy."""
+
+        configure = getattr(self._learned_policy, "configure_objective", None)
+        if not callable(configure):
+            return
+        queue = self._quest_queue
+        quest = None if queue is None else queue.active
+        if quest is None:
+            configure(HierarchicalObjective())
+            return
+        configure(
+            HierarchicalObjective(
+                HierarchicalObjectiveKind.QUEST,
+                quest_id=quest.quest.quest_id,
+                target_class_names=frozenset(name for name, _count in quest.required_kills),
+            )
+        )
+
+    def _halt_learned_automation(self, fault: PolicyFault) -> None:
+        """Stop learned automation instead of presenting heuristic behaviour as learned.
+
+        A shadow session was never steered by the model, so dropping back to the declared
+        heuristic mode is enough. An active session was, and is paused. Either way the fault is
+        published for the operator rather than absorbed silently (BUG-031).
+        """
+
+        was_active = self._policy_mode is PolicyRuntimeMode.ML_ACTIVE
+        self._policy_fault = fault
+        self._last_policy_action = None
+        self._policy_mode = PolicyRuntimeMode.HEURISTIC
+        if was_active:
+            self.pause(
+                kind=SessionEventKind.MODE_TRANSITION,
+                reason=f"{LEARNED_POLICY_HALTED_REASON}:{fault.reason}",
+                manual=False,
+            )
 
     def configure_vitals(self, config: VitalsTriggerConfig) -> None:
         """Apply vitals trigger configuration before or during a session."""
@@ -1132,6 +1316,8 @@ class FarmingOrchestrator:
             self._advance_quest_interaction()
         if self._mode is FarmingMode.SEARCHING:
             requested_target = self._evaluate_policy_target()
+            if self._mode is not FarmingMode.SEARCHING:
+                return False
             combat = self._combat.step(self._state, requested_target=requested_target)
             if combat.mode is not CombatMode.IDLE:
                 if self._telemetry is not None and combat.position is not None:
@@ -1218,7 +1404,7 @@ class FarmingOrchestrator:
                         outcome=(
                             combat.break_reason.value
                             if combat.break_reason is not None
-                            else "target_lost"
+                            else CombatOutcome.TARGET_LOST.value
                         ),
                     )
                 self._approach_stalls.reset()
@@ -1236,7 +1422,7 @@ class FarmingOrchestrator:
                 if self._telemetry is not None:
                     self._telemetry.finish_combat(
                         self._state,
-                        outcome="kill_verified",
+                        outcome=CombatOutcome.KILL_VERIFIED.value,
                         verification_source=CombatVerificationSource.HP_ZERO,
                     )
                 self._approach_stalls.reset()
@@ -1321,7 +1507,7 @@ class FarmingOrchestrator:
             pathing.cancel_target_approach()
             self._pending_target_click = None
             if self._telemetry is not None:
-                self._telemetry.finish_navigation("reached_target")
+                self._telemetry.finish_navigation(NavigationOutcome.REACHED_TARGET.value)
             self._set_mode(FarmingMode.TARGETING, reason="engagement_range")
             self._combat.begin_target_acquisition(self._state.observed_at_seconds)
             return self._combat_dispatcher.dispatch(pending)
@@ -1331,11 +1517,11 @@ class FarmingOrchestrator:
         if decision.mode is PathingMode.IDLE and pathing.navmesh_target is None:
             self._pending_target_click = None
             if self._telemetry is not None:
-                self._telemetry.finish_navigation("route_unavailable")
+                self._telemetry.finish_navigation(NavigationOutcome.ROUTE_UNAVAILABLE.value)
             self._set_mode(FarmingMode.SEARCHING, reason="route_unavailable")
             return False
         if self._telemetry is not None and decision.mode is PathingMode.EVADING:
-            self._telemetry.record_navigation_evasion()
+            self._telemetry.record_navigation_evasion(decision.key_press_duration_seconds or 0.0)
         if not self._pathing_dispatcher.dispatch(decision):
             pathing.reject(decision)
             return False
@@ -1614,9 +1800,11 @@ class FarmingOrchestrator:
             if decision.mode is PathingMode.TRAVELING and live_position is not None and waypoints:
                 self._telemetry.begin_navigation(live_position, waypoints)
             if decision.mode is PathingMode.EVADING:
-                self._telemetry.record_navigation_evasion()
+                self._telemetry.record_navigation_evasion(
+                    decision.key_press_duration_seconds or 0.0
+                )
             if decision.mode is PathingMode.IDLE:
-                self._telemetry.finish_navigation("reached_target")
+                self._telemetry.finish_navigation(NavigationOutcome.REACHED_TARGET.value)
         if not self._pathing_dispatcher.dispatch(decision):
             self._pathing.reject(decision)
             return False
@@ -1630,6 +1818,12 @@ class FarmingOrchestrator:
         if self._kill_goals.has_quotas:
             self._apply_active_target_classes()
         self._advance_quest_queue(class_name)
+        if self._telemetry is not None:
+            self._telemetry.record_objective_progress(
+                1.0,
+                quest_id=_active_quest_identifier(self._quest_queue),
+                completed=self._goal_completed(),
+            )
 
     def _advance_quest_queue(self, class_name: str | None) -> None:
         """Hand the session on to the next selected quest once the active one is met."""
@@ -1710,6 +1904,9 @@ class FarmingOrchestrator:
                     ),
                     dungeons=self._dungeon_snapshots,
                     readiness=self._readiness,
+                    policy_fault_reason=(
+                        None if self._policy_fault is None else self._policy_fault.reason
+                    ),
                 )
             )
         return tick
@@ -1848,3 +2045,50 @@ def _active_quest_title(queue: QuestFarmingQueue | None) -> str:
         return ""
     active = queue.active
     return "" if active is None else active.quest.display_title
+
+
+def _mob_point(mob: VisibleMob) -> tuple[float, float, float] | None:
+    """Return a candidate's measured world position, or ``None`` when it was never measured."""
+
+    if mob.world_x is None or mob.world_y is None or mob.world_z is None:
+        return None
+    return mob.world_x, mob.world_y, mob.world_z
+
+
+def _world_distance(origin: tuple[float, float, float] | None, mob: VisibleMob) -> float | None:
+    point = _mob_point(mob)
+    if origin is None or point is None:
+        return None
+    return math.dist(origin, point)
+
+
+def _world_elevation(origin: tuple[float, float, float] | None, mob: VisibleMob) -> float | None:
+    point = _mob_point(mob)
+    if origin is None or point is None:
+        return None
+    return point[1] - origin[1]
+
+
+def _world_bearing(origin: tuple[float, float, float] | None, mob: VisibleMob) -> float | None:
+    point = _mob_point(mob)
+    if origin is None or point is None:
+        return None
+    return bearing(point[0] - origin[0], point[2] - origin[2])
+
+
+def _route_distance(position: WorldPosition, waypoints: tuple[WorldPosition, ...]) -> float | None:
+    """Return the remaining planned route length, or ``None`` without an active route."""
+
+    if not waypoints:
+        return None
+    points = [(position.x, position.y, position.z)] + [
+        (point.x, point.y, point.z) for point in waypoints
+    ]
+    return sum(math.dist(points[index], points[index + 1]) for index in range(len(points) - 1))
+
+
+def _active_quest_identifier(queue: QuestFarmingQueue | None) -> str | None:
+    """Return the identifier of the quest a session is currently pursuing."""
+
+    active = None if queue is None else queue.active
+    return None if active is None else active.quest.quest_id

@@ -92,6 +92,16 @@ class LearnedPolicy:
         self._input_name = input_name
         self._cost_weights = cost_weights
 
+    def warm_up(self) -> None:
+        """Run one throwaway inference so graph setup is not charged to a live decision.
+
+        The first forward pass of an ONNX session allocates its execution plan and easily
+        exceeds the per-decision latency budget. Paying that cost while the session is still
+        being configured keeps a real decision inside the budget (BUG-031).
+        """
+
+        self.predictions(np.zeros((1, MODEL_INPUT_WIDTH), dtype=np.float64))
+
     def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
         eligible = [candidate for candidate in context.candidates if candidate.is_eligible]
         matrix = context.feature_matrix
@@ -157,10 +167,18 @@ class LearnedPolicy:
 
     @staticmethod
     def _action(candidate: PolicyCandidate, expected_cost: float) -> TacticalAction:
+        """Return the ranked choice identified by the candidate instance it selected.
+
+        The screen position is reported in the same top-left convention every other tactical
+        layer uses, and the executed candidate is named by its per-instance index rather than by
+        an ambiguous detector class identifier (BUG-031).
+        """
+
         mob = candidate.mob
-        position = (
-            Position(mob.x + mob.width // 2, mob.y + mob.height // 2)
-            if mob.world_x is not None
-            else None
+        position = Position(mob.x, mob.y) if mob.world_x is not None else None
+        return TargetAction(
+            mob.class_id,
+            position,
+            round(expected_cost, 6),
+            candidate_index=candidate.original_position,
         )
-        return TargetAction(mob.class_id, position, round(expected_cost, 6))

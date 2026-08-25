@@ -27,6 +27,8 @@ from flyff_bot.features.telemetry.models import (
     CombatVerificationSource,
     KillCycle,
     NavigationEpisode,
+    NavigationOutcome,
+    ObjectiveProgress,
     TelemetryEventKind,
     TelemetryPosition,
     TelemetrySessionMetadata,
@@ -52,6 +54,7 @@ class _ActiveNavigation:
     stall_started_at_ns: int | None = None
     stall_duration_seconds: float = 0.0
     collision_evasions: int = 0
+    evasion_seconds: float = 0.0
 
 
 class TelemetryRecorder:
@@ -311,11 +314,28 @@ class TelemetryRecorder:
             self._stall_seconds += duration
             navigation.stall_started_at_ns = None
 
-    def record_navigation_evasion(self) -> None:
-        """Count a confirmed bounded Q/S recovery action in the active route."""
+    def record_navigation_evasion(self, duration_seconds: float = 0.0) -> None:
+        """Count a confirmed bounded Q/S recovery action and its dispatched duration."""
 
         if self._navigation is not None:
             self._navigation.collision_evasions += 1
+            self._navigation.evasion_seconds += max(0.0, duration_seconds)
+
+    def record_objective_progress(
+        self, progress_delta: float, *, quest_id: str | None = None, completed: bool = False
+    ) -> None:
+        """Persist one observed advance of the active objective for offline reward shaping."""
+
+        if not self._started:
+            return
+        timestamp_ns = self._clock_ns()
+        self._submit(
+            TelemetryEventKind.OBJECTIVE_PROGRESS,
+            primitive(
+                ObjectiveProgress(timestamp_ns, quest_id, max(0.0, progress_delta), completed)
+            ),
+            timestamp_ns,
+        )
 
     def finish_navigation(self, outcome: str) -> None:
         """Persist the active live-GPS episode without ever deriving minimap trajectories."""
@@ -370,6 +390,7 @@ class TelemetryRecorder:
             navigation.stall_duration_seconds,
             navigation.collision_evasions,
             outcome,
+            navigation.evasion_seconds,
         )
         self.record_navigation_episode(episode)
         self._navigation_seconds += (ended_at_ns - navigation.started_at_ns) / 1_000_000_000
@@ -378,7 +399,7 @@ class TelemetryRecorder:
     def close(self) -> None:
         """Close the worker idempotently; telemetry failure never affects client control."""
 
-        self.finish_navigation("session_closed")
+        self.finish_navigation(NavigationOutcome.SESSION_CLOSED.value)
         self._worker.close()
 
     def record_navigation_episode(self, episode: NavigationEpisode) -> None:

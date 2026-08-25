@@ -1,8 +1,12 @@
-"""Deadline, exception, and invalid-action fallback coverage."""
+"""Deadline, exception, and invalid-action fail-closed coverage."""
 
 from flyff_bot.features.automation.models import Position, Viewport, WorldState
 from flyff_bot.features.policy.models import PolicyContext, TargetAction
-from flyff_bot.features.policy.runner import PolicyRunner
+from flyff_bot.features.policy.runner import (
+    HEURISTIC_MODE_REASON,
+    PolicyFaultCode,
+    PolicyRunner,
+)
 
 
 class _ExplodingPolicy:
@@ -21,14 +25,15 @@ def _world_state() -> WorldState:
     )
 
 
-def test_exception_triggers_immediate_heuristic_fallback() -> None:
+def test_exception_stops_learned_automation_without_a_silent_heuristic_substitute() -> None:
     runner = PolicyRunner(_ExplodingPolicy())
 
     action = runner.evaluate(_world_state(), PolicyContext((), frozenset(), ()))
 
-    assert runner.fell_back
-    assert "invalid_output" in str(runner.last_fallback_reason)
-    assert action is not None and action.kind.value == "wait"
+    assert action is None
+    assert runner.last_fault is not None
+    assert runner.last_fault.code is PolicyFaultCode.POLICY_EXCEPTION
+    assert "invalid_output" in str(runner.last_fault.detail)
 
 
 def test_latency_budget_is_enforced() -> None:
@@ -40,6 +45,18 @@ def test_latency_budget_is_enforced() -> None:
     times = iter((0.0, 0.006))
     runner = PolicyRunner(_SlowValidPolicy(), monotonic=lambda: next(times))
 
-    runner.evaluate(_world_state(), PolicyContext((), frozenset(), ()))
+    action = runner.evaluate(_world_state(), PolicyContext((), frozenset(), ()))
 
-    assert runner.last_fallback_reason == "policy_latency_budget_exceeded"
+    assert action is None
+    assert runner.last_fault is not None
+    assert runner.last_fault.code is PolicyFaultCode.LATENCY_BUDGET_EXCEEDED
+
+
+def test_without_a_learned_policy_the_deterministic_baseline_still_runs() -> None:
+    runner = PolicyRunner(None)
+
+    action = runner.evaluate(_world_state(), PolicyContext((), frozenset(), ()))
+
+    assert runner.last_fault is None
+    assert runner.last_fallback_reason == HEURISTIC_MODE_REASON
+    assert action is not None and action.kind.value == "wait"

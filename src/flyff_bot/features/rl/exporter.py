@@ -1,8 +1,17 @@
-"""Offline RL transition export from recorded farming telemetry."""
+"""Offline RL transition export from recorded farming telemetry.
+
+One exported row is one real interval of one recorded session: the state observed at a target
+decision, the exact parameterized choice that was taken, the reward observed until the next
+decision in that same session, the state at that next decision, both masks, and how the
+interval ended. Nothing is ever joined across a ``session_id``, an episode, or a decision
+boundary (BUG-031).
+"""
 
 from __future__ import annotations
 
 import json
+from collections import defaultdict
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -10,21 +19,41 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from flyff_bot.features.policy.action_payloads import TargetAction
-from flyff_bot.features.rl.actions import TacticalActionCatalog
-from flyff_bot.features.rl.masking import build_action_mask
-from flyff_bot.features.rl.models import ObservationSpace, Transition
+from flyff_bot.features.rl.actions import (
+    ParameterizedAction,
+    TacticalActionCatalog,
+    TacticalActionMask,
+)
+from flyff_bot.features.rl.masking import build_tactical_mask
+from flyff_bot.features.rl.models import ObservationSpace, RlObservation, Transition
 from flyff_bot.features.rl.rewards import RewardConfig, RewardEngine, RewardEvent
 from flyff_bot.features.telemetry.models import (
     CandidateFeatures,
+    CombatOutcome,
+    NavigationOutcome,
     TelemetryEventKind,
+    TelemetryPosition,
 )
 from flyff_bot.features.telemetry.storage import SqliteTelemetryStore
 
 PARQUET_COMPRESSION = "zstd"
 RL_TRANSITIONS_FILE = "rl_transitions.parquet"
 RL_PROVENANCE_FILE = "rl_provenance.json"
-RL_TRANSITION_SCHEMA_VERSION = "us077-v2"
+RL_TRANSITION_SCHEMA_VERSION = "bug031-v1"
 DEFAULT_EXPORT_PATROL_RADIUS = 1000.0
+NANOSECONDS_PER_SECOND = 1_000_000_000
+
+# Every event family the reward and the state of one interval are reconstructed from.
+_EXPORTED_EVENT_KINDS = (
+    TelemetryEventKind.WORLD_SNAPSHOT,
+    TelemetryEventKind.TARGET_SELECTED,
+    TelemetryEventKind.KILL_CYCLE,
+    TelemetryEventKind.NAVIGATION_EPISODE,
+    TelemetryEventKind.COMBAT_EPISODE,
+    TelemetryEventKind.OBJECTIVE_PROGRESS,
+)
+
+SessionEvents = dict[TelemetryEventKind, list[dict[str, Any]]]
 
 
 class TelemetryTransitionExporter:
@@ -35,8 +64,10 @@ class TelemetryTransitionExporter:
         store: SqliteTelemetryStore,
         *,
         reward_config: RewardConfig | None = None,
+        patrol_radius: float = DEFAULT_EXPORT_PATROL_RADIUS,
     ) -> None:
         self._store = store
+        self._patrol_radius = patrol_radius
         self.reward_config = reward_config or RewardConfig()
 
     def export(self, output_directory: Path) -> tuple[Path, Path]:
@@ -62,98 +93,103 @@ class TelemetryTransitionExporter:
         )
 
     def transitions(self) -> list[Transition]:
-        snapshots = self._store.events(TelemetryEventKind.WORLD_SNAPSHOT)
-        decisions = self._store.events(TelemetryEventKind.TARGET_SELECTED)
-        cycles = {
-            payload.get("target_decision_timestamp_ns"): payload
-            for event in self._store.events(TelemetryEventKind.KILL_CYCLE)
-            if isinstance((payload := event["payload"]).get("target_decision_timestamp_ns"), int)
-        }
-        transitions: list[Transition] = []
+        """Return every complete transition, grouped and ordered per recorded session."""
 
-        for index, event in enumerate(decisions):
-            timestamp_ns = int(event["timestamp_ns"])
-            previous_snapshot = max(
-                (item for item in snapshots if int(item["timestamp_ns"]) < timestamp_ns),
-                key=lambda item: int(item["timestamp_ns"]),
-                default=None,
+        by_session = self._events_by_session()
+        return [
+            transition
+            for session_id in sorted(by_session)
+            for transition in self._session_transitions(session_id, by_session[session_id])
+        ]
+
+    def _events_by_session(self) -> dict[str, SessionEvents]:
+        by_session: dict[str, SessionEvents] = defaultdict(lambda: defaultdict(list))
+        for kind in _EXPORTED_EVENT_KINDS:
+            for event in self._store.events(kind):
+                by_session[str(event["session_id"])][kind].append(event)
+        return by_session
+
+    def _session_transitions(self, session_id: str, events: SessionEvents) -> list[Transition]:
+        decisions = events.get(TelemetryEventKind.TARGET_SELECTED, [])
+        snapshots = events.get(TelemetryEventKind.WORLD_SNAPSHOT, [])
+        if not decisions or not snapshots:
+            return []
+        session_end_ns = max(
+            int(event["timestamp_ns"]) for family in events.values() for event in family
+        )
+        transitions: list[Transition] = []
+        episode_index = 0
+        for index, decision in enumerate(decisions):
+            timestamp_ns = int(decision["timestamp_ns"])
+            is_last = index + 1 == len(decisions)
+            interval_end_ns = (
+                session_end_ns + 1 if is_last else int(decisions[index + 1]["timestamp_ns"])
             )
-            next_snapshot = min(
-                (item for item in snapshots if int(item["timestamp_ns"]) > timestamp_ns),
-                key=lambda item: int(item["timestamp_ns"]),
-                default=None,
-            )
-            if previous_snapshot is None or next_snapshot is None:
+            previous = _latest_snapshot(snapshots, lower_ns=None, upper_ns=timestamp_ns)
+            following = _latest_snapshot(snapshots, lower_ns=timestamp_ns, upper_ns=interval_end_ns)
+            action = _action(decision)
+            if previous is None or following is None or action is None:
                 continue
 
             observation = ObservationSpace.from_telemetry_snapshot(
-                previous_snapshot["payload"], self._candidates(event)
+                previous["payload"], _candidates(decision)
             )
-            next_observation = ObservationSpace.from_telemetry_snapshot(next_snapshot["payload"])
-            cycle = cycles.get(timestamp_ns, {})
-            travel_seconds = (int(next_snapshot["timestamp_ns"]) - timestamp_ns) / 1_000_000_000.0
-            reward_event = RewardEvent(
-                verified_kill=bool(cycle.get("verified_kill", False)),
-                travel_seconds=max(travel_seconds, 0.0),
+            next_observation = ObservationSpace.from_telemetry_snapshot(
+                following["payload"],
+                () if is_last else _candidates(decisions[index + 1]),
             )
-            mask = build_action_mask(
-                observation,
-                patrol_center=(
-                    observation.kinematics.position_x,
-                    observation.kinematics.position_y,
-                    observation.kinematics.position_z,
-                ),
-                patrol_radius=DEFAULT_EXPORT_PATROL_RADIUS,
+            reward_event = interval_reward_event(
+                events, start_ns=timestamp_ns, end_ns=min(interval_end_ns, session_end_ns + 1)
             )
-            action_payload = TargetAction(
-                index,
-                None,
-            )
-            action_index = TacticalActionCatalog.encode(action_payload)
-            reward = RewardEngine(self.reward_config).reward(reward_event)
-            terminated = bool(cycle.get("verified_kill", False))
+            terminated = reward_event.objective_completed
             transitions.append(
-                Transition(observation, action_index, reward, next_observation, mask, terminated)
+                Transition(
+                    observation,
+                    action,
+                    RewardEngine(self.reward_config).reward(reward_event),
+                    next_observation,
+                    self._mask(observation),
+                    terminated,
+                    self._mask(next_observation),
+                    is_last and not terminated,
+                    session_id,
+                    episode_index,
+                )
             )
+            if terminated:
+                episode_index += 1
         return transitions
 
-    @staticmethod
-    def _candidates(event: dict[str, Any]) -> tuple[CandidateFeatures, ...]:
-        payload = event["payload"]
-        return tuple(
-            CandidateFeatures(
-                candidate["candidate_index"],
-                candidate["class_id"],
-                candidate["class_name"],
-                candidate["confidence"],
-                candidate["x"],
-                candidate["y"],
-                candidate["width"],
-                candidate["height"],
-                candidate.get("center_x", 0.0),
-                candidate.get("center_y", 0.0),
-                candidate.get("screen_distance_to_center"),
-                candidate.get("bbox_area", 0),
-                None,
-                candidate.get("relative_distance"),
-                candidate.get("relative_elevation"),
-                candidate.get("target_navmesh_polygon_id"),
-                candidate.get("path_distance"),
-                candidate.get("is_locked_out", False),
-            )
-            for candidate in payload["candidates"]
+    def _mask(self, observation: RlObservation) -> TacticalActionMask:
+        return build_tactical_mask(
+            observation,
+            patrol_center=(
+                observation.kinematics.position_x,
+                observation.kinematics.position_y,
+                observation.kinematics.position_z,
+            ),
+            patrol_radius=self._patrol_radius,
         )
 
-    @staticmethod
-    def _table(transitions: list[Transition]) -> pa.Table:
+    def _table(self, transitions: list[Transition]) -> pa.Table:
         schema = pa.schema(
             [
+                pa.field("session_id", pa.string(), nullable=False),
+                pa.field("episode_index", pa.int32(), nullable=False),
                 pa.field("observation", pa.list_(pa.float64()), nullable=False),
                 pa.field("action", pa.int32(), nullable=False),
+                pa.field("action_candidate_index", pa.int32()),
+                pa.field("action_target_class_id", pa.int32()),
+                pa.field("action_parameters_json", pa.string(), nullable=False),
                 pa.field("reward", pa.float64(), nullable=False),
+                pa.field("reward_components_json", pa.string(), nullable=False),
                 pa.field("next_observation", pa.list_(pa.float64()), nullable=False),
                 pa.field("action_mask", pa.list_(pa.bool_()), nullable=False),
+                pa.field("candidate_mask", pa.list_(pa.bool_()), nullable=False),
+                pa.field("next_action_mask", pa.list_(pa.bool_()), nullable=False),
+                pa.field("next_candidate_mask", pa.list_(pa.bool_()), nullable=False),
                 pa.field("terminated", pa.bool_(), nullable=False),
+                pa.field("truncated", pa.bool_(), nullable=False),
                 pa.field("readiness_state", pa.string(), nullable=False),
                 pa.field("readiness_primary_reason", pa.string()),
                 pa.field("failed_source_codes", pa.list_(pa.string()), nullable=False),
@@ -168,12 +204,22 @@ class TelemetryTransitionExporter:
         )
         rows = [
             {
+                "session_id": item.session_id,
+                "episode_index": item.episode_index,
                 "observation": ObservationSpace.encode(item.observation).tolist(),
-                "action": item.action,
+                "action": int(item.action.action),
+                "action_candidate_index": item.action.candidate_index,
+                "action_target_class_id": item.action.target_class_id,
+                "action_parameters_json": _action_json(item.action),
                 "reward": item.reward,
+                "reward_components_json": self.reward_config.as_json(),
                 "next_observation": ObservationSpace.encode(item.next_observation).tolist(),
-                "action_mask": list(item.action_mask),
+                "action_mask": list(item.action_mask.actions),
+                "candidate_mask": list(item.action_mask.candidates),
+                "next_action_mask": list(item.next_action_mask.actions),
+                "next_candidate_mask": list(item.next_action_mask.candidates),
                 "terminated": item.terminated,
+                "truncated": item.truncated,
                 "readiness_state": item.observation.readiness.state,
                 "readiness_primary_reason": item.observation.readiness.primary_reason,
                 "failed_source_codes": list(item.observation.readiness.failed_source_codes),
@@ -194,3 +240,139 @@ class TelemetryTransitionExporter:
             for item in transitions
         ]
         return pa.Table.from_pylist(rows, schema=schema)
+
+
+def interval_reward_event(events: SessionEvents, *, start_ns: int, end_ns: int) -> RewardEvent:
+    """Return the reward facts observed inside exactly one decision interval.
+
+    An episode is attributed to the interval its *end* falls into, so no navigation, combat,
+    kill, or objective observation is ever counted for two decisions.
+    """
+
+    interval_seconds = max(0.0, (end_ns - start_ns) / NANOSECONDS_PER_SECOND)
+    cycles = _within(events.get(TelemetryEventKind.KILL_CYCLE, []), start_ns, end_ns)
+    navigation = _ended_within(
+        events.get(TelemetryEventKind.NAVIGATION_EPISODE, []), start_ns, end_ns
+    )
+    combat = _ended_within(events.get(TelemetryEventKind.COMBAT_EPISODE, []), start_ns, end_ns)
+    progress = _within(events.get(TelemetryEventKind.OBJECTIVE_PROGRESS, []), start_ns, end_ns)
+
+    travel_seconds = sum(_elapsed_seconds(episode) for episode in navigation)
+    combat_seconds = sum(_elapsed_seconds(episode) for episode in combat)
+    failed_action = any(
+        str(episode.get("outcome")) != NavigationOutcome.REACHED_TARGET.value
+        for episode in navigation
+    ) or any(str(episode.get("outcome")) != CombatOutcome.KILL_VERIFIED.value for episode in combat)
+    return RewardEvent(
+        verified_kill=any(bool(cycle.get("verified_kill", False)) for cycle in cycles),
+        quest_progress_delta=sum(_number(item.get("progress_delta")) for item in progress),
+        objective_completed=any(bool(item.get("objective_completed", False)) for item in progress),
+        travel_seconds=travel_seconds,
+        idle_seconds=max(0.0, interval_seconds - travel_seconds - combat_seconds),
+        stuck_seconds=sum(_number(episode.get("stall_duration_seconds")) for episode in navigation),
+        recovery_seconds=sum(_number(episode.get("evasion_seconds")) for episode in navigation),
+        failed_action=failed_action,
+    )
+
+
+def _action(decision: dict[str, Any]) -> ParameterizedAction | None:
+    """Return the exact parameterized choice one recorded decision executed."""
+
+    payload = decision["payload"]
+    selected_index = payload.get("selected_candidate_index")
+    if not isinstance(selected_index, int):
+        return None
+    selected = next(
+        (
+            candidate
+            for candidate in payload.get("candidates", ())
+            if candidate.get("candidate_index") == selected_index
+        ),
+        None,
+    )
+    if selected is None:
+        return None
+    return TacticalActionCatalog.encode(
+        TargetAction(int(selected["class_id"]), None, None, None, candidate_index=selected_index)
+    )
+
+
+def _action_json(action: ParameterizedAction) -> str:
+    """Serialize every action parameter so the exported choice stays loss-free."""
+
+    return json.dumps(asdict(action), sort_keys=True)
+
+
+def _candidates(event: dict[str, Any]) -> tuple[CandidateFeatures, ...]:
+    payload = event["payload"]
+    return tuple(
+        CandidateFeatures(
+            candidate["candidate_index"],
+            candidate["class_id"],
+            candidate["class_name"],
+            candidate["confidence"],
+            candidate["x"],
+            candidate["y"],
+            candidate["width"],
+            candidate["height"],
+            candidate.get("center_x", 0.0),
+            candidate.get("center_y", 0.0),
+            candidate.get("screen_distance_to_center"),
+            candidate.get("bbox_area", 0),
+            _world_position(candidate.get("world_position")),
+            candidate.get("relative_distance"),
+            candidate.get("relative_elevation"),
+            candidate.get("target_navmesh_polygon_id"),
+            candidate.get("path_distance"),
+            candidate.get("is_locked_out", False),
+        )
+        for candidate in payload["candidates"]
+    )
+
+
+def _world_position(payload: object) -> TelemetryPosition | None:
+    if not isinstance(payload, dict):
+        return None
+    values = tuple(payload.get(axis) for axis in ("x", "y", "z"))
+    if any(not isinstance(value, int | float) for value in values):
+        return None
+    return TelemetryPosition(float(values[0]), float(values[1]), float(values[2]))  # type: ignore[arg-type]
+
+
+def _latest_snapshot(
+    snapshots: list[dict[str, Any]], *, lower_ns: int | None, upper_ns: int
+) -> dict[str, Any] | None:
+    return max(
+        (
+            item
+            for item in snapshots
+            if int(item["timestamp_ns"]) < upper_ns
+            and (lower_ns is None or int(item["timestamp_ns"]) > lower_ns)
+        ),
+        key=lambda item: int(item["timestamp_ns"]),
+        default=None,
+    )
+
+
+def _within(events: list[dict[str, Any]], start_ns: int, end_ns: int) -> list[dict[str, Any]]:
+    return [event["payload"] for event in events if start_ns <= int(event["timestamp_ns"]) < end_ns]
+
+
+def _ended_within(events: list[dict[str, Any]], start_ns: int, end_ns: int) -> list[dict[str, Any]]:
+    return [
+        payload
+        for event in events
+        if start_ns <= int((payload := event["payload"]).get("ended_at_ns", -1)) < end_ns
+    ]
+
+
+def _elapsed_seconds(episode: dict[str, Any]) -> float:
+    started = episode.get("started_at_ns")
+    ended = episode.get("ended_at_ns")
+    if not isinstance(started, int) or not isinstance(ended, int):
+        return 0.0
+    return max(0.0, (ended - started) / NANOSECONDS_PER_SECOND)
+
+
+def _number(value: object) -> float:
+    return float(value) if isinstance(value, int | float) else 0.0

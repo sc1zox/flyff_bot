@@ -33,7 +33,7 @@ class TacticalRlEnvironment:
             raise RuntimeError("The tactical RL environment is closed.")
         self._index = 0
         transition = self._transitions[0]
-        return transition.observation, {"action_mask": transition.action_mask}
+        return transition.observation, _info(transition)
 
     def step(self, action: int) -> tuple[RlObservation, SupportsFloat, bool, bool, dict[str, Any]]:
         if self._closed:
@@ -41,11 +41,13 @@ class TacticalRlEnvironment:
         if not isinstance(action, int) or not 0 <= action < TACTICAL_ACTION_COUNT:
             raise ValueError("Unknown tactical action index.")
         transition = self._transitions[self._index]
-        if not transition.action_mask[action]:
+        if not transition.action_mask.actions[action]:
             raise ValueError("Masked tactical action selected.")
         observation = transition.next_observation
         terminated = transition.terminated
-        truncated = self._index + 1 >= len(self._transitions) and not terminated
+        truncated = transition.truncated or (
+            self._index + 1 >= len(self._transitions) and not terminated
+        )
         if not terminated:
             self._index += 1
         return (
@@ -53,8 +55,21 @@ class TacticalRlEnvironment:
             transition.reward,
             terminated,
             truncated,
-            {"action_mask": transition.action_mask},
+            _info(transition),
         )
 
     def close(self) -> None:
         self._closed = True
+
+
+def _info(transition: Transition) -> dict[str, Any]:
+    """Return the Gymnasium ``info`` payload carrying both masks of one interval."""
+
+    return {
+        "action_mask": transition.action_mask.actions,
+        "candidate_mask": transition.action_mask.candidates,
+        "next_action_mask": transition.next_action_mask.actions,
+        "next_candidate_mask": transition.next_action_mask.candidates,
+        "session_id": transition.session_id,
+        "episode_index": transition.episode_index,
+    }

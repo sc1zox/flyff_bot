@@ -8,7 +8,7 @@ from math import sqrt
 from typing import Any
 from uuid import uuid4
 
-TELEMETRY_SCHEMA_VERSION = 3
+TELEMETRY_SCHEMA_VERSION = 4
 TRAJECTORY_SCHEMA_VERSION = 2
 
 
@@ -22,6 +22,22 @@ class TelemetryEventKind(StrEnum):
     COMBAT_EPISODE = "combat_episode"
     KILL_CYCLE = "kill_cycle"
     STALL_EVENT = "stall_event"
+    OBJECTIVE_PROGRESS = "objective_progress"
+
+
+class NavigationOutcome(StrEnum):
+    """The observed end state of one navigation episode."""
+
+    REACHED_TARGET = "reached_target"
+    ROUTE_UNAVAILABLE = "route_unavailable"
+    SESSION_CLOSED = "session_closed"
+
+
+class CombatOutcome(StrEnum):
+    """The observed end state of one combat engagement."""
+
+    KILL_VERIFIED = "kill_verified"
+    TARGET_LOST = "target_lost"
 
 
 class CombatVerificationSource(StrEnum):
@@ -160,6 +176,9 @@ class NavigationEpisode:
     stall_duration_seconds: float
     collision_evasions: int
     outcome: str
+    # The measured time spent executing evasive recovery input, kept separate from
+    # ``stall_duration_seconds`` so being blocked and recovering stay distinguishable.
+    evasion_seconds: float = 0.0
 
     @property
     def path_efficiency(self) -> float | None:
@@ -220,6 +239,16 @@ class KillCycle:
             + self.combat_seconds
             + self.idle_seconds
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectiveProgress:
+    """One observed advance of the active kill quota or quest objective."""
+
+    timestamp_ns: int
+    quest_id: str | None
+    progress_delta: float
+    objective_completed: bool
 
 
 def primitive(value: object) -> object:

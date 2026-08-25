@@ -24,7 +24,11 @@ class _AlwaysFirstPolicy:
         if not eligible:
             return None
         mob = eligible[0].mob
-        return TargetAction(mob.class_id, Position(mob.x + mob.width // 2, mob.y + mob.height // 2))
+        return TargetAction(
+            mob.class_id,
+            Position(mob.x, mob.y),
+            candidate_index=eligible[0].original_position,
+        )
 
 
 def _orchestrator(states: list[WorldState], adapter: _InputAdapter) -> FarmingOrchestrator:
@@ -54,6 +58,11 @@ def test_learned_target_enters_existing_guarded_combat_state_machine() -> None:
         y=20,
         width=10,
         height=10,
+        world_x=1.0,
+        world_y=0.0,
+        world_z=1.0,
+        navmesh_reachable=True,
+        navmesh_within_leash=True,
     )
     state = _state(1.0, mobs=(mob,))
     adapter = _InputAdapter()

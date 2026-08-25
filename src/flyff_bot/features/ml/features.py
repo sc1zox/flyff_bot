@@ -43,6 +43,9 @@ FEATURE_NAMES: tuple[str, ...] = (
 # missing for that sample, so an imputed median is always distinguishable from a measurement.
 MISSING_INDICATOR_SUFFIX = "__is_missing"
 
+# World units within which another candidate counts as part of the same local cluster.
+NEARBY_CANDIDATE_DISTANCE_UNITS = 40.0
+
 WorldPoint = tuple[float, float, float]
 
 
@@ -136,6 +139,55 @@ def corridor_metrics(route: tuple[WorldPoint, ...]) -> CorridorMetrics:
     if not turns:
         return CorridorMetrics(length, waypoint_count, None, None, detour_ratio)
     return CorridorMetrics(length, waypoint_count, sum(turns), max(turns), detour_ratio)
+
+
+def candidate_feature_row(
+    *,
+    path_distance: float | None,
+    relative_distance: float | None,
+    relative_elevation: float | None,
+    player_heading: float | None,
+    target_bearing: float | None,
+    terrain_slope: float | None,
+    corridor: CorridorMetrics | None,
+    target_class_id: float | None,
+    detection_confidence: float | None,
+    visible_mob_count: float | None,
+    reachable_mob_count: float | None,
+    nearby_targetable_mob_count: float | None,
+    recent_kill_rate: float | None,
+    recent_stuck_rate: float | None,
+    decision_latency_ms: float | None,
+) -> dict[str, float | None]:
+    """Assemble one candidate's feature row in the single order the artifacts index by.
+
+    Both the offline trainer and the live policy build their rows here, so a served vector can
+    never disagree with the vector the same state produced during training (BUG-031). An input
+    that was not observed stays ``None`` and later becomes ``NaN`` with a missing indicator.
+    """
+
+    return {
+        "path_distance": path_distance,
+        "relative_distance": relative_distance,
+        "relative_elevation": relative_elevation,
+        "player_heading": player_heading,
+        "target_bearing": target_bearing,
+        "heading_error": angular_difference(player_heading, target_bearing),
+        "terrain_slope": terrain_slope,
+        "corridor_length": None if corridor is None else corridor.length,
+        "corridor_waypoint_count": (None if corridor is None else float(corridor.waypoint_count)),
+        "corridor_turn_angle_total": None if corridor is None else corridor.turn_angle_total,
+        "corridor_max_turn_angle": None if corridor is None else corridor.max_turn_angle,
+        "corridor_detour_ratio": None if corridor is None else corridor.detour_ratio,
+        "target_class_id": target_class_id,
+        "detection_confidence": detection_confidence,
+        "visible_mob_count": visible_mob_count,
+        "reachable_mob_count": reachable_mob_count,
+        "nearby_targetable_mob_count": nearby_targetable_mob_count,
+        "recent_kill_rate": recent_kill_rate,
+        "recent_stuck_rate": recent_stuck_rate,
+        "decision_latency_ms": decision_latency_ms,
+    }
 
 
 def feature_matrix(

@@ -38,14 +38,16 @@ class TelemetryDatasetExporter:
 
     def _target_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
+        # A decision timestamp is only unique inside its own session, so the reward of one
+        # session's kill can never be attached to another session's decision (BUG-031).
         cycle_by_decision = {
-            payload["target_decision_timestamp_ns"]: payload
+            (event["session_id"], payload["target_decision_timestamp_ns"]): payload
             for event in self._store.events(TelemetryEventKind.KILL_CYCLE)
             if isinstance((payload := event["payload"]).get("target_decision_timestamp_ns"), int)
         }
         for event in self._store.events(TelemetryEventKind.TARGET_SELECTED):
             payload = event["payload"]
-            cycle = cycle_by_decision.get(event["timestamp_ns"])
+            cycle = cycle_by_decision.get((event["session_id"], event["timestamp_ns"]))
             for candidate in payload["candidates"]:
                 rows.append(
                     {
@@ -114,6 +116,7 @@ class TelemetryDatasetExporter:
                         "actual_travel_distance": payload.get("actual_travel_distance"),
                         "stall_events": payload.get("stall_events"),
                         "collision_evasions": payload.get("collision_evasions"),
+                        "evasion_seconds": payload.get("evasion_seconds"),
                     }
                 )
         return rows

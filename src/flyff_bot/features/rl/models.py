@@ -8,12 +8,23 @@ from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
 
+from flyff_bot.features.rl.actions import ParameterizedAction, TacticalActionMask
 from flyff_bot.features.telemetry.models import CandidateFeatures
 
-OBSERVATION_DIMENSION = 56
-RL_OBSERVATION_SCHEMA_VERSION = "us077-v2"
+# Every optional measurement is encoded as a value plus a paired missing indicator, so an
+# absent observation can never alias a measured zero (BUG-031). Signed quantities keep their
+# sign instead of being clamped at zero for the same reason.
+OBSERVATION_DIMENSION = 75
+RL_OBSERVATION_SCHEMA_VERSION = "bug031-v1"
 CANDIDATE_SLOTS = 4
-CANDIDATE_FEATURE_COUNT = 7
+CANDIDATE_FEATURE_COUNT = 11
+POSITION_SCALE_UNITS = 10000.0
+ELEVATION_SCALE_UNITS = 100.0
+DISTANCE_SCALE_UNITS = 1000.0
+SLOPE_SCALE_DEGREES = 90.0
+VELOCITY_SCALE_UNITS_PER_SECOND = 10.0
+MISSING_INDICATOR = 1.0
+PRESENT_INDICATOR = 0.0
 FloatArray = NDArray[np.float64]
 
 
@@ -101,12 +112,23 @@ class RlObservation:
 
 @dataclass(frozen=True, slots=True)
 class Transition:
+    """One complete MDP interval recorded inside a single session and episode.
+
+    Every field describes the same real interval: the state at the decision, the exact
+    parameterized choice that was taken, the reward observed until the following decision, the
+    state at that following decision, both masks, and how the interval ended (BUG-031).
+    """
+
     observation: RlObservation
-    action: int
+    action: ParameterizedAction
     reward: float
     next_observation: RlObservation
-    action_mask: tuple[bool, ...]
+    action_mask: TacticalActionMask
     terminated: bool
+    next_action_mask: TacticalActionMask = field(default_factory=TacticalActionMask)
+    truncated: bool = False
+    session_id: str = ""
+    episode_index: int = 0
 
 
 class ObservationSpace:
@@ -115,9 +137,9 @@ class ObservationSpace:
     @staticmethod
     def encode(observation: RlObservation) -> FloatArray:
         values = [
-            ObservationSpace._position(observation.kinematics.position_x),
-            ObservationSpace._position(observation.kinematics.position_y),
-            ObservationSpace._position(observation.kinematics.position_z),
+            _signed_unit(observation.kinematics.position_x, POSITION_SCALE_UNITS),
+            _signed_unit(observation.kinematics.position_y, POSITION_SCALE_UNITS),
+            _signed_unit(observation.kinematics.position_z, POSITION_SCALE_UNITS),
             np.sin(observation.kinematics.heading_radians),
             np.cos(observation.kinematics.heading_radians),
             *_clipped_vector(
@@ -126,9 +148,9 @@ class ObservationSpace:
                     observation.kinematics.velocity_y,
                     observation.kinematics.velocity_z,
                 ),
-                10.0,
+                VELOCITY_SCALE_UNITS_PER_SECOND,
             ),
-            min(observation.kinematics.speed / 10.0, 1.0),
+            min(observation.kinematics.speed / VELOCITY_SCALE_UNITS_PER_SECOND, 1.0),
         ]
         values.extend(
             [
@@ -153,26 +175,23 @@ class ObservationSpace:
         cooldowns = list(observation.vitals.buff_cooldowns[:3])
         cooldowns.extend([0.0] * (3 - len(cooldowns)))
         values.extend(_unit(value) for value in cooldowns)
-        polygon_known = observation.navmesh.current_polygon_id is not None
-        slope = observation.navmesh.terrain_slope
-        route_distance = observation.navmesh.active_route_distance
+        values.append(float(observation.navmesh.current_polygon_id is not None))
         values.extend(
-            [
-                float(polygon_known),
-                _optional_unit(slope, 90.0),
-                _optional_unit(route_distance, 1000.0),
-            ]
+            _optional_pair(observation.navmesh.terrain_slope, SLOPE_SCALE_DEGREES, signed=True)
         )
-        candidate_values = [0.0] * (CANDIDATE_SLOTS * CANDIDATE_FEATURE_COUNT)
+        values.extend(
+            _optional_pair(observation.navmesh.active_route_distance, DISTANCE_SCALE_UNITS)
+        )
+        candidate_values = list(_ABSENT_CANDIDATE_SLOT) * CANDIDATE_SLOTS
         for slot, candidate in enumerate(observation.candidates[:CANDIDATE_SLOTS]):
             offset = slot * CANDIDATE_FEATURE_COUNT
             candidate_values[offset : offset + CANDIDATE_FEATURE_COUNT] = [
                 _unit(candidate.confidence),
                 float(candidate.class_id % 1000) / 1000.0,
-                _optional_unit(candidate.path_distance, 1000.0),
-                _optional_unit(candidate.relative_elevation, 100.0),
-                _optional_unit(candidate.position_x, 10000.0),
-                _optional_unit(candidate.position_y, 10000.0),
+                *_optional_pair(candidate.path_distance, DISTANCE_SCALE_UNITS),
+                *_optional_pair(candidate.relative_elevation, ELEVATION_SCALE_UNITS, signed=True),
+                *_optional_pair(candidate.position_x, POSITION_SCALE_UNITS, signed=True),
+                *_optional_pair(candidate.position_y, POSITION_SCALE_UNITS, signed=True),
                 float(candidate.is_dead or candidate.is_locked_out or candidate.is_unreachable),
             ]
         values.extend(candidate_values)
@@ -182,7 +201,9 @@ class ObservationSpace:
                 min(max(observation.operational.recent_kill_rate_per_minute / 60.0, 0.0), 1.0),
                 min(observation.operational.recent_stuck_count / 10.0, 1.0),
                 float(observation.objective.quest_id is not None),
-                _optional_unit(observation.objective.objective_target_distance, 1000.0),
+                *_optional_pair(
+                    observation.objective.objective_target_distance, DISTANCE_SCALE_UNITS
+                ),
                 sum(progress[1] for progress in observation.objective.objective_progress)
                 / max(sum(progress[0] for progress in observation.objective.objective_progress), 1),
             ]
@@ -193,10 +214,6 @@ class ObservationSpace:
         if np.any((encoded < -1.0) | (encoded > 1.0)):
             raise ValueError("An RL observation fell outside [-1, 1].")
         return encoded
-
-    @staticmethod
-    def _position(value: float | None) -> float:
-        return _optional_unit(value, 10000.0)
 
     @classmethod
     def from_telemetry_snapshot(
@@ -270,10 +287,38 @@ def _unit(value: float) -> float:
     return min(max(float(value) / 100.0, 0.0), 1.0)
 
 
-def _optional_unit(value: float | None, maximum: float) -> float:
+def _signed_unit(value: float, maximum: float) -> float:
+    """Scale a measurement into ``[-1, 1]`` without discarding its sign."""
+
+    return min(max(float(value) / maximum, -1.0), 1.0)
+
+
+def _optional_pair(
+    value: float | None, maximum: float, *, signed: bool = False
+) -> tuple[float, float]:
+    """Return a scaled measurement paired with its explicit missing indicator."""
+
     if value is None:
-        return 0.0
-    return min(max(float(value) / maximum, 0.0), 1.0)
+        return 0.0, MISSING_INDICATOR
+    scaled = _signed_unit(value, maximum) if signed else min(max(float(value) / maximum, 0.0), 1.0)
+    return scaled, PRESENT_INDICATOR
+
+
+# An unoccupied candidate slot is not a candidate at coordinate zero: every optional column is
+# reported missing and the slot is flagged unusable.
+_ABSENT_CANDIDATE_SLOT: tuple[float, ...] = (
+    0.0,
+    0.0,
+    0.0,
+    MISSING_INDICATOR,
+    0.0,
+    MISSING_INDICATOR,
+    0.0,
+    MISSING_INDICATOR,
+    0.0,
+    MISSING_INDICATOR,
+    1.0,
+)
 
 
 def _mapping(value: object) -> dict[str, object]:

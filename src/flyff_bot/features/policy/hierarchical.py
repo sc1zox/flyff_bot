@@ -10,6 +10,7 @@ from enum import StrEnum
 
 from flyff_bot.features.automation.models import Position, WorldState
 from flyff_bot.features.policy.action_payloads import (
+    AttackPointAction,
     InteractAction,
     NavigateAction,
     TacticalActionKind,
@@ -263,15 +264,13 @@ class MidLevelTacticalPolicy(HeuristicPolicy):
         if selected is None:
             return None
         mob = selected.mob
-        attack_point = next(
-            (item for item in context.valid_attack_points if item.target_id == mob.class_id),
-            None,
-        )
+        attack_point = _attack_point_for(context, selected)
         return TargetAction(
             mob.class_id,
             Position(mob.x, mob.y),
             round(math.hypot(mob.x - world_state.position.x, mob.y - world_state.position.y), 6),
             attack_point,
+            candidate_index=selected.original_position,
         )
 
     @staticmethod
@@ -349,6 +348,25 @@ class HierarchicalPolicy:
             action_kind,
         )
         return action
+
+
+def _attack_point_for(
+    context: PolicyContext, candidate: PolicyCandidate
+) -> AttackPointAction | None:
+    """Resolve the approach belonging to this exact candidate instance, never to its class."""
+
+    return next(
+        (
+            item
+            for item in context.valid_attack_points
+            if (
+                item.candidate_index == candidate.original_position
+                if item.candidate_index is not None
+                else item.target_id == candidate.mob.class_id
+            )
+        ),
+        None,
+    )
 
 
 def _screen_distance_squared(candidate: PolicyCandidate, center: Position) -> float:

@@ -440,7 +440,7 @@
   "error.value_model_export_failed": "The model artifact could not be written: {reason}.",
   "error.value_model_onnx_required": "Exporting ONNX models requires the optional ml dependency group.",
   "error.value_model_invalid_option": "A training option was rejected: {reason}.",
-  "status.policy_model_unavailable": "Learned policy unavailable; heuristic remains active: {reason}",
+  "status.policy_model_unavailable": "Learned automation halted: {reason}. No learned decision is executed and the heuristic baseline does not silently take over.",
   "status.empirical_route_cost": "Empirical NavMesh route selected: polygons={polygons}, cost={cost}s.",
   "status.empirical_route_unweighted": "Empirical NavMesh weights unavailable; using geometric routing.",
   "status.simulator_summary": "Simulated {elapsed}s in {steps} steps: kills={kills}, KPM={kpm}, travel={travel}s, stalls={stalls}.",
@@ -495,5 +495,11 @@
   "ui.readiness_capability_navigation": "navigation",
   "ui.readiness_capability_combat": "combat",
   "ui.readiness_capability_vitals": "vitals recovery",
-  "ui.readiness_capability_dungeon": "dungeon automation"
+  "ui.readiness_capability_dungeon": "dungeon automation",
+  "ui.policy_model_directory": "Policy model directory",
+  "ui.policy_model_directory_tooltip": "Directory holding the trained policy artifacts loaded for ML_SHADOW and ML_ACTIVE.",
+  "ui.policy_model_browse": "Browse...",
+  "ui.policy_model_dialog": "Select policy model directory",
+  "help.policy_mode": "Tactical policy mode: HEURISTIC, ML_SHADOW, or ML_ACTIVE",
+  "help.policy_model_dir": "Directory holding the trained policy artifacts to load"
 }
