@@ -1032,3 +1032,12 @@ Evidence is offline simulator/training, ONNX metadata and deterministic fallback
 culling tests, localization checks, and synthetic timing budgets. The gate passed at 866 passed, 5
 skipped, and 88.30% coverage. No Windows/live-client walkthrough, real-client convergence, exact
 client performance, arbitrary object interaction, or live map-FPS measurement is claimed.
+
+## [2026-08-26] synthesis | Goal-driven quest execution and the objective bus (US-080)
+
+Synthesized the completed US-080 goal sequence, objective bus, goal travel planning, per-objective
+whitelist/zone/leash projection, goal-conditioned policy objective, and telemetry schema v4 into
+`architecture.md` and `glossary.md`. Evidence is offline: goal-sequence, travel-planning, objective
+switch, teleport-confirmation, refusal, timeout, telemetry, localization and Qt tests, with the gate
+at 918 passed, 6 skipped, and 88.88% coverage. No Windows/live-client quest walkthrough is claimed,
+and no new client access or input capability was added.

@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-25
+updated: 2026-08-26
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -76,6 +76,7 @@ related:
   - ../user-stories/completed/US-059-authoritative-vector-navigation-legacy-removal-and-multi-zone-selection.md
   - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
   - ../user-stories/US-062-automated-npc-quest-acceptance-and-turn-in.md
+  - ../user-stories/completed/US-080-goal-driven-quest-execution-and-objective-bus.md
   - ../user-stories/completed/US-066-farming-and-navigation-value-model.md
   - ../user-stories/US-069-experience-based-navmesh-routing.md
   - ../user-stories/completed/US-068-rolling-horizon-multi-target-planning.md
@@ -2031,3 +2032,54 @@ Automated Qt tests cover transforms, input semantics, culling, metadata, follow 
 localization, and a synthetic warm-render budget above 30 FPS. This is not a live map-FPS result:
 no Windows/client walkthrough was run, so live GPS convergence and large-region client performance
 remain unverified.
+
+
+## Goal-driven quest execution and the objective bus (US-080, completed)
+
+Until US-080 the quest building blocks existed but nothing stated *which* step a session was on:
+the teleporter served emergency recovery only, `HierarchicalObjective` came from a hard-coded
+default, and telemetry recorded no quest identity. `flyff_bot.features.quests.objectives` supplies
+the missing connective tissue.
+
+`build_goal_sequence` decomposes one `QuestResolution` into ordered, typed `QuestGoal` values -
+travel to the accept NPC, accept, travel to and satisfy each objective, travel to the turn-in NPC,
+turn in. Each goal states its completion condition (`required_progress`) and the timeout that bounds
+it. Only executable steps are emitted: a quest whose accept or turn-in NPC the client never resolved
+contributes no goal for it and starts at its first objective.
+
+`QuestGoalSequence` is the objective bus. It owns the active index, the measured progress per goal,
+the failure reason, and the world identifier the active goal resolved to travel into. It decides
+nothing about the world: the session reports the executor phase through `synchronize`, the measured
+kill counts through `apply_progress`, and refusals through `fail`. Its `QuestGoalIdentity` is the
+single value the dashboard, the tactical policy and the telemetry sidecar all read. The goal timeout
+measures *stalled* progress - recorded progress restarts it - so a long objective never trips it
+while a wedged one does.
+
+`navigation.goal_travel.plan_goal_travel` answers whether a goal destination is walked to,
+teleported to, or unreachable. A destination in the player's live world and within the configured
+walking distance is walked; otherwise the nearest extracted teleporter destination that covers it is
+dispatched, and when neither holds the plan refuses explicitly. `TeleporterDispatcher` still owns
+the guarded UI sequence and confirms arrival from live client state; a quest teleport only releases
+its goal on `CONFIRMED`, and a `FAILED_STANDBY` fails the goal instead of walking on.
+
+`automation.quest_goals` projects the active goal onto the knobs the session turns: an objective
+goal narrows the kill quotas, the navigator's preferred zones and the targeting leash to its own
+resolved spawn zone, while an NPC goal keeps the whole quest in scope. `PathingController` gained
+`set_objective_leash`, which re-anchors the leash away from the start-of-session position.
+`hierarchical_objective_for` turns the same goal into the `HierarchicalObjective` that
+`PolicyRunner.set_objective` conditions the learned policy on, so a tactical decision is made under
+the goal the executor is pursuing.
+
+Telemetry schema version 4 adds `ActiveGoal` to every `WorldSnapshot` and every `TargetDecision`:
+quest identity, goal kind, index, count, progress, state, monster, active spawn zone and world
+identifier. The Parquet exporter carries the same columns into the target-decision table.
+
+A refused or timed-out goal advances the quest queue when one has a next quest and otherwise pauses
+the session for good, per `FarmingConfig.quest_goal_failure_policy`. Foreground verification, the
+emergency stop, guarded key release and read-only client access are unchanged and remain outside
+every policy.
+
+The 2026-08-26 gate passed at 918 passed, 6 skipped, and 88.88% coverage. This is offline evidence:
+the foregrounded Windows walkthrough of one full quest against a live `neuz.exe` - teleport, accept,
+farm, return, turn in - remains unrun, so live teleporter coverage of real quest regions and live
+arrival timing are unverified.

@@ -21,6 +21,7 @@ from flyff_bot.features.telemetry.geometry import (
 from flyff_bot.features.telemetry.kinematics import KinematicsDeriver
 from flyff_bot.features.telemetry.models import (
     TELEMETRY_SCHEMA_VERSION,
+    ActiveGoal,
     AttackAction,
     CandidateFeatures,
     CombatEpisode,
@@ -111,6 +112,7 @@ class TelemetryRecorder:
         buff_cooldowns: dict[str, float] | None = None,
         player_terrain_slope: float | None = None,
         readiness: LiveReadinessStatus | None = None,
+        active_goal: ActiveGoal | None = None,
     ) -> None:
         """Queue one compact numerical snapshot; absent GPS remains explicit ``null``."""
 
@@ -150,6 +152,7 @@ class TelemetryRecorder:
             failed_source_codes=readiness.failed_source_codes,
             sample_ages_seconds=readiness.sample_ages_seconds,
             action_blocked=readiness.action_blocked,
+            active_goal=active_goal,
         )
         self._submit(TelemetryEventKind.WORLD_SNAPSHOT, primitive(snapshot), timestamp_ns)
         navigation = self._navigation
@@ -178,6 +181,7 @@ class TelemetryRecorder:
         player_position: WorldPosition | None = None,
         camera_state: CameraState | None = None,
         is_locked_out: Callable[[int, int], bool] | None = None,
+        active_goal: ActiveGoal | None = None,
     ) -> None:
         """Persist all visible alternatives in perception order at the actual click boundary."""
 
@@ -258,6 +262,7 @@ class TelemetryRecorder:
             "decision_reason": reason,
             "decision_latency_ms": (timestamp_ns - self._selection_started_at_ns) / 1_000_000,
             "candidates": primitive(tuple(candidates)),
+            "active_goal": primitive(active_goal),
         }
         self._submit(TelemetryEventKind.TARGET_SELECTED, payload, timestamp_ns)
         self._decision_seconds += (timestamp_ns - self._selection_started_at_ns) / 1_000_000_000

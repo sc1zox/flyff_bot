@@ -47,6 +47,7 @@ from flyff_bot.features.automation.models import (
     DesiredState,
     InventoryEntry,
     Position,
+    TargetState,
     VisibleMob,
     WorldState,
 )
@@ -60,6 +61,14 @@ from flyff_bot.features.automation.quest_execution import QuestInputDispatcher
 from flyff_bot.features.automation.quest_execution_models import (
     DialoguePerceiver,
     QuestInteractionController,
+    QuestInteractionMode,
+)
+from flyff_bot.features.automation.quest_goals import (
+    hierarchical_objective_for,
+    kill_goal_config_for,
+    leash_for,
+    patrol_zones_for,
+    zone_goals_for,
 )
 from flyff_bot.features.automation.readiness import (
     CapabilityRequirement,
@@ -84,25 +93,45 @@ from flyff_bot.features.dungeons.live_reader import DungeonReadStatus
 from flyff_bot.features.dungeons.models import DungeonStateSnapshot
 from flyff_bot.features.input_control import ForegroundWindowInfo
 from flyff_bot.features.navigation.execution import PathingInputAdapter, PathingInputDispatcher
+from flyff_bot.features.navigation.goal_travel import (
+    GoalTravelConfig,
+    GoalTravelMode,
+    plan_goal_travel,
+)
 from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
 from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
     PositionSource,
     WorldPosition,
 )
+from flyff_bot.features.navigation.teleporter_dispatch import (
+    CombatObservation,
+    TeleporterDispatchStatus,
+)
+from flyff_bot.features.navigation.teleporter_models import TeleporterCatalog
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
+from flyff_bot.features.navigation.world_extractor import WorldCoordinate
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.player_stats.models import (
     PlayerStatsReadErrorCode,
     PlayerStatsSource,
 )
+from flyff_bot.features.policy.hierarchical import HierarchicalObjective
 from flyff_bot.features.policy.models import (
     PolicyCandidate,
     PolicyContext,
     TargetAction,
 )
 from flyff_bot.features.policy.runner import LearnedPolicyProtocol, PolicyRunner
-from flyff_bot.features.telemetry.models import CombatVerificationSource
+from flyff_bot.features.quests.objectives import (
+    NO_OBJECTIVE_ORDINAL,
+    QuestGoal,
+    QuestGoalFailure,
+    QuestGoalKind,
+    QuestGoalSequence,
+    QuestGoalTimeouts,
+)
+from flyff_bot.features.telemetry.models import ActiveGoal, CombatVerificationSource
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     FrameCaptureError,
@@ -118,7 +147,8 @@ from flyff_bot.ui.dashboard import (
 
 if TYPE_CHECKING:
     from flyff_bot.features.navigation.pathing import PathingController
-    from flyff_bot.features.navigation.vector_navigation import VectorZoneNavigator
+    from flyff_bot.features.navigation.vector_navigation import VectorZoneNavigator, ZoneGoal
+    from flyff_bot.features.navigation.world_extractor import VectorSpawnZone
     from flyff_bot.features.quests.goals import QuestFarmingQueue, QuestResolution
     from flyff_bot.features.telemetry.recorder import TelemetryRecorder
 
@@ -176,6 +206,25 @@ class PolicyRuntimeMode(StrEnum):
 
 DEFAULT_POLICY_RUNTIME_MODE = PolicyRuntimeMode.HEURISTIC
 
+
+class QuestGoalFailurePolicy(StrEnum):
+    """What a session does when one quest goal stops being executable (US-080)."""
+
+    ADVANCE_QUEST = "advance_quest"
+    PAUSE_SESSION = "pause_session"
+
+
+DEFAULT_QUEST_GOAL_FAILURE_POLICY = QuestGoalFailurePolicy.ADVANCE_QUEST
+
+
+NPC_GOAL_KIND_BY_INTERACTION_MODE = {
+    QuestInteractionMode.NAVIGATING_TO_ACCEPT: QuestGoalKind.TRAVEL_TO_ACCEPT,
+    QuestInteractionMode.INTERACTING: QuestGoalKind.ACCEPT,
+    QuestInteractionMode.AWAITING_ACCEPT_CONFIRMATION: QuestGoalKind.ACCEPT,
+    QuestInteractionMode.NAVIGATING_TO_TURN_IN: QuestGoalKind.TRAVEL_TO_TURN_IN,
+    QuestInteractionMode.INTERACTING_FOR_TURN_IN: QuestGoalKind.TURN_IN,
+    QuestInteractionMode.AWAITING_REWARD_CLAIM: QuestGoalKind.TURN_IN,
+}
 
 STANDBY_MODES = frozenset(
     {FarmingMode.PAUSED, FarmingMode.COMPLETED, FarmingMode.EMERGENCY_STOPPED}
@@ -245,6 +294,9 @@ class FarmingConfig:
     auto_align_camera: bool = DEFAULT_AUTO_ALIGN_CAMERA
     policy_mode: PolicyRuntimeMode = DEFAULT_POLICY_RUNTIME_MODE
     policy_model_directory: str | None = None
+    quest_travel: GoalTravelConfig = field(default_factory=GoalTravelConfig)
+    quest_goal_timeouts: QuestGoalTimeouts = field(default_factory=QuestGoalTimeouts)
+    quest_goal_failure_policy: QuestGoalFailurePolicy = DEFAULT_QUEST_GOAL_FAILURE_POLICY
 
     def __post_init__(self) -> None:
         if self.tick_interval_seconds <= 0.0:
@@ -299,6 +351,7 @@ class FarmingOrchestrator:
         foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
         telemetry: TelemetryRecorder | None = None,
         dungeon_provider: DungeonStateProvider | None = None,
+        teleporter_catalog: TeleporterCatalog | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._input_adapter = input_adapter
@@ -317,6 +370,10 @@ class FarmingOrchestrator:
         self._vitals_dispatcher = VitalsInputDispatcher(input_adapter, window_handle)
         self._powerup_dispatcher = PowerUpInputDispatcher(input_adapter, window_handle)
         self._quest_interaction: QuestInteractionController | None = None
+        self._quest_goals: QuestGoalSequence | None = None
+        self._quest_travel_index: int | None = None
+        self._teleporter_catalog = teleporter_catalog
+        self._quest_teleport_active = False
         self._quest_menu_perceiver = quest_menu_perceiver
         self._quest_input_dispatcher = QuestInputDispatcher(input_adapter, window_handle)
         self._pathing = pathing
@@ -730,6 +787,7 @@ class FarmingOrchestrator:
         self._approach_stalls.reset()
         self._engagement_break = None
         self._engaged_monster_name = None
+        self._quest_teleport_active = False
         if self._quest_interaction is not None:
             self._quest_interaction.reset()
         if self._pathing is not None:
@@ -794,38 +852,127 @@ class FarmingOrchestrator:
         if active is not None:
             self._bind_quest(active)
 
+    @property
+    def policy_objective(self) -> HierarchicalObjective | None:
+        """Return the goal the tactical policy is currently conditioned on."""
+
+        return self._policy_runner.objective
+
+    @property
+    def quest_goals(self) -> QuestGoalSequence | None:
+        """Expose the ordered goal sequence of the quest this session is executing."""
+
+        return self._quest_goals
+
     def _bind_quest(self, resolution: QuestResolution) -> None:
-        """Point the session's quotas and navigation at one quest's targets.
+        """Resolve one quest into its ordered goal sequence and pursue its first goal."""
 
-        The quotas restrict combat to that quest's monsters, and the resolved spawn zones
-        replace the navigator's camp selection so the next replan routes to the new area.
-        """
-
-        self._kill_goals.update_config(
-            KillGoalConfig(
-                quotas=tuple(
-                    MobKillQuota(monster, required)
-                    for monster, required in resolution.required_kills
-                )
-            )
-        )
-        self._apply_active_target_classes()
+        self._quest_goals = QuestGoalSequence(resolution, timeouts=self._config.quest_goal_timeouts)
+        self._quest_goals.begin(self._state.observed_at_seconds)
         self._quest_interaction = QuestInteractionController(
             resolution,
             dialogue_perceiver=self._quest_menu_perceiver,
         )
+        self._quest_teleport_active = False
+        self._quest_travel_index = None
+        self._apply_active_goal()
+
+    def _apply_active_goal(self) -> None:
+        """Derive the whitelist, the patrol zones, the leash and the policy objective.
+
+        Everything a tactical decision is allowed to see about the current step of a quest
+        comes from here, so a change of active goal changes all of it in one place.
+        """
+
+        sequence = self._quest_goals
+        if sequence is None:
+            return
+        resolution = sequence.resolution
+        goal = sequence.active
+        if goal is None:
+            self._kill_goals.update_config(
+                KillGoalConfig(
+                    quotas=tuple(
+                        MobKillQuota(monster, required)
+                        for monster, required in resolution.required_kills
+                    )
+                )
+            )
+            self._apply_active_target_classes()
+            self._apply_patrol_zones(resolution.zones, resolution.zone_goals)
+            return
+        self._kill_goals.update_config(kill_goal_config_for(goal, resolution))
+        self._apply_active_target_classes()
+        self._apply_patrol_zones(
+            patrol_zones_for(goal, resolution), zone_goals_for(goal, resolution)
+        )
+        self._apply_goal_leash(goal)
+        self._apply_policy_objective()
+
+    def _apply_patrol_zones(
+        self,
+        zones: tuple[VectorSpawnZone, ...],
+        goals: tuple[ZoneGoal, ...],
+    ) -> None:
+        """Replace the navigator's camp selection with the active goal's spawn zones."""
+
         pathing = self._pathing
-        zones = resolution.zones
         if pathing is None or not zones:
             return
         navigator = pathing.vector_navigator
         if navigator is None:
             return
         navigator.set_preferred_zones(zones)
-        navigator.set_goals(resolution.zone_goals)
+        navigator.set_goals(goals)
         # Re-attaching the same navigator is how the pathing controller is told to drop the
         # route it is following and plan a fresh one towards the new camp.
         pathing.attach_vector_navigator(navigator)
+
+    def _apply_goal_leash(self, goal: QuestGoal) -> None:
+        """Anchor the targeting leash on the active objective's resolved spawn zone."""
+
+        pathing = self._pathing
+        if pathing is None:
+            return
+        leash = leash_for(goal)
+        if leash is None:
+            pathing.set_objective_leash(None)
+            return
+        pathing.set_objective_leash(leash[0], leash[1])
+
+    def _apply_policy_objective(self) -> None:
+        """Condition the tactical policy on the goal the session is actually pursuing."""
+
+        sequence = self._quest_goals
+        if sequence is None:
+            return
+        goal = sequence.active
+        identity = sequence.identity()
+        if goal is None or identity is None:
+            return
+        self._policy_runner.set_objective(
+            hierarchical_objective_for(
+                goal,
+                identity,
+                destination_reached=self._reached_goal_destination(goal),
+            )
+        )
+
+    def _reached_goal_destination(self, goal: QuestGoal) -> bool:
+        """Return whether live GPS proves the character stands at the goal's destination."""
+
+        pathing = self._pathing
+        position = None if pathing is None else pathing.live_position
+        destination = goal.destination
+        if position is None or destination is None:
+            return False
+        zone = goal.spawn_zone
+        if zone is not None:
+            return zone.contains(WorldCoordinate(position.x, position.z))
+        npc = goal.npc
+        if npc is not None:
+            return npc.is_interactable_from(position)
+        return False
 
     def _apply_active_target_classes(self) -> None:
         allowed = self._kill_goals.active_class_names
@@ -983,6 +1130,8 @@ class FarmingOrchestrator:
             return self._publish(False)
 
         if self._mode is FarmingMode.TELEPORTING:
+            if self._quest_teleport_active:
+                return self._settle_quest_teleport()
             return self._settle_teleport()
 
         if self._pathing is not None:
@@ -1127,9 +1276,177 @@ class FarmingOrchestrator:
             manual=False,
         )
 
+    def _synchronize_quest_goal(self) -> None:
+        """Restate which goal is active and act on a change, a refusal, or a timeout."""
+
+        sequence = self._quest_goals
+        if sequence is None or not sequence.has_goals:
+            return
+        at_seconds = self._state.observed_at_seconds
+        queue = self._quest_queue
+        if queue is not None:
+            sequence.apply_progress(queue.progress, at_seconds)
+        interaction = self._quest_interaction
+        goal = sequence.active
+        # An exhausted NPC cycle only fails the goal that needed that NPC. A quest whose
+        # NPCs the client never resolved has no such goal and keeps farming.
+        if (
+            interaction is not None
+            and interaction.is_failed
+            and not sequence.is_failed
+            and goal is not None
+            and goal.npc is not None
+        ):
+            self._fail_active_goal(QuestGoalFailure.INTERACTION_FAILED)
+            return
+        step = self._observed_goal_step(sequence)
+        if step is not None and sequence.synchronize(
+            step[0], at_seconds, objective_ordinal=step[1]
+        ):
+            self._apply_active_goal()
+        goal = sequence.active
+        # Travel is decided once per goal, and again only when the active goal changes.
+        if goal is not None and goal.is_travel and self._quest_travel_index != goal.index:
+            self._quest_travel_index = goal.index
+            if self._begin_goal_travel(goal):
+                return
+        self._apply_policy_objective()
+        if sequence.is_failed:
+            return
+        if sequence.observe(at_seconds) is not None:
+            self._handle_goal_failure()
+
+    def _observed_goal_step(self, sequence: QuestGoalSequence) -> tuple[QuestGoalKind, int] | None:
+        """Return the goal family and objective the executor is currently working on."""
+
+        mode = None if self._quest_interaction is None else self._quest_interaction.mode
+        if mode in {QuestInteractionMode.RETREATING, QuestInteractionMode.FAILED}:
+            # A bounded retreat or an exhausted interaction is not a new goal.
+            return None
+        npc_kind = NPC_GOAL_KIND_BY_INTERACTION_MODE.get(mode) if mode is not None else None
+        # A quest whose NPCs the client never resolved has no NPC goal to work on, so the
+        # unexecutable accept phase falls through to the objectives it can actually farm.
+        if npc_kind is not None and sequence.includes(npc_kind):
+            return npc_kind, NO_OBJECTIVE_ORDINAL
+        ordinal = sequence.pending_objective_ordinal
+        kind = (
+            QuestGoalKind.SATISFY_OBJECTIVE
+            if self._within_objective_zone(sequence, ordinal)
+            else QuestGoalKind.TRAVEL_TO_OBJECTIVE
+        )
+        return kind, ordinal
+
+    def _within_objective_zone(self, sequence: QuestGoalSequence, ordinal: int) -> bool:
+        """Return whether live GPS places the character inside one objective's spawn zone."""
+
+        targets = sequence.resolution.targets
+        if not 0 <= ordinal < len(targets):
+            return False
+        zone = targets[ordinal].zone
+        pathing = self._pathing
+        position = None if pathing is None else pathing.live_position
+        if zone is None or position is None:
+            return False
+        return zone.contains(WorldCoordinate(position.x, position.z))
+
+    def _begin_goal_travel(self, goal: QuestGoal) -> bool:
+        """Dispatch guarded long-range travel for a goal, or refuse it explicitly.
+
+        Returns whether this tick was consumed by the travel decision: a teleport was armed
+        or the goal was refused. A destination worth walking to is left to the navigator.
+        """
+
+        sequence = self._quest_goals
+        pathing = self._pathing
+        catalog = self._teleporter_catalog
+        if sequence is None or pathing is None or catalog is None:
+            return False
+        player_world_id = pathing.observe_world_id()
+        plan = plan_goal_travel(
+            catalog,
+            goal_destination=goal.destination,
+            player_position=pathing.live_position,
+            player_world_id=player_world_id,
+            config=self._config.quest_travel,
+        )
+        sequence.bind_world(plan.world_id if plan.world_id is not None else player_world_id)
+        if plan.mode is GoalTravelMode.WALK:
+            return False
+        dispatcher = pathing.teleporter_dispatcher
+        if (
+            plan.mode is GoalTravelMode.UNREACHABLE
+            or dispatcher is None
+            or plan.destination is None
+        ):
+            self._fail_active_goal(QuestGoalFailure.UNREACHABLE_DESTINATION)
+            return True
+        dispatcher.request(plan.destination, self._state.observed_at_seconds)
+        self._quest_teleport_active = True
+        self._set_mode(FarmingMode.TELEPORTING, reason="quest_goal_teleport")
+        return True
+
+    def _settle_quest_teleport(self) -> FarmingTick:
+        """Gate a quest goal on live arrival confirmation before it continues."""
+
+        sequence = self._quest_goals
+        pathing = self._pathing
+        dispatcher = None if pathing is None else pathing.teleporter_dispatcher
+        at_seconds = self._state.observed_at_seconds
+        if sequence is None or dispatcher is None:
+            self._quest_teleport_active = False
+            self._set_mode(FarmingMode.SEARCHING, reason="quest_goal_teleport_unavailable")
+            return self._publish(False)
+        result = dispatcher.tick(
+            CombatObservation(
+                self._state.selected_target.state is TargetState.VALID,
+                self._state.player_vitals.hp_percentage,
+                at_seconds,
+            ),
+            at_seconds=at_seconds,
+        )
+        if result.status is TeleporterDispatchStatus.CONFIRMED:
+            self._quest_teleport_active = False
+            self._set_mode(FarmingMode.SEARCHING, reason="quest_goal_arrived")
+            return self._publish(True)
+        if result.status is TeleporterDispatchStatus.FAILED_STANDBY:
+            self._quest_teleport_active = False
+            self._fail_active_goal(QuestGoalFailure.TELEPORT_FAILED)
+            return self._publish(False)
+        return self._publish(result.status is TeleporterDispatchStatus.DISPATCHED)
+
+    def _fail_active_goal(self, reason: QuestGoalFailure) -> None:
+        """Record why the active goal stopped being executable and apply the policy."""
+
+        sequence = self._quest_goals
+        if sequence is None:
+            return
+        sequence.fail(reason)
+        self._handle_goal_failure()
+
+    def _handle_goal_failure(self) -> None:
+        """Advance to the next quest or pause, according to the configured policy."""
+
+        sequence = self._quest_goals
+        if sequence is None or sequence.failure is None:
+            return
+        reason = f"quest_goal_{sequence.failure.value}"
+        queue = self._quest_queue
+        if self._config.quest_goal_failure_policy is QuestGoalFailurePolicy.ADVANCE_QUEST:
+            following = None if queue is None else queue.advance()
+            if following is not None:
+                self._bind_quest(following)
+                self._set_mode(FarmingMode.SEARCHING, reason=reason)
+                return
+        # A refused or timed-out goal is not a transient block: the session stays paused
+        # until the operator changes the selection rather than resuming into the same wall.
+        self.pause(kind=SessionEventKind.MODE_TRANSITION, reason=reason)
+
     def _advance(self) -> bool:
         if self._quest_interaction is not None:
             self._advance_quest_interaction()
+        self._synchronize_quest_goal()
+        if self._mode in STANDBY_MODES or self._mode is FarmingMode.TELEPORTING:
+            return False
         if self._mode is FarmingMode.SEARCHING:
             requested_target = self._evaluate_policy_target()
             combat = self._combat.step(self._state, requested_target=requested_target)
@@ -1161,6 +1478,7 @@ class FarmingOrchestrator:
                         is_locked_out=lambda x, y: self._combat.is_position_locked_out(
                             x, y, self._state.observed_at_seconds
                         ),
+                        active_goal=self._active_goal_record(),
                     )
                 if (
                     self._pathing is not None
@@ -1705,6 +2023,9 @@ class FarmingOrchestrator:
                     quest_queue_completed=(
                         self._quest_queue is not None and self._quest_queue.is_completed
                     ),
+                    quest_goal=(
+                        None if self._quest_goals is None else self._quest_goals.identity()
+                    ),
                     events=(
                         self._event_logger.recent_events if self._event_logger is not None else ()
                     ),
@@ -1734,6 +2055,28 @@ class FarmingOrchestrator:
                 self._pathing.terrain_slope if self._pathing is not None else None
             ),
             readiness=self._readiness,
+            active_goal=self._active_goal_record(),
+        )
+
+    def _active_goal_record(self) -> ActiveGoal | None:
+        """Return the active goal as the telemetry sidecar persists it."""
+
+        sequence = self._quest_goals
+        identity = None if sequence is None else sequence.identity()
+        if identity is None:
+            return None
+        return ActiveGoal(
+            identity.quest_id,
+            identity.kind.value,
+            identity.index,
+            identity.goal_count,
+            identity.progress,
+            identity.required_progress,
+            identity.state.value,
+            identity.monster_name,
+            identity.spawn_zone_monster_id,
+            identity.world_id,
+            None if identity.failure is None else identity.failure.value,
         )
 
 

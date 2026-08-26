@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.policy.heuristic import HeuristicPolicy
+from flyff_bot.features.policy.hierarchical import HierarchicalObjective
 from flyff_bot.features.policy.hierarchical_masking import validate_policy_action
 from flyff_bot.features.policy.models import (
     POLICY_LATENCY_BUDGET_SECONDS,
@@ -21,6 +22,13 @@ class LearnedPolicyProtocol(Protocol):
 
     def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
         """Evaluate one legal learned action."""
+
+
+@runtime_checkable
+class GoalConditionedPolicy(Protocol):
+    """A learned policy whose decision is conditioned on the currently pursued goal."""
+
+    objective: HierarchicalObjective
 
 
 FallbackPolicyFactory = Callable[[], LearnedPolicyProtocol]
@@ -39,7 +47,28 @@ class PolicyRunner:
         self._learned = learned
         self._heuristic_factory = heuristic_factory
         self._monotonic = monotonic
+        self._objective: HierarchicalObjective | None = None
         self.last_fallback_reason: str | None = None
+
+    @property
+    def objective(self) -> HierarchicalObjective | None:
+        """Return the goal this runner was last conditioned on, if any."""
+
+        return self._objective
+
+    def set_objective(self, objective: HierarchicalObjective) -> bool:
+        """Condition the learned policy on one goal and report whether it accepted it.
+
+        A learned policy that is not goal-conditioned still leaves the objective recorded,
+        so the session can state which goal a decision was made under either way.
+        """
+
+        self._objective = objective
+        learned = self._learned
+        if not isinstance(learned, GoalConditionedPolicy):
+            return False
+        learned.objective = objective
+        return True
 
     @property
     def fell_back(self) -> bool:

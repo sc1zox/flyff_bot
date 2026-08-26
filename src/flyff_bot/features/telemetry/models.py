@@ -8,7 +8,7 @@ from math import sqrt
 from typing import Any
 from uuid import uuid4
 
-TELEMETRY_SCHEMA_VERSION = 3
+TELEMETRY_SCHEMA_VERSION = 4
 TRAJECTORY_SCHEMA_VERSION = 2
 
 
@@ -84,6 +84,27 @@ class TelemetrySessionMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class ActiveGoal:
+    """The quest goal a session was pursuing when an observation was recorded.
+
+    Every snapshot and every decision carries it, so offline learning can condition on the
+    goal that produced the experience instead of guessing it from the surrounding records.
+    """
+
+    quest_id: str
+    goal_kind: str
+    goal_index: int
+    goal_count: int
+    progress: float
+    required_progress: float
+    goal_state: str
+    monster_name: str | None = None
+    spawn_zone_monster_id: int | None = None
+    world_id: int | None = None
+    failure_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class WorldSnapshot:
     """The numeric state collected once per successful farming observation."""
 
@@ -105,6 +126,7 @@ class WorldSnapshot:
     failed_source_codes: tuple[str, ...]
     sample_ages_seconds: tuple[tuple[str, float | None], ...]
     action_blocked: bool
+    active_goal: ActiveGoal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +163,7 @@ class TargetDecision:
     decision_reason: str
     decision_latency_ms: float
     candidates: tuple[CandidateFeatures, ...]
+    active_goal: ActiveGoal | None = None
 
 
 @dataclass(frozen=True, slots=True)
