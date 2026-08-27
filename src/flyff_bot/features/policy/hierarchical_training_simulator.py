@@ -9,9 +9,14 @@ import numpy as np
 from numpy.typing import NDArray
 
 from flyff_bot.features.navigation.world_extractor import WorldCoordinate, WorldVectorMap
-from flyff_bot.features.policy.action_payloads import TacticalActionKind
+from flyff_bot.features.policy.action_payloads import (
+    StrategicGoalKind,
+    TacticalActionKind,
+    strategic_goal_at,
+    strategic_goal_index,
+)
 from flyff_bot.features.rl.models import FloatArray, ObservationSpace, RlObservation
-from flyff_bot.features.simulator.engine import FarmingSimulator, TacticalAction
+from flyff_bot.features.simulator.engine import FarmingSimulator
 from flyff_bot.features.simulator.models import (
     QuestObjective,
     SimulationMetrics,
@@ -73,22 +78,23 @@ class HierarchicalTrainingSimulator:
         )
 
     def tactical_kind(self, action: int) -> TacticalActionKind:
-        """Return the tactical action the current state gives one strategic action.
+        """Return the tactical action the current state gives one strategic goal.
 
         The two heads answer different questions, so their labels must be read from
-        different facts: the strategic action alone does not say whether travelling needs a
+        different facts: the strategic goal alone does not say whether travelling needs a
         corridor detour or whether interacting means engaging a monster.
         """
 
-        if action == TacticalAction.TARGET_NEAREST:
+        goal = strategic_goal_at(action)
+        if goal is StrategicGoalKind.TARGET:
             return TacticalActionKind.TARGET
-        if action == TacticalAction.GO_TO_OBJECTIVE:
+        if goal is StrategicGoalKind.NAVIGATE:
             return (
                 TacticalActionKind.CORRIDOR
                 if self._simulator.has_route_detour
                 else TacticalActionKind.NAVIGATE
             )
-        if action == TacticalAction.INTERACT:
+        if goal is StrategicGoalKind.INTERACT:
             return (
                 TacticalActionKind.ATTACK_POINT
                 if self._simulator.is_combat_engagement
@@ -153,12 +159,12 @@ class HierarchicalPolicyLearner:
     @staticmethod
     def predict_action(_observation: RlObservation, mask: tuple[bool, ...]) -> int:
         priority = (
-            TacticalAction.INTERACT,
-            TacticalAction.GO_TO_OBJECTIVE,
-            TacticalAction.TARGET_NEAREST,
-            TacticalAction.WAIT,
+            StrategicGoalKind.INTERACT,
+            StrategicGoalKind.NAVIGATE,
+            StrategicGoalKind.TARGET,
+            StrategicGoalKind.WAIT,
         )
-        return next(int(action) for action in priority if mask[int(action)])
+        return next(index for index in map(strategic_goal_index, priority) if mask[index])
 
 
 def policy_from_logits(

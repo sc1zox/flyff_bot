@@ -7,7 +7,7 @@ from flyff_bot.features.policy.models import (
     DEFAULT_POLICY_WAIT_SECONDS,
     PolicyCandidate,
     PolicyContext,
-    TacticalAction,
+    TacticalActionPayload,
     TargetAction,
     WaitAction,
 )
@@ -30,7 +30,9 @@ def _candidate_sort_key(
 class HeuristicPolicy:
     """Select the same NavMesh-first, viewport-distance-first candidate as the baseline."""
 
-    def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
+    def evaluate(
+        self, world_state: WorldState, context: PolicyContext
+    ) -> TacticalActionPayload | None:
         eligible = [candidate for candidate in context.candidates if candidate.is_eligible]
         if not eligible:
             return WaitAction(DEFAULT_POLICY_WAIT_SECONDS, "no_eligible_target")

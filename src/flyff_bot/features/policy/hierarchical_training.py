@@ -14,7 +14,12 @@ from numpy.typing import NDArray
 
 from flyff_bot.features.ml.export import ONNX_OPSET_VERSION, ExportError, ExportErrorCode
 from flyff_bot.features.navigation.world_extractor import WorldCoordinate, WorldVectorMap
-from flyff_bot.features.policy.action_payloads import TacticalActionKind
+from flyff_bot.features.policy.action_payloads import (
+    STRATEGIC_GOAL_ORDER,
+    StrategicGoalKind,
+    TacticalActionKind,
+    strategic_goal_index,
+)
 from flyff_bot.features.policy.hierarchical_training_simulator import (
     HierarchicalEpisodeMetrics,
     HierarchicalPolicyLearner,
@@ -29,7 +34,6 @@ from flyff_bot.features.rl.models import (
     RlObservation,
 )
 from flyff_bot.features.simulator.calibration import validate_calibration
-from flyff_bot.features.simulator.engine import TacticalAction
 from flyff_bot.features.simulator.models import (
     CalibrationBaseline,
     CalibrationTolerance,
@@ -59,7 +63,9 @@ Q_LEARNING_RATE = 0.35
 Q_DISCOUNT_FACTOR = 0.95
 Q_INITIAL_EXPLORATION = 0.5
 Q_MINIMUM_EXPLORATION = 0.05
-HIGH_LEVEL_ACTION_ORDER = ("target", "navigate", "interact", "wait")
+# Both heads emit one column per vocabulary member. Deriving the orders from the shared
+# contract is what keeps an exported artifact readable by the live policy.
+HIGH_LEVEL_ACTION_ORDER = tuple(goal.value for goal in STRATEGIC_GOAL_ORDER)
 MID_LEVEL_ACTION_ORDER = tuple(action.value for action in TacticalActionKind)
 
 
@@ -236,8 +242,8 @@ def train_hierarchical_policy(
 
 
 def _baseline_action(_observation: object, mask: tuple[bool, ...]) -> int:
-    target = int(TacticalAction.TARGET_NEAREST)
-    return target if mask[target] else int(TacticalAction.WAIT)
+    target = strategic_goal_index(StrategicGoalKind.TARGET)
+    return target if mask[target] else strategic_goal_index(StrategicGoalKind.WAIT)
 
 
 def _train_masked_q_policy(
@@ -256,7 +262,7 @@ def _train_masked_q_policy(
         )
         while not terminated and not truncated:
             state_key = _q_state_key(observation, mask)
-            values = q_values.setdefault(state_key, np.full(len(TacticalAction), 0.1))
+            values = q_values.setdefault(state_key, np.full(len(STRATEGIC_GOAL_ORDER), 0.1))
             allowed = [index for index, is_allowed in enumerate(mask) if is_allowed]
             if random_source.random() < exploration:
                 action = int(random_source.choice(allowed))
@@ -273,7 +279,7 @@ def _train_masked_q_policy(
             target = float(reward)
             if not terminated and not truncated:
                 next_key = _q_state_key(next_observation, next_mask)
-                next_values = q_values.setdefault(next_key, np.full(len(TacticalAction), 0.1))
+                next_values = q_values.setdefault(next_key, np.full(len(STRATEGIC_GOAL_ORDER), 0.1))
                 allowed_next = [index for index, is_allowed in enumerate(next_mask) if is_allowed]
                 target += Q_DISCOUNT_FACTOR * max(next_values[index] for index in allowed_next)
             values[action] += Q_LEARNING_RATE * (target - values[action])
@@ -283,7 +289,7 @@ def _train_masked_q_policy(
         values = q_values.get(_q_state_key(observation, mask))
         allowed = [index for index, is_allowed in enumerate(mask) if is_allowed]
         if values is None:
-            return int(TacticalAction.WAIT)
+            return strategic_goal_index(StrategicGoalKind.WAIT)
         return max(allowed, key=lambda index: (values[index], -index))
 
     return evaluate

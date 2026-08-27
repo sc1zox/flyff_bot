@@ -5,7 +5,6 @@ from flyff_bot.features.simulator.engine import (
     FarmingSimulator,
     IllegalSimulatorAction,
     SimulatedMonster,
-    TacticalAction,
 )
 from flyff_bot.features.simulator.environment import SimulatorGymEnvironment
 from flyff_bot.features.simulator.models import (
@@ -34,7 +33,6 @@ __all__ = [
     "SimulationMetrics",
     "SimulatorConfig",
     "SimulatorGymEnvironment",
-    "TacticalAction",
     "fit_calibration",
     "validate_calibration",
 ]

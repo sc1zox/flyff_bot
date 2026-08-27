@@ -1,49 +1,29 @@
-"""Discrete tactical action contracts for offline RL."""
+"""Loss-free encoding, masking and decoding of the shared tactical action contract.
+
+The vocabularies themselves live in :mod:`flyff_bot.features.policy.action_payloads`; this
+module only turns typed payloads into the discrete, parameterized form offline RL records.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import IntEnum, unique
 
 from flyff_bot.features.policy.action_payloads import (
     AttackPointAction,
     CorridorAction,
     InteractAction,
     NavigateAction,
-    TacticalActionKind,
+    TacticalAction,
+    TacticalActionPayload,
     TargetAction,
     WaitAction,
 )
 
-# A quest interaction that names an NPC is a different discrete action than one that names a
-# world object, so the recorded interaction type decides which index a payload encodes to.
+# A quest interaction that names an NPC encodes to a different discrete action than one that
+# names a world object, so the recorded interaction type decides the index.
 NPC_INTERACTION_TYPE = "npc"
 
 WorldPoint = tuple[float, float, float]
-
-TacticalActionPayload = (
-    TargetAction | NavigateAction | AttackPointAction | CorridorAction | InteractAction | WaitAction
-)
-
-
-@unique
-class TacticalAction(IntEnum):
-    """Stable discrete action indices at the tactical abstraction layer."""
-
-    SELECT_TARGET = 0
-    GO_TO_POSITION = 1
-    GO_TO_ATTACK_POINT = 2
-    SELECT_CORRIDOR = 3
-    INTERACT_WITH_OBJECT = 4
-    INTERACT_WITH_NPC = 5
-    WAIT = 6
-
-    @classmethod
-    def for_kind(cls, kind: TacticalActionKind) -> TacticalAction:
-        return _ACTION_BY_KIND[kind]
-
-
-TACTICAL_ACTION_COUNT = len(TacticalAction)
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,13 +208,3 @@ def _attack_point(action: ParameterizedAction) -> AttackPointAction | None:
         action.approach_angle,
         action.candidate_index,
     )
-
-
-_ACTION_BY_KIND = {
-    TacticalActionKind.TARGET: TacticalAction.SELECT_TARGET,
-    TacticalActionKind.NAVIGATE: TacticalAction.GO_TO_POSITION,
-    TacticalActionKind.ATTACK_POINT: TacticalAction.GO_TO_ATTACK_POINT,
-    TacticalActionKind.CORRIDOR: TacticalAction.SELECT_CORRIDOR,
-    TacticalActionKind.INTERACT: TacticalAction.INTERACT_WITH_OBJECT,
-    TacticalActionKind.WAIT: TacticalAction.WAIT,
-}

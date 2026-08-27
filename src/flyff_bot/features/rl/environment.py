@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, SupportsFloat
 
-from flyff_bot.features.rl.actions import TACTICAL_ACTION_COUNT
+from flyff_bot.features.policy.action_payloads import TACTICAL_ACTION_COUNT
 from flyff_bot.features.rl.models import RlObservation, Transition
 
 

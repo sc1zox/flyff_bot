@@ -15,7 +15,7 @@ from flyff_bot.features.policy.hierarchical_masking import validate_policy_actio
 from flyff_bot.features.policy.models import (
     POLICY_LATENCY_BUDGET_SECONDS,
     PolicyContext,
-    TacticalAction,
+    TacticalActionPayload,
 )
 
 HEURISTIC_MODE_REASON = "heuristic_mode"
@@ -48,7 +48,9 @@ class PolicyFault:
 class LearnedPolicyProtocol(Protocol):
     """The minimal learned-policy surface used by the runner."""
 
-    def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
+    def evaluate(
+        self, world_state: WorldState, context: PolicyContext
+    ) -> TacticalActionPayload | None:
         """Evaluate one legal learned action."""
 
 
@@ -125,7 +127,9 @@ class PolicyRunner:
         self.last_fault = None
         self.last_fallback_reason = None
 
-    def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
+    def evaluate(
+        self, world_state: WorldState, context: PolicyContext
+    ) -> TacticalActionPayload | None:
         """Return one legal learned action, or ``None`` alongside a recorded fault."""
 
         if self._learned is None:

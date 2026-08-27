@@ -13,6 +13,11 @@ from collections.abc import Callable
 import pytest
 
 from flyff_bot.features.navigation.world_extractor import WorldCoordinate, WorldVectorMap
+from flyff_bot.features.policy.action_payloads import (
+    STRATEGIC_GOAL_COUNT,
+    StrategicGoalKind,
+    strategic_goal_index,
+)
 from flyff_bot.features.rl.rewards import (
     REWARD_CONFIG_VERSION,
     RewardConfig,
@@ -26,15 +31,17 @@ from flyff_bot.features.simulator import (
     QuestObjective,
     QuestObjectiveKind,
     SimulatorConfig,
-    TacticalAction,
 )
 from flyff_bot.features.simulator.engine import MAXIMUM_COMBAT_ENGAGE_DISTANCE_UNITS
 
-FARMING_PRIORITY = (
-    TacticalAction.INTERACT,
-    TacticalAction.GO_TO_OBJECTIVE,
-    TacticalAction.TARGET_NEAREST,
-    TacticalAction.WAIT,
+FARMING_PRIORITY = tuple(
+    strategic_goal_index(goal)
+    for goal in (
+        StrategicGoalKind.INTERACT,
+        StrategicGoalKind.NAVIGATE,
+        StrategicGoalKind.TARGET,
+        StrategicGoalKind.WAIT,
+    )
 )
 ACCOUNTING_TOLERANCE_SECONDS = 1e-6
 START = WorldCoordinate(10.0, 10.0)
@@ -45,8 +52,8 @@ def farm(simulation: FarmingSimulator, *, step_limit: int = 2000) -> bool:
 
     for _step in range(step_limit):
         mask = simulation.action_mask
-        action = next(item for item in FARMING_PRIORITY if mask[int(item)])
-        _observation, _reward, terminated, truncated, _info = simulation.step(int(action))
+        action = next(item for item in FARMING_PRIORITY if mask[item])
+        _observation, _reward, terminated, truncated, _info = simulation.step(action)
         if terminated or truncated:
             return True
     return False
@@ -67,7 +74,7 @@ def test_engaging_a_distant_monster_costs_travel_time_and_distance(
     nearest = min(candidate.path_distance or 0.0 for candidate in observation.candidates)
 
     assert nearest > MAXIMUM_COMBAT_ENGAGE_DISTANCE_UNITS
-    assert not simulation.action_mask[int(TacticalAction.INTERACT)]
+    assert not simulation.action_mask[strategic_goal_index(StrategicGoalKind.INTERACT)]
 
     farm(simulation)
     metrics = simulation.metrics
@@ -91,8 +98,8 @@ def test_the_player_only_moves_by_travelling(
 
     for _step in range(120):
         mask = simulation.action_mask
-        action = next(item for item in FARMING_PRIORITY if mask[int(item)])
-        observation, _reward, terminated, truncated, _info = simulation.step(int(action))
+        action = next(item for item in FARMING_PRIORITY if mask[item])
+        observation, _reward, terminated, truncated, _info = simulation.step(action)
         moved = math.hypot(
             observation.kinematics.position_x - previous[0],
             observation.kinematics.position_z - previous[1],
@@ -149,15 +156,15 @@ def test_recovery_blocks_every_action_but_waiting(
 
     for _step in range(200):
         mask = simulation.action_mask
-        action = next(item for item in FARMING_PRIORITY if mask[int(item)])
-        simulation.step(int(action))
+        action = next(item for item in FARMING_PRIORITY if mask[item])
+        simulation.step(action)
         if simulation.metrics.stuck_count:
             break
 
     assert simulation.metrics.stuck_count > 0
     assert simulation.action_mask == (False, False, False, True)
     with pytest.raises(IllegalSimulatorAction):
-        simulation.step(int(TacticalAction.GO_TO_OBJECTIVE))
+        simulation.step(strategic_goal_index(StrategicGoalKind.NAVIGATE))
 
 
 def test_step_rejects_masked_actions_and_closes_an_illegal_interaction(
@@ -169,11 +176,11 @@ def test_step_rejects_masked_actions_and_closes_an_illegal_interaction(
     )
     simulation.reset(seed=17)
 
-    assert not simulation.action_mask[int(TacticalAction.INTERACT)]
+    assert not simulation.action_mask[strategic_goal_index(StrategicGoalKind.INTERACT)]
     with pytest.raises(IllegalSimulatorAction):
-        simulation.step(int(TacticalAction.INTERACT))
+        simulation.step(strategic_goal_index(StrategicGoalKind.INTERACT))
     with pytest.raises(ValueError):
-        simulation.step(len(TacticalAction))
+        simulation.step(STRATEGIC_GOAL_COUNT)
 
 
 def test_every_configured_zone_spawns_and_respawns(
@@ -204,7 +211,7 @@ def test_every_configured_zone_spawns_and_respawns(
         for monster in simulation._monsters
     ]
     for _tick in range(4):
-        simulation.step(int(TacticalAction.WAIT))
+        simulation.step(strategic_goal_index(StrategicGoalKind.WAIT))
 
     assert len(simulation._monsters) == capacity
     assert {monster.zone_index for monster in simulation._monsters} == {0, 1}
@@ -222,8 +229,8 @@ def test_dead_monsters_are_not_offered_as_candidates(
 
     while simulation.metrics.kill_count == 0:
         mask = simulation.action_mask
-        action = next(item for item in FARMING_PRIORITY if mask[int(item)])
-        observation, _reward, _terminated, truncated, _info = simulation.step(int(action))
+        action = next(item for item in FARMING_PRIORITY if mask[item])
+        observation, _reward, _terminated, truncated, _info = simulation.step(action)
         if truncated:
             break
 
@@ -251,8 +258,8 @@ def test_an_objective_free_episode_runs_to_truncation_and_kills(
     truncated = False
     while not terminated and not truncated:
         mask = simulation.action_mask
-        action = next(item for item in FARMING_PRIORITY if mask[int(item)])
-        _observation, _reward, terminated, truncated, _info = simulation.step(int(action))
+        action = next(item for item in FARMING_PRIORITY if mask[item])
+        _observation, _reward, terminated, truncated, _info = simulation.step(action)
 
     assert truncated
     assert not terminated
@@ -294,8 +301,12 @@ def test_the_simulator_scores_ticks_with_the_shared_reward_configuration(
     default.reset(seed=3)
     configured.reset(seed=3)
 
-    _observation, default_reward, _t, _tr, _info = default.step(int(TacticalAction.WAIT))
-    _observation, custom_reward, _t, _tr, _info = configured.step(int(TacticalAction.WAIT))
+    _observation, default_reward, _t, _tr, _info = default.step(
+        strategic_goal_index(StrategicGoalKind.WAIT)
+    )
+    _observation, custom_reward, _t, _tr, _info = configured.step(
+        strategic_goal_index(StrategicGoalKind.WAIT)
+    )
 
     assert SimulatorConfig().reward.version == REWARD_CONFIG_VERSION
     assert default_reward == pytest.approx(

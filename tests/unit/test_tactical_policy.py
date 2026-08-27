@@ -5,7 +5,7 @@ from flyff_bot.features.policy.heuristic import HeuristicPolicy
 from flyff_bot.features.policy.models import (
     PolicyCandidate,
     PolicyContext,
-    TacticalAction,
+    TacticalActionPayload,
     TargetAction,
 )
 
@@ -69,7 +69,7 @@ def test_tactical_policy_returns_a_typed_target_action() -> None:
     action = HeuristicPolicy().evaluate(_state(mobs), _context(mobs))
 
     assert isinstance(action, TargetAction)
-    assert isinstance(action, TacticalAction)
+    assert isinstance(action, TacticalActionPayload)
     assert action.target_id == 1
 
 

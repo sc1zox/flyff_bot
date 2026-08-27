@@ -10,8 +10,13 @@ import numpy as np
 
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.policy.action_payloads import (
+    STRATEGIC_GOAL_COUNT,
+    STRATEGIC_GOAL_ORDER,
     CorridorAction,
+    StrategicGoalKind,
     TacticalActionKind,
+    strategic_goal_at,
+    strategic_goal_index,
 )
 from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjective,
@@ -28,8 +33,7 @@ from flyff_bot.features.policy.models import (
     PolicyCandidate,
     PolicyContext,
     StrategicDecision,
-    StrategicGoalKind,
-    TacticalAction,
+    TacticalActionPayload,
 )
 from flyff_bot.features.rl.models import (
     OBSERVATION_DIMENSION,
@@ -71,7 +75,7 @@ class HierarchicalOnnxPolicy:
         self._mid_input_name = str(mid["input_name"])
         self._high_trained = _trained_kinds(high, HIGH_LEVEL_ACTION_ORDER)
         self._mid_trained = _trained_kinds(mid, MID_LEVEL_ACTION_ORDER)
-        self._high_wait = HIGH_LEVEL_ACTION_ORDER.index(StrategicGoalKind.WAIT)
+        self._high_wait = strategic_goal_index(StrategicGoalKind.WAIT)
         self._mid_wait = MID_LEVEL_ACTION_ORDER.index(TacticalActionKind.WAIT)
         self.objective = objective or HierarchicalObjective()
         self._mid_level = MidLevelTacticalPolicy()
@@ -81,7 +85,7 @@ class HierarchicalOnnxPolicy:
         """Run one throwaway inference per head so graph setup never delays a decision."""
 
         features = np.zeros(OBSERVATION_DIMENSION, dtype=np.float64)
-        _predict(self._high_network, features, self._high_input_name, len(HIGH_LEVEL_ACTION_ORDER))
+        _predict(self._high_network, features, self._high_input_name, STRATEGIC_GOAL_COUNT)
         _predict(self._mid_network, features, self._mid_input_name, len(MID_LEVEL_ACTION_ORDER))
 
     def configure_objective(self, objective: HierarchicalObjective) -> None:
@@ -89,17 +93,19 @@ class HierarchicalOnnxPolicy:
 
         self.objective = objective
 
-    def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
+    def evaluate(
+        self, world_state: WorldState, context: PolicyContext
+    ) -> TacticalActionPayload | None:
         features = ObservationSpace.encode(live_observation(world_state, context, self.objective))
         high_logits = _predict(
             self._high_network,
             features,
             self._high_input_name,
-            len(HIGH_LEVEL_ACTION_ORDER),
+            STRATEGIC_GOAL_COUNT,
         )
         high_mask = _restrict(self._high_mask(context), self._high_trained, self._high_wait)
         high_index = _masked_argmax(high_logits, high_mask)
-        goal = StrategicGoalKind(HIGH_LEVEL_ACTION_ORDER[high_index])
+        goal = strategic_goal_at(high_index)
         decision = self._decision(goal, world_state, context)
 
         mid_logits = _predict(
@@ -148,7 +154,13 @@ class HierarchicalOnnxPolicy:
             objective.interaction_target_id,
             objective.interaction_type,
         ) in context.valid_interactions and progress_complete
-        return target_allowed, navigate_allowed, interact_allowed, True
+        allowed = {
+            StrategicGoalKind.TARGET: target_allowed,
+            StrategicGoalKind.NAVIGATE: navigate_allowed,
+            StrategicGoalKind.INTERACT: interact_allowed,
+            StrategicGoalKind.WAIT: True,
+        }
+        return tuple(allowed[goal] for goal in STRATEGIC_GOAL_ORDER)
 
     def _decision(
         self,

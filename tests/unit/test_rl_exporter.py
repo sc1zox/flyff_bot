@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from flyff_bot.features.rl.actions import TacticalAction
+from flyff_bot.features.policy.action_payloads import TacticalAction
 from flyff_bot.features.rl.exporter import TelemetryTransitionExporter
 from flyff_bot.features.rl.models import OBSERVATION_DIMENSION
 from flyff_bot.features.telemetry import SqliteTelemetryStore

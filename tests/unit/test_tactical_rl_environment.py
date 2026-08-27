@@ -3,11 +3,8 @@ from __future__ import annotations
 import pytest
 from test_rl_state_space import observation
 
-from flyff_bot.features.rl.actions import (
-    ParameterizedAction,
-    TacticalAction,
-    TacticalActionMask,
-)
+from flyff_bot.features.policy.action_payloads import TacticalAction
+from flyff_bot.features.rl.actions import ParameterizedAction, TacticalActionMask
 from flyff_bot.features.rl.environment import TacticalRlEnvironment
 from flyff_bot.features.rl.models import Transition
 

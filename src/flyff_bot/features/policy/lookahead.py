@@ -17,7 +17,7 @@ from flyff_bot.features.policy.learned import MODEL_INPUT_WIDTH, LearnedPolicy, 
 from flyff_bot.features.policy.models import (
     PolicyCandidate,
     PolicyContext,
-    TacticalAction,
+    TacticalActionPayload,
 )
 
 DEFAULT_MAX_HORIZON = 3
@@ -50,7 +50,9 @@ class RollingHorizonPlanner(LearnedPolicy):
         self.provisional_sequence: tuple[int, ...] = ()
         self.last_sequence_cost: float | None = None
 
-    def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
+    def evaluate(
+        self, world_state: WorldState, context: PolicyContext
+    ) -> TacticalActionPayload | None:
         eligible = tuple(candidate for candidate in context.candidates if candidate.is_eligible)
         matrix = context.feature_matrix
         expected_shape = (len(context.candidates), MODEL_INPUT_WIDTH)

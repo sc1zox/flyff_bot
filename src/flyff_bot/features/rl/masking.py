@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from flyff_bot.features.rl.actions import (
+from flyff_bot.features.policy.action_payloads import (
     TACTICAL_ACTION_COUNT,
     TacticalAction,
-    TacticalActionMask,
 )
+from flyff_bot.features.rl.actions import TacticalActionMask
 from flyff_bot.features.rl.models import RlObservation
 
 

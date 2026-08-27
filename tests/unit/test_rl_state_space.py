@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from flyff_bot.features.rl.actions import TacticalAction
+from flyff_bot.features.policy.action_payloads import TacticalAction
 from flyff_bot.features.rl.masking import build_action_mask
 from flyff_bot.features.rl.models import (
     OBSERVATION_DIMENSION,

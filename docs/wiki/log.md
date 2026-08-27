@@ -1062,3 +1062,15 @@ whitelist/zone/leash projection, goal-conditioned policy objective, and telemetr
 switch, teleport-confirmation, refusal, timeout, telemetry, localization and Qt tests, with the gate
 at 918 passed, 6 skipped, and 88.88% coverage. No Windows/live-client quest walkthrough is claimed,
 and no new client access or input capability was added.
+
+## [2026-08-28] synthesis | One action contract for simulator, exporter, and live policy (US-079, partial)
+
+Synthesized the first US-079 acceptance criterion into `architecture.md`: `StrategicGoalKind`,
+`TacticalActionKind`, `TacticalAction`, and the payload union are now declared once in
+`features/policy/action_payloads.py`; the simulator's private four-member enum and the third
+meaning of `TacticalAction` in `policy/models.py` are deleted; and `HIGH_LEVEL_ACTION_ORDER` is
+derived from the shared wire order instead of being written out. Discrete index values are
+unchanged, so `bug031-v1` artifacts stay readable. Evidence is offline: an AST-based single-
+definition test plus wire-order and mapping tests, gate at 965 passed, 5 skipped, 89.20% coverage.
+The remaining US-079 criteria (goal-conditioned observation, encoder parity, single versioned
+reward configuration, contract-version rejection diagnostics) are explicitly still open.

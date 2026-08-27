@@ -8,7 +8,6 @@ automation execution boundary (US-067).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Protocol
 
 import numpy as np
@@ -20,7 +19,9 @@ from flyff_bot.features.policy.action_payloads import (
     CorridorAction,
     InteractAction,
     NavigateAction,
+    StrategicGoalKind,
     TacticalActionKind,
+    TacticalActionPayload,
     TargetAction,
     WaitAction,
 )
@@ -35,21 +36,13 @@ __all__ = [
     "StrategicDecision",
     "StrategicGoalKind",
     "TacticalActionKind",
+    "TacticalActionPayload",
     "TargetAction",
     "WaitAction",
 ]
 
 POLICY_LATENCY_BUDGET_SECONDS = 0.005
 DEFAULT_POLICY_WAIT_SECONDS = 0.1
-
-
-class StrategicGoalKind(StrEnum):
-    """Macro sub-goals selected only by the high-level policy tier."""
-
-    TARGET = "target"
-    NAVIGATE = "navigate"
-    INTERACT = "interact"
-    WAIT = "wait"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,11 +58,6 @@ class StrategicDecision:
     target_candidate_index: int | None = None
     interaction_target_id: str | None = None
     interaction_type: str | None = None
-
-
-TacticalAction = (
-    TargetAction | NavigateAction | AttackPointAction | CorridorAction | InteractAction | WaitAction
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,5 +129,7 @@ class PolicyContext:
 class TacticalPolicy(Protocol):
     """The stable policy boundary that later hierarchical RL policies will implement."""
 
-    def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
+    def evaluate(
+        self, world_state: WorldState, context: PolicyContext
+    ) -> TacticalActionPayload | None:
         """Return at most one legal tactical action for this cycle."""

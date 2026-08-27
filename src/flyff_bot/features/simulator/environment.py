@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any, SupportsFloat
 
+from flyff_bot.features.policy.action_payloads import STRATEGIC_GOAL_COUNT
 from flyff_bot.features.simulator.calibration import validate_calibration
-from flyff_bot.features.simulator.engine import FarmingSimulator, TacticalAction
+from flyff_bot.features.simulator.engine import FarmingSimulator
 from flyff_bot.features.simulator.models import (
     CalibrationBaseline,
     CalibrationTolerance,
@@ -37,7 +38,7 @@ class SimulatorGymEnvironment:
 
     @property
     def action_space_size(self) -> int:
-        return len(TacticalAction)
+        return STRATEGIC_GOAL_COUNT
 
     def reset(
         self,

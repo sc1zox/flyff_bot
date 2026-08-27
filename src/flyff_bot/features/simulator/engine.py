@@ -12,13 +12,18 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass, replace
-from enum import IntEnum, unique
 
 from flyff_bot.features.navigation.vector_routing import VectorRoutePlanner
 from flyff_bot.features.navigation.world_extractor import (
     VectorSpawnZone,
     WorldCoordinate,
     WorldVectorMap,
+)
+from flyff_bot.features.policy.action_payloads import (
+    STRATEGIC_GOAL_COUNT,
+    STRATEGIC_GOAL_ORDER,
+    StrategicGoalKind,
+    strategic_goal_at,
 )
 from flyff_bot.features.rl.models import (
     CandidateObservation,
@@ -56,16 +61,6 @@ STRAIGHT_ROUTE_POINT_COUNT = 2
 
 class IllegalSimulatorAction(ValueError):
     """Raised when an action that the current mask forbids is submitted to ``step``."""
-
-
-@unique
-class TacticalAction(IntEnum):
-    """Stable actions understood by the farming simulator's Gymnasium adapter."""
-
-    TARGET_NEAREST = 0
-    GO_TO_OBJECTIVE = 1
-    INTERACT = 2
-    WAIT = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +139,7 @@ class FarmingSimulator:
 
     @property
     def action_space_size(self) -> int:
-        return len(TacticalAction)
+        return STRATEGIC_GOAL_COUNT
 
     def reset(self, *, seed: int | None = None) -> tuple[RlObservation, dict[str, object]]:
         """Reset to the configured start state and optionally reseed the PRNG."""
@@ -157,16 +152,15 @@ class FarmingSimulator:
     def step(self, action: int) -> tuple[RlObservation, float, bool, bool, dict[str, object]]:
         """Advance one fixed-duration tactical tick deterministically."""
 
-        if action not in tuple(TacticalAction):
-            raise ValueError("Unknown simulator action index.")
+        goal = strategic_goal_at(action)
         mask = self.action_mask
         if not mask[action]:
-            raise IllegalSimulatorAction(f"Action {TacticalAction(action).name} is masked out.")
+            raise IllegalSimulatorAction(f"Goal {goal.value} is masked out.")
 
         events: list[str] = []
         tick = _TickAccounting()
         budget = self._spend_recovery(self._config.tick_seconds, tick)
-        budget = self._perform(TacticalAction(action), budget, tick, events)
+        budget = self._perform(goal, budget, tick, events)
         tick.idle_seconds = max(0.0, budget)
         self._idle_seconds += tick.idle_seconds
 
@@ -220,10 +214,10 @@ class FarmingSimulator:
 
     @property
     def action_mask(self) -> tuple[bool, ...]:
-        """Return deterministic validity for each simulator action."""
+        """Return deterministic validity per strategic goal, in the shared wire order."""
 
         if self._recovery_remaining > 0.0:
-            return (False, False, False, True)
+            return tuple(goal is StrategicGoalKind.WAIT for goal in STRATEGIC_GOAL_ORDER)
         target_selected = self._target is not None
         destination = self._travel_destination()
         interaction_ready = self._interaction_ready()
@@ -233,12 +227,13 @@ class FarmingSimulator:
             and not interaction_ready
             and self._distance(destination.x, destination.z) > ARRIVAL_EPSILON_UNITS
         )
-        return (
-            bool(self._visible_monsters()) and not target_selected,
-            travel_allowed,
-            interaction_ready,
-            True,
-        )
+        allowed = {
+            StrategicGoalKind.TARGET: bool(self._visible_monsters()) and not target_selected,
+            StrategicGoalKind.NAVIGATE: travel_allowed,
+            StrategicGoalKind.INTERACT: interaction_ready,
+            StrategicGoalKind.WAIT: True,
+        }
+        return tuple(allowed[goal] for goal in STRATEGIC_GOAL_ORDER)
 
     @property
     def metrics(self) -> SimulationMetrics:
@@ -392,17 +387,17 @@ class FarmingSimulator:
 
     def _perform(
         self,
-        action: TacticalAction,
+        goal: StrategicGoalKind,
         budget: float,
         tick: _TickAccounting,
         events: list[str],
     ) -> float:
-        if budget <= 0.0 or action is TacticalAction.WAIT:
+        if budget <= 0.0 or goal is StrategicGoalKind.WAIT:
             return budget
-        if action is TacticalAction.TARGET_NEAREST:
+        if goal is StrategicGoalKind.TARGET:
             self._target_slot = self._visible_monsters()[0].monster_slot
             return budget
-        if action is TacticalAction.GO_TO_OBJECTIVE:
+        if goal is StrategicGoalKind.NAVIGATE:
             return self._travel_toward(budget, tick)
         return self._interact(budget, tick, events)
 

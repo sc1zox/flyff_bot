@@ -21,7 +21,7 @@ from flyff_bot.features.ml.features import FEATURE_NAMES
 from flyff_bot.features.policy.models import (
     PolicyCandidate,
     PolicyContext,
-    TacticalAction,
+    TacticalActionPayload,
     TargetAction,
 )
 
@@ -102,7 +102,9 @@ class LearnedPolicy:
 
         self.predictions(np.zeros((1, MODEL_INPUT_WIDTH), dtype=np.float64))
 
-    def evaluate(self, world_state: WorldState, context: PolicyContext) -> TacticalAction | None:
+    def evaluate(
+        self, world_state: WorldState, context: PolicyContext
+    ) -> TacticalActionPayload | None:
         eligible = [candidate for candidate in context.candidates if candidate.is_eligible]
         matrix = context.feature_matrix
         expected_shape = (len(context.candidates), MODEL_INPUT_WIDTH)
@@ -166,7 +168,7 @@ class LearnedPolicy:
         )
 
     @staticmethod
-    def _action(candidate: PolicyCandidate, expected_cost: float) -> TacticalAction:
+    def _action(candidate: PolicyCandidate, expected_cost: float) -> TacticalActionPayload:
         """Return the ranked choice identified by the candidate instance it selected.
 
         The screen position is reported in the same top-left convention every other tactical

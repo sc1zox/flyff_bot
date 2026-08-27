@@ -1,18 +1,19 @@
 """Offline tactical reinforcement-learning contracts and deterministic training support."""
 
 from flyff_bot.features.policy.action_payloads import (
+    TACTICAL_ACTION_COUNT,
     AttackPointAction,
     CorridorAction,
     InteractAction,
     NavigateAction,
+    TacticalAction,
     TacticalActionKind,
+    TacticalActionPayload,
     TargetAction,
     WaitAction,
 )
 from flyff_bot.features.rl.actions import (
-    TACTICAL_ACTION_COUNT,
     ParameterizedAction,
-    TacticalAction,
     TacticalActionCatalog,
     TacticalActionMask,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "TacticalActionCatalog",
     "TacticalActionKind",
     "TacticalActionMask",
+    "TacticalActionPayload",
     "TacticalRlEnvironment",
     "TargetAction",
     "Transition",

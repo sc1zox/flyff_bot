@@ -33,6 +33,7 @@ from flyff_bot.features.policy.action_payloads import (
     CorridorAction,
     InteractAction,
     NavigateAction,
+    TacticalAction,
     TargetAction,
     WaitAction,
 )
@@ -47,7 +48,6 @@ from flyff_bot.features.policy.models import (
 from flyff_bot.features.policy.runner import PolicyFaultCode, PolicyRunner
 from flyff_bot.features.rl.actions import (
     ParameterizedAction,
-    TacticalAction,
     TacticalActionCatalog,
     TacticalActionMask,
 )

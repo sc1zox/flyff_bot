@@ -1,6 +1,6 @@
 from test_rl_state_space import observation
 
-from flyff_bot.features.rl.actions import TacticalAction
+from flyff_bot.features.policy.action_payloads import TacticalAction
 from flyff_bot.features.rl.masking import build_action_mask
 
 

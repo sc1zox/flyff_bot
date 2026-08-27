@@ -2167,3 +2167,41 @@ The 2026-08-26 gate passed at 918 passed, 6 skipped, and 88.88% coverage. This i
 the foregrounded Windows walkthrough of one full quest against a live `neuz.exe` - teleport, accept,
 farm, return, turn in - remains unrun, so live teleporter coverage of real quest regions and live
 arrival timing are unverified.
+
+## One action contract for simulator, exporter, and live policy (US-079, partial)
+
+Before this change the name `TacticalAction` meant three unrelated things: a seven-member `IntEnum`
+in `features/rl/actions.py`, a four-member `IntEnum` in `features/simulator/engine.py`, and a union
+type alias of the payload dataclasses in `features/policy/models.py`. The simulator's private enum
+was in truth the *strategic* vocabulary, and its index order matched the exported high-level head's
+hand-written `HIGH_LEVEL_ACTION_ORDER = ("target", "navigate", "interact", "wait")` only by
+coincidence: nothing prevented one from being reordered without the other.
+
+`features/policy/action_payloads.py` is now the single action contract module and holds all three
+vocabularies exactly once:
+
+- `StrategicGoalKind` - the macro sub-goal the high-level tier picks. `STRATEGIC_GOAL_ORDER` is its
+  wire order, and `strategic_goal_index` / `strategic_goal_at` are the only conversions between a
+  goal and its discrete index.
+- `TacticalActionKind` - the kind of tactical payload the mid-level tier picks.
+- `TacticalAction` - the stable discrete index a tactical payload encodes to, plus
+  `TACTICAL_ACTION_COUNT` and `TacticalAction.for_kind`.
+- `TacticalActionPayload` - the payload union, previously defined a second time as
+  `policy.models.TacticalAction`.
+
+`FarmingSimulator` steps on `STRATEGIC_GOAL_ORDER` indices and builds its action mask from a
+goal-keyed mapping rather than a positional four-tuple. `HIGH_LEVEL_ACTION_ORDER` is derived from
+`STRATEGIC_GOAL_ORDER` instead of being written out, and `HierarchicalOnnxPolicy` resolves an
+argmax column through `strategic_goal_at` rather than a string round-trip. `features/rl/actions.py`
+keeps only the encoding machinery: `ParameterizedAction`, `TacticalActionMask`, and
+`TacticalActionCatalog`. Indices are unchanged in value, so `bug031-v1` artifacts stay readable.
+
+`tests/unit/test_action_contract.py` parses every source file and asserts each vocabulary class is
+declared in exactly one module, that no package re-exports a competing name, that the wire order
+covers every goal once, and that the exported head's column order names the goals the simulator was
+stepped with.
+
+This is the first acceptance criterion of [US-079](../user-stories/US-079-unified-goal-conditioned-decision-contract.md).
+Goal-conditioned observation columns, the simulator-versus-live encoder parity test, the single
+versioned reward configuration stamped into every artifact, and contract-version rejection
+diagnostics are still open. The 2026-08-28 gate passed at 965 passed, 5 skipped, 89.20% coverage.

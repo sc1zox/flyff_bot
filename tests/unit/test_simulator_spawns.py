@@ -4,20 +4,26 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from flyff_bot.features.policy.action_payloads import (
+    StrategicGoalKind,
+    strategic_goal_index,
+)
 from flyff_bot.features.simulator import (
     FarmingSimulator,
     MonsterLifecycle,
     QuestObjective,
     QuestObjectiveKind,
     SimulatorConfig,
-    TacticalAction,
 )
 
-FARMING_PRIORITY = (
-    TacticalAction.INTERACT,
-    TacticalAction.GO_TO_OBJECTIVE,
-    TacticalAction.TARGET_NEAREST,
-    TacticalAction.WAIT,
+FARMING_PRIORITY = tuple(
+    strategic_goal_index(goal)
+    for goal in (
+        StrategicGoalKind.INTERACT,
+        StrategicGoalKind.NAVIGATE,
+        StrategicGoalKind.TARGET,
+        StrategicGoalKind.WAIT,
+    )
 )
 
 
@@ -26,8 +32,8 @@ def farm_until_first_kill(simulation: FarmingSimulator, *, step_limit: int = 400
 
     for step_index in range(step_limit):
         mask = simulation.action_mask
-        action = next(item for item in FARMING_PRIORITY if mask[int(item)])
-        _observation, _reward, terminated, truncated, _info = simulation.step(int(action))
+        action = next(item for item in FARMING_PRIORITY if mask[item])
+        _observation, _reward, terminated, truncated, _info = simulation.step(action)
         if simulation.metrics.kill_count or terminated or truncated:
             return step_index
     return step_limit
@@ -85,5 +91,5 @@ def test_dead_monsters_respawn_after_the_zone_timer_without_exceeding_capacity(
     assert len(simulation._monsters) == 2
     assert len(dead_after_kill) == 1
     for _tick in range(4):
-        simulation.step(int(TacticalAction.WAIT))
+        simulation.step(strategic_goal_index(StrategicGoalKind.WAIT))
     assert all(monster.lifecycle is not MonsterLifecycle.DEAD for monster in simulation._monsters)

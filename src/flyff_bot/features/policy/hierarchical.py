@@ -24,7 +24,7 @@ from flyff_bot.features.policy.models import (
     PolicyContext,
     StrategicDecision,
     StrategicGoalKind,
-    TacticalAction,
+    TacticalActionPayload,
 )
 
 DEFAULT_HIGH_LEVEL_REEVALUATION_SECONDS = 2.0
@@ -251,7 +251,7 @@ class MidLevelTacticalPolicy(HeuristicPolicy):
         world_state: WorldState,
         context: PolicyContext,
         decision: StrategicDecision,
-    ) -> TacticalAction | None:
+    ) -> TacticalActionPayload | None:
         if decision.goal is StrategicGoalKind.NAVIGATE and decision.destination is not None:
             return NavigateAction(decision.destination, decision.reason)
         if decision.goal is StrategicGoalKind.INTERACT:
@@ -311,7 +311,7 @@ class HierarchicalPolicy:
         world_state: WorldState,
         context: PolicyContext,
         objective: HierarchicalObjective | None = None,
-    ) -> TacticalAction | None:
+    ) -> TacticalActionPayload | None:
         active_objective = objective or self.objective
         started_at = self._monotonic()
         try:

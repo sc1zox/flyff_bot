@@ -1,9 +1,9 @@
 ---
 id: US-079
 title: Unified versioned goal-conditioned decision contract
-status: draft
+status: in-progress
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-28
 ---
 
 # US-079: Unified versioned goal-conditioned decision contract
@@ -40,7 +40,7 @@ the simulator, the telemetry exporter, the offline trainer and the live policy a
 
 ## Acceptance criteria
 
-- [ ] Given the repository after this story, when the codebase is searched for action enumerations,
+- [x] Given the repository after this story, when the codebase is searched for action enumerations,
       then exactly one action contract module exists and the duplicate `TacticalAction` definitions
       in `features/rl/actions.py` and `features/simulator/engine.py` are deleted.
 - [ ] Given a decision with several legal options, when it is encoded, then the encoded action
@@ -66,6 +66,22 @@ the simulator, the telemetry exporter, the offline trainer and the live policy a
       shim is attempted.
 - [ ] All user-visible text, including every contract-incompatibility and validation diagnostic, is
       available in German and English and the two locale files stay in sync.
+
+## Progress
+
+- 2026-08-28 - The vocabulary unification landed. `features/policy/action_payloads.py` is the single
+  action contract module and declares `StrategicGoalKind` (with `STRATEGIC_GOAL_ORDER` as its wire
+  order), `TacticalActionKind`, `TacticalAction`, and the `TacticalActionPayload` union exactly
+  once. The simulator's four-member `TacticalAction` and the union alias formerly named
+  `policy.models.TacticalAction` are deleted; `FarmingSimulator` steps on strategic goal indices and
+  `HIGH_LEVEL_ACTION_ORDER` is derived from the shared order rather than written out. Discrete index
+  values are unchanged, so `bug031-v1` artifacts stay readable and no contract version was bumped.
+  Covered by `tests/unit/test_action_contract.py`; see
+  [architecture.md](../wiki/architecture.md#one-action-contract-for-simulator-exporter-and-live-policy-us-079-partial).
+- Still open: goal-conditioned observation columns, per-instance candidate identity in every
+  reference, parameterized mask rejection, missing-versus-measured-zero encoding, the
+  simulator-versus-live encoder parity test, the single versioned reward configuration stamped into
+  every artifact, contract-version rejection diagnostics, and their locale entries.
 
 ## Out of scope
 

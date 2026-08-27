@@ -12,10 +12,10 @@ from flyff_bot.features.policy.action_payloads import (
     TargetAction,
     WaitAction,
 )
-from flyff_bot.features.policy.models import PolicyCandidate, PolicyContext, TacticalAction
+from flyff_bot.features.policy.models import PolicyCandidate, PolicyContext, TacticalActionPayload
 
 
-def validate_policy_action(action: TacticalAction, context: PolicyContext) -> bool:
+def validate_policy_action(action: TacticalActionPayload, context: PolicyContext) -> bool:
     """Return whether an action exactly matches a currently prevalidated option."""
 
     if isinstance(action, TargetAction):
