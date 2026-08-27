@@ -20,6 +20,7 @@ from flyff_bot.features.navigation.live_position import (
     WorldPosition,
 )
 from flyff_bot.features.quests.models import QuestObjectiveProgress
+from flyff_bot.features.quests.objectives import QuestGoalIdentity
 from flyff_bot.features.vision.models import CapturedFrame
 
 
@@ -127,6 +128,7 @@ class DashboardUpdate:
     quest_title: str = ""
     quest_progress: tuple[QuestObjectiveProgress, ...] = ()
     quest_queue_completed: bool = False
+    quest_goal: QuestGoalIdentity | None = None
     dungeons: tuple[DungeonStateSnapshot, ...] | None = None
     readiness: LiveReadinessStatus = field(default_factory=LiveReadinessStatus)
     # Set whenever learned automation was halted, so the operator is told instead of being

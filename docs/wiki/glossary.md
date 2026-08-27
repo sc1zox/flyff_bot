@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-25
+updated: 2026-08-26
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -436,3 +436,17 @@ related:
   hit-testing without injecting input into the client.
 - **Follow mode** — Map presentation mode that recenters on finite live position snapshots and
   retains player heading; right-button dragging disables it.
+- **Quest goal** — One ordered, typed step of a quest cycle (`QuestGoal`): travel to an NPC, accept,
+  travel to an objective, satisfy it, travel to the turn-in NPC, turn in. Each states its completion
+  condition and the timeout that bounds it.
+- **Objective bus** — `QuestGoalSequence`, the single object stating which quest goal a session is
+  pursuing right now. The executor, the tactical policy, the dashboard and the telemetry sidecar all
+  read the same `QuestGoalIdentity` from it, so recorded experience is conditioned on the goal that
+  produced it.
+- **Goal travel plan** — The walk / teleport / unreachable decision `plan_goal_travel` makes for one
+  goal destination from the extracted teleporter catalog, the live world identifier and the
+  configured walking distance. An unreachable destination refuses explicitly instead of starting an
+  unbounded walk.
+- **Objective leash** — The targeting leash re-anchored on the active objective's resolved spawn
+  zone rather than on the start-of-session position, so a change of objective changes which mobs are
+  in range within one decision cycle.

@@ -1,9 +1,9 @@
 ---
 id: US-080
 title: Goal-driven quest execution - resolved objectives steer teleport, navigation and the policy
-status: draft
+status: completed
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 ---
 
 # US-080: Goal-driven quest execution - resolved objectives steer teleport, navigation and the policy
@@ -50,34 +50,34 @@ same goal the executor is pursuing**.
 
 ## Acceptance criteria
 
-- [ ] Given a selected quest, when it is resolved, then a typed ordered goal sequence is produced -
+- [x] Given a selected quest, when it is resolved, then a typed ordered goal sequence is produced -
       travel to accept NPC, accept, travel to each objective location, satisfy each objective,
       travel to turn-in NPC, turn in - and each goal states its completion condition and its
       measurable progress.
-- [ ] Given a goal whose destination lies in another world or beyond a configured walking distance,
+- [x] Given a goal whose destination lies in another world or beyond a configured walking distance,
       when it becomes active, then the teleporter is dispatched to the mapped destination and
       arrival is confirmed from live client state before the goal continues.
-- [ ] Given a goal whose destination has no mapped teleporter destination and is not walkable, when
+- [x] Given a goal whose destination has no mapped teleporter destination and is not walkable, when
       it becomes active, then the session pauses with an explicit localized reason and does not
       attempt an unbounded walk.
-- [ ] Given an active kill or collect objective, when the session farms, then the target class
+- [x] Given an active kill or collect objective, when the session farms, then the target class
       whitelist, the patrol zone and the leash are derived from the resolved spawn zone of that
       objective, and a change of active objective changes them within one decision cycle.
-- [ ] Given a quest with several objectives, when one objective completes, then the queue advances
+- [x] Given a quest with several objectives, when one objective completes, then the queue advances
       to the next goal without operator input and the dashboard shows the active goal, its index and
       its progress.
-- [ ] Given any active goal, when a tactical decision is made, then the policy receives that goal as
+- [x] Given any active goal, when a tactical decision is made, then the policy receives that goal as
       its objective and the decision is recorded together with the goal identity, index and progress.
-- [ ] Given a recorded session, when telemetry is inspected, then every world snapshot and every
+- [x] Given a recorded session, when telemetry is inspected, then every world snapshot and every
       target decision carries the active goal identity, kind, index, progress, active spawn zone and
       world identifier.
-- [ ] Given a goal that cannot progress within its configured timeout, when the timeout expires,
+- [x] Given a goal that cannot progress within its configured timeout, when the timeout expires,
       then the goal fails with a localized reason, the failure is recorded, and the session either
       advances to the next quest or pauses according to the configured policy.
-- [ ] Given the game window loses focus or the emergency stop is triggered at any point in the goal
+- [x] Given the game window loses focus or the emergency stop is triggered at any point in the goal
       sequence, when that happens, then all keys are released and execution halts, unchanged from
       today.
-- [ ] All user-visible text - goal names, goal states, failure reasons and dashboard labels - is
+- [x] All user-visible text - goal names, goal states, failure reasons and dashboard labels - is
       available in German and English and the two locale files stay in sync.
 
 ## Out of scope
@@ -98,4 +98,22 @@ same goal the executor is pursuing**.
   `./scripts/check.ps1`.
 - Manual (Windows): run one full quest end to end against the live client - teleport, accept, farm,
   return, turn in - and confirm the dashboard goal display, the recorded telemetry and the emergency
-  stop at each phase.
+  stop at each phase. **Not run**: no foregrounded `neuz.exe` session was available during
+  implementation.
+
+## Implementation notes
+
+- `features/quests/objectives.py` is the objective bus. `build_goal_sequence` decomposes a
+  `QuestResolution` into ordered `QuestGoal` values; `QuestGoalSequence` owns the active index, the
+  measured progress, the per-family timeout and the failure reason, and hands every consumer the
+  same `QuestGoalIdentity`.
+- Only executable steps enter the sequence: a quest whose accept or turn-in NPC the client never
+  resolved contributes no travel or interaction goal for it and starts at its first objective.
+- `features/navigation/goal_travel.py` decides walk / teleport / unreachable from the extracted
+  teleporter catalog, the live world identifier and the configured walking distance.
+  `TeleporterDispatcher` still owns the guarded UI sequence and the arrival confirmation.
+- `features/automation/quest_goals.py` projects the active goal onto the kill quotas, the patrol
+  zones, the leash anchor and the `HierarchicalObjective` the policy is conditioned on.
+- The goal timeout measures *stalled* progress: recorded progress restarts it.
+- A refused or timed-out goal advances the quest queue when one has a next quest, and otherwise
+  pauses the session for good rather than resuming into the same wall.

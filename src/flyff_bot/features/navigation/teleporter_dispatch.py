@@ -188,6 +188,12 @@ class TeleporterDispatcher:
         self._safe_since_seconds: float | None = None
 
     @property
+    def observer(self) -> ArrivalObserver:
+        """Return the read-only source of authoritative world identity and coordinates."""
+
+        return self._observer
+
+    @property
     def destination(self) -> TeleporterDestination | None:
         """Return the pending or last requested destination."""
 

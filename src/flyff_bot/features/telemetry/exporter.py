@@ -48,6 +48,7 @@ class TelemetryDatasetExporter:
         for event in self._store.events(TelemetryEventKind.TARGET_SELECTED):
             payload = event["payload"]
             cycle = cycle_by_decision.get((event["session_id"], event["timestamp_ns"]))
+            goal = payload.get("active_goal") or {}
             for candidate in payload["candidates"]:
                 rows.append(
                     {
@@ -58,6 +59,15 @@ class TelemetryDatasetExporter:
                         "selected": candidate["candidate_index"]
                         == payload["selected_candidate_index"],
                         "decision_reason": payload["decision_reason"],
+                        # The goal the decision was made under, so an offline learner never
+                        # has to infer which objective produced a recorded choice.
+                        "goal_quest_id": goal.get("quest_id"),
+                        "goal_kind": goal.get("goal_kind"),
+                        "goal_index": goal.get("goal_index"),
+                        "goal_progress": goal.get("progress"),
+                        "goal_required_progress": goal.get("required_progress"),
+                        "goal_spawn_zone_monster_id": goal.get("spawn_zone_monster_id"),
+                        "goal_world_id": goal.get("world_id"),
                         "decision_latency_ms": payload["decision_latency_ms"],
                         "reward": None if cycle is None else cycle["reward"],
                         "verified_kill": None if cycle is None else cycle["verified_kill"],

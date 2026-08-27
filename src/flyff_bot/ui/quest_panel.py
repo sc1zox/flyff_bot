@@ -27,6 +27,12 @@ from flyff_bot.features.quests.models import (
     QuestDefinition,
     QuestObjectiveProgress,
 )
+from flyff_bot.features.quests.objectives import (
+    QuestGoalFailure,
+    QuestGoalIdentity,
+    QuestGoalKind,
+    QuestGoalState,
+)
 from flyff_bot.i18n import Message, Translator
 
 # The level filter is inclusive of both bounds and disabled at its minimum.
@@ -45,6 +51,30 @@ COLLECTION_LABELS = {
     QuestCollection.OFFICE: Message.UI_QUEST_COLLECTION_OFFICE,
     QuestCollection.DUNGEON: Message.UI_QUEST_COLLECTION_DUNGEON,
 }
+GOAL_KIND_LABELS = {
+    QuestGoalKind.TRAVEL_TO_ACCEPT: Message.UI_QUEST_GOAL_TRAVEL_TO_ACCEPT,
+    QuestGoalKind.ACCEPT: Message.UI_QUEST_GOAL_ACCEPT,
+    QuestGoalKind.TRAVEL_TO_OBJECTIVE: Message.UI_QUEST_GOAL_TRAVEL_TO_OBJECTIVE,
+    QuestGoalKind.SATISFY_OBJECTIVE: Message.UI_QUEST_GOAL_SATISFY_OBJECTIVE,
+    QuestGoalKind.TRAVEL_TO_TURN_IN: Message.UI_QUEST_GOAL_TRAVEL_TO_TURN_IN,
+    QuestGoalKind.TURN_IN: Message.UI_QUEST_GOAL_TURN_IN,
+}
+GOAL_STATE_LABELS = {
+    QuestGoalState.PENDING: Message.UI_QUEST_GOAL_STATE_PENDING,
+    QuestGoalState.ACTIVE: Message.UI_QUEST_GOAL_STATE_ACTIVE,
+    QuestGoalState.COMPLETED: Message.UI_QUEST_GOAL_STATE_COMPLETED,
+    QuestGoalState.FAILED: Message.UI_QUEST_GOAL_STATE_FAILED,
+}
+GOAL_FAILURE_MESSAGES = {
+    QuestGoalFailure.UNREACHABLE_DESTINATION: (
+        Message.UI_QUEST_GOAL_FAILURE_UNREACHABLE_DESTINATION
+    ),
+    QuestGoalFailure.TELEPORT_FAILED: Message.UI_QUEST_GOAL_FAILURE_TELEPORT_FAILED,
+    QuestGoalFailure.INTERACTION_FAILED: Message.UI_QUEST_GOAL_FAILURE_INTERACTION_FAILED,
+    QuestGoalFailure.TIMEOUT: Message.UI_QUEST_GOAL_FAILURE_TIMEOUT,
+}
+# Goal counters are whole kills, so they are rendered without a fractional part.
+GOAL_PROGRESS_PRECISION = 0
 ISSUE_MESSAGES = {
     QuestResolutionIssue.NO_FARMABLE_OBJECTIVE: Message.UI_QUEST_ISSUE_NO_OBJECTIVE,
     QuestResolutionIssue.NO_WORLD_MAP: Message.UI_QUEST_ISSUE_NO_WORLD_MAP,
@@ -86,6 +116,8 @@ class QuestGoalPanel(QGroupBox):
         self._active_label = QLabel()
         self._progress_label = QLabel()
         self._progress_label.setWordWrap(True)
+        self._goal_label = QLabel()
+        self._goal_label.setWordWrap(True)
 
         filter_row = QHBoxLayout()
         filter_row.addWidget(self._search_edit, 2)
@@ -106,6 +138,7 @@ class QuestGoalPanel(QGroupBox):
         panel_layout.addWidget(self._status_label)
         panel_layout.addWidget(self._active_label)
         panel_layout.addWidget(self._progress_label)
+        panel_layout.addWidget(self._goal_label)
         self.setLayout(panel_layout)
 
         self._search_edit.textChanged.connect(self._render_quests)
@@ -206,6 +239,41 @@ class QuestGoalPanel(QGroupBox):
                 for entry in progress
             )
         )
+
+    def set_goal(self, goal: QuestGoalIdentity | None) -> None:
+        """Render the active goal, its position in the sequence, and its progress."""
+
+        if goal is None:
+            self._goal_label.setText("")
+            return
+        lines = [
+            self._translator.text(
+                Message.UI_QUEST_GOAL_ACTIVE,
+                index=goal.index + 1,
+                count=goal.goal_count,
+                objective=self._translator.text(GOAL_KIND_LABELS[goal.kind]),
+            ),
+            self._translator.text(
+                Message.UI_QUEST_GOAL_PROGRESS,
+                progress=f"{goal.progress:.{GOAL_PROGRESS_PRECISION}f}",
+                required=f"{goal.required_progress:.{GOAL_PROGRESS_PRECISION}f}",
+                status=self._translator.text(GOAL_STATE_LABELS[goal.state]),
+            ),
+        ]
+        if goal.failure is not None:
+            lines.append(
+                self._translator.text(
+                    Message.UI_QUEST_GOAL_FAILED,
+                    reason=self._translator.text(GOAL_FAILURE_MESSAGES[goal.failure]),
+                )
+            )
+        self._goal_label.setText("  ".join(lines))
+
+    @property
+    def goal_text(self) -> str:
+        """Expose the rendered goal line for wiring and verification."""
+
+        return self._goal_label.text()
 
     def issue_text(self, issue: QuestResolutionIssue, title: str, monsters: str) -> str:
         """Return the localized diagnostic for one unfarmable quest resolution."""

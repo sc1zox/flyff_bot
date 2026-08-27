@@ -162,6 +162,8 @@ class PathingController:
         self._camera_reader = camera_reader
         self._navmesh = navmesh
         self._navmesh_anchor: WorldPosition | None = None
+        self._objective_anchor: WorldPosition | None = None
+        self._objective_leash_radius_units: float | None = None
         self._navmesh_target: WorldPosition | None = None
         self._navmesh_mobs: tuple[NavMeshMobSnapshot, ...] = ()
         self._navigation_trajectory: list[WorldPosition] = []
@@ -270,6 +272,52 @@ class PathingController:
         """Return the measured start-of-session leash anchor, when GPS was available."""
 
         return self._navmesh_anchor
+
+    @property
+    def teleporter_dispatcher(self) -> TeleporterDispatcher | None:
+        """Return the guarded long-range travel dispatcher, when one is configured."""
+
+        return self._teleporter_dispatcher
+
+    def observe_world_id(self) -> int | None:
+        """Return the world the client reports the character is in, when it is readable.
+
+        Sampling happens only when a goal asks which world it has to travel into; the
+        per-tick observation loop is deliberately left untouched.
+        """
+
+        dispatcher = self._teleporter_dispatcher
+        if dispatcher is None:
+            return None
+        return dispatcher.observer.observe().world_id
+
+    @property
+    def leash_anchor(self) -> WorldPosition | None:
+        """Return the position the targeting leash is currently measured from."""
+
+        return self._objective_anchor or self._navmesh_anchor
+
+    @property
+    def leash_radius_units(self) -> float:
+        """Return the radius the targeting leash currently admits."""
+
+        if self._objective_leash_radius_units is not None:
+            return self._objective_leash_radius_units
+        return self._config.navmesh_leash_radius_units
+
+    def set_objective_leash(
+        self, anchor: WorldPosition | None, radius_units: float | None = None
+    ) -> None:
+        """Re-anchor the targeting leash on the active goal's area.
+
+        Passing ``None`` restores the measured start-of-session anchor and the configured
+        radius, which is what a session without a resolved objective area uses.
+        """
+
+        if anchor is not None and radius_units is not None and radius_units <= 0.0:
+            raise ValueError("An objective leash radius must be positive.")
+        self._objective_anchor = anchor
+        self._objective_leash_radius_units = None if anchor is None else radius_units
 
     @property
     def navmesh_target(self) -> WorldPosition | None:
@@ -442,8 +490,8 @@ class PathingController:
             player_position=self._live_position,
             camera_state=self._camera_state,
             navmesh=self._navmesh,
-            anchor_position=self._navmesh_anchor,
-            leash_radius_units=self._config.navmesh_leash_radius_units,
+            anchor_position=self.leash_anchor,
+            leash_radius_units=self.leash_radius_units,
         )
         self._navmesh_mobs = tuple(
             NavMeshMobSnapshot(

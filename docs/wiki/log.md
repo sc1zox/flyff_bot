@@ -1053,3 +1053,12 @@ artifact, and learned automation that fails closed with a synchronized diagnosti
 stale US-073 claim that `PolicyRunner` substitutes `HeuristicPolicy` on a learned fault. The gate
 passed at 906 passed, 6 skipped, and 88.2% coverage. No Windows or live-client walkthrough was run,
 so live promotion of a trained artifact remains unverified.
+
+## [2026-08-26] synthesis | Goal-driven quest execution and the objective bus (US-080)
+
+Synthesized the completed US-080 goal sequence, objective bus, goal travel planning, per-objective
+whitelist/zone/leash projection, goal-conditioned policy objective, and telemetry schema v4 into
+`architecture.md` and `glossary.md`. Evidence is offline: goal-sequence, travel-planning, objective
+switch, teleport-confirmation, refusal, timeout, telemetry, localization and Qt tests, with the gate
+at 918 passed, 6 skipped, and 88.88% coverage. No Windows/live-client quest walkthrough is claimed,
+and no new client access or input capability was added.

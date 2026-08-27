@@ -56,7 +56,10 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
 )
 from flyff_bot.features.navigation.teleporter_extraction import load_teleporter_catalog
-from flyff_bot.features.navigation.teleporter_models import TeleporterDestination
+from flyff_bot.features.navigation.teleporter_models import (
+    TeleporterCatalog,
+    TeleporterDestination,
+)
 from flyff_bot.features.quests.goals import QuestNpc
 from flyff_bot.features.quests.persistence import (
     QuestDatabaseError,
@@ -169,6 +172,7 @@ class MainWindow(QMainWindow):
         teleporter_database_path = teleporter_database_path or Path(
             DEFAULT_TELEPORTER_DATABASE_PATH
         )
+        self._teleporter_catalog = load_teleporter_catalog(teleporter_database_path)
         self._latest_update: DashboardUpdate | None = None
         # Persistent header cards
         self._status_card = StatusHeaderCard()
@@ -288,7 +292,7 @@ class MainWindow(QMainWindow):
             vitals_path=vitals_config_path,
             powerup_path=powerup_config_path,
             emergency_path=emergency_config_path,
-            teleporter_destinations=load_teleporter_catalog(teleporter_database_path).destinations,
+            teleporter_destinations=self._teleporter_catalog.destinations,
         )
 
         self._build_layout()
@@ -614,6 +618,12 @@ class MainWindow(QMainWindow):
     @property
     def recovery_destination_combo(self) -> QComboBox:
         return self._settings.recovery_panel.destination_combo
+
+    @property
+    def teleporter_catalog(self) -> TeleporterCatalog:
+        """Return the extracted teleporter destinations a session may travel through."""
+
+        return self._teleporter_catalog
 
     def set_teleporter_destinations(self, destinations: tuple[TeleporterDestination, ...]) -> None:
         self._settings.recovery_panel.set_destinations(destinations)
@@ -993,6 +1003,7 @@ class MainWindow(QMainWindow):
         self._quest_panel.set_progress(
             update.quest_title, update.quest_progress, update.quest_queue_completed
         )
+        self._quest_panel.set_goal(update.quest_goal)
         self._dungeon_panel.set_snapshots(update.dungeons)
         self._readiness_panel.set_status(update.readiness)
         self._combat_panel.set_policy_diagnostic(self._translator, update.policy_fault_reason)

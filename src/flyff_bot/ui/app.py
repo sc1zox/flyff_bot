@@ -374,6 +374,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     quest_menu_perceiver=quest_menu_perceiver,
                     event_logger=SessionEventLogger(DEFAULT_SESSION_LOG_DIRECTORY),
                     foreground_window_info=controller.foreground_window_info,
+                    teleporter_catalog=window.teleporter_catalog,
                 )
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
