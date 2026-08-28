@@ -28,9 +28,16 @@ training = [
 ml = [
     "onnx>=1.22,<2",
 ]
+# Offline reinforcement-learning training (BUG-030). Only the developer-side simulator
+# environment and its framework-level conformance check import it; the live application
+# never does, so the running bot keeps no reinforcement-learning runtime dependency.
+rl = [
+    "gymnasium>=1.0,<2",
+]
 
 [dependency-groups]
 dev = [
+  "gymnasium>=1.0,<2",
   "mypy>=1.17",
   "onnx>=1.22,<2",
   "pytest>=8.4",

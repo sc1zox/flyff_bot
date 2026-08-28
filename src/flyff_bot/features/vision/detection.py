@@ -202,23 +202,42 @@ class OpenCVDnnYoloDetector:
         candidates = self._decode(output, frame.client_size)
         if not candidates:
             return []
-        boxes = [
-            [
-                candidate.bounding_box.x,
-                candidate.bounding_box.y,
-                candidate.bounding_box.width,
-                candidate.bounding_box.height,
+        return self._suppress_per_class(candidates)
+
+    def _suppress_per_class(self, candidates: list[Detection]) -> list[Detection]:
+        """Suppress overlapping boxes within each class, never across classes.
+
+        A mob standing in front of an NPC overlaps it heavily. Class-agnostic suppression
+        would drop one of the two and hide a legal candidate from targeting, so each class
+        is suppressed against itself and the surviving candidates are recombined in the
+        original decoding order (BUG-030).
+        """
+
+        kept: set[int] = set()
+        for class_id in sorted({candidate.class_id for candidate in candidates}):
+            positions = [
+                position
+                for position, candidate in enumerate(candidates)
+                if candidate.class_id == class_id
             ]
-            for candidate in candidates
-        ]
-        confidences = [candidate.confidence for candidate in candidates]
-        indexes = cv2.dnn.NMSBoxes(
-            boxes,
-            confidences,
-            self._config.confidence_threshold,
-            self._config.nms_threshold,
-        )
-        return [candidates[int(index)] for index in np.asarray(indexes).reshape(-1)]
+            boxes = [
+                [
+                    candidates[position].bounding_box.x,
+                    candidates[position].bounding_box.y,
+                    candidates[position].bounding_box.width,
+                    candidates[position].bounding_box.height,
+                ]
+                for position in positions
+            ]
+            confidences = [candidates[position].confidence for position in positions]
+            indexes = cv2.dnn.NMSBoxes(
+                boxes,
+                confidences,
+                self._config.confidence_threshold,
+                self._config.nms_threshold,
+            )
+            kept.update(positions[int(index)] for index in np.asarray(indexes).reshape(-1))
+        return [candidate for position, candidate in enumerate(candidates) if position in kept]
 
     def _decode(self, output: npt.NDArray[np.float32], source_size: ClientSize) -> list[Detection]:
         rows = _prediction_rows(output)
@@ -227,6 +246,8 @@ class OpenCVDnnYoloDetector:
         scale_y = source_size.height / self._config.input_size.height
         for row in rows:
             class_scores = row[YOLO_BOX_VALUE_COUNT:]
+            if not bool(np.all(np.isfinite(class_scores))):
+                raise DetectionError(DetectionErrorCode.INVALID_MODEL_OUTPUT)
             class_id = int(np.argmax(class_scores))
             confidence = float(class_scores[class_id])
             if confidence < self._config.confidence_threshold or class_id >= len(self._class_names):
@@ -258,7 +279,13 @@ def _prediction_rows(output: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]
 def _scaled_box(
     row: npt.NDArray[np.float32], scale_x: float, scale_y: float, source_size: ClientSize
 ) -> BoundingBox | None:
-    center_x, center_y, width, height = (float(value) for value in row[:YOLO_BOX_VALUE_COUNT])
+    geometry = row[:YOLO_BOX_VALUE_COUNT]
+    if not bool(np.all(np.isfinite(geometry))):
+        # `round()` raises `ValueError` on NaN and `OverflowError` on infinity, so a model
+        # that emitted non-finite geometry has to be rejected as a typed detection failure
+        # rather than surfacing as an untyped crash inside the perception loop (BUG-030).
+        raise DetectionError(DetectionErrorCode.INVALID_MODEL_OUTPUT)
+    center_x, center_y, width, height = (float(value) for value in geometry)
     left = max(0, round((center_x - width / 2) * scale_x))
     top = max(0, round((center_y - height / 2) * scale_y))
     right = min(source_size.width, round((center_x + width / 2) * scale_x))

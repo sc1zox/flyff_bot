@@ -138,3 +138,65 @@ def test_detector_rejects_a_live_filter_change_to_an_unknown_class() -> None:
 
     assert error.value.code is DetectionErrorCode.UNKNOWN_CLASS_FILTER
     assert detector.config.allowed_class_names == frozenset()
+
+
+def test_detector_suppresses_overlap_within_a_class_but_never_across_classes() -> None:
+    """BUG-030: an NPC standing behind a mob must not be suppressed by that mob."""
+
+    output = np.array(
+        [
+            [
+                [320.0, 320.0, 160.0, 160.0, 0.10, 0.90],
+                [322.0, 322.0, 160.0, 160.0, 0.10, 0.80],
+                [321.0, 321.0, 160.0, 160.0, 0.85, 0.10],
+            ]
+        ],
+        dtype=np.float32,
+    )
+    detector = OpenCVDnnYoloDetector(_Network(output), ("npc", "mob"))
+
+    detections = detector.detect(_frame())
+
+    assert [detection.class_name for detection in detections] == ["mob", "npc"]
+    assert [detection.confidence for detection in detections] == pytest.approx([0.9, 0.85])
+
+
+def test_detector_still_suppresses_duplicates_of_the_same_class() -> None:
+    output = np.array(
+        [
+            [
+                [320.0, 320.0, 160.0, 160.0, 0.10, 0.90],
+                [322.0, 322.0, 160.0, 160.0, 0.10, 0.80],
+            ]
+        ],
+        dtype=np.float32,
+    )
+    detector = OpenCVDnnYoloDetector(_Network(output), ("npc", "mob"))
+
+    detections = detector.detect(_frame())
+
+    assert len(detections) == 1
+    assert detections[0].confidence == pytest.approx(0.9)
+
+
+@pytest.mark.parametrize("invalid", [np.nan, np.inf, -np.inf])
+def test_detector_rejects_non_finite_box_geometry(invalid: float) -> None:
+    """BUG-030: non-finite geometry is a typed diagnostic, not a rounding crash."""
+
+    output = np.array([[[invalid, 320.0, 160.0, 160.0, 0.1, 0.9]]], dtype=np.float32)
+    detector = OpenCVDnnYoloDetector(_Network(output), ("npc", "mob"))
+
+    with pytest.raises(DetectionError) as error:
+        detector.detect(_frame())
+
+    assert error.value.code is DetectionErrorCode.INVALID_MODEL_OUTPUT
+
+
+def test_detector_rejects_non_finite_class_scores() -> None:
+    output = np.array([[[320.0, 320.0, 160.0, 160.0, 0.1, np.nan]]], dtype=np.float32)
+    detector = OpenCVDnnYoloDetector(_Network(output), ("npc", "mob"))
+
+    with pytest.raises(DetectionError) as error:
+        detector.detect(_frame())
+
+    assert error.value.code is DetectionErrorCode.INVALID_MODEL_OUTPUT

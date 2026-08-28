@@ -1,4 +1,10 @@
-"""Offline farming, navigation, and quest dynamics simulation."""
+"""Offline farming, navigation, and quest dynamics simulation.
+
+`environment.SimulatorGymEnvironment` is deliberately absent here. It is the declared
+Gymnasium environment and needs the optional `rl` extra, while this package is imported
+along the live policy-loading path, which must stay free of a training framework
+(BUG-030). Offline trainers import that module by its full path.
+"""
 
 from flyff_bot.features.policy.action_payloads import ObjectiveKind
 from flyff_bot.features.simulator.calibration import CalibrationError, validate_calibration
@@ -7,7 +13,6 @@ from flyff_bot.features.simulator.engine import (
     IllegalSimulatorAction,
     SimulatedMonster,
 )
-from flyff_bot.features.simulator.environment import SimulatorGymEnvironment
 from flyff_bot.features.simulator.models import (
     SIMULATOR_SCHEMA_VERSION,
     CalibrationBaseline,
@@ -32,7 +37,6 @@ __all__ = [
     "SimulatedMonster",
     "SimulationMetrics",
     "SimulatorConfig",
-    "SimulatorGymEnvironment",
     "fit_calibration",
     "validate_calibration",
 ]

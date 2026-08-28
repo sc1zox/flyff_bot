@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +12,10 @@ import yaml
 DATASET_SPLITS = ("train", "val")
 IMAGE_SUFFIXES = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".webp"})
 YOLO_LABEL_VALUE_COUNT = 5
+# The standard YOLO layout pairs an image directory with a label directory that differs only
+# in this one path component, so the declared image path determines where labels are read.
+IMAGE_DIRECTORY_NAME = "images"
+LABEL_DIRECTORY_NAME = "labels"
 # Named so the handlers below stay single-name `except` clauses. The pinned formatter
 # rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
 # what the group of failures means.
@@ -19,11 +24,17 @@ ANNOTATION_FIELD_ERRORS = (IndexError, ValueError)
 
 @dataclass(frozen=True, slots=True)
 class DatasetManifest:
-    """The class registry and root directory declared by a YOLO data manifest."""
+    """The class registry, root and declared split locations of a YOLO data manifest."""
 
     path: Path
     root: Path
     class_names: tuple[str, ...]
+    split_image_directories: Mapping[str, Path]
+
+    def label_directory(self, split: str) -> Path:
+        """Return the label directory paired with one declared split image directory."""
+
+        return _paired_label_directory(self.split_image_directories[split])
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +91,30 @@ def load_dataset_manifest(manifest_path: Path) -> DatasetManifest:
     ):
         raise ValueError("manifest_invalid")
     root = (manifest_path.parent / root_value).resolve()
-    return DatasetManifest(manifest_path, root, class_names)
+    return DatasetManifest(
+        manifest_path,
+        root,
+        class_names,
+        {
+            "train": (root / train_path).resolve(),
+            "val": (root / validation_path).resolve(),
+        },
+    )
+
+
+def _paired_label_directory(image_directory: Path) -> Path:
+    """Return the label directory of one image directory, keeping the rest of the path.
+
+    Only the last `images` component is rewritten, so a dataset root that itself contains
+    the word `images` is not corrupted by the substitution.
+    """
+
+    parts = list(image_directory.parts)
+    for position in range(len(parts) - 1, -1, -1):
+        if parts[position] == IMAGE_DIRECTORY_NAME:
+            parts[position] = LABEL_DIRECTORY_NAME
+            return Path(*parts)
+    return image_directory.parent / LABEL_DIRECTORY_NAME / image_directory.name
 
 
 def validate_dataset(manifest_path: Path) -> DatasetValidationResult:
@@ -93,14 +127,19 @@ def validate_dataset(manifest_path: Path) -> DatasetValidationResult:
 
     issues: list[DatasetIssue] = []
     for split in DATASET_SPLITS:
-        image_directory = manifest.root / "images" / split
-        label_directory = manifest.root / "labels" / split
+        image_directory = manifest.split_image_directories[split]
+        label_directory = manifest.label_directory(split)
         if not image_directory.is_dir() or not label_directory.is_dir():
-            issues.append(DatasetIssue("layout_missing", manifest.root / split))
+            issues.append(DatasetIssue("layout_missing", image_directory))
             continue
         images = [
             path for path in image_directory.iterdir() if path.suffix.lower() in IMAGE_SUFFIXES
         ]
+        if not images:
+            # Training or validating against an empty split silently produces a model that
+            # was never fitted or never measured, so it is refused here (BUG-030).
+            issues.append(DatasetIssue("split_empty", image_directory))
+            continue
         image_stems = {image.stem for image in images}
         for image_path in images:
             if cv2.imread(str(image_path), cv2.IMREAD_COLOR) is None:

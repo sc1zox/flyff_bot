@@ -7,7 +7,6 @@ from collections.abc import Callable
 
 import pytest
 
-from flyff_bot.features.rl.models import RlObservation
 from flyff_bot.features.simulator import (
     CalibrationBaseline,
     CalibrationError,
@@ -15,7 +14,6 @@ from flyff_bot.features.simulator import (
     FarmingSimulator,
     SimulationMetrics,
     SimulatorConfig,
-    SimulatorGymEnvironment,
     validate_calibration,
 )
 
@@ -55,29 +53,6 @@ def test_calibration_uses_kill_count_for_matching_baselines() -> None:
     baseline = CalibrationBaseline(60.0, 2, 2.0, 5.0, 10.0, 0.5, 5.0)
 
     assert validate_calibration(metrics, baseline)
-
-
-def test_gymnasium_shaped_reset_step_and_close(
-    make_simulator: Callable[[], FarmingSimulator],
-) -> None:
-    environment = SimulatorGymEnvironment(make_simulator())
-    reset_result = environment.reset(seed=7)
-    assert isinstance(reset_result, tuple)
-    observation = reset_result[0]
-    info = reset_result[1]
-    assert isinstance(observation, RlObservation)
-    action_mask = info["action_mask"]
-    assert isinstance(action_mask, tuple)
-    action = next(index for index, allowed in enumerate(action_mask) if allowed)
-    step_result = environment.step(action)
-    environment.close()
-
-    assert len(step_result) == 5
-    assert isinstance(step_result[1], float)
-    assert len(action_mask) == 4
-    assert observation.kinematics.speed >= 0.0
-    with pytest.raises(RuntimeError):
-        environment.step(action)
 
 
 def test_simulation_runs_at_least_one_hundred_times_real_time(
