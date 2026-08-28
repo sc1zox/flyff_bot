@@ -1363,6 +1363,15 @@ class FarmingOrchestrator:
         attach_spawn_zones = getattr(self._pipeline, "attach_spawn_zones", None)
         if callable(attach_spawn_zones):
             attach_spawn_zones(() if navigator is None else navigator.world_map.zones)
+        # Adoption is the one moment the session knows which world its offline geometry
+        # belongs to, so the world is sampled here rather than polled every tick (US-083).
+        adopt_world_id = getattr(self._pipeline, "adopt_world_id", None)
+        if callable(adopt_world_id):
+            adopt_world_id(
+                None
+                if navigator is None or self._pathing is None
+                else self._pathing.observe_world_id()
+            )
         if self._pathing is not None:
             self._pathing.attach_vector_navigator(navigator)
             self._publish(False)

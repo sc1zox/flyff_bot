@@ -18,6 +18,7 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
+from flyff_bot.features.automation.observation_interval import ObservationInterval
 from flyff_bot.features.client_data.label_mapping import SpawnZoneDeclaration
 from flyff_bot.features.perception.catalog_join import MobCatalogJoin
 from flyff_bot.features.perception.mob_world_position import (
@@ -128,6 +129,7 @@ class PerceptionPipeline:
         self._next_monster_stats_read_at_seconds = 0.0
         self._mob_world_estimator: MobWorldPositionEstimator | None = None
         self._catalog_join: MobCatalogJoin | None = None
+        self._adopted_world_id: int | None = None
 
     def attach_world_geometry(self, geometry: MobWorldGeometryFeed | None) -> None:
         """Bind, or release, the live camera and NavMesh detections are unprojected against.
@@ -159,6 +161,16 @@ class PerceptionPipeline:
         if self._catalog_join is not None:
             self._catalog_join = self._catalog_join.with_spawn_zones(zones)
 
+    def adopt_world_id(self, world_id: int | None) -> None:
+        """Record which world the session's offline geometry was adopted for.
+
+        The mesh and the map are offline artifacts that cannot notice a teleport. Pinning the
+        world they were adopted in is what lets a later tick see that the client has moved to
+        a different one and refuse to unproject into geometry that no longer applies.
+        """
+
+        self._adopted_world_id = world_id
+
     @property
     def has_player_stats_provider(self) -> bool:
         """Return whether exact client-memory player statistics are configured."""
@@ -175,6 +187,9 @@ class PerceptionPipeline:
         """Build a new snapshot, retaining a feed's prior data if that feed fails."""
 
         frame = self._frame_source.capture(window_handle)
+        # Read once, at the top, and judge every source against this one instant. Two clock
+        # reads in a tick would be the very incoherence the interval check exists to catch.
+        observed_at_seconds = self._clock()
         viewport = Viewport(frame.client_size.width, frame.client_size.height)
         failures: set[PerceptionFailure] = set()
         visible_mobs = previous_state.visible_mobs
@@ -184,6 +199,7 @@ class PerceptionPipeline:
         monster_stats = previous_state.monster_stats
         catalog_joins = previous_state.mob_catalog_joins
         catalog_rejections = previous_state.mob_catalog_rejections
+        observation_interval = ObservationInterval()
 
         try:
             visible_mobs = tuple(
@@ -194,9 +210,14 @@ class PerceptionPipeline:
             failures.add(PerceptionFailure.DETECTION)
         else:
             if self._mob_world_estimator is not None:
-                visible_mobs = with_estimated_world_positions(
-                    visible_mobs, self._mob_world_estimator.estimate(visible_mobs, viewport)
+                observation = self._mob_world_estimator.observe(
+                    visible_mobs,
+                    viewport,
+                    observed_at_seconds,
+                    adopted_world_id=self._adopted_world_id,
                 )
+                observation_interval = observation.interval
+                visible_mobs = with_estimated_world_positions(visible_mobs, observation.estimates)
             # Joined against this frame's own detections, so the enrichment can never
             # outlive the boxes it describes: a failed detection keeps the previous join
             # alongside the previous mobs instead of re-keying a stale one.
@@ -207,7 +228,6 @@ class PerceptionPipeline:
             selected_target = _selected_target(self._target_verifier.verify(frame))
         except FRAME_READ_ERRORS:
             failures.add(PerceptionFailure.TARGET_VERIFICATION)
-        observed_at_seconds = self._clock()
         player_stats_snapshot = previous_state.player_stats_snapshot
         try:
             if self._player_stats_reader is not None and poll_live_providers:
@@ -260,6 +280,7 @@ class PerceptionPipeline:
             monster_stats=monster_stats,
             mob_catalog_joins=catalog_joins,
             mob_catalog_rejections=catalog_rejections,
+            observation_interval=observation_interval,
         )
         return PerceptionTick(state, _events(previous_state, state), frozenset(failures), frame)
 

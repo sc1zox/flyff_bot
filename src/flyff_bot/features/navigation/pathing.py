@@ -181,6 +181,7 @@ class PathingController:
         self._live_sampled_at_seconds: float | None = None
         self._camera_state: CameraState | None = None
         self._camera_sampled_at_seconds: float | None = None
+        self._observed_world_id: int | None = None
         self._camera_error_code: CameraReadErrorCode | None = None
         self._attack_point_planner: AttackPointPlanner | None = None
         self._planned_attack_target: WorldPosition | None = None
@@ -297,7 +298,19 @@ class PathingController:
         dispatcher = self._teleporter_dispatcher
         if dispatcher is None:
             return None
-        return dispatcher.observer.observe().world_id
+        self._observed_world_id = dispatcher.observer.observe().world_id
+        return self._observed_world_id
+
+    @property
+    def observed_world_id(self) -> int | None:
+        """Return the world last read from the client, without reading it again.
+
+        Perception needs the world on every tick to notice a cross-world sample, but a
+        read-only memory poll per tick buys nothing: the character's world changes only
+        across a teleport, which goes through :meth:`observe_world_id` anyway.
+        """
+
+        return self._observed_world_id
 
     @property
     def leash_anchor(self) -> WorldPosition | None:

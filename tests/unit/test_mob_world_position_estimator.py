@@ -8,6 +8,7 @@ from time import perf_counter
 import pytest
 
 from flyff_bot.features.automation.models import Viewport, VisibleMob
+from flyff_bot.features.automation.observation_interval import IntervalRejection
 from flyff_bot.features.navigation.live_camera import CameraState, Vector3D
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshBaker
@@ -20,6 +21,7 @@ from flyff_bot.features.perception import (
     with_estimated_world_positions,
 )
 
+SAMPLED_AT_SECONDS = 1_000.0
 VIEWPORT_WIDTH = 200
 VIEWPORT_HEIGHT = 100
 BATCH_DETECTION_COUNT = 20
@@ -182,12 +184,16 @@ def test_estimator_reads_the_live_geometry_feed_and_follows_it_offline() -> None
     estimator = MobWorldPositionEstimator(feed)
     detections = (_mob_at(100.0, 100.0),)
 
-    measured = estimator.estimate(detections, Viewport(VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
+    viewport = Viewport(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+    measured = estimator.observe(detections, viewport, SAMPLED_AT_SECONDS)
     feed.navmesh = None
-    unavailable = estimator.estimate(detections, Viewport(VIEWPORT_WIDTH, VIEWPORT_HEIGHT))
+    unavailable = estimator.observe(detections, viewport, SAMPLED_AT_SECONDS)
 
-    assert measured[0] is not None
-    assert unavailable == (None,)
+    assert measured.estimates[0] is not None
+    assert measured.interval.is_coherent
+    assert unavailable.estimates == (None,)
+    # A released mesh is an absent source, not a silently empty raycast.
+    assert unavailable.interval.rejection is IntervalRejection.SOURCE_MISSING
 
 
 def test_chunk_filtered_batch_of_twenty_detections_stays_within_the_frame_budget() -> None:
@@ -285,11 +291,20 @@ class _GeometryFeed:
     """A mutable stand-in for the pathing controller's read-only geometry properties."""
 
     def __init__(
-        self, camera_state: CameraState | None, position: WorldPosition | None, mesh: BakedNavMesh
+        self,
+        camera_state: CameraState | None,
+        position: WorldPosition | None,
+        mesh: BakedNavMesh,
+        *,
+        sampled_at_seconds: float | None = SAMPLED_AT_SECONDS,
+        observed_world_id: int | None = None,
     ) -> None:
         self.camera_state = camera_state
         self.live_position = position
         self.navmesh: BakedNavMesh | None = mesh
+        self.camera_sampled_at_seconds = sampled_at_seconds
+        self.live_sampled_at_seconds = sampled_at_seconds
+        self.observed_world_id = observed_world_id
 
 
 def _mob_at(center_x: float, bottom_y: float) -> VisibleMob:

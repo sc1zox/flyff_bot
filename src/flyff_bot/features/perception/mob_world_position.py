@@ -14,6 +14,12 @@ from math import dist
 from typing import Protocol
 
 from flyff_bot.features.automation.models import Viewport, VisibleMob
+from flyff_bot.features.automation.observation_interval import (
+    ObservationInterval,
+    ObservationSample,
+    ObservationSource,
+    evaluate_observation_interval,
+)
 from flyff_bot.features.navigation.live_camera import CameraState, unproject_screen_ray
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
@@ -32,7 +38,12 @@ class EstimatedMobWorldPosition:
 
 
 class MobWorldGeometryFeed(Protocol):
-    """The live read-only geometry one perception tick unprojects detections against."""
+    """The live read-only geometry one perception tick unprojects detections against.
+
+    The sample timestamps are part of the contract rather than an optional extra: a camera
+    pose and a player coordinate cannot be fused without knowing whether they describe the
+    same instant, and a feed that cannot say when it read something cannot be fused at all.
+    """
 
     @property
     def camera_state(self) -> CameraState | None: ...
@@ -42,6 +53,28 @@ class MobWorldGeometryFeed(Protocol):
 
     @property
     def navmesh(self) -> BakedNavMesh | None: ...
+
+    @property
+    def camera_sampled_at_seconds(self) -> float | None: ...
+
+    @property
+    def live_sampled_at_seconds(self) -> float | None: ...
+
+    @property
+    def observed_world_id(self) -> int | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class MobWorldObservation:
+    """One tick's world estimates together with the interval that justifies them.
+
+    When the interval is incoherent every estimate is ``None``: the criterion is that a
+    stale or cross-world sample is rejected rather than combined, so there is deliberately
+    no partial result to fall back on.
+    """
+
+    estimates: tuple[EstimatedMobWorldPosition | None, ...]
+    interval: ObservationInterval
 
 
 def ground_contact_anchor(mob: VisibleMob) -> tuple[float, float]:
@@ -104,18 +137,70 @@ class MobWorldPositionEstimator:
     def __init__(self, geometry: MobWorldGeometryFeed) -> None:
         self._geometry = geometry
 
-    def estimate(
-        self, detections: tuple[VisibleMob, ...], viewport: Viewport
-    ) -> tuple[EstimatedMobWorldPosition | None, ...]:
-        """Estimate against the feed's newest camera, GPS, and mesh state."""
+    def observe(
+        self,
+        detections: tuple[VisibleMob, ...],
+        viewport: Viewport,
+        at_seconds: float,
+        adopted_world_id: int | None = None,
+    ) -> MobWorldObservation:
+        """Estimate positions only when this tick's samples describe one instant.
 
-        return estimate_mob_world_positions(
-            detections,
-            self._geometry.camera_state,
-            self._geometry.live_position,
-            viewport.width,
-            viewport.height,
-            self._geometry.navmesh,
+        ``adopted_world_id`` is the world the session's offline geometry was built for. It is
+        compared against the world the client reports, so a mesh baked for another map is
+        refused instead of being raycast into.
+        """
+
+        geometry = self._geometry
+        interval = evaluate_observation_interval(
+            self._samples(adopted_world_id), at_seconds=at_seconds
+        )
+        if not interval.is_coherent:
+            return MobWorldObservation((None,) * len(detections), interval)
+        return MobWorldObservation(
+            estimate_mob_world_positions(
+                detections,
+                geometry.camera_state,
+                geometry.live_position,
+                viewport.width,
+                viewport.height,
+                geometry.navmesh,
+            ),
+            interval,
+        )
+
+    def _samples(self, adopted_world_id: int | None) -> tuple[ObservationSample, ...]:
+        """Describe what each source contributed to this tick, present or not."""
+
+        geometry = self._geometry
+        observed_world_id = geometry.observed_world_id
+        return (
+            ObservationSample(
+                ObservationSource.CAMERA,
+                sampled_at_seconds=geometry.camera_sampled_at_seconds,
+                world_id=observed_world_id,
+                is_available=geometry.camera_state is not None,
+            ),
+            ObservationSample(
+                ObservationSource.GPS,
+                sampled_at_seconds=geometry.live_sampled_at_seconds,
+                world_id=observed_world_id,
+                is_available=geometry.live_position is not None,
+            ),
+            ObservationSample(
+                ObservationSource.NAVMESH,
+                world_id=adopted_world_id,
+                is_live=False,
+                is_available=geometry.navmesh is not None,
+            ),
+            ObservationSample(
+                ObservationSource.WORLD_MAP,
+                world_id=adopted_world_id,
+                is_live=False,
+                # The adopted map steers travel rather than unprojection, so a session
+                # without one still fuses candidates; it simply states no world.
+                is_available=True,
+            ),
         )
 
 

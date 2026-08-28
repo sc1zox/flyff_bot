@@ -68,7 +68,7 @@ coherent, safe control loop in the client**.
       ID, class metadata, verified combat/movement properties, spawn capacity/respawn evidence, and
       available drop metadata. Ambiguous or missing label mappings remain explicit and cannot join
       to a nearby or similarly named mover.
-- [ ] Given a camera, GPS, world map, and NavMesh sample from the same valid observation interval,
+- [x] Given a camera, GPS, world map, and NavMesh sample from the same valid observation interval,
       when a candidate is enriched, then its screen box, bottom-centre ray, world XYZ, polygon,
       route distance, reachability, leash state, elevation, terrain/corridor cost, and source ages
       describe that same instance and interval. A stale or cross-world sample is rejected rather

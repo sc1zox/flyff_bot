@@ -15,6 +15,11 @@ from flyff_bot.features.automation.models import (
     TargetState,
     WorldState,
 )
+from flyff_bot.features.automation.observation_interval import (
+    DEFAULT_LIVE_SAMPLE_MAX_AGE_SECONDS,
+    IntervalRejection,
+    ObservationSource,
+)
 from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshBaker
@@ -39,6 +44,8 @@ from flyff_bot.features.vision import (
 
 WINDOW_HANDLE = 42
 OBSERVED_AT_SECONDS = 12.5
+ADOPTED_WORLD_ID = 1
+CLIENT_WORLD_ID = 7
 FRAME = CapturedFrame(np.zeros((4, 4, 3), dtype=np.uint8), ClientSize(4, 4))
 CLIENT_WIDTH = 200
 CLIENT_HEIGHT = 100
@@ -419,10 +426,16 @@ class _GeometryFeed:
         camera_state: CameraState | None,
         position: WorldPosition | None,
         mesh: BakedNavMesh | None,
+        *,
+        sampled_at_seconds: float | None = OBSERVED_AT_SECONDS,
+        observed_world_id: int | None = None,
     ) -> None:
         self.camera_state = camera_state
         self.live_position = position
         self.navmesh = mesh
+        self.camera_sampled_at_seconds = sampled_at_seconds
+        self.live_sampled_at_seconds = sampled_at_seconds
+        self.observed_world_id = observed_world_id
 
 
 def _ground_mesh() -> BakedNavMesh:
@@ -456,3 +469,73 @@ def _camera() -> CameraState:
         view_projection_matrix=identity,
         inverse_view_projection_matrix=identity,
     )
+
+
+def test_a_stale_camera_sample_leaves_detections_unmeasured_and_says_why() -> None:
+    # The camera read is old enough that it no longer describes the pose the GPS coordinate
+    # was taken from. Fusing them would still produce a coordinate, which is the defect.
+    detector = _Detector([Detection(BoundingBox(90, 80, 20, 20), 0.9, 7, "Aibatt")])
+    pipeline = PerceptionPipeline(
+        _ClientFrameSource(),
+        detector,
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+    geometry = _GeometryFeed(_camera(), WorldPosition(0.0, GROUND_ELEVATION, 0.0), _ground_mesh())
+    geometry.camera_sampled_at_seconds = (
+        OBSERVED_AT_SECONDS - DEFAULT_LIVE_SAMPLE_MAX_AGE_SECONDS - 1.0
+    )
+    pipeline.attach_world_geometry(geometry)
+
+    state = pipeline.tick(WINDOW_HANDLE, _previous_state()).state
+
+    assert state.visible_mobs[0].world_x is None
+    assert state.observation_interval.rejection is IntervalRejection.SOURCE_STALE
+    assert state.observation_interval.rejected_sources == (ObservationSource.CAMERA,)
+
+
+def test_geometry_adopted_in_another_world_is_refused_rather_than_raycast() -> None:
+    detector = _Detector([Detection(BoundingBox(90, 80, 20, 20), 0.9, 7, "Aibatt")])
+    pipeline = PerceptionPipeline(
+        _ClientFrameSource(),
+        detector,
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+    geometry = _GeometryFeed(
+        _camera(),
+        WorldPosition(0.0, GROUND_ELEVATION, 0.0),
+        _ground_mesh(),
+        observed_world_id=CLIENT_WORLD_ID,
+    )
+    pipeline.attach_world_geometry(geometry)
+    pipeline.adopt_world_id(ADOPTED_WORLD_ID)
+
+    state = pipeline.tick(WINDOW_HANDLE, _previous_state()).state
+
+    assert state.visible_mobs[0].world_x is None
+    assert state.observation_interval.rejection is IntervalRejection.CROSS_WORLD
+
+
+def test_geometry_adopted_in_the_current_world_still_measures() -> None:
+    detector = _Detector([Detection(BoundingBox(90, 80, 20, 20), 0.9, 7, "Aibatt")])
+    pipeline = PerceptionPipeline(
+        _ClientFrameSource(),
+        detector,
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+    geometry = _GeometryFeed(
+        _camera(),
+        WorldPosition(0.0, GROUND_ELEVATION, 0.0),
+        _ground_mesh(),
+        observed_world_id=ADOPTED_WORLD_ID,
+    )
+    pipeline.attach_world_geometry(geometry)
+    pipeline.adopt_world_id(ADOPTED_WORLD_ID)
+
+    state = pipeline.tick(WINDOW_HANDLE, _previous_state()).state
+
+    assert state.visible_mobs[0].world_x == 0.0
+    assert state.observation_interval.is_coherent
+    assert state.observation_interval.world_id == ADOPTED_WORLD_ID

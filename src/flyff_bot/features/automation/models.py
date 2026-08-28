@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from flyff_bot.features.automation.observation_interval import ObservationInterval
 from flyff_bot.features.client_data.label_mapping import (
     JoinedMoverCandidate,
     LabelJoinRejection,
@@ -143,6 +144,10 @@ class WorldState:
     mob_catalog_joins: tuple[JoinedMoverCandidate, ...] = ()
     #: Why a detected class stayed unjoined, stated once per class rather than per box.
     mob_catalog_rejections: tuple[LabelJoinRejection, ...] = ()
+    #: Whether this tick's camera, GPS, world map and NavMesh samples described one instant
+    #: in one world, and the per-source ages behind that verdict (US-083). An incoherent
+    #: interval leaves every world position unmeasured rather than fusing across instants.
+    observation_interval: ObservationInterval = field(default_factory=ObservationInterval)
 
     def catalog_join(self, candidate_index: int | None) -> JoinedMoverCandidate | None:
         """Return the authoritative record joined to one detection, or ``None``."""
