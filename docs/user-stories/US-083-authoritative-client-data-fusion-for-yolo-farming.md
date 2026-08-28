@@ -78,7 +78,7 @@ coherent, safe control loop in the client**.
       represented with provenance and missingness. The client selected-target identity/HP/state is
       reconciled with the visually selected YOLO instance; disagreement is visible and fails closed
       for actions that require authoritative identity.
-- [ ] Given an active farming or quest goal, when legal options are built, then world ID, active
+- [x] Given an active farming or quest goal, when legal options are built, then world ID, active
       spawn zone, quest/objective identity and progress, route/teleport state, dungeon availability,
       combat engagement, configured skill/resource constraints, and readiness determine the offered
       options before the policy ranks them. Optional unrelated data does not block an independent

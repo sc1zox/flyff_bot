@@ -21,6 +21,11 @@ from flyff_bot.features.policy.action_payloads import (
     strategic_goal_at,
     strategic_goal_index,
 )
+from flyff_bot.features.policy.goal_preconditions import (
+    can_engage_targets,
+    can_interact,
+    can_navigate,
+)
 from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjective,
     MidLevelTacticalPolicy,
@@ -157,17 +162,29 @@ class HierarchicalOnnxPolicy:
     def _high_mask(self, context: PolicyContext) -> tuple[bool, ...]:
         objective = self.objective
         progress_complete = objective.progress >= objective.required_progress
-        target_allowed = any(candidate.is_eligible for candidate in context.candidates) and not (
-            objective.kind.value == "navigation" or progress_complete
+        grounding = context.grounding
+        # The grounding facts narrow the option set first; the objective and the prevalidated
+        # option lists then narrow it further. A capability blocked for an unrelated reason
+        # removes only its own goal (US-083).
+        target_allowed = (
+            any(candidate.is_eligible for candidate in context.candidates)
+            and can_engage_targets(grounding)
+            and not (objective.kind.value == "navigation" or progress_complete)
         )
         navigate_allowed = (
             objective.destination in context.valid_destinations
+            and can_navigate(grounding)
             and not objective.destination_reached
         )
         interact_allowed = (
-            objective.interaction_target_id,
-            objective.interaction_type,
-        ) in context.valid_interactions and progress_complete
+            (
+                objective.interaction_target_id,
+                objective.interaction_type,
+            )
+            in context.valid_interactions
+            and can_interact(grounding)
+            and progress_complete
+        )
         allowed = {
             StrategicGoalKind.TARGET: target_allowed,
             StrategicGoalKind.NAVIGATE: navigate_allowed,

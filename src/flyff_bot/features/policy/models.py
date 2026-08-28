@@ -7,7 +7,7 @@ automation execution boundary (US-067).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import numpy as np
@@ -25,6 +25,7 @@ from flyff_bot.features.policy.action_payloads import (
     TargetAction,
     WaitAction,
 )
+from flyff_bot.features.policy.goal_preconditions import SessionGrounding
 from flyff_bot.features.rl.models import NavMeshContext, PlayerKinematics
 
 __all__ = [
@@ -131,6 +132,10 @@ class PolicyContext:
     valid_attack_points: tuple[AttackPointAction, ...] = ()
     macro_event_token: tuple[object, ...] = ()
     live_state: LiveObservationState | None = None
+    #: The session facts that decide which goals are legal before ranking (US-083). Its
+    #: defaults are the least-capable reading, so an unmeasured fact narrows the option set
+    #: instead of silently claiming a capability the session cannot ground.
+    grounding: SessionGrounding = field(default_factory=SessionGrounding)
 
 
 class TacticalPolicy(Protocol):

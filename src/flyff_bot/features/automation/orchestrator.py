@@ -130,6 +130,7 @@ from flyff_bot.features.player_stats.models import (
     PlayerStatsSource,
 )
 from flyff_bot.features.policy.contract import ContractVersionError
+from flyff_bot.features.policy.goal_preconditions import SessionGrounding
 from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjective,
     HierarchicalObjectiveKind,
@@ -1143,6 +1144,39 @@ class FarmingOrchestrator:
             feature_matrix(self._policy_feature_rows(candidates)),
             valid_attack_points=self._policy_attack_points(candidates),
             live_state=self._live_observation_state(),
+            grounding=self._session_grounding(),
+        )
+
+    def _session_grounding(self) -> SessionGrounding:
+        """Describe the facts that decide which goals can be grounded this tick (US-083).
+
+        Read from the live session rather than assumed: an unmeasured fact keeps its
+        least-capable default, which narrows the offered options instead of claiming a
+        capability the session cannot actually ground.
+        """
+
+        pathing = self._pathing
+        sequence = self._quest_goals
+        goal = None if sequence is None else sequence.active
+        identity = None if sequence is None else sequence.identity()
+        return SessionGrounding(
+            world_id=None if pathing is None else pathing.observed_world_id,
+            objective_id=None if goal is None or identity is None else str(identity),
+            has_route=pathing is not None and bool(pathing.world_waypoints),
+            teleport_in_progress=self._quest_teleport_active,
+            # The dungeon registry is intentionally empty until one is extracted, so the goal
+            # stays unoffered rather than being ranked against nothing.
+            dungeon_available=bool(self._dungeon_snapshots),
+            is_engaged=self._engaged_monster_name is not None,
+            # An engagement that cannot cast is an engagement that stalls, so a configured
+            # resource floor is part of whether attacking is grounded at all.
+            has_skill_resources=(
+                self._state.player_vitals.mp_percentage
+                >= self._tactical_parameters.mp_threshold_percent
+            ),
+            blocked_capabilities=frozenset(
+                item.capability for item in self._readiness.capabilities if item.blocked
+            ),
         )
 
     def _policy_attack_points(
