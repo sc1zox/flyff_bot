@@ -13,6 +13,7 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
+from flyff_bot.features.policy.candidate_economics import rank_candidates
 from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 
 VIRTUAL_KEY_SPACE = 0x20
@@ -311,6 +312,10 @@ class CombatController:
         self._damage_dealt = False
         self._engaged_position: Position | None = None
         self._engaged_class_name: str | None = None
+        #: Classes that still owe the session a kill quota (US-035). Bound by the
+        #: orchestrator, which owns quota progress; empty means every class is worth the
+        #: same base goal value.
+        self._quota_class_names: frozenset[str] = frozenset()
         self._last_progress_at_seconds: float | None = None
         self._lockouts: list[TargetLockout] = []
         self._approach_failure: ApproachFailure | None = None
@@ -465,6 +470,11 @@ class CombatController:
         self._reset()
         return CombatDecision(CombatMode.IDLE)
 
+    def configure_quota_classes(self, class_names: frozenset[str]) -> None:
+        """Bind the classes whose kills still advance a quota, for value ranking."""
+
+        self._quota_class_names = class_names
+
     def _eligible_candidates(self, state: WorldState) -> list[VisibleMob]:
         """Return the deterministic candidate mask used by policies and fallback."""
 
@@ -481,6 +491,18 @@ class CombatController:
         candidates = self._eligible_candidates(state)
         if not candidates:
             return None
+        # Rank on expected goal value per second whenever the authoritative catalog can price
+        # the fight (US-083 AC8). Distance stays a cost term inside that objective rather than
+        # standing in for it. Without any client evidence the estimate has nothing the older
+        # geometric ordering did not, so that ordering is kept instead of dressing the same
+        # numbers up as an economic decision.
+        ranked = rank_candidates(
+            tuple(candidates),
+            state,
+            quota_class_names=self._quota_class_names,
+        )
+        if ranked and ranked[0][1].has_client_evidence:
+            return ranked[0][0]
         if not state.viewport.has_size:
             if not any(mob.navmesh_path_distance is not None for mob in candidates):
                 return max(

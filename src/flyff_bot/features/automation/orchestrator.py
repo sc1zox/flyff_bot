@@ -1030,6 +1030,9 @@ class FarmingOrchestrator:
     def _apply_active_target_classes(self) -> None:
         allowed = self._kill_goals.active_class_names
         self.configure_target_classes(allowed)
+        # The classes that still owe a quota are worth more than the ones that do not, and
+        # ranking is where that difference has to be visible (US-083 AC8).
+        self._combat.configure_quota_classes(allowed)
         if self._on_target_classes_changed is not None:
             self._on_target_classes_changed(allowed)
 

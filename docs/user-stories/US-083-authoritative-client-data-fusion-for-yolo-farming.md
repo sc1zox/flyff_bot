@@ -88,7 +88,7 @@ coherent, safe control loop in the client**.
       systems, missing-value semantics, action candidates, masks, and source digests. No parallel
       reduced observation builder fabricates zeros or drops a client field without a documented
       reason.
-- [ ] Given two legal YOLO candidates, when the farming policy ranks them, then the expected objective
+- [x] Given two legal YOLO candidates, when the farming policy ranks them, then the expected objective
       accounts for verified goal value and measured end-to-end time/cost: route and turning time,
       expected combat duration, stall/recovery risk, player-resource risk, respawn/camp follow-up
       value, and failed-action cost. Minimum walking distance is treated as one cost component, not
