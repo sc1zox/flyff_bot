@@ -121,6 +121,44 @@ coherent, safe control loop in the client**.
 
 ## Progress
 
+- 2026-08-28 - **Fusion, policy, telemetry and reporting criteria (AC4-AC12) landed.** Eleven of
+  fourteen criteria are now met; AC1, AC2 and AC14 remain.
+
+  - **AC4** - a tick classifies its own sample set before any enrichment. Live sources carry an
+    age and a span check; static artifacts have no age to decay and are judged on world identity.
+    An incoherent set yields no world position and a typed reason with per-source ages. The world
+    is sampled at map adoption rather than polled per tick, since a mesh cannot notice a teleport.
+  - **AC5** - the client's authoritative mover id is reconciled against the engaged detection's
+    joined mover id, and a *stated* disagreement stops the attack. Absent profile, nothing
+    selected, and an unjoined detection are "not proven" rather than "in conflict" and do not
+    block, so installs without a fingerprinted client are unaffected. Every proven statistic now
+    reaches the encoded decision paired with a missing indicator, plus one provenance column.
+  - **AC6** - world identity, objective identity, route and teleport state, dungeon availability,
+    engagement, the resource floor and per-capability readiness narrow the option set before the
+    policy ranks it. Capabilities stay independent: a blocked navigation source removes travel but
+    not the fight.
+  - **AC7** - the recorded snapshot carries a decision-provenance block, so a replay rebuilds the
+    vector that was actually served, missingness included. The simulator's absent profile is now a
+    documented reason rather than an omission.
+  - **AC8** - candidates rank on verified goal value over measured end-to-end time, with distance
+    as one cost term. This is the first consumer of `mob_catalog_joins`. A declared drop is never
+    counted as yield.
+  - **AC9** - efficiency reports each cost separately with no combined score; only verified kills
+    count, unexplained time is reported rather than absorbed, and the UI has no way to show an
+    expected drop as collected loot.
+  - **AC10** - each candidate records the mover it joined and the artifact that bound it; the
+    decision names its producing artifact and the exact mask it was taken under.
+  - **AC11** - artifacts bind every input by digest and a mismatch refuses with no partial
+    compatibility path. Parity covers candidate identities as well as the vector.
+  - **AC12** - a tick whose sources could not be fused refuses and names the fault; recovery needs
+    a coherent sample set, not merely a later tick.
+
+  One open question was found rather than settled: the simulator's Gymnasium environment
+  deliberately raises on an action its per-tick mask forbids, while the `Discrete` space it
+  declares cannot express that mask, so `check_env` fails whenever it samples one. The
+  framework-check test is now seeded to remove an order dependence; which of the two intents is
+  correct belongs to BUG-030.
+
 - 2026-08-28 - **Foundation layer (data + manifest + join) landed; the fusion, policy, telemetry
   and reporting criteria are not started.** This story is epic-sized; the work below is the layer
   every remaining criterion consumes.
