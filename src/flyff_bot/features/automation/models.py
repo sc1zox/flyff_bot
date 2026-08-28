@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from flyff_bot.features.automation.observation_interval import ObservationInterval
+from flyff_bot.features.automation.target_reconciliation import (
+    TargetAgreement,
+    TargetReconciliation,
+)
 from flyff_bot.features.client_data.label_mapping import (
     JoinedMoverCandidate,
     LabelJoinRejection,
@@ -148,6 +152,12 @@ class WorldState:
     #: in one world, and the per-source ages behind that verdict (US-083). An incoherent
     #: interval leaves every world position unmeasured rather than fusing across instants.
     observation_interval: ObservationInterval = field(default_factory=ObservationInterval)
+    #: Whether the client's authoritative selected target and the engaged detection describe
+    #: the same actor (US-083). Carried on the snapshot so the heuristic, learned, simulator
+    #: and telemetry paths all read one reconciliation rather than each recomputing its own.
+    target_reconciliation: TargetReconciliation = field(
+        default_factory=lambda: TargetReconciliation(TargetAgreement.NO_AUTHORITATIVE_PROFILE)
+    )
 
     def catalog_join(self, candidate_index: int | None) -> JoinedMoverCandidate | None:
         """Return the authoritative record joined to one detection, or ``None``."""

@@ -10,6 +10,7 @@ from flyff_bot.features.automation.models import (
 )
 from flyff_bot.features.automation.target_reconciliation import (
     TargetAgreement,
+    TargetReconciliation,
     reconcile_selected_target,
 )
 from flyff_bot.features.client_data.label_mapping import JoinedMoverCandidate
@@ -75,6 +76,18 @@ def _state(
     )
 
 
+def _reconcile(state: WorldState, engaged: VisibleMob | None) -> TargetReconciliation:
+    """Extract the two sources from a snapshot the way the orchestrator does."""
+
+    join = None if engaged is None else state.catalog_join(engaged.candidate_index)
+    return reconcile_selected_target(
+        state.player_stats_snapshot,
+        candidate_index=None if engaged is None else engaged.candidate_index,
+        visual_mover_id=None if join is None else join.mover_id,
+        has_visual_target=engaged is not None,
+    )
+
+
 def test_matching_mover_identities_agree() -> None:
     state = _state(
         _client_snapshot(
@@ -88,7 +101,7 @@ def test_matching_mover_identities_agree() -> None:
         joins=(_join(AIBATT_MOVER_ID),),
     )
 
-    reconciliation = reconcile_selected_target(state, _mob())
+    reconciliation = _reconcile(state, _mob())
 
     assert reconciliation.agreement is TargetAgreement.AGREED
     assert reconciliation.has_authoritative_identity
@@ -105,7 +118,7 @@ def test_a_stated_disagreement_blocks_an_identity_dependent_action() -> None:
         joins=(_join(AIBATT_MOVER_ID),),
     )
 
-    reconciliation = reconcile_selected_target(state, _mob())
+    reconciliation = _reconcile(state, _mob())
 
     assert reconciliation.agreement is TargetAgreement.IDENTITY_MISMATCH
     assert reconciliation.blocks_identity_dependent_action
@@ -121,7 +134,7 @@ def test_an_install_without_an_exact_profile_is_not_in_disagreement() -> None:
         error=PlayerStatsReadError(PlayerStatsReadErrorCode.NO_PROFILE),
     )
 
-    reconciliation = reconcile_selected_target(_state(unavailable), _mob())
+    reconciliation = _reconcile(_state(unavailable), _mob())
 
     assert reconciliation.agreement is TargetAgreement.NO_AUTHORITATIVE_PROFILE
     assert not reconciliation.blocks_identity_dependent_action
@@ -134,7 +147,7 @@ def test_an_unjoined_detection_cannot_be_compared_and_does_not_block() -> None:
         )
     )
 
-    reconciliation = reconcile_selected_target(state, _mob())
+    reconciliation = _reconcile(state, _mob())
 
     assert reconciliation.agreement is TargetAgreement.UNJOINED_VISUAL_TARGET
     assert not reconciliation.blocks_identity_dependent_action
@@ -146,7 +159,7 @@ def test_no_client_selection_is_reported_separately_from_a_mismatch() -> None:
         joins=(_join(AIBATT_MOVER_ID),),
     )
 
-    reconciliation = reconcile_selected_target(state, _mob())
+    reconciliation = _reconcile(state, _mob())
 
     assert reconciliation.agreement is TargetAgreement.NO_CLIENT_TARGET
     assert not reconciliation.blocks_identity_dependent_action
@@ -159,7 +172,7 @@ def test_nothing_engaged_reports_no_visual_target() -> None:
         )
     )
 
-    reconciliation = reconcile_selected_target(state, None)
+    reconciliation = _reconcile(state, None)
 
     assert reconciliation.agreement is TargetAgreement.NO_VISUAL_TARGET
     assert reconciliation.client_mover_id == AIBATT_MOVER_ID
@@ -175,6 +188,6 @@ def test_client_hp_is_missing_rather_than_zero_when_the_maximum_is_unknown() -> 
         joins=(_join(AIBATT_MOVER_ID),),
     )
 
-    reconciliation = reconcile_selected_target(state, _mob())
+    reconciliation = _reconcile(state, _mob())
 
     assert reconciliation.client_hp_percentage is None

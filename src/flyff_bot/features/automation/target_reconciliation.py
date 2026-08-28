@@ -22,8 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from flyff_bot.features.automation.models import VisibleMob, WorldState
 from flyff_bot.features.player_stats.models import (
+    ClientPlayerStatsSnapshot,
     ClientTargetSnapshot,
     ClientTargetState,
     PlayerStatsSource,
@@ -77,29 +77,33 @@ class TargetReconciliation:
 
 
 def reconcile_selected_target(
-    state: WorldState, engaged_mob: VisibleMob | None
+    snapshot: ClientPlayerStatsSnapshot | None,
+    *,
+    candidate_index: int | None,
+    visual_mover_id: int | None,
+    has_visual_target: bool,
 ) -> TargetReconciliation:
-    """Compare the client's selected target with the detection the session engaged."""
+    """Compare the client's selected target with the detection the session engaged.
 
-    client_target = _client_target(state)
+    Deliberately a pure function over the two sources rather than something that reaches into
+    a world state: it is the world state that carries the result, so taking one as an argument
+    would make the snapshot depend on its own field.
+    """
+
+    client_target = _client_target(snapshot)
     if client_target is None:
         return TargetReconciliation(
-            TargetAgreement.NO_AUTHORITATIVE_PROFILE,
-            candidate_index=None if engaged_mob is None else engaged_mob.candidate_index,
+            TargetAgreement.NO_AUTHORITATIVE_PROFILE, candidate_index=candidate_index
         )
 
     hp_percentage = _hp_percentage(client_target)
-    if engaged_mob is None:
+    if not has_visual_target:
         return TargetReconciliation(
             TargetAgreement.NO_VISUAL_TARGET,
             client_mover_id=client_target.mover_id,
             client_hp_percentage=hp_percentage,
             client_state=client_target.state,
         )
-
-    candidate_index = engaged_mob.candidate_index
-    join = state.catalog_join(candidate_index)
-    visual_mover_id = None if join is None else join.mover_id
 
     if client_target.mover_id is None or client_target.state is ClientTargetState.NONE:
         agreement = TargetAgreement.NO_CLIENT_TARGET
@@ -120,10 +124,11 @@ def reconcile_selected_target(
     )
 
 
-def _client_target(state: WorldState) -> ClientTargetSnapshot | None:
+def _client_target(
+    snapshot: ClientPlayerStatsSnapshot | None,
+) -> ClientTargetSnapshot | None:
     """Return the bounded client target, or ``None`` when no profile proved one."""
 
-    snapshot = state.player_stats_snapshot
     if snapshot is None or snapshot.source is not PlayerStatsSource.CLIENT_MEMORY:
         return None
     return snapshot.target

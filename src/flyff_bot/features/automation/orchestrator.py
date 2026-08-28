@@ -1918,9 +1918,17 @@ class FarmingOrchestrator:
             # box. Attacking is the action that needs a proven identity, so a stated
             # disagreement between the two stops the swing rather than resolving itself in
             # favour of whichever source happened to be read last (US-083).
-            self._target_reconciliation = reconcile_selected_target(
-                self._state, combat.selected_mob
+            engaged = combat.selected_mob
+            engaged_join = (
+                None if engaged is None else self._state.catalog_join(engaged.candidate_index)
             )
+            self._target_reconciliation = reconcile_selected_target(
+                self._state.player_stats_snapshot,
+                candidate_index=None if engaged is None else engaged.candidate_index,
+                visual_mover_id=None if engaged_join is None else engaged_join.mover_id,
+                has_visual_target=engaged is not None,
+            )
+            self._state = replace(self._state, target_reconciliation=self._target_reconciliation)
             if self._target_reconciliation.blocks_identity_dependent_action:
                 self._approach_stalls.reset()
                 self._engaged_monster_name = None

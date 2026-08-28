@@ -16,8 +16,8 @@ from flyff_bot.features.telemetry.models import CandidateFeatures
 # Every optional measurement is encoded as a value plus a paired missing indicator, so an
 # absent observation can never alias a measured zero (BUG-031). Signed quantities keep their
 # sign instead of being clamped at zero for the same reason.
-OBSERVATION_DIMENSION = 86
-RL_OBSERVATION_SCHEMA_VERSION = "us079-v1"
+OBSERVATION_DIMENSION = 105
+RL_OBSERVATION_SCHEMA_VERSION = "us083-v1"
 CANDIDATE_SLOTS = 4
 CANDIDATE_FEATURE_COUNT = 11
 POSITION_SCALE_UNITS = 10000.0
@@ -33,6 +33,13 @@ PRESENT_INDICATOR = 0.0
 IDENTITY_DIGEST_BYTES = 8
 IDENTITY_DIGEST_MAXIMUM = float(2 ** (8 * IDENTITY_DIGEST_BYTES) - 1)
 UNIT_SCALE = 1.0
+# Bounds for the exact-profile columns. They are saturation limits, not game rules: a value
+# beyond one of them clips to the edge of the range rather than escaping [-1, 1], and every
+# column carries its own missing indicator so a clipped value is still distinguishable from
+# an unread one. The character cap and the attribute ceiling are set well above anything the
+# client reports so that ordinary play never spends its whole range in the top few percent.
+LEVEL_SCALE = 200.0
+ATTRIBUTE_SCALE_POINTS = 500.0
 FloatArray = NDArray[np.float64]
 
 
@@ -121,6 +128,33 @@ class ObjectiveState:
 
 
 @dataclass(frozen=True, slots=True)
+class PlayerProfileObservation:
+    """The proven exact-profile statistics one decision was encoded from (US-083).
+
+    Every statistic is optional and encodes as a value paired with its own missing indicator,
+    so a field the client never exposed cannot alias a measured zero. ``is_authoritative`` is
+    the provenance column: it states whether any of these numbers came from a fingerprinted
+    client read at all, which is what separates "the character has no FP" from "this install
+    has no profile and cannot say".
+
+    ``target_identity_agreed`` carries the client-versus-visual reconciliation as a tri-state:
+    agreed, disagreed, or - as ``None`` - never proven either way. A policy that cannot see the
+    disagreement would keep ranking a candidate the client says it is not fighting.
+    """
+
+    is_authoritative: bool = False
+    level: float | None = None
+    experience_fraction: float | None = None
+    strength: float | None = None
+    stamina: float | None = None
+    dexterity: float | None = None
+    intelligence: float | None = None
+    target_hp_fraction: float | None = None
+    target_is_alive: bool | None = None
+    target_identity_agreed: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ReadinessObservation:
     """Exact central readiness fields retained alongside the normalized vector."""
 
@@ -140,6 +174,7 @@ class RlObservation:
     operational: OperationalState
     objective: ObjectiveState
     readiness: ReadinessObservation = field(default_factory=ReadinessObservation)
+    profile: PlayerProfileObservation = field(default_factory=PlayerProfileObservation)
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,6 +276,7 @@ class ObservationSpace:
                 / max(sum(progress[0] for progress in observation.objective.objective_progress), 1),
             ]
         )
+        values.extend(_profile_columns(observation.profile))
         values.extend(_goal_columns(observation.objective))
         encoded = np.asarray(values, dtype=np.float64)
         if encoded.shape != (OBSERVATION_DIMENSION,) or not np.all(np.isfinite(encoded)):
@@ -359,6 +395,31 @@ def _signed_unit(value: float, maximum: float) -> float:
     """Scale a measurement into ``[-1, 1]`` without discarding its sign."""
 
     return min(max(float(value) / maximum, -1.0), 1.0)
+
+
+def _profile_columns(profile: PlayerProfileObservation) -> list[float]:
+    """Encode every proven statistic with its provenance and its missingness."""
+
+    return [
+        float(profile.is_authoritative),
+        *_optional_pair(profile.level, LEVEL_SCALE),
+        *_optional_pair(profile.experience_fraction, UNIT_SCALE),
+        *_optional_pair(profile.strength, ATTRIBUTE_SCALE_POINTS),
+        *_optional_pair(profile.stamina, ATTRIBUTE_SCALE_POINTS),
+        *_optional_pair(profile.dexterity, ATTRIBUTE_SCALE_POINTS),
+        *_optional_pair(profile.intelligence, ATTRIBUTE_SCALE_POINTS),
+        *_optional_pair(profile.target_hp_fraction, UNIT_SCALE),
+        *_optional_flag(profile.target_is_alive),
+        *_optional_flag(profile.target_identity_agreed),
+    ]
+
+
+def _optional_flag(value: bool | None) -> tuple[float, float]:
+    """Return a tri-state flag as a value paired with its explicit missing indicator."""
+
+    if value is None:
+        return 0.0, MISSING_INDICATOR
+    return float(value), PRESENT_INDICATOR
 
 
 def _optional_pair(

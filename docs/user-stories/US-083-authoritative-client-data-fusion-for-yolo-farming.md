@@ -73,7 +73,7 @@ coherent, safe control loop in the client**.
       route distance, reachability, leash state, elevation, terrain/corridor cost, and source ages
       describe that same instance and interval. A stale or cross-world sample is rejected rather
       than combined.
-- [ ] Given an exact player-stat profile exposes HP, MP, FP, level, experience, attributes, or
+- [x] Given an exact player-stat profile exposes HP, MP, FP, level, experience, attributes, or
       bounded target fields, when a decision is encoded, then every available proven field is
       represented with provenance and missingness. The client selected-target identity/HP/state is
       reconciled with the visually selected YOLO instance; disagreement is visible and fails closed

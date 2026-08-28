@@ -24,7 +24,7 @@ from flyff_bot.features.tactical_parameters import TACTICAL_PARAMETER_SCHEMA_VER
 
 # Bumped whenever any observation column, action index, goal vocabulary or reward weight
 # changes. Artifacts stamped with any other value are rejected rather than adapted.
-DECISION_CONTRACT_VERSION = "us084-v1"
+DECISION_CONTRACT_VERSION = "us083-v2"
 # The key every artifact document and dataset stores its stamp under.
 CONTRACT_DOCUMENT_KEY = "contract"
 # What is reported as the found value when an artifact states nothing at all for a field.

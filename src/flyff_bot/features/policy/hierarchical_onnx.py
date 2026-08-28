@@ -9,6 +9,8 @@ import cv2
 import numpy as np
 
 from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.automation.target_reconciliation import TargetAgreement
+from flyff_bot.features.player_stats.models import ClientTargetState, PlayerStatsSource
 from flyff_bot.features.policy.action_payloads import (
     STRATEGIC_GOAL_COUNT,
     STRATEGIC_GOAL_ORDER,
@@ -43,6 +45,7 @@ from flyff_bot.features.rl.models import (
     ObjectiveState,
     ObservationSpace,
     OperationalState,
+    PlayerProfileObservation,
     PlayerVitals,
     RlObservation,
 )
@@ -348,6 +351,14 @@ def _names(candidate_index: int | None, target_id: int, candidate: PolicyCandida
     return target_id == candidate.mob.class_id
 
 
+PROFILE_LEVEL_FIELD = "level"
+PROFILE_EXPERIENCE_FIELD = "experience"
+PROFILE_STRENGTH_FIELD = "strength"
+PROFILE_STAMINA_FIELD = "stamina"
+PROFILE_DEXTERITY_FIELD = "dexterity"
+PROFILE_INTELLIGENCE_FIELD = "intelligence"
+
+
 def live_observation(
     state: WorldState,
     context: PolicyContext,
@@ -394,7 +405,8 @@ def live_observation(
             live.recent_stuck_count,
             objective.kind.value,
         ),
-        ObjectiveState(
+        profile=_profile_observation(state),
+        objective=ObjectiveState(
             objective.quest_id,
             ((int(objective.required_progress), objective.progress),),
             live.objective_target_distance,
@@ -405,6 +417,52 @@ def live_observation(
             objective.progress,
             objective.required_progress,
         ),
+    )
+
+
+def _profile_observation(state: WorldState) -> PlayerProfileObservation:
+    """Carry every proven exact-profile field into the decision, with its missingness.
+
+    A field the client never exposed stays ``None`` and encodes as missing rather than as a
+    measured zero, and the reconciliation verdict travels with them so a policy can see that
+    the client disagrees about what is selected instead of ranking a candidate blind.
+    """
+
+    snapshot = state.player_stats_snapshot
+    reconciliation = state.target_reconciliation
+    agreement = reconciliation.agreement
+    identity_agreed = (
+        True
+        if agreement is TargetAgreement.AGREED
+        else False
+        if agreement is TargetAgreement.IDENTITY_MISMATCH
+        else None
+    )
+    if snapshot is None or snapshot.source is not PlayerStatsSource.CLIENT_MEMORY:
+        return PlayerProfileObservation(target_identity_agreed=identity_agreed)
+
+    values = {field.name: field.value for field in snapshot.fields if not field.is_unknown}
+    target = snapshot.target
+    hp_fraction = (
+        None
+        if reconciliation.client_hp_percentage is None
+        else reconciliation.client_hp_percentage / 100.0
+    )
+    return PlayerProfileObservation(
+        is_authoritative=True,
+        level=values.get(PROFILE_LEVEL_FIELD),
+        experience_fraction=values.get(PROFILE_EXPERIENCE_FIELD),
+        strength=values.get(PROFILE_STRENGTH_FIELD),
+        stamina=values.get(PROFILE_STAMINA_FIELD),
+        dexterity=values.get(PROFILE_DEXTERITY_FIELD),
+        intelligence=values.get(PROFILE_INTELLIGENCE_FIELD),
+        target_hp_fraction=hp_fraction,
+        target_is_alive=(
+            None
+            if target is None or target.state is None
+            else target.state is ClientTargetState.ALIVE
+        ),
+        target_identity_agreed=identity_agreed,
     )
 
 
