@@ -303,6 +303,12 @@ class FarmingSimulator:
                 )
             )
         target = self._target
+        # The exact-profile block stays at its unauthoritative default, and that is the
+        # documented reason US-083 AC7 asks for rather than an omission: a simulated episode
+        # has no client process to read, so every one of those statistics is genuinely
+        # unknown here. Encoding them as missing is what a live session without a
+        # fingerprinted client also encodes, so the two agree instead of the simulator
+        # inventing numbers no client ever stated.
         return RlObservation(
             PlayerKinematics(
                 self._x,

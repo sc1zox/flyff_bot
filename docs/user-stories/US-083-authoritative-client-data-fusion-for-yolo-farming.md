@@ -83,7 +83,7 @@ coherent, safe control loop in the client**.
       combat engagement, configured skill/resource constraints, and readiness determine the offered
       options before the policy ranks them. Optional unrelated data does not block an independent
       capability.
-- [ ] Given the canonical decision snapshot from US-079, when heuristic, learned, simulator, and
+- [x] Given the canonical decision snapshot from US-079, when heuristic, learned, simulator, and
       telemetry paths consume it, then all four use the same field definitions, units, coordinate
       systems, missing-value semantics, action candidates, masks, and source digests. No parallel
       reduced observation builder fabricates zeros or drops a client field without a documented

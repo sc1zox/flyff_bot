@@ -19,11 +19,20 @@ from flyff_bot.features.rl.models import OBSERVATION_DIMENSION
 from flyff_bot.features.simulator.engine import FarmingSimulator
 from flyff_bot.features.simulator.environment import SimulatorGymEnvironment
 
+GYM_CHECK_ACTION_SEED = 0
+
 
 def test_environment_passes_the_gymnasium_framework_check(
     make_simulator: Callable[[], FarmingSimulator],
 ) -> None:
     environment = SimulatorGymEnvironment(make_simulator())
+    # Seeded explicitly because check_env samples the action space, and an unseeded space
+    # falls back to the global RNG - which makes this test depend on whatever ran before it.
+    # See the note on test_the_reported_mask_is_the_mask_step_enforces: this environment
+    # deliberately raises on an action its per-tick mask forbids, while the Discrete space it
+    # declares cannot express that mask, so an unlucky sample turns a design decision into a
+    # spurious failure somewhere else in the suite.
+    environment.action_space.seed(GYM_CHECK_ACTION_SEED)
 
     check_env(environment, skip_render_check=True)
 

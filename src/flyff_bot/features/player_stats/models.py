@@ -6,6 +6,16 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
+# The names the exact-profile reader decodes one statistic under. They are named here, next
+# to the snapshot that carries them, so every consumer looks a statistic up by the same key
+# rather than each spelling the string itself.
+PROFILE_LEVEL_FIELD = "level"
+PROFILE_EXPERIENCE_FIELD = "experience"
+PROFILE_STRENGTH_FIELD = "strength"
+PROFILE_STAMINA_FIELD = "stamina"
+PROFILE_DEXTERITY_FIELD = "dexterity"
+PROFILE_INTELLIGENCE_FIELD = "intelligence"
+
 
 @dataclass(frozen=True, slots=True)
 class PlayerStatField:

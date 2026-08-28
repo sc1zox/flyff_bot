@@ -10,9 +10,20 @@ from time import monotonic_ns
 
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.automation.readiness import LiveReadinessStatus
+from flyff_bot.features.automation.target_reconciliation import TargetAgreement
 from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
+from flyff_bot.features.player_stats.models import (
+    PROFILE_DEXTERITY_FIELD,
+    PROFILE_EXPERIENCE_FIELD,
+    PROFILE_INTELLIGENCE_FIELD,
+    PROFILE_LEVEL_FIELD,
+    PROFILE_STAMINA_FIELD,
+    PROFILE_STRENGTH_FIELD,
+    ClientTargetState,
+    PlayerStatsSource,
+)
 from flyff_bot.features.rl.actions import ParameterizedAction
 from flyff_bot.features.rl.rewards import RewardConfig, RewardEngine, RewardEvent
 from flyff_bot.features.telemetry.geometry import (
@@ -28,6 +39,7 @@ from flyff_bot.features.telemetry.models import (
     CandidateFeatures,
     CombatEpisode,
     CombatVerificationSource,
+    DecisionProvenance,
     KillCycle,
     NavigationEpisode,
     NavigationOutcome,
@@ -182,6 +194,7 @@ class TelemetryRecorder:
             sample_ages_seconds=readiness.sample_ages_seconds,
             action_blocked=readiness.action_blocked,
             active_goal=active_goal,
+            provenance=_decision_provenance(state),
         )
         self._submit(TelemetryEventKind.WORLD_SNAPSHOT, primitive(snapshot), timestamp_ns)
         navigation = self._navigation
@@ -604,3 +617,52 @@ def _navmesh_polygon_id(
         return None
     polygon_id = navmesh.polygon_or_region_id(position)
     return None if polygon_id is None else str(polygon_id)
+
+
+def _decision_provenance(state: WorldState) -> DecisionProvenance:
+    """Record what the client itself stated when this decision was taken.
+
+    Absent statistics stay ``None`` rather than becoming zero: the encoder pairs every one
+    with a missing indicator, and a replay that read zero where the live decision read
+    "unknown" would encode a different vector from the one the model actually served.
+    """
+
+    snapshot = state.player_stats_snapshot
+    reconciliation = state.target_reconciliation
+    agreement = reconciliation.agreement
+    is_authoritative = snapshot is not None and snapshot.source is PlayerStatsSource.CLIENT_MEMORY
+    values: dict[str, float] = {}
+    if is_authoritative and snapshot is not None:
+        values = {field.name: field.value for field in snapshot.fields if not field.is_unknown}
+    target = None if snapshot is None else snapshot.target
+    interval = state.observation_interval
+    return DecisionProvenance(
+        is_authoritative=is_authoritative,
+        level=values.get(PROFILE_LEVEL_FIELD),
+        experience_fraction=values.get(PROFILE_EXPERIENCE_FIELD),
+        strength=values.get(PROFILE_STRENGTH_FIELD),
+        stamina=values.get(PROFILE_STAMINA_FIELD),
+        dexterity=values.get(PROFILE_DEXTERITY_FIELD),
+        intelligence=values.get(PROFILE_INTELLIGENCE_FIELD),
+        target_hp_fraction=(
+            None
+            if reconciliation.client_hp_percentage is None
+            else reconciliation.client_hp_percentage / 100.0
+        ),
+        target_is_alive=(
+            None
+            if target is None or target.state is None
+            else target.state is ClientTargetState.ALIVE
+        ),
+        target_identity_agreed=(
+            True
+            if agreement is TargetAgreement.AGREED
+            else False
+            if agreement is TargetAgreement.IDENTITY_MISMATCH
+            else None
+        ),
+        observation_interval_rejection=(
+            None if interval.rejection is None else interval.rejection.value
+        ),
+        observation_interval_world_id=interval.world_id,
+    )

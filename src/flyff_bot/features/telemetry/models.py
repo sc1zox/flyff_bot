@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass
 from enum import StrEnum
 from math import sqrt
 from typing import Any
@@ -125,6 +125,32 @@ class ActiveGoal:
 
 
 @dataclass(frozen=True, slots=True)
+class DecisionProvenance:
+    """What the client itself stated at the moment one decision was taken (US-083).
+
+    Every statistic is optional and stays ``None`` when the client never exposed it. The
+    encoder pairs each with a missing indicator, so a replay that recorded zero where the
+    live decision recorded "unknown" would produce a different vector from the one served.
+    """
+
+    is_authoritative: bool = False
+    level: float | None = None
+    experience_fraction: float | None = None
+    strength: float | None = None
+    stamina: float | None = None
+    dexterity: float | None = None
+    intelligence: float | None = None
+    target_hp_fraction: float | None = None
+    target_is_alive: bool | None = None
+    #: Whether the client and the engaged detection agreed on the target, as a tri-state:
+    #: agreed, disagreed, or - as ``None`` - never proven either way.
+    target_identity_agreed: bool | None = None
+    #: Why this tick's sources could not be fused into one observation, when they could not.
+    observation_interval_rejection: str | None = None
+    observation_interval_world_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class WorldSnapshot:
     """The numeric state collected once per successful farming observation."""
 
@@ -147,6 +173,10 @@ class WorldSnapshot:
     sample_ages_seconds: tuple[tuple[str, float | None], ...]
     action_blocked: bool
     active_goal: ActiveGoal | None = None
+    #: The exact-profile statistics and fusion verdict the decision was encoded from (US-083),
+    #: so a replay can rebuild the same vector - including the same missingness - that the
+    #: model was actually served.
+    provenance: DecisionProvenance = field(default_factory=DecisionProvenance)
 
 
 @dataclass(frozen=True, slots=True)

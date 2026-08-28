@@ -339,7 +339,8 @@ class ObservationSpace:
             tuple(candidate_observations),
             OperationalState(None, 0.0, 0, str(snapshot.get("farming_mode", "unknown"))),
             ObjectiveState(None, (), None),
-            ReadinessObservation(
+            profile=_profile_from_snapshot(snapshot),
+            readiness=ReadinessObservation(
                 state=str(snapshot.get("readiness_state", "ready")),
                 primary_reason=_optional_text(snapshot.get("readiness_primary_reason")),
                 failed_source_codes=_text_tuple(snapshot.get("failed_source_codes")),
@@ -347,6 +348,36 @@ class ObservationSpace:
                 action_blocked=bool(snapshot.get("action_blocked", False)),
             ),
         )
+
+
+def _profile_from_snapshot(snapshot: dict[str, object]) -> PlayerProfileObservation:
+    """Rebuild the exact-profile block from a recorded snapshot, missingness included.
+
+    A statistic the client never exposed was written as null, and it has to come back as
+    ``None`` rather than as zero: reading it as zero would encode a different vector from
+    the one the live decision was served, which is exactly the train/serve gap the
+    provenance block exists to close.
+    """
+
+    provenance = _mapping(snapshot.get("provenance"))
+    return PlayerProfileObservation(
+        is_authoritative=bool(provenance.get("is_authoritative", False)),
+        level=_optional_number(provenance.get("level")),
+        experience_fraction=_optional_number(provenance.get("experience_fraction")),
+        strength=_optional_number(provenance.get("strength")),
+        stamina=_optional_number(provenance.get("stamina")),
+        dexterity=_optional_number(provenance.get("dexterity")),
+        intelligence=_optional_number(provenance.get("intelligence")),
+        target_hp_fraction=_optional_number(provenance.get("target_hp_fraction")),
+        target_is_alive=_optional_flag_value(provenance.get("target_is_alive")),
+        target_identity_agreed=_optional_flag_value(provenance.get("target_identity_agreed")),
+    )
+
+
+def _optional_flag_value(value: object) -> bool | None:
+    """Return a recorded tri-state flag, keeping "never proven" distinct from ``False``."""
+
+    return None if value is None else bool(value)
 
 
 def _goal_columns(objective: ObjectiveState) -> list[float]:

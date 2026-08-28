@@ -10,7 +10,16 @@ import numpy as np
 
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.automation.target_reconciliation import TargetAgreement
-from flyff_bot.features.player_stats.models import ClientTargetState, PlayerStatsSource
+from flyff_bot.features.player_stats.models import (
+    PROFILE_DEXTERITY_FIELD,
+    PROFILE_EXPERIENCE_FIELD,
+    PROFILE_INTELLIGENCE_FIELD,
+    PROFILE_LEVEL_FIELD,
+    PROFILE_STAMINA_FIELD,
+    PROFILE_STRENGTH_FIELD,
+    ClientTargetState,
+    PlayerStatsSource,
+)
 from flyff_bot.features.policy.action_payloads import (
     STRATEGIC_GOAL_COUNT,
     STRATEGIC_GOAL_ORDER,
@@ -366,14 +375,6 @@ def _names(candidate_index: int | None, target_id: int, candidate: PolicyCandida
     if candidate_index is not None:
         return candidate_index == candidate.original_position
     return target_id == candidate.mob.class_id
-
-
-PROFILE_LEVEL_FIELD = "level"
-PROFILE_EXPERIENCE_FIELD = "experience"
-PROFILE_STRENGTH_FIELD = "strength"
-PROFILE_STAMINA_FIELD = "stamina"
-PROFILE_DEXTERITY_FIELD = "dexterity"
-PROFILE_INTELLIGENCE_FIELD = "intelligence"
 
 
 def live_observation(
