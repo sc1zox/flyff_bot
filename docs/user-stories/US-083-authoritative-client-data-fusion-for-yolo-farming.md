@@ -93,7 +93,7 @@ coherent, safe control loop in the client**.
       expected combat duration, stall/recovery risk, player-resource risk, respawn/camp follow-up
       value, and failed-action cost. Minimum walking distance is treated as one cost component, not
       as a substitute for total farming yield.
-- [ ] Given a pure-farming session, when efficiency is reported, then verified kills per real minute,
+- [x] Given a pure-farming session, when efficiency is reported, then verified kills per real minute,
       time decomposition, distance, damage/resource cost, stalls, and action failures are shown
       separately. Given a goal or verified loot-value configuration, its reward weights and units
       are versioned and reported; the UI never labels an unobserved expected drop as real yield.

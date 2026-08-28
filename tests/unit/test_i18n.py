@@ -20,6 +20,8 @@ def test_each_language_contains_every_message() -> None:
                 handle=0,
                 title="x",
                 seconds=0.0,
+                units=0.0,
+                percent=0.0,
                 source="x",
                 capabilities="x",
                 mob_count=0,

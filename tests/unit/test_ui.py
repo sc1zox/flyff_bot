@@ -98,6 +98,7 @@ from flyff_bot.features.tactical_parameters import (
     TacticalParameterSpace,
     save_tactical_profile,
 )
+from flyff_bot.features.telemetry.efficiency import summarize_efficiency
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import TargetVerifier
@@ -119,6 +120,7 @@ from flyff_bot.ui.dashboard import (
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
 from flyff_bot.ui.main_window import DashboardTab, MainWindow
+from flyff_bot.ui.main_window_parts.efficiency import EfficiencyPanel
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import (
@@ -2093,3 +2095,30 @@ def test_an_unselected_teleporter_destination_is_stored_and_restored(tmp_path: P
         teleporter_database_path=destination_path,
     )
     assert restored.get_emergency_config().destination is None
+
+
+def test_efficiency_panel_reports_each_cost_separately_and_never_invents_yield() -> None:
+    QApplication.instance() or QApplication([])
+    panel = EfficiencyPanel()
+    translator = Translator(Language.ENGLISH)
+    panel.retranslate(translator)
+
+    panel.render_report(
+        translator,
+        summarize_efficiency(
+            (),
+            elapsed_seconds=0.0,
+            reward_config_version="reward-v3",
+        ),
+    )
+
+    rendered = _panel_values(panel)
+    # No elapsed time means no rate yet, which must not read as a rate of zero.
+    assert translator.text(Message.EFFICIENCY_NOT_MEASURED) in rendered
+    # Loot is never shown as yield unless a collection was actually observed.
+    assert panel._loot_note.text() == translator.text(Message.EFFICIENCY_LOOT_UNOBSERVED)
+    assert "reward-v3" in rendered
+
+
+def _panel_values(panel: EfficiencyPanel) -> set[str]:
+    return {value.text() for _caption, value in panel._rows.values()}
