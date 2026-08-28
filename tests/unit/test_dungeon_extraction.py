@@ -12,6 +12,7 @@ from flyff_bot.features.dungeons.extraction import (
     DungeonExtractionDiagnostic,
     DungeonExtractionWarning,
     extract_dungeon_definitions,
+    parse_dungeon_ranking,
     parse_dungeon_script,
 )
 from flyff_bot.features.dungeons.models import DungeonDefinition, format_cooldown
@@ -117,3 +118,79 @@ def test_cooldown_format_is_zero_padded_hours_minutes_seconds() -> None:
     assert format_cooldown(0) == "00:00:00"
     assert format_cooldown(3661.4) == "01:01:01"
     assert format_cooldown(-1) == "00:00:00"
+
+
+DUNGEON_RANKING_TABLE = """7//Days till next DungeonReset
+121 //Aminus Dungeon
+{
+\tAddReward 1 0
+\t{
+\t\t55542 15\t//15x Ultra Sunstone (Weapon)
+\t}
+\tSetTexture("AminusRanking.tga")
+}
+357 // WI_DUNGEON_DACULAMAUSOLEUM
+{
+\tSetTexture("MausoleumRanking.tga")
+}
+//353 //Ruins of Desire
+//{
+//\tAddReward 1 0
+//}
+"""
+
+
+def test_ranking_table_declares_dungeons_without_inventing_levels_or_cooldowns() -> None:
+    parsed = parse_dungeon_ranking(DUNGEON_RANKING_TABLE)
+
+    assert parsed == ((121, "Aminus Dungeon"), (357, "WI_DUNGEON_DACULAMAUSOLEUM"))
+
+
+def test_extractor_falls_back_to_the_ranking_table_when_no_dungeon_script_is_packed(
+    tmp_path: Path,
+) -> None:
+    system = tmp_path / "System2"
+    write_keyed_archive(
+        system,
+        "data9",
+        {
+            "DungeonRanking.inc": utf16_text(DUNGEON_RANKING_TABLE),
+            "propQuest-DungeonandPKtxt.txt": utf16_text(
+                "WI_DUNGEON_DACULAMAUSOLEUM\tDacula Mausoleum\r\n"
+            ),
+        },
+    )
+    diagnostics: list[DungeonExtractionDiagnostic] = []
+
+    dungeons = extract_dungeon_definitions(tmp_path, diagnostics=diagnostics)
+
+    assert {(dungeon.dungeon_id, dungeon.name) for dungeon in dungeons} == {
+        (121, "Aminus Dungeon"),
+        (357, "Dacula Mausoleum"),
+    }
+    assert all(dungeon.minimum_level is None for dungeon in dungeons)
+    assert all(dungeon.base_cooldown_seconds is None for dungeon in dungeons)
+    assert [item.warning for item in diagnostics] == [
+        DungeonExtractionWarning.MISSING_DUNGEON_SCRIPT
+    ]
+
+
+def test_client_without_any_dungeon_declaration_reports_both_missing_sources(
+    tmp_path: Path,
+) -> None:
+    write_keyed_archive(tmp_path / "System2", "data9", {"propMover.txt": utf16_text("x\n")})
+    diagnostics: list[DungeonExtractionDiagnostic] = []
+
+    assert extract_dungeon_definitions(tmp_path, diagnostics=diagnostics) == ()
+    assert [item.warning for item in diagnostics] == [
+        DungeonExtractionWarning.MISSING_DUNGEON_SCRIPT,
+        DungeonExtractionWarning.MISSING_DUNGEON_RANKING,
+    ]
+
+
+def test_undeclared_levels_and_cooldowns_survive_a_database_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "dungeons.json"
+    undeclared = DungeonDefinition(dungeon_id=121, name="Aminus Dungeon")
+    save_dungeon_database((undeclared,), path, language="English", client_digest="b" * 64)
+
+    assert load_dungeon_database(path) == (undeclared,)

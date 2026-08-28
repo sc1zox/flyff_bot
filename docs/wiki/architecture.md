@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-28
+updated: 2026-08-29
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -89,6 +89,7 @@ related:
   - ../user-stories/US-069-experience-based-navmesh-routing.md
   - ../user-stories/completed/US-068-rolling-horizon-multi-target-planning.md
   - ../user-stories/US-063-client-dungeon-data-and-live-cooldown-memory-extraction.md
+  - ../bugs/fixed/BUG-036-dungeon-extraction-missing-script-and-misleading-ui-status.md
   - ../user-stories/completed/US-078-initial-setup-wizard-and-unified-client-data-extraction.md
   - ../bugs/fixed/BUG-029-tesseract-ocr-tsv-argument-ordering-causes-empty-stdout-and-unreadable-target-names.md
   - ../bugs/fixed/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md
@@ -1939,6 +1940,14 @@ labels from the dungeon text table, and writes only complete declarations to sch
 without verifiable level or cooldown fields is skipped rather than defaulted. No client file is
 written or modified.
 
+A client that packs no dungeon script is not a client without dungeons (BUG-036). Extraction then
+falls back to the ranking table `DungeonRanking.inc`, which declares one numeric world identifier
+and label per reward block; the leading reset period and commented-out blocks are not declarations.
+That table carries no level range or cooldown, so those `DungeonDefinition` fields are optional and
+stay undeclared (`None`) instead of being defaulted. A client packing neither source reports both
+`MISSING_DUNGEON_SCRIPT` and `MISSING_DUNGEON_RANKING`. The real Entropia install yields 32
+dungeons this way.
+
 Live cooldowns use the existing documented read-only process boundary and require the client window to
 be foregrounded before attachment or any fixed read. A SHA-256 fingerprint in
 `data/config/client_dungeon_profiles.json` selects an exact module RVA, pointer width, bounded array
@@ -1954,7 +1963,12 @@ verified Entropia cooldown offsets have been observed yet; Windows live validati
 outstanding.
 
 The dashboard's Dungeons & Cooldowns tab renders extracted names, level ranges, localized status,
-entry counts, and zero-padded `HH:MM:SS` timers from dashboard snapshots. Automated coverage includes
+entry counts, and zero-padded `HH:MM:SS` timers from dashboard snapshots. `MainWindow` binds the
+database during `reload_client_data()`, and the panel keeps that database apart from the live poll so
+its status line names the actual gap rather than always asking for extraction (BUG-036): no readable
+database on disk, an extracted database declaring no dungeons, or a loaded database whose rows cannot
+be enriched because the client is not connected — the last case still renders the extracted rows with
+`UNKNOWN` status. Automated coverage includes
 synthetic archive extraction/persistence, mocked read-only memory buffers, status precedence, graceful
 degradation, panel rendering/retranslation, and locale synchronization. On this POSIX host the suite
 passes after excluding two unrelated pre-existing Python/POSIX environment failures in Windows struct

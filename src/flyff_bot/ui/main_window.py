@@ -59,6 +59,10 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalTriggerType,
 )
 from flyff_bot.features.client_data.persistence import CatalogSchemaError
+from flyff_bot.features.dungeons.persistence import (
+    DungeonDatabaseError,
+    load_dungeon_database,
+)
 from flyff_bot.features.navigation.teleporter_extraction import load_teleporter_catalog
 from flyff_bot.features.navigation.teleporter_models import (
     TeleporterCatalog,
@@ -598,6 +602,19 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    def load_dungeon_database(self) -> None:
+        """Bind the extracted dungeon database to the panel, if a readable one exists.
+
+        An absent or unreadable database is a localized status line rather than a failure:
+        both are repaired by re-running extraction, which is what the panel then asks for.
+        """
+
+        path = self._dungeon_database_path
+        try:
+            self._dungeon_panel.set_database(load_dungeon_database(path))
+        except DungeonDatabaseError:
+            self._dungeon_panel.set_database(None)
+
     @property
     def quest_npc_positions(self) -> dict[str, QuestNpc]:
         """Load explicit accept/turn-in locations, tolerating a missing optional file."""
@@ -1018,6 +1035,7 @@ class MainWindow(QMainWindow):
         self._teleporter_catalog = load_teleporter_catalog(self._teleporter_database_path)
         self.set_teleporter_destinations(self._teleporter_catalog.destinations)
         self.load_quest_database()
+        self.load_dungeon_database()
         self._load_mob_catalog_join()
         if self._navigation_controller is not None:
             self._navigation_controller.dialog.refresh()

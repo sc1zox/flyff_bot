@@ -68,6 +68,7 @@ from flyff_bot.features.dungeons.models import (
     DungeonStateSnapshot,
     DungeonStatus,
 )
+from flyff_bot.features.dungeons.persistence import save_dungeon_database
 from flyff_bot.features.input_control import (
     InputControlError,
     InputErrorCode,
@@ -119,6 +120,7 @@ from flyff_bot.ui.dashboard import (
     WindowStatus,
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
+from flyff_bot.ui.dungeon_panel import DungeonCooldownPanel
 from flyff_bot.ui.main_window import DashboardTab, MainWindow
 from flyff_bot.ui.main_window_parts.efficiency import EfficiencyPanel
 from flyff_bot.ui.navigation_window import NavigationMapWindow
@@ -1445,6 +1447,50 @@ def test_main_window_dungeon_panel_renders_extracted_and_live_rows() -> None:
     assert cooldown_item is not None
     cooldown_text = cooldown_item.text() if cooldown_item is not None else ""
     assert cooldown_text == "01:01:01"
+
+
+def test_dungeon_panel_status_names_the_actual_gap_instead_of_asking_for_extraction() -> None:
+    application = QApplication.instance() or QApplication([])
+    panel = DungeonCooldownPanel(Translator(Language.ENGLISH))
+    definition = DungeonDefinition(121, "Aminus Dungeon")
+
+    assert panel.status_text == "No dungeon database found. Run dungeon extraction first."
+
+    panel.set_database(())
+    application.processEvents()
+    assert panel.table.rowCount() == 0
+    assert panel.status_text == "Dungeon extraction has run, but this client declares no dungeons."
+
+    panel.set_database((definition,))
+    panel.set_snapshots(None)
+    application.processEvents()
+    assert panel.status_text == "Live cooldowns unavailable: the game client is not connected."
+    assert panel.table.rowCount() == 1
+    level_item = panel.table.item(0, 1)
+    status_item = panel.table.item(0, 2)
+    assert level_item is not None and level_item.text() == "—"
+    assert status_item is not None and status_item.text() == "Unknown"
+
+    panel.set_snapshots((DungeonStateSnapshot(definition, DungeonStatus.READY),))
+    application.processEvents()
+    assert panel.status_text == ""
+
+
+def test_main_window_shows_an_extracted_but_empty_dungeon_database_as_empty(
+    tmp_path: Path,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    database = tmp_path / "dungeons.json"
+    save_dungeon_database((), database, language="English", client_digest="")
+    window = MainWindow(Translator(Language.ENGLISH), dungeon_database_path=database)
+
+    window.load_dungeon_database()
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE, dungeons=None))
+    application.processEvents()
+
+    assert window.dungeon_panel.status_text == (
+        "Dungeon extraction has run, but this client declares no dungeons."
+    )
 
 
 def test_main_window_tab_labels_and_tooltips_retranslate_in_place() -> None:

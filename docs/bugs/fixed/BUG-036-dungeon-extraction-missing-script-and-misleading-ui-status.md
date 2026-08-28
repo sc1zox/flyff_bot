@@ -1,7 +1,7 @@
 ---
 id: BUG-036
 title: Dungeon extraction fails on missing PartyDungeon.lua and dashboard shows misleading extraction status
-status: reported
+status: verified
 severity: medium
 created: 2026-08-29
 updated: 2026-08-29
@@ -47,7 +47,30 @@ updated: 2026-08-29
 
 ## Regression verification
 
-- [ ] A failing automated test proves that `DungeonCooldownPanel` accurately reflects database presence and process connection status instead of displaying a false "run extraction" status.
-- [ ] A failing automated test or parser fixture verifies Entropia dungeon data ingestion from available client structures.
-- [ ] The checks pass after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated test proves that `DungeonCooldownPanel` accurately reflects database presence and process connection status instead of displaying a false "run extraction" status.
+- [x] A failing automated test or parser fixture verifies Entropia dungeon data ingestion from available client structures.
+- [x] The checks pass after the fix.
+- [x] Related documentation is current.
+
+## Fix
+
+Extraction no longer treats a missing `PartyDungeon.lua` as "no dungeons". `_client_declarations`
+prefers the dungeon script, and falls back to the ranking table `DungeonRanking.inc`, which every
+Entropia client packs: `parse_dungeon_ranking` reads one numeric world identifier plus its commented
+label per reward block, ignoring the leading reset period and commented-out blocks. Because that
+table declares neither level ranges nor cooldowns, `DungeonDefinition.minimum_level`,
+`maximum_level`, and `base_cooldown_seconds` are now optional and stay `None` rather than being
+filled with an invented default. A client that packs neither source reports the new
+`MISSING_DUNGEON_RANKING` diagnostic beside `MISSING_DUNGEON_SCRIPT`.
+
+`DungeonCooldownPanel` now keeps the extracted database and the live poll apart, so its status line
+names the actual gap: `ui.dungeon_unavailable` only when no readable database exists on disk,
+`ui.dungeon_database_empty` when extraction ran and the client declares no dungeons, and
+`ui.dungeon_live_unavailable` when the database is loaded but the client is not connected — in that
+last case the extracted rows are rendered with `UNKNOWN` status instead of an empty table.
+`MainWindow.load_dungeon_database()` binds the database during `reload_client_data()`, so the panel
+reflects disk state at startup and again after the setup wizard finishes.
+
+Verified against the real install: 32 dungeons are extracted from `DungeonRanking.inc`
+(`Aminus Dungeon` through `Monster Clash`); two entries whose label is a bare world symbol keep that
+symbol because the client packs no catalog resolving it.

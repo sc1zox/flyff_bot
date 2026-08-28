@@ -24,13 +24,17 @@ class DungeonStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class DungeonDefinition:
-    """One client-declared dungeon the operator can inspect without entering it."""
+    """One client-declared dungeon the operator can inspect without entering it.
+
+    A client that lists its dungeons without declaring their level range or cooldown leaves
+    those fields undeclared (``None``); they are never filled with an invented default.
+    """
 
     dungeon_id: int
     name: str
-    minimum_level: int
-    maximum_level: int
-    base_cooldown_seconds: int
+    minimum_level: int | None = None
+    maximum_level: int | None = None
+    base_cooldown_seconds: int | None = None
     daily_entry_limit: int = UNLIMITED_DAILY_ENTRIES
 
     def __post_init__(self) -> None:
@@ -38,12 +42,20 @@ class DungeonDefinition:
             raise ValueError("A dungeon definition needs a positive client ID.")
         if not self.name.strip():
             raise ValueError("A dungeon definition needs a display name.")
-        if self.minimum_level < 1 or self.maximum_level < self.minimum_level:
-            raise ValueError("A dungeon level range must start at one and be ordered.")
-        if self.base_cooldown_seconds < 0:
+        if self.minimum_level is not None and self.minimum_level < 1:
+            raise ValueError("A dungeon level range must start at one.")
+        if self.maximum_level is not None and self.maximum_level < (self.minimum_level or 1):
+            raise ValueError("A dungeon level range must be ordered.")
+        if self.base_cooldown_seconds is not None and self.base_cooldown_seconds < 0:
             raise ValueError("A dungeon cooldown cannot be negative.")
         if self.daily_entry_limit < UNLIMITED_DAILY_ENTRIES:
             raise ValueError("A dungeon daily entry limit cannot be negative.")
+
+    @property
+    def has_declared_level_range(self) -> bool:
+        """Return whether the client declared both ends of this dungeon's level range."""
+
+        return self.minimum_level is not None and self.maximum_level is not None
 
     def as_document(self) -> dict[str, object]:
         """Return this definition as its canonical persisted mapping."""
@@ -61,30 +73,33 @@ class DungeonDefinition:
     def from_document(cls, document: Mapping[str, object]) -> DungeonDefinition:
         """Return the definition described by one validated JSON mapping."""
 
-        values: list[int] = []
-        for key in (
-            "dungeon_id",
-            "minimum_level",
-            "maximum_level",
-            "base_cooldown_seconds",
-            "daily_entry_limit",
-        ):
-            value = document.get(key)
-            if not isinstance(value, int) or isinstance(value, bool):
-                raise ValueError(f"A dungeon document has a non-integer {key}.")
-            values.append(value)
         name = document.get("name")
         if not isinstance(name, str):
             raise ValueError("A dungeon document has a non-string name.")
-        dungeon_id, minimum, maximum, cooldown, entries = values
         return cls(
-            dungeon_id=dungeon_id,
+            dungeon_id=_required_integer(document, "dungeon_id"),
             name=name,
-            minimum_level=minimum,
-            maximum_level=maximum,
-            base_cooldown_seconds=cooldown,
-            daily_entry_limit=entries,
+            minimum_level=_declared_integer(document, "minimum_level"),
+            maximum_level=_declared_integer(document, "maximum_level"),
+            base_cooldown_seconds=_declared_integer(document, "base_cooldown_seconds"),
+            daily_entry_limit=_required_integer(document, "daily_entry_limit"),
         )
+
+
+def _required_integer(document: Mapping[str, object], key: str) -> int:
+    value = document.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"A dungeon document has a non-integer {key}.")
+    return value
+
+
+def _declared_integer(document: Mapping[str, object], key: str) -> int | None:
+    """Return one optionally declared field, where ``None`` means the client is silent."""
+
+    value = document.get(key)
+    if value is None:
+        return None
+    return _required_integer(document, key)
 
 
 @dataclass(frozen=True, slots=True)

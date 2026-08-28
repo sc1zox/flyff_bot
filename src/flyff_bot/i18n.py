@@ -655,6 +655,8 @@ class Message(StrEnum):
     UI_DUNGEON_STATUS_UNKNOWN = "ui.dungeon_status_unknown"
     UI_DUNGEON_ENTRY_COUNT = "ui.dungeon_entry_count"
     UI_DUNGEON_UNAVAILABLE = "ui.dungeon_unavailable"
+    UI_DUNGEON_DATABASE_EMPTY = "ui.dungeon_database_empty"
+    UI_DUNGEON_LIVE_UNAVAILABLE = "ui.dungeon_live_unavailable"
     UI_QUEST_PANEL_TITLE = "ui.quest_panel_title"
     UI_QUEST_SEARCH_PLACEHOLDER = "ui.quest_search_placeholder"
     UI_QUEST_FILTER_COLLECTION = "ui.quest_filter_collection"

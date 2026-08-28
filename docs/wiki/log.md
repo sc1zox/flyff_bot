@@ -1194,3 +1194,15 @@ through the live view-projection matrix instead of by matching monster detection
 `tests/integration/` added with 21 tests, plus new unit coverage for the autopilot rulebook, the respawn
 perceiver, the worker watchdog, the panel, the projection, and graded policy faults. No live `neuz.exe`
 session is claimed; the manual Windows walkthrough in the story remains operator validation.
+
+## [2026-08-29] synthesis | Dungeon ranking fallback and honest dungeon panel status (BUG-036)
+
+Recorded in [architecture.md](architecture.md) that a client packing no `PartyDungeon.lua` is not a
+client without dungeons: extraction now falls back to the ranking table `DungeonRanking.inc`, whose
+blocks declare a numeric world identifier and a label but no level range or cooldown, so those
+`DungeonDefinition` fields became optional and stay undeclared instead of defaulted. The real
+Entropia install yields 32 dungeons through that path. Also recorded that the dashboard panel keeps
+the extracted database apart from the live poll, so its status line distinguishes a missing database,
+an extracted database declaring no dungeons, and a loaded database without a connected client, rather
+than always asking the operator to run extraction. Evidence is offline: synthetic keyed-archive
+extraction fixtures, a ranking-table parser test, and panel state tests; the full gate passes.
