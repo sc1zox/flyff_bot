@@ -53,7 +53,7 @@ clear, verifiable behavior over cleverness or speculative architecture.
   data, and client structures).
 - Do not add process injection, memory writes (`WriteProcessMemory`), code hooking, anti-cheat evasion,
   credential handling, or stealth behavior.
-- Preserve the emergency stop hotkey / killswitch (e.g. `F12` / `Ctrl+Shift+Q`) to immediately release keys and halt execution.
+- Preserve the `F12` emergency-stop hotkey / killswitch to immediately release keys and halt execution. `ESC` remains an ordinary client dialogue key.
 - Never commit the local game installation, logs, secrets, generated caches, patch files, scratch scripts, temporary stash directories, or virtual environment.
 - Never run pytest with relative `--basetemp` inside the workspace (e.g. `--basetemp=.tmp`). Always use the OS temp path (`%TEMP%`) or run `./scripts/check.ps1`. Local temp directories created in sandbox environments or permission tests can create restricted Windows ACLs that trigger `Permission denied` errors in Git.
 - Never stage repository-wide changes with broad `git add .`; stage files explicitly.

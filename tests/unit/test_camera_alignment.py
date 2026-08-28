@@ -12,7 +12,10 @@ from flyff_bot.features.automation.camera_alignment import (
     CameraAlignmentConfig,
     CameraAlignmentStatus,
 )
-from flyff_bot.features.automation.controllers import VIRTUAL_KEY_DOWN, VIRTUAL_KEY_UP
+from flyff_bot.features.input_control.keymap import (
+    VIRTUAL_KEY_DOWN,
+    VIRTUAL_KEY_UP,
+)
 
 VIRTUAL_KEY_PAGE_UP = 0x21
 VIRTUAL_KEY_PAGE_DOWN = 0x22

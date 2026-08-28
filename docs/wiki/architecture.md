@@ -11,6 +11,7 @@ sources:
   - ../sources/2026-08-20-entropia-camera-static-analysis.md
   - ../sources/2026-08-21-entropia-keyed-archive-and-quest-data-analysis.md
   - ../sources/2026-08-28-operator-verified-eden-mover-symbols.md
+  - ../sources/2026-08-28-tactical-policy-inference-latency-measurement.md
 related:
   - project-overview.md
   - glossary.md
@@ -29,6 +30,7 @@ related:
   - ../user-stories/completed/US-079-unified-goal-conditioned-decision-contract.md
   - ../user-stories/completed/US-084-ml-modifiable-tactical-parameters-and-tuning.md
   - ../user-stories/completed/US-085-production-readiness-and-autonomous-farming-polish.md
+  - ../user-stories/completed/US-086-unattended-autopilot-session-resilience-and-goal-arbitration.md
   - ../user-stories/completed/US-009-reactive-loot-controller.md
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
   - ../user-stories/completed/US-012-real-world-vision-refactoring.md
@@ -2413,3 +2415,85 @@ optional `_position`. A guard test parses every production module and fails on a
 `scripts/check.ps1` passed with 1176 tests passed, 5 skipped, and 89.60% coverage; `uv sync --locked`,
 Ruff, `ruff format --check`, and mypy (316 files) were clean. Live-client walkthroughs (wizard on a
 clean install, farming, and the END / focus-loss release) remain operator validation on Windows.
+
+## Unattended autopilot, session resilience, and goal arbitration (US-086, completed)
+
+**Import graph repaired first.** `flyff_bot.cli` and `flyff_bot.ui.app` could not be imported from a
+cold interpreter at all: `features/automation/__init__.py` re-exported `FarmingOrchestrator`, so
+importing any automation leaf pulled in policy, RL, telemetry and navigation, and
+`navigation/pathing.py` closed the loop by importing `flyff_bot.ui.dashboard`. Only
+`tests/unit/conftest.py`, which happens to import navigation first, ever hid it. Three changes fix
+the layering rather than the symptom: the movement virtual keys moved to the dependency-free
+`input_control/keymap.py`, the navigation view objects (`NavigationSnapshot`, `NavMeshMobSnapshot`,
+`VectorZoneSnapshot`) moved from `ui/dashboard.py` to `features/navigation/snapshots.py` and are
+re-exported for the UI, and the automation package stopped re-exporting the orchestrator (import it
+from `features.automation.orchestrator`). `tests/integration/test_module_import_graph.py` imports
+every entry point in its own subprocess so the regression cannot hide again.
+
+**A tick fault ends the tick, not the worker.** `SessionWorker._run` wraps `tick()` and hands the
+exception to `on_fault`, which `ui/app.py` wires to `FarmingOrchestrator.handle_tick_fault`. That
+releases every held key, stops pathing, records a `tick_fault` session event carrying
+`exception_type` and `exception_message`, and moves to the new `FarmingMode.FAULTED`. An emergency
+stop and a completed budget are declared outcomes (`TERMINAL_MODES`) that a later fault never
+overwrites. Each successful tick publishes a `WorkerHealth` heartbeat; a `QTimer` on the Qt thread
+evaluates `is_worker_stalled` once a second, so a dead worker replaces the state line on the
+dashboard instead of leaving the last successful state on screen.
+
+**Death is a state.** `DeathDetector` confirms a death exactly once after a named continuous
+zero-HP dwell (`DEFAULT_DEATH_CONFIRMATION_SECONDS`), which is the fallback the story allowed
+because no memory profile exposes a death flag. `FarmingMode.DEAD` is a standby mode, so vitals are
+never evaluated there, and `VitalsTriggerController` additionally refuses to fire below
+`MINIMUM_TRIGGERABLE_VITAL_PERCENTAGE` - zero percent HP is death evidence, not a reason to press
+the potion key forever. Under autopilot, `RespawnMenuPerceiver` reads a bounded centre ROI for the
+client's `Lodestar` revive row and `RespawnInputDispatcher` clicks only that OCR-proven point,
+foreground-checked and killswitch-checked. Without autopilot the session pauses and waits for the
+operator. More deaths than `maximum_deaths` inside the rolling window pause autopilot with a reason
+naming the count instead of respawning again.
+
+**One documented killswitch.** `WindowsInputController.is_aborted` polls `F12` only, reading both
+`KEY_IS_DOWN_MASK` and `KEY_PRESSED_SINCE_LAST_QUERY_MASK`, so a short press between two ticks is
+still detected. `ESC` is no longer an abort key anywhere: it is an ordinary Flyff dialogue key that
+the quest flow itself provokes, and the dashboard and map windows now bind `F12` too. This
+supersedes every earlier `END` / `Escape` statement on this page.
+
+**A policy fault costs a decision.** `FarmingOrchestrator._record_policy_fault` discards the faulted
+decision and lets the tick fall through to the deterministic path. Consecutive faults are counted;
+only beyond `maximum_policy_faults` is learned automation demoted to `HEURISTIC` with a
+`capability_degraded` event, and farming continues. A successful evaluation clears the counter. An
+unroutable attack point is now such a fault, so the candidate is skipped for that decision instead
+of pausing the session. `PolicyFaultCode.MODEL_UNAVAILABLE` keeps the BUG-031 halt, because a model
+that cannot load can never start working. `POLICY_LATENCY_BUDGET_SECONDS` is unchanged at 5 ms but
+is no longer assumed: `scripts/measure_policy_latency.py` measured a worst case of 0.070 ms across
+1-16 candidates on the target machine, recorded in
+[the latency measurement](../sources/2026-08-28-tactical-policy-inference-latency-measurement.md).
+
+**Budgets, arbitration, and the summary.** `features/automation/autopilot.py` holds the whole
+unattended-session rulebook with no Win32 and no Qt: `AutopilotConfig` (every budget with a named
+default, a validated finite range, and `AutopilotConfigError` on an invalid value), `RollingBudget`,
+`DeathDetector`, `AutopilotSessionController`, and the pure `arbitrate_goal`. Arbitration is
+deterministic and explainable in a fixed order - continue the active quest, farm its kill objective,
+turn a completed quest in, accept the next quest, otherwise farm the configured fallback zone - and
+each decision is recorded as an `autopilot_goal` event. A fallback zone is named by its monster
+classes, which is what the extracted world map and the navigator already key on; the arbiter arms
+them as unlimited kill quotas rather than inventing a zone. Lost focus, a capture error, or a
+readiness block start a bounded backoff and resume on their own, each resume counted against
+`maximum_recoveries`; a client absent beyond `maximum_absence_seconds`, an exhausted recovery or
+tick-fault budget, or the session time budget end the session in `COMPLETED` with a typed
+`AutopilotSummary` the dashboard renders as one localized sentence. The time budget waits out
+`ENGAGEMENT_MODES` first, so a budget never abandons a live engagement.
+
+**Quest NPCs are projected, not matched.** `project_world_to_screen` runs the world position through
+the live `CameraState.view_projection_matrix` and returns a fail-closed `WorldScreenProjection`:
+`BEHIND_CAMERA`, `OUTSIDE_VIEWPORT` and `INVALID` yield no pixel at all. The former code matched the
+NPC's world position against `WorldState.visible_mobs`, which only ever holds YOLO monster
+detections, so `npc_screen_position` stayed `None` and the dialogue was never opened; it also routed
+to the world origin when the NPC had no known position, which no longer happens. An unprovable
+projection drops the stored click target through `observe_npc_projection_failure`, so the bounded
+interaction timeout fails the goal with a typed reason instead of clicking where the NPC used to be.
+Both dialogue perceivers now OCR a bounded ROI and report the matched line's centre in client pixels.
+
+**Verification.** `tests/integration/` now exists and drives the real tick path against fakes: a
+contained tick fault with a live worker, a death with an OCR-proven respawn and a resumed session, a
+death without autopilot that waits, an exhausted death budget, a focus loss that resumes after the
+backoff, an exhausted absence budget, an arbitrated goal, and a time budget that finishes with a
+summary - with no client, no window, and no dispatched input.

@@ -25,7 +25,10 @@ from flyff_bot.features.navigation.live_camera import (
     ClientCameraProfile,
     LiveCameraReader,
     Vector3D,
+    WorldProjectionStatus,
     WorldRay3D,
+    WorldScreenProjection,
+    project_world_to_screen,
     unproject_screen_ray,
 )
 from flyff_bot.features.navigation.live_position import (
@@ -67,6 +70,11 @@ from flyff_bot.features.navigation.pathing import (
     PathingMode,
     bearing_degrees,
     heading_error_degrees,
+)
+from flyff_bot.features.navigation.snapshots import (
+    NavigationSnapshot,
+    NavMeshMobSnapshot,
+    VectorZoneSnapshot,
 )
 from flyff_bot.features.navigation.teleport import (
     TeleportAnchor,
@@ -158,8 +166,10 @@ __all__ = [
     "ModelVertex",
     "NavMeshArtifact",
     "NavMeshBaker",
+    "NavMeshMobSnapshot",
     "NavMeshPersistenceError",
     "NavMeshPolygon",
+    "NavigationSnapshot",
     "O3DExtractionError",
     "O3DGeometry",
     "ObstacleKind",
@@ -195,6 +205,7 @@ __all__ = [
     "VectorRoutePlanner",
     "VectorSpawnZone",
     "VectorZoneNavigator",
+    "VectorZoneSnapshot",
     "WorldCoordinate",
     "WorldDimensions",
     "WorldExtractionError",
@@ -202,7 +213,9 @@ __all__ = [
     "WorldGeometry",
     "WorldGeometryError",
     "WorldPosition",
+    "WorldProjectionStatus",
     "WorldRay3D",
+    "WorldScreenProjection",
     "WorldTriangle",
     "WorldVectorMap",
     "WorldVertex",
@@ -221,6 +234,7 @@ __all__ = [
     "load_monster_names",
     "load_world_map",
     "parse_dynamic_placements",
+    "project_world_to_screen",
     "save_baked_navmesh",
     "save_empirical_cost_index",
     "save_world_map",

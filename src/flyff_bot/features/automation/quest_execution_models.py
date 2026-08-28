@@ -19,6 +19,10 @@ DEFAULT_QUEST_INTERACTION_TIMEOUT_SECONDS = 10.0
 DEFAULT_QUEST_RETRY_BASE_SECONDS = 2.0
 MAXIMUM_QUEST_INTERACTION_ATTEMPTS = 3
 DEFAULT_MENU_TEXT_MATCH_THRESHOLD = 0.72
+QUEST_DIALOGUE_ROI_LEFT_FRACTION = 0.15
+QUEST_DIALOGUE_ROI_TOP_FRACTION = 0.10
+QUEST_DIALOGUE_ROI_RIGHT_FRACTION = 0.85
+QUEST_DIALOGUE_ROI_BOTTOM_FRACTION = 0.90
 
 
 class QuestInteractionMode(StrEnum):
@@ -114,8 +118,14 @@ class QuestMenuPerceiver:
         del state
         if frame is None:
             return DialogueObservation(detail="frame_unavailable")
+        width = frame.client_size.width
+        height = frame.client_size.height
+        left = round(width * QUEST_DIALOGUE_ROI_LEFT_FRACTION)
+        top = round(height * QUEST_DIALOGUE_ROI_TOP_FRACTION)
+        right = round(width * QUEST_DIALOGUE_ROI_RIGHT_FRACTION)
+        bottom = round(height * QUEST_DIALOGUE_ROI_BOTTOM_FRACTION)
         try:
-            lines = self._recognizer.recognize_lines(frame.pixels)
+            lines = self._recognizer.recognize_lines(frame.pixels[top:bottom, left:right])
         except OcrError as error:
             return DialogueObservation(detail=f"ocr_{error.code.value}")
         for action in self._actions:
@@ -126,7 +136,7 @@ class QuestMenuPerceiver:
                 True,
                 can_accept=action.key == "accept",
                 can_turn_in=action.key != "accept",
-                option_position=Position(*match.line.centre),
+                option_position=Position(left + match.line.centre[0], top + match.line.centre[1]),
                 detail=action.key,
             )
         return DialogueObservation(detail="menu_action_not_found")
@@ -215,6 +225,8 @@ class QuestInteractionController:
         self._failures = 0
         self._retry_after_seconds: float | None = None
         self._turn_in_requested = False
+        self._npc_screen_position: Position | None = None
+        self._npc_projection_failure: str | None = None
 
     def begin_turn_in(self) -> None:
         """Route to the configured turn-in NPC once objectives are independently complete."""
@@ -245,6 +257,22 @@ class QuestInteractionController:
         )
         self._npc_screen_position = npc_screen_position
         self._begin_attempt(at_seconds)
+
+    @property
+    def npc_projection_failure(self) -> str | None:
+        """Return why the NPC's screen position could not be proven, if it could not."""
+
+        return self._npc_projection_failure
+
+    def observe_npc_projection_failure(self, reason: str) -> None:
+        """Drop the stale click target: an unprovable NPC position must dispatch nothing.
+
+        The bounded interaction timeout still runs, so a permanently unprojectable NPC fails
+        its goal with a typed reason instead of clicking at where the NPC used to be (US-086).
+        """
+
+        self._npc_screen_position = None
+        self._npc_projection_failure = reason
 
     def retry_if_due(self, at_seconds: float) -> bool:
         """End safe retreat and restart the same bounded interaction once backoff ends."""

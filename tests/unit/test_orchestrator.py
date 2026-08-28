@@ -13,11 +13,7 @@ import pytest
 
 from flyff_bot.features.automation.camera_alignment import CameraAligner, CameraAlignmentStatus
 from flyff_bot.features.automation.controllers import (
-    VIRTUAL_KEY_A,
     VIRTUAL_KEY_F1,
-    VIRTUAL_KEY_RIGHT,
-    VIRTUAL_KEY_S,
-    VIRTUAL_KEY_W,
     CombatClassProfile,
     EngagementBreakReason,
 )
@@ -49,6 +45,12 @@ from flyff_bot.features.automation.vitals_controller import (
 )
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control import ForegroundWindowInfo, parse_virtual_key
+from flyff_bot.features.input_control.keymap import (
+    VIRTUAL_KEY_A,
+    VIRTUAL_KEY_RIGHT,
+    VIRTUAL_KEY_S,
+    VIRTUAL_KEY_W,
+)
 from flyff_bot.features.navigation.live_position import (
     LivePositionReader,
     PositionReading,

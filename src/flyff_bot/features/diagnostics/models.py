@@ -17,6 +17,13 @@ class SessionEventKind(StrEnum):
     FRAME_CAPTURE_ERROR = "frame_capture_error"
     GOAL_COMPLETED = "goal_completed"
     CAPABILITY_DEGRADED = "capability_degraded"
+    TICK_FAULT = "tick_fault"
+    AUTOPILOT_ARMED = "autopilot_armed"
+    AUTOPILOT_DISARMED = "autopilot_disarmed"
+    AUTOPILOT_GOAL = "autopilot_goal"
+    PLAYER_DEATH = "player_death"
+    RECOVERY_RESUMED = "recovery_resumed"
+    BUDGET_EXHAUSTED = "budget_exhausted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,3 +37,6 @@ class SessionEvent:
     reason: str | None = None
     foreground_window_title: str | None = None
     foreground_window_process: str | None = None
+    # Only a contained tick fault carries these; every other event leaves them unset.
+    exception_type: str | None = None
+    exception_message: str | None = None

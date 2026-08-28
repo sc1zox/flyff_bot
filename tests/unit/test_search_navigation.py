@@ -5,15 +5,17 @@ from __future__ import annotations
 import pytest
 
 from flyff_bot.features.automation.controllers import (
-    VIRTUAL_KEY_D,
-    VIRTUAL_KEY_LEFT,
-    VIRTUAL_KEY_RIGHT,
-    VIRTUAL_KEY_W,
     SearchConfig,
     SearchController,
     SearchMode,
 )
 from flyff_bot.features.automation.search_execution import SearchInputDispatcher
+from flyff_bot.features.input_control.keymap import (
+    VIRTUAL_KEY_D,
+    VIRTUAL_KEY_LEFT,
+    VIRTUAL_KEY_RIGHT,
+    VIRTUAL_KEY_W,
+)
 
 
 class _Adapter:

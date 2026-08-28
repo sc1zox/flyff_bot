@@ -1155,3 +1155,29 @@ read-only readers returning their open handle triple and the Qt painters taking 
 scene or snapshot. Evidence is offline: 17 new tests plus updated setup-detection coverage;
 `scripts/check.ps1` passed with 1176 passed, 5 skipped, 89.60% coverage against the raised 85% gate.
 No live `neuz.exe` session is claimed and no new client access or input capability was added.
+
+
+## [2026-08-28] ingest | Tactical policy inference latency measurement (US-086)
+
+Ingested [2026-08-28-tactical-policy-inference-latency-measurement.md](../sources/2026-08-28-tactical-policy-inference-latency-measurement.md):
+`scripts/measure_policy_latency.py` evaluated the live `HierarchicalPolicy` 2 000 times per candidate
+count (1, 4, 8, 16) on the target machine. Worst observed evaluation 0.070 ms, worst p99 0.021 ms, so
+the existing `POLICY_LATENCY_BUDGET_SECONDS = 0.005` keeps roughly 70x headroom and is kept unchanged
+- now recorded rather than assumed. The constant cites the source; the caveat that the figures cover
+the deterministic Python policy, not a future ONNX artifact, is stated in the source itself.
+
+
+## [2026-08-28] synthesis | Unattended autopilot, session resilience, and goal arbitration (US-086)
+
+Recorded the unattended-session pass in [architecture.md](architecture.md): the repaired import graph
+(`flyff_bot.cli` and `flyff_bot.ui.app` were unimportable from a cold interpreter, hidden only by a
+test conftest); contained tick faults with a heartbeat watchdog and the new `FarmingMode.FAULTED`;
+player death as a state with a bounded zero-HP dwell, a vitals lower bound, and an OCR-proven
+`Lodestar` respawn click; one documented `F12` killswitch read with its latched pressed-since-last-query
+bit, superseding every earlier `END` / `Escape` statement on the page; graded policy faults that cost a
+decision rather than the session; the declarative `features/automation/autopilot.py` budget and
+arbitration rulebook with its localized dashboard card; and quest NPCs located by forward projection
+through the live view-projection matrix instead of by matching monster detections. Evidence is offline:
+`tests/integration/` added with 21 tests, plus new unit coverage for the autopilot rulebook, the respawn
+perceiver, the worker watchdog, the panel, the projection, and graded policy faults. No live `neuz.exe`
+session is claimed; the manual Windows walkthrough in the story remains operator validation.

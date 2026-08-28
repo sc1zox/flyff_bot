@@ -20,6 +20,8 @@ from flyff_bot.features.automation.models import (
 from flyff_bot.features.automation.orchestrator import FarmingMode, FarmingOrchestrator
 from flyff_bot.features.automation.quest_execution import QuestInputDispatcher
 from flyff_bot.features.automation.quest_execution_models import (
+    QUEST_DIALOGUE_ROI_LEFT_FRACTION,
+    QUEST_DIALOGUE_ROI_TOP_FRACTION,
     DialogueObservation,
     DialoguePerceiver,
     MenuAction,
@@ -30,6 +32,7 @@ from flyff_bot.features.automation.quest_execution_models import (
     QuestInteractionMode,
     QuestMenuPerceiver,
 )
+from flyff_bot.features.navigation.live_camera import WorldProjectionStatus
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.pathing import PathingConfig, PathingController
 from flyff_bot.features.navigation.world_extractor import (
@@ -446,7 +449,14 @@ def test_menu_perceiver_matches_generic_accept_and_submit_rows() -> None:
     assert not observation.can_turn_in
     if observation.option_position is None:
         raise AssertionError("OCR line geometry must provide a clickable position.")
-    assert (observation.option_position.x, observation.option_position.y) == (100, 52)
+    # OCR runs on a bounded region of interest, so the matched line's centre is reported in
+    # client pixels rather than in ROI pixels (US-086).
+    left = round(_frame().client_size.width * QUEST_DIALOGUE_ROI_LEFT_FRACTION)
+    top = round(_frame().client_size.height * QUEST_DIALOGUE_ROI_TOP_FRACTION)
+    assert (observation.option_position.x, observation.option_position.y) == (
+        left + 100,
+        top + 52,
+    )
     assert observation.detail == "accept"
 
 
@@ -693,3 +703,18 @@ def test_clearing_the_quest_queue_leaves_the_session_on_its_own_quotas() -> None
     orchestrator.configure_quest_queue(None)
 
     assert orchestrator.quest_queue is None
+
+
+def test_an_unprovable_npc_projection_drops_the_stale_click_target() -> None:
+    from flyff_bot.features.quests.goals import QuestResolution
+
+    controller = QuestInteractionController(cast("QuestResolution", _interaction_resolution()))
+    controller.begin_interaction(1.0, npc_screen_position=Position(100, 100))
+
+    controller.observe_npc_projection_failure(WorldProjectionStatus.BEHIND_CAMERA.value)
+    decision = controller.step(_state(1.1))
+
+    # No click is dispatched at where the NPC used to be; the bounded timeout still runs.
+    assert decision.input_kind is QuestInputKind.NONE
+    assert decision.position is None
+    assert controller.npc_projection_failure == "behind_camera"

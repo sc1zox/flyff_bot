@@ -108,6 +108,13 @@ def test_each_language_contains_every_message() -> None:
                 parameter="x",
                 received="x",
                 applied="x",
+                goal="x",
+                elapsed="x",
+                remaining="x",
+                deaths=0,
+                recoveries=0,
+                fault="x",
+                duration="x",
             )
 
 

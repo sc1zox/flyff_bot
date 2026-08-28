@@ -27,6 +27,8 @@ def status_message(status: BotStatus) -> Message:
         BotStatus.EMERGENCY_TELEPORT_UNAVAILABLE: (
             Message.UI_STATUS_EMERGENCY_TELEPORT_UNAVAILABLE
         ),
+        BotStatus.DEAD: Message.UI_STATUS_DEAD,
+        BotStatus.FAULTED: Message.UI_STATUS_FAULTED,
     }[status]
 
 
@@ -43,6 +45,8 @@ def status_category(status: BotStatus) -> str:
         BotStatus.EMERGENCY_STOPPED,
         BotStatus.ALIGNMENT_FAILED,
         BotStatus.EMERGENCY_TELEPORT_UNAVAILABLE,
+        BotStatus.DEAD,
+        BotStatus.FAULTED,
     }:
         return "emergency_stopped"
     if status in {BotStatus.RECONCILING, BotStatus.ALIGNING, BotStatus.EMERGENCY_TELEPORT}:

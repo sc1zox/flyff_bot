@@ -8,7 +8,10 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
 
-from flyff_bot.features.automation.controllers import VIRTUAL_KEY_DOWN, VIRTUAL_KEY_UP
+from flyff_bot.features.input_control.keymap import (
+    VIRTUAL_KEY_DOWN,
+    VIRTUAL_KEY_UP,
+)
 from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 
 ZOOM_OUT_WHEEL_NOTCHES = 20

@@ -60,9 +60,9 @@ class NavigationMapWindow(QMainWindow):
         self.setWindowTitle(self._translator.text(Message.UI_MAP_WINDOW_TITLE))
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Trigger emergency stop immediately upon Escape keypress."""
+        """Trigger the emergency stop on the one documented `F12` hotkey."""
 
-        if event.key() == Qt.Key.Key_Escape:
+        if event.key() == Qt.Key.Key_F12:
             self.emergency_stop_requested.emit()
             event.accept()
             return

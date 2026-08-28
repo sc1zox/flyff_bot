@@ -13,6 +13,13 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
+from flyff_bot.features.input_control.keymap import (
+    VIRTUAL_KEY_A,
+    VIRTUAL_KEY_D,
+    VIRTUAL_KEY_LEFT,
+    VIRTUAL_KEY_RIGHT,
+    VIRTUAL_KEY_W,
+)
 from flyff_bot.features.policy.candidate_economics import rank_candidates
 from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 
@@ -29,14 +36,6 @@ VIRTUAL_KEY_F4 = 0x73
 VIRTUAL_KEY_F12 = 0x7B
 DEFAULT_KEY_PRESS_DURATION_SECONDS = 0.05
 DEFAULT_ATTACK_COOLDOWN_SECONDS = 0.5
-VIRTUAL_KEY_A = 0x41
-VIRTUAL_KEY_D = 0x44
-VIRTUAL_KEY_S = 0x53
-VIRTUAL_KEY_W = 0x57
-VIRTUAL_KEY_LEFT = 0x25
-VIRTUAL_KEY_UP = 0x26
-VIRTUAL_KEY_RIGHT = 0x27
-VIRTUAL_KEY_DOWN = 0x28
 DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS = 0.8
 DEFAULT_ENGAGEMENT_GRACE_SECONDS = 0.5
 DEFAULT_TARGET_LOCKOUT_SECONDS = 1.0

@@ -25,7 +25,6 @@ from test_perception_pipeline import (
     _TargetVerifier,
 )
 
-from flyff_bot.features.automation.controllers import VIRTUAL_KEY_A, VIRTUAL_KEY_W
 from flyff_bot.features.automation.models import (
     PlayerVitals,
     Position,
@@ -55,6 +54,10 @@ from flyff_bot.features.input_control.controller import (
     KEY_EVENT_KEY_UP,
     Input,
     WindowsInputController,
+)
+from flyff_bot.features.input_control.keymap import (
+    VIRTUAL_KEY_A,
+    VIRTUAL_KEY_W,
 )
 from flyff_bot.features.navigation.execution import PathingInputDispatcher
 from flyff_bot.features.navigation.pathing import PathingDecision, PathingMode

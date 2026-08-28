@@ -45,7 +45,8 @@ cleverness or speculative architecture.
   data, and client structures).
 - Do not add process injection, memory writes (`WriteProcessMemory`), code hooking, anti-cheat
   evasion, credential handling, or stealth behavior.
-- Preserve the emergency stop and document any action that can affect another process.
+- Preserve the `F12` emergency stop and document any action that can affect another process.
+  `ESC` is never a killswitch, because the client uses it as an ordinary dialogue key.
 - Never commit the local game installation, logs, secrets, generated caches, patch files, scratch
   scripts, temporary stash directories, or virtual environment.
 - Never run pytest with relative `--basetemp` inside the workspace (e.g. `--basetemp=.tmp`). Always

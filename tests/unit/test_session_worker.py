@@ -6,7 +6,13 @@ import threading
 
 import pytest
 
-from flyff_bot.ui.session_worker import SessionWorker
+from flyff_bot.ui.session_worker import (
+    MINIMUM_WORKER_HEARTBEAT_STALE_SECONDS,
+    WORKER_HEARTBEAT_STALE_MULTIPLIER,
+    SessionWorker,
+    WorkerHealth,
+    is_worker_stalled,
+)
 
 TICK_INTERVAL_SECONDS = 0.01
 TICK_WAIT_TIMEOUT_SECONDS = 5.0
@@ -79,7 +85,74 @@ def test_worker_stop_is_safe_before_it_ever_started() -> None:
     assert not worker.is_running
 
 
+def test_worker_contains_a_tick_fault_and_continues_heartbeating() -> None:
+    ticks = threading.Event()
+    faults: list[str] = []
+    calls = 0
+
+    def tick() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("expected fault")
+        ticks.set()
+
+    worker = SessionWorker(
+        tick,
+        TICK_INTERVAL_SECONDS,
+        on_fault=lambda error: faults.append(str(error)),
+    )
+    worker.start()
+    try:
+        assert ticks.wait(TICK_WAIT_TIMEOUT_SECONDS)
+    finally:
+        worker.stop()
+
+    assert faults == ["expected fault"]
+    assert worker.health.tick_count >= 1
+    assert worker.health.exception_type == "RuntimeError"
+
+
 @pytest.mark.parametrize("interval", [0.0, -1.0])
 def test_worker_rejects_a_non_positive_interval(interval: float) -> None:
     with pytest.raises(ValueError, match="tick interval"):
         SessionWorker(lambda: None, interval)
+
+
+def test_a_stopped_worker_is_reported_as_stalled_immediately() -> None:
+    assert is_worker_stalled(
+        is_running=False,
+        health=WorkerHealth(tick_count=5, last_heartbeat_seconds=100.0),
+        now=100.0,
+        tick_interval_seconds=TICK_INTERVAL_SECONDS,
+    )
+
+
+def test_a_worker_that_has_not_ticked_yet_is_not_called_stalled() -> None:
+    assert not is_worker_stalled(
+        is_running=True,
+        health=WorkerHealth(),
+        now=100.0,
+        tick_interval_seconds=TICK_INTERVAL_SECONDS,
+    )
+
+
+def test_a_slow_tick_is_tolerated_but_a_silent_worker_is_not() -> None:
+    health = WorkerHealth(tick_count=3, last_heartbeat_seconds=100.0)
+    stale_after = max(
+        TICK_INTERVAL_SECONDS * WORKER_HEARTBEAT_STALE_MULTIPLIER,
+        MINIMUM_WORKER_HEARTBEAT_STALE_SECONDS,
+    )
+
+    assert not is_worker_stalled(
+        is_running=True,
+        health=health,
+        now=100.0 + stale_after,
+        tick_interval_seconds=TICK_INTERVAL_SECONDS,
+    )
+    assert is_worker_stalled(
+        is_running=True,
+        health=health,
+        now=100.0 + stale_after + 0.1,
+        tick_interval_seconds=TICK_INTERVAL_SECONDS,
+    )

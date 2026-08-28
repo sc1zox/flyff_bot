@@ -1,7 +1,7 @@
 ---
 id: US-086
 title: Unattended autopilot mode, session resilience, and autonomous goal arbitration
-status: draft
+status: completed
 created: 2026-08-28
 updated: 2026-08-28
 ---
@@ -75,132 +75,132 @@ dashboard whether it is still working.**
 
 ### 1. The session survives a fault instead of dying silently
 
-- [ ] **Given** an armed session, **when** `orchestrator.tick()` raises any exception, **then** the
+- [x] **Given** an armed session, **when** `orchestrator.tick()` raises any exception, **then** the
       worker thread stays alive, the exception is recorded as a typed session event with its
       exception type and message, the session transitions to a defined faulted state, and all held
       keys are released.
-- [ ] **Given** a recorded tick fault, **when** the dashboard updates, **then** the operator sees a
+- [x] **Given** a recorded tick fault, **when** the dashboard updates, **then** the operator sees a
       localized fault reason and the time of the fault rather than the last successful state.
-- [ ] **Given** a running session, **when** the worker thread stops for any reason, **then** the UI
+- [x] **Given** a running session, **when** the worker thread stops for any reason, **then** the UI
       reflects that within one status interval, because a heartbeat is published per tick and its
       staleness is evaluated.
-- [ ] **Given** repeated tick faults, **when** the count within the configured window exceeds the
+- [x] **Given** repeated tick faults, **when** the count within the configured window exceeds the
       configured maximum, **then** the session ends on the budget rules of section 5 instead of
       retrying forever.
 
 ### 2. Player death is a state, not a potion loop
 
-- [ ] **Given** an armed session, **when** the player is observed dead, **then** the session enters
+- [x] **Given** an armed session, **when** the player is observed dead, **then** the session enters
       `FarmingMode.DEAD`, releases all held keys, cancels any active route and engagement, and
       records a typed session event.
-- [ ] **Given** `FarmingMode.DEAD`, **when** vitals are evaluated, **then** no vitals trigger is
+- [x] **Given** `FarmingMode.DEAD`, **when** vitals are evaluated, **then** no vitals trigger is
       dispatched, because `VitalsTriggerController` refuses to fire below a named minimum vital
       percentage and the orchestrator does not evaluate vitals in the death state.
-- [ ] **Given** `FarmingMode.DEAD` under autopilot, **when** the respawn interaction is available,
+- [x] **Given** `FarmingMode.DEAD` under autopilot, **when** the respawn interaction is available,
       **then** it is dispatched through the guarded input path, and on confirmed respawn the session
       returns to goal arbitration.
-- [ ] **Given** more deaths within the configured window than the configured maximum, **when** the
+- [x] **Given** more deaths within the configured window than the configured maximum, **when** the
       next death occurs, **then** autopilot pauses with a localized reason naming the death count,
       rather than respawning again.
-- [ ] **Given** `FarmingMode.DEAD` without autopilot armed, **when** the death is observed, **then**
+- [x] **Given** `FarmingMode.DEAD` without autopilot armed, **when** the death is observed, **then**
       the session pauses and waits for the operator.
 
 ### 3. The emergency stop is reliable and does not collide with a game key
 
-- [ ] **Given** the running application, **when** the emergency-stop hotkey is evaluated, **then**
+- [x] **Given** the running application, **when** the emergency-stop hotkey is evaluated, **then**
       `ESC` is not part of it and the documented combination in
       `.claude/rules/windows-safety-and-input.md` is what is polled.
-- [ ] **Given** a short press of the emergency-stop hotkey between two ticks, **when** the next tick
+- [x] **Given** a short press of the emergency-stop hotkey between two ticks, **when** the next tick
       runs, **then** the stop is still detected, because the pressed-since-last-query state is
       latched rather than only the currently-held state being read.
-- [ ] **Given** a triggered emergency stop, **when** it is handled, **then** every held key is
+- [x] **Given** a triggered emergency stop, **when** it is handled, **then** every held key is
       released, the session enters `EMERGENCY_STOPPED`, and autopilot does not resume it
       automatically.
-- [ ] **Given** the emergency stop, **when** documentation is checked, **then** `CLAUDE.md`,
+- [x] **Given** the emergency stop, **when** documentation is checked, **then** `CLAUDE.md`,
       `AGENTS.md`, and `.claude/rules/windows-safety-and-input.md` name the same keys the code polls.
 
 ### 4. Recovery is graded, and a policy fault costs a decision, not the session
 
-- [ ] **Given** `PolicyRuntimeMode.ML_ACTIVE`, **when** one policy evaluation reports a fault,
+- [x] **Given** `PolicyRuntimeMode.ML_ACTIVE`, **when** one policy evaluation reports a fault,
       **then** that decision is discarded, the tick falls through to the deterministic path, and the
       fault is counted, without pausing the session.
-- [ ] **Given** consecutive policy faults exceeding the configured budget, **when** the budget is
+- [x] **Given** consecutive policy faults exceeding the configured budget, **when** the budget is
       exhausted, **then** learned automation is demoted to `HEURISTIC` with a localized
       `capability_degraded` event, and farming continues.
-- [ ] **Given** an attack point whose route is unavailable, **when** the approach cannot start,
+- [x] **Given** an attack point whose route is unavailable, **when** the approach cannot start,
       **then** the candidate is skipped for this decision instead of the session being paused.
-- [ ] **Given** the policy latency budget, **when** it is defined, **then** its value is justified by
+- [x] **Given** the policy latency budget, **when** it is defined, **then** its value is justified by
       a recorded measurement of live inference on the target machine rather than assumed, and
       exceeding it is treated by the rules above.
-- [ ] **Given** lost window focus, a frame-capture error, or a readiness block under autopilot,
+- [x] **Given** lost window focus, a frame-capture error, or a readiness block under autopilot,
       **when** the blocking condition clears, **then** the session resumes on its own after a bounded
       backoff wait, and each attempt is recorded.
-- [ ] **Given** a window that stays absent longer than the configured maximum, **when** the wait
+- [x] **Given** a window that stays absent longer than the configured maximum, **when** the wait
       expires, **then** autopilot ends the session on the budget rules of section 5 with a localized
       reason.
 
 ### 5. Autopilot arms one self-directed session with a declared budget
 
-- [ ] **Given** the dashboard, **when** the operator arms autopilot, **then** one control starts a
+- [x] **Given** the dashboard, **when** the operator arms autopilot, **then** one control starts a
       session that requires no further zone, monster, or quest selection, and the control states in
       localized text what the session will pursue.
-- [ ] **Given** autopilot is armed and `is_setup_required()` is true, **when** the operator tries to
+- [x] **Given** autopilot is armed and `is_setup_required()` is true, **when** the operator tries to
       arm it, **then** arming is refused with the same localized reason the ordinary start button
       already carries.
-- [ ] **Given** an armed autopilot session, **when** a goal completes or becomes unexecutable,
+- [x] **Given** an armed autopilot session, **when** a goal completes or becomes unexecutable,
       **then** the arbiter selects the next goal without operator input, in this order: continue the
       active quest, farm the active quest's kill objective, travel to and turn in a completed quest,
       accept the next available quest, and otherwise farm the configured fallback zone.
-- [ ] **Given** no executable quest remains, **when** the arbiter selects, **then** it farms the
+- [x] **Given** no executable quest remains, **when** the arbiter selects, **then** it farms the
       configured fallback zone and records the reason it stopped pursuing quests, rather than
       completing the session.
-- [ ] **Given** an arbitration decision, **when** it is taken, **then** it is recorded as a typed
+- [x] **Given** an arbitration decision, **when** it is taken, **then** it is recorded as a typed
       session event naming the chosen goal and the reason, and the dashboard shows the currently
       pursued goal in localized text.
-- [ ] **Given** a configured session time budget, **when** it expires, **then** the session finishes
+- [x] **Given** a configured session time budget, **when** it expires, **then** the session finishes
       the current engagement, releases all keys, transitions to `COMPLETED`, and reports a localized
       summary of duration, kills, completed quests, deaths, and recoveries.
-- [ ] **Given** a configured recovery budget, **when** more recoveries occur within the window than
+- [x] **Given** a configured recovery budget, **when** more recoveries occur within the window than
       the maximum allows, **then** autopilot ends the session the same way with a localized reason
       naming the exhausted budget.
-- [ ] **Given** every new autopilot setting, **when** it is defined, **then** it has a named default,
+- [x] **Given** every new autopilot setting, **when** it is defined, **then** it has a named default,
       a validated finite range, and a typed error on an invalid value, and no business-rule literal
       appears inline.
 
 ### 6. Quest NPC interaction actually reaches the dialogue
 
-- [ ] **Given** a live camera state and an NPC world position, **when** the NPC's screen position is
+- [x] **Given** a live camera state and an NPC world position, **when** the NPC's screen position is
       needed, **then** it is computed by projecting the world position through
       `CameraState.view_projection_matrix` into client pixels, not by matching against
       `WorldState.visible_mobs`.
-- [ ] **Given** an NPC whose projected position falls outside the client area or behind the camera,
+- [x] **Given** an NPC whose projected position falls outside the client area or behind the camera,
       **when** the projection is evaluated, **then** no click is dispatched and the goal reports a
       typed reason.
-- [ ] **Given** a quest NPC with no known world position, **when** the goal is evaluated, **then**
+- [x] **Given** a quest NPC with no known world position, **when** the goal is evaluated, **then**
       it fails with a typed reason and the arbiter moves on, and no route to the world origin is
       ever started.
-- [ ] **Given** an open NPC dialogue, **when** its options are read, **then** OCR runs on a bounded
+- [x] **Given** an open NPC dialogue, **when** its options are read, **then** OCR runs on a bounded
       region of interest rather than the full frame, in line with
       `.claude/rules/vision-and-perception.md`.
-- [ ] **Given** a dialogue reading below the configured match confidence, **when** it is evaluated,
+- [x] **Given** a dialogue reading below the configured match confidence, **when** it is evaluated,
       **then** no click is dispatched, so a chat or item line can never be mistaken for a menu
       option.
-- [ ] **Given** an accepted and a turned-in quest, **when** autopilot runs a full cycle, **then** the
+- [x] **Given** an accepted and a turned-in quest, **when** autopilot runs a full cycle, **then** the
       quest queue advances and the arbiter continues with the next goal.
 
 ### 7. Diagnostics, localization, and verification
 
-- [ ] **Given** the dashboard during an unattended run, **when** the operator looks at it, **then**
+- [x] **Given** the dashboard during an unattended run, **when** the operator looks at it, **then**
       autopilot state, pursued goal, elapsed and remaining budget, death count, recovery count, and
       last fault are visible without opening a dialog.
-- [ ] **Given** every new user-visible state, reason, refusal, and summary, **when** it is displayed,
+- [x] **Given** every new user-visible state, reason, refusal, and summary, **when** it is displayed,
       **then** it is present and synchronized in `src/flyff_bot/locales/de.json` and
       `src/flyff_bot/locales/en.json`, assembled from whole sentences rather than fragments.
-- [ ] **Given** the repository, **when** tests are collected, **then** `tests/integration/` exists
+- [x] **Given** the repository, **when** tests are collected, **then** `tests/integration/` exists
       and contains at least one test that drives the autopilot tick path end to end against fakes,
       covering a tick fault, a death and respawn, a focus loss and resume, and one goal
       arbitration, without a client, a window, or dispatched input.
-- [ ] **Given** the test suite, **when** `./scripts/check.ps1` runs, **then** `uv sync --locked`,
+- [x] **Given** the test suite, **when** `./scripts/check.ps1` runs, **then** `uv sync --locked`,
       `ruff check`, `ruff format --check`, `mypy`, and `pytest` all pass and coverage stays at or
       above the configured 85 % floor.
 
@@ -222,6 +222,41 @@ dashboard whether it is still working.**
 - Any memory write, injection, hooking, or stealth behavior.
 
 ---
+
+## What landed
+
+- `src/flyff_bot/features/automation/autopilot.py` — the whole unattended rulebook with no Win32 and
+  no Qt: validated budgets, the rolling-window counters, the zero-HP dwell death detector, and the
+  pure `arbitrate_goal`.
+- `src/flyff_bot/features/automation/respawn.py` — bounded-ROI `Lodestar` perception and its
+  foreground- and killswitch-guarded click.
+- `src/flyff_bot/features/navigation/live_camera.py` — `project_world_to_screen`, the fail-closed
+  forward projection that replaces the monster-detection match.
+- `src/flyff_bot/ui/autopilot_panel.py` — the arming control and the localized state card.
+- `src/flyff_bot/ui/session_worker.py` — the tick-fault boundary, the per-tick heartbeat, and
+  `is_worker_stalled` for the UI watchdog.
+- `scripts/measure_policy_latency.py` and
+  [the recorded measurement](../sources/2026-08-28-tactical-policy-inference-latency-measurement.md)
+  that justifies the unchanged 5 ms policy latency budget.
+- `tests/integration/` — the directory this story required, driving the tick path end to end.
+
+## Carried defects that were not in the original list
+
+The application could not be imported at all from a cold interpreter: `features/automation/__init__`
+re-exported the orchestrator and `features/navigation/pathing.py` imported `flyff_bot.ui.dashboard`,
+so `flyff_bot.cli` and `flyff_bot.ui.app` both raised `ImportError`. Only `tests/unit/conftest.py`,
+which happens to import navigation first, hid it. Autopilot cannot be demonstrated on an application
+that does not start, so the layering was fixed (movement keys to `input_control/keymap.py`,
+navigation view objects to `features/navigation/snapshots.py`, no orchestrator re-export) and
+`tests/integration/test_module_import_graph.py` guards every entry point in its own subprocess.
+
+## Notes on the delivered behavior
+
+- The dashboard shows the fault time as an elapsed session duration, not a wall-clock timestamp,
+  because the session clock is monotonic. The exact wall-clock time is in the session event log.
+- The full accept → farm → turn-in cycle is exercised by the existing quest-execution tests plus the
+  arbitration hand-off on queue advance; a single end-to-end fake covering one whole quest cycle was
+  not added, so manual step 2 below still carries that confirmation.
 
 ## Verification
 

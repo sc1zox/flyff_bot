@@ -71,6 +71,8 @@ class SessionEventLogger:
         reason: str | None = None,
         foreground_window_title: str | None = None,
         foreground_window_process: str | None = None,
+        exception_type: str | None = None,
+        exception_message: str | None = None,
     ) -> SessionEvent:
         """Append one event to memory and disk, swallowing any I/O or formatting failure."""
 
@@ -82,6 +84,8 @@ class SessionEventLogger:
             reason=reason,
             foreground_window_title=foreground_window_title,
             foreground_window_process=foreground_window_process,
+            exception_type=exception_type,
+            exception_message=exception_message,
         )
         self._history.append(event)
         self._write(event)

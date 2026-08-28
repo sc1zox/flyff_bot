@@ -5,11 +5,13 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from time import monotonic
 from typing import Protocol, cast
 
 import cv2
 import numpy as np
 import numpy.typing as npt
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from flyff_bot.constants import (
@@ -69,10 +71,15 @@ from flyff_bot.features.vision.ocr import TESSERACT_LANGUAGE_ENGLISH
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.dashboard import DashboardFeed
 from flyff_bot.ui.main_window import MainWindow
-from flyff_bot.ui.session_worker import SessionWorker
+from flyff_bot.ui.session_worker import (
+    WORKER_WATCHDOG_INTERVAL_SECONDS,
+    SessionWorker,
+    is_worker_stalled,
+)
 from flyff_bot.ui.theme import apply_theme
 
 STANDBY_TICK_INTERVAL_SECONDS = 0.1
+MILLISECONDS_PER_SECOND = 1_000
 
 
 class FarmingControls(Protocol):
@@ -127,6 +134,14 @@ class StartableControls(Protocol):
     """The subset of session controls needed to initiate farming after window focus."""
 
     def start(self) -> None: ...
+
+    def pause(self) -> None: ...
+
+
+class AutopilotControls(Protocol):
+    """The subset of session controls needed to arm one unattended session."""
+
+    def arm_autopilot(self) -> None: ...
 
     def pause(self) -> None: ...
 
@@ -265,6 +280,21 @@ def start_farming(
         session.pause()
         return
     session.start()
+
+
+def arm_autopilot(
+    controller: WindowFocusControls,
+    window_handle: int,
+    session: AutopilotControls,
+) -> None:
+    """Foreground the client, then arm one self-directed unattended session."""
+
+    try:
+        controller.focus_window(window_handle)
+    except InputControlError:
+        session.pause()
+        return
+    session.arm_autopilot()
 
 
 def run_desktop(arguments: Sequence[str] | None = None) -> int:
@@ -429,9 +459,34 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         window.quest_npc_positions,
                     ),
                 )
-                worker = SessionWorker(orchestrator.tick, STANDBY_TICK_INTERVAL_SECONDS)
+                window.autopilot_arm_requested.connect(
+                    lambda: arm_autopilot(controller, window_handle, orchestrator)
+                )
+                worker = SessionWorker(
+                    orchestrator.tick,
+                    STANDBY_TICK_INTERVAL_SECONDS,
+                    on_fault=orchestrator.handle_tick_fault,
+                )
                 window._teardowns.append(worker.stop)
                 worker.start()
+                # A dead worker thread must not leave the dashboard presenting its last
+                # successful state as if the session were still running (US-086).
+                watchdog = QTimer(window)
+                watchdog.setInterval(
+                    round(WORKER_WATCHDOG_INTERVAL_SECONDS * MILLISECONDS_PER_SECOND)
+                )
+                watchdog.timeout.connect(
+                    lambda: window.set_worker_stalled(
+                        is_worker_stalled(
+                            is_running=worker.is_running,
+                            health=worker.health,
+                            now=monotonic(),
+                            tick_interval_seconds=STANDBY_TICK_INTERVAL_SECONDS,
+                        )
+                    )
+                )
+                watchdog.start()
+                window._teardowns.append(watchdog.stop)
     else:
         window.window_label.setText(
             translator.text(Message.UI_WINDOW_NOT_FOUND, process=DEFAULT_PROCESS_NAME)

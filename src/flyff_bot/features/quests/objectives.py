@@ -53,6 +53,8 @@ TRAVEL_GOAL_KINDS = frozenset(
 OBJECTIVE_GOAL_KINDS = frozenset(
     {QuestGoalKind.TRAVEL_TO_OBJECTIVE, QuestGoalKind.SATISFY_OBJECTIVE}
 )
+#: The goals a quest whose objectives are already met still has to work through.
+TURN_IN_GOAL_KINDS = frozenset({QuestGoalKind.TRAVEL_TO_TURN_IN, QuestGoalKind.TURN_IN})
 INTERACTION_GOAL_KINDS = frozenset({QuestGoalKind.ACCEPT, QuestGoalKind.TURN_IN})
 
 

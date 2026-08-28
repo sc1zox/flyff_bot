@@ -8,8 +8,19 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Protocol
 
+from flyff_bot.features.automation.autopilot import (
+    DEAD_HP_PERCENTAGE,
+    AutopilotCompletionReason,
+    AutopilotConfig,
+    AutopilotGoalKind,
+    AutopilotSessionController,
+    AutopilotSnapshot,
+    DeathDetector,
+    arbitrate_goal,
+)
 from flyff_bot.features.automation.camera_alignment import (
     DEFAULT_AUTO_ALIGN_CAMERA,
     CameraAligner,
@@ -80,6 +91,10 @@ from flyff_bot.features.automation.readiness import (
     ProviderRegistration,
     SessionCapability,
 )
+from flyff_bot.features.automation.respawn import (
+    RespawnInputDispatcher,
+    RespawnMenuPerceiver,
+)
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
 from flyff_bot.features.automation.target_reconciliation import (
@@ -111,7 +126,11 @@ from flyff_bot.features.navigation.goal_travel import (
     GoalTravelMode,
     plan_goal_travel,
 )
-from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
+from flyff_bot.features.navigation.live_camera import (
+    CameraReadErrorCode,
+    WorldProjectionStatus,
+    project_world_to_screen,
+)
 from flyff_bot.features.navigation.live_position import (
     PositionReadErrorCode,
     PositionSource,
@@ -156,6 +175,8 @@ from flyff_bot.features.policy.runner import (
 )
 from flyff_bot.features.quests.objectives import (
     NO_OBJECTIVE_ORDINAL,
+    OBJECTIVE_GOAL_KINDS,
+    TURN_IN_GOAL_KINDS,
     QuestGoal,
     QuestGoalFailure,
     QuestGoalKind,
@@ -246,6 +267,8 @@ class FarmingMode(StrEnum):
     COMBAT = "combat"
     TELEPORTING = "teleporting"
     RECONCILING = "reconciling"
+    DEAD = "dead"
+    FAULTED = "faulted"
     EMERGENCY_STOPPED = "emergency_stopped"
     COMPLETED = "completed"
 
@@ -262,6 +285,17 @@ DEFAULT_POLICY_RUNTIME_MODE = PolicyRuntimeMode.HEURISTIC
 HIERARCHICAL_METADATA_NAME = "hierarchical-metadata.json"
 POLICY_MODEL_NOT_CONFIGURED = "not_configured"
 LEARNED_POLICY_HALTED_REASON = "learned_policy_halted"
+# Machine-readable reasons for the unattended-session events the dashboard localizes.
+TICK_FAULT_REASON = "tick_fault"
+AUTOPILOT_ARMED_REASON = "autopilot_armed"
+NO_EXECUTABLE_GOAL_REASON = "no_executable_goal"
+RECOVERY_BLOCKING_CONDITION_CLEARED = "blocking_condition_cleared"
+DEATH_CONFIRMED_REASON = "zero_hp_dwell_confirmed"
+DEATH_BUDGET_EXHAUSTED_REASON = "death_budget_exhausted"
+RESPAWN_CONFIRMED_REASON = "respawn_confirmed"
+RESPAWN_WAITING_FOR_OPERATOR_REASON = "respawn_waiting_for_operator"
+NPC_PROJECTION_UNAVAILABLE_REASON = "npc_projection_unavailable"
+OPERATOR_PAUSE_REASON = "operator_pause"
 
 
 class QuestGoalFailurePolicy(StrEnum):
@@ -283,8 +317,20 @@ NPC_GOAL_KIND_BY_INTERACTION_MODE = {
     QuestInteractionMode.AWAITING_REWARD_CLAIM: QuestGoalKind.TURN_IN,
 }
 
+#: Declared session outcomes a contained fault must not overwrite.
+TERMINAL_MODES = frozenset({FarmingMode.EMERGENCY_STOPPED, FarmingMode.COMPLETED})
+
+#: The modes an orderly stop waits out, so a budget never abandons a live engagement.
+ENGAGEMENT_MODES = frozenset({FarmingMode.APPROACHING, FarmingMode.TARGETING, FarmingMode.COMBAT})
+
 STANDBY_MODES = frozenset(
-    {FarmingMode.PAUSED, FarmingMode.COMPLETED, FarmingMode.EMERGENCY_STOPPED}
+    {
+        FarmingMode.PAUSED,
+        FarmingMode.DEAD,
+        FarmingMode.FAULTED,
+        FarmingMode.COMPLETED,
+        FarmingMode.EMERGENCY_STOPPED,
+    }
 )
 
 WINDOW_STATUS_BY_CAPTURE_CODE = {
@@ -355,6 +401,7 @@ class FarmingConfig:
     quest_travel: GoalTravelConfig = field(default_factory=GoalTravelConfig)
     quest_goal_timeouts: QuestGoalTimeouts = field(default_factory=QuestGoalTimeouts)
     quest_goal_failure_policy: QuestGoalFailurePolicy = DEFAULT_QUEST_GOAL_FAILURE_POLICY
+    autopilot: AutopilotConfig = field(default_factory=AutopilotConfig)
 
     def __post_init__(self) -> None:
         if self.tick_interval_seconds <= 0.0:
@@ -405,11 +452,13 @@ class FarmingOrchestrator:
         quest_queue: QuestFarmingQueue | None = None,
         on_target_classes_changed: Callable[[frozenset[str]], None] | None = None,
         quest_menu_perceiver: DialoguePerceiver | None = None,
+        respawn_menu_perceiver: RespawnMenuPerceiver | None = None,
         event_logger: SessionEventLogger | None = None,
         foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
         telemetry: TelemetryRecorder | None = None,
         dungeon_provider: DungeonStateProvider | None = None,
         teleporter_catalog: TeleporterCatalog | None = None,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         self._pipeline = pipeline
         self._input_adapter = input_adapter
@@ -443,6 +492,9 @@ class FarmingOrchestrator:
         self._quest_teleport_active = False
         self._quest_menu_perceiver = quest_menu_perceiver
         self._quest_input_dispatcher = QuestInputDispatcher(input_adapter, window_handle)
+        self._respawn_menu_perceiver = respawn_menu_perceiver
+        self._respawn_dispatcher = RespawnInputDispatcher(input_adapter, window_handle)
+        self._respawn_dispatched = False
         self._pathing = pathing
         if self._pathing is not None:
             update_tactical_parameters = getattr(self._pathing, "update_tactical_parameters", None)
@@ -502,6 +554,12 @@ class FarmingOrchestrator:
         self._player_stats_unsupported_since_seconds: float | None = None
         self._readiness = LiveReadinessStatus()
         self._readiness_was_blocked = False
+        self._clock = clock
+        self._autopilot = AutopilotSessionController(self._config.autopilot)
+        self._death_detector = DeathDetector()
+        self._orderly_stop_requested = False
+        self._session_kills = 0
+        self._completed_quests = 0
         self._configure_readiness_gate()
 
     @property
@@ -816,6 +874,26 @@ class FarmingOrchestrator:
             return
         self._set_mode(FarmingMode.SEARCHING, reason="session_start")
 
+    def arm_autopilot(self) -> None:
+        """Arm one self-directed session and immediately arbitrate its first goal."""
+
+        if self._mode is FarmingMode.EMERGENCY_STOPPED:
+            return
+        now = self._clock()
+        self._autopilot.arm(now)
+        self._orderly_stop_requested = False
+        self._session_kills = 0
+        self._completed_quests = 0
+        self._record_event(SessionEventKind.AUTOPILOT_ARMED, AUTOPILOT_ARMED_REASON)
+        self._arbitrate_autopilot_goal()
+        self.start()
+
+    @property
+    def autopilot_snapshot(self) -> AutopilotSnapshot:
+        """Return immutable unattended-session state for the dashboard."""
+
+        return self._autopilot.snapshot(self._clock())
+
     def request_camera_alignment(self) -> None:
         """Queue one on-demand alignment that the next tick performs on its worker thread."""
 
@@ -844,6 +922,11 @@ class FarmingOrchestrator:
 
         if manual:
             self._session_active = False
+            if self._autopilot.armed:
+                self._autopilot.disarm()
+                self._record_event(
+                    SessionEventKind.AUTOPILOT_DISARMED, reason or OPERATOR_PAUSE_REASON
+                )
         if self._mode is not FarmingMode.EMERGENCY_STOPPED:
             self._set_mode(FarmingMode.PAUSED, kind=kind, reason=reason, foreground=foreground)
 
@@ -863,6 +946,39 @@ class FarmingOrchestrator:
             close_pipeline()
         if self._dungeon_provider is not None:
             self._dungeon_provider.close()
+
+    def handle_tick_fault(self, error: Exception) -> None:
+        """Contain a worker tick fault in a visible, non-dispatching session state.
+
+        The worker thread stays alive; what ends is the faulted tick. Held keys are released
+        first, so a fault can never leave the character running into a wall (US-086).
+        """
+
+        previous = self._mode
+        self._clear_armed_actions()
+        if self._pathing is not None:
+            self._pathing.emergency_stop()
+        now = self._clock()
+        budget_exhausted = self._autopilot.record_tick_fault(error, now)
+        exhausted = self._autopilot.armed and budget_exhausted
+        # An emergency stop and a completed budget are declared outcomes: a later fault is
+        # still recorded, but it must not overwrite what ended the session.
+        if self._mode not in TERMINAL_MODES:
+            self._mode = FarmingMode.FAULTED
+        if self._event_logger is not None:
+            self._event_logger.record(
+                SessionEventKind.TICK_FAULT,
+                self._mode.value,
+                previous_mode=previous.value,
+                reason=TICK_FAULT_REASON,
+                exception_type=type(error).__name__,
+                exception_message=str(error),
+            )
+        if exhausted:
+            self._complete_autopilot(AutopilotCompletionReason.TICK_FAULT_BUDGET, now)
+        elif self._autopilot.armed:
+            self._autopilot.begin_recovery(now)
+        self._publish(False)
 
     def close(self) -> None:
         """Release external resources during application teardown."""
@@ -1378,8 +1494,9 @@ class FarmingOrchestrator:
         action = self._policy_runner.evaluate(self._state, context)
         fault = self._policy_runner.last_fault
         if fault is not None:
-            self._halt_learned_automation(fault)
+            self._record_policy_fault(fault)
             return None
+        self._autopilot.clear_policy_faults()
         self._last_policy_action = (
             action if isinstance(action, TargetAction | AttackPointAction) else None
         )
@@ -1418,6 +1535,39 @@ class FarmingOrchestrator:
                 target_class_names=frozenset(name for name, _count in quest.required_kills),
             )
         )
+
+    def _record_policy_fault(self, fault: PolicyFault) -> None:
+        """Let one serving failure cost its decision rather than the session (US-086).
+
+        An unloadable model can never start working, so it still halts the session the way
+        BUG-031 requires. Every other fault discards the decision it produced, is counted, and
+        lets the tick fall through to the deterministic path. Only a run of consecutive faults
+        beyond the configured budget demotes learned automation, and farming then continues
+        heuristically instead of stopping.
+        """
+
+        self._policy_fault = fault
+        self._last_policy_action = None
+        if fault.code is PolicyFaultCode.MODEL_UNAVAILABLE:
+            self._halt_learned_automation(fault)
+            return
+        if self._autopilot.record_policy_fault():
+            self._demote_learned_automation(fault)
+
+    def _demote_learned_automation(self, fault: PolicyFault) -> None:
+        """Keep farming deterministically instead of presenting heuristics as learned."""
+
+        self._autopilot.clear_policy_faults()
+        if self._policy_mode is PolicyRuntimeMode.HEURISTIC:
+            return
+        self._policy_mode = PolicyRuntimeMode.HEURISTIC
+        if self._event_logger is not None:
+            self._event_logger.record(
+                SessionEventKind.CAPABILITY_DEGRADED,
+                self._mode.value,
+                previous_mode=self._mode.value,
+                reason=f"{LEARNED_POLICY_HALTED_REASON}:{fault.reason}",
+            )
 
     def _halt_learned_automation(self, fault: PolicyFault) -> None:
         """Stop learned automation instead of presenting heuristic behaviour as learned.
@@ -1524,14 +1674,32 @@ class FarmingOrchestrator:
             if emergency_stopped:
                 self._readiness = self._readiness_gate.evaluate(self._state.observed_at_seconds)
                 return self._publish(False)
+            now = self._clock()
+            if self._autopilot.armed and self._autopilot.time_exhausted(now):
+                self._complete_autopilot(AutopilotCompletionReason.TIME_BUDGET, now)
+                return self._publish(False)
+            if self._mode is FarmingMode.DEAD:
+                return self._publish(self._advance_dead_state())
             readiness = self._evaluate_readiness(self._state.observed_at_seconds)
+            if self._autopilot.armed and self._autopilot.absence_exhausted(now):
+                self._complete_autopilot(AutopilotCompletionReason.CLIENT_ABSENCE, now)
+                return self._publish(False)
             if (
                 self._session_active
-                and self._mode is FarmingMode.PAUSED
+                and self._mode in {FarmingMode.PAUSED, FarmingMode.FAULTED}
                 and self._has_live_frame
                 and not readiness.action_blocked
+                and (not self._autopilot.armed or self._autopilot.recovery_due(now))
             ):
                 self._readiness_was_blocked = False
+                if self._autopilot.armed:
+                    if self._autopilot.record_recovery(now):
+                        self._complete_autopilot(AutopilotCompletionReason.RECOVERY_BUDGET, now)
+                        return self._publish(False)
+                    self._record_event(
+                        SessionEventKind.RECOVERY_RESUMED, RECOVERY_BLOCKING_CONDITION_CLEARED
+                    )
+                    self._arbitrate_autopilot_goal()
                 self._set_mode(FarmingMode.SEARCHING, reason="resumed_auto")
             return self._publish(False)
         if not self._input_adapter.is_foreground(self._window_handle):
@@ -1575,7 +1743,15 @@ class FarmingOrchestrator:
             self._pause_for_readiness()
             return self._publish(False)
         self._readiness_was_blocked = False
-        if self._goal_completed():
+        if self._observe_player_death():
+            return self._publish(False)
+        now = self._clock()
+        if self._autopilot.armed and self._autopilot.time_exhausted(now):
+            self._orderly_stop_requested = True
+        if self._orderly_stop_requested and self._mode not in ENGAGEMENT_MODES:
+            self._complete_autopilot(AutopilotCompletionReason.TIME_BUDGET, now)
+            return self._publish(False)
+        if self._goal_completed() and not self._autopilot.armed:
             self._complete_session()
             return self._publish(False)
 
@@ -1597,6 +1773,128 @@ class FarmingOrchestrator:
 
         dispatched = self._advance()
         return self._publish(dispatched)
+
+    def _record_event(self, kind: SessionEventKind, reason: str) -> None:
+        """Record one diagnostic that reports a decision rather than a mode change."""
+
+        if self._event_logger is not None:
+            self._event_logger.record(
+                kind,
+                self._mode.value,
+                previous_mode=self._mode.value,
+                reason=reason,
+            )
+
+    def _arbitrate_autopilot_goal(self) -> None:
+        """Choose and adopt the next self-directed goal without operator input.
+
+        A turn-in goal is reported as a completed quest rather than as a continuation,
+        because that is the decision the operator needs to see on the dashboard.
+        """
+
+        if not self._autopilot.armed:
+            return
+        sequence = self._quest_goals
+        active_goal = None if sequence is None else sequence.active
+        kind = None if active_goal is None else active_goal.kind
+        completed_quest = kind in TURN_IN_GOAL_KINDS
+        queue = self._quest_queue
+        decision = arbitrate_goal(
+            active_quest=kind is not None and not completed_quest,
+            active_kill_objective=kind in OBJECTIVE_GOAL_KINDS,
+            completed_quest=completed_quest,
+            next_quest_available=(kind is None and queue is not None and queue.active is not None),
+            fallback_zone_configured=self._config.autopilot.has_fallback_zone,
+        )
+        if decision is not None and decision.goal is AutopilotGoalKind.FALLBACK_FARM:
+            self._apply_fallback_zone()
+        if self._autopilot.choose_goal(decision):
+            self._record_event(
+                SessionEventKind.AUTOPILOT_GOAL,
+                NO_EXECUTABLE_GOAL_REASON
+                if decision is None
+                else f"{decision.goal.value}:{decision.reason.value}",
+            )
+
+    def _apply_fallback_zone(self) -> None:
+        """Farm the configured fallback monsters without an upper bound."""
+
+        names = self._config.autopilot.fallback_monster_names
+        if not names or self._kill_goals.active_class_names == frozenset(names):
+            return
+        self.configure_kill_goals(KillGoalConfig(quotas=tuple(MobKillQuota(n) for n in names)))
+
+    def _complete_autopilot(self, reason: AutopilotCompletionReason, at_seconds: float) -> None:
+        """End the session in an orderly way once a declared budget is exhausted."""
+
+        self._session_active = False
+        self._orderly_stop_requested = False
+        self._clear_armed_actions()
+        if self._pathing is not None:
+            self._pathing.emergency_stop()
+        self._autopilot.complete(
+            reason,
+            at_seconds,
+            kills=self._session_kills,
+            completed_quests=self._completed_quests,
+        )
+        self._set_mode(
+            FarmingMode.COMPLETED,
+            kind=SessionEventKind.BUDGET_EXHAUSTED,
+            reason=reason.value,
+        )
+
+    def _observe_player_death(self) -> bool:
+        """Enter the death state once a zero-HP dwell confirms the character died."""
+
+        observed_at = self._state.observed_at_seconds
+        if not self._death_detector.observe(self._state.player_vitals.hp_percentage, observed_at):
+            return False
+        self._clear_armed_actions()
+        if self._pathing is not None:
+            self._pathing.emergency_stop()
+        self._respawn_dispatched = False
+        budget_exhausted = self._autopilot.armed and self._autopilot.record_death(observed_at)
+        self._set_mode(
+            FarmingMode.DEAD,
+            kind=SessionEventKind.PLAYER_DEATH,
+            reason=DEATH_CONFIRMED_REASON,
+        )
+        if budget_exhausted:
+            deaths = self._autopilot.deaths
+            self._autopilot.disarm()
+            self.pause(reason=f"{DEATH_BUDGET_EXHAUSTED_REASON}:{deaths}", manual=False)
+        elif not self._autopilot.armed:
+            # Without autopilot the operator owns the respawn, so the session waits.
+            self._session_active = False
+        return True
+
+    def _advance_dead_state(self) -> bool:
+        """Dispatch the observed revive option, or hand a confirmed respawn back to farming."""
+
+        observed_at = self._state.observed_at_seconds
+        if self._state.player_vitals.hp_percentage > DEAD_HP_PERCENTAGE:
+            self._death_detector.reset()
+            self._respawn_dispatched = False
+            if not self._autopilot.armed:
+                self._set_mode(FarmingMode.PAUSED, reason=RESPAWN_WAITING_FOR_OPERATOR_REASON)
+                return False
+            if self._autopilot.record_recovery(observed_at):
+                self._complete_autopilot(AutopilotCompletionReason.RECOVERY_BUDGET, observed_at)
+                return False
+            self._record_event(SessionEventKind.RECOVERY_RESUMED, RESPAWN_CONFIRMED_REASON)
+            self._arbitrate_autopilot_goal()
+            self._set_mode(FarmingMode.SEARCHING, reason=RESPAWN_CONFIRMED_REASON)
+            return False
+        if (
+            not self._autopilot.armed
+            or self._respawn_dispatched
+            or self._respawn_menu_perceiver is None
+        ):
+            return False
+        observation = self._respawn_menu_perceiver.observe(self._last_frame)
+        self._respawn_dispatched = self._respawn_dispatcher.dispatch(observation)
+        return self._respawn_dispatched
 
     async def run(self, sleep: Callable[[float], Awaitable[object]] = asyncio.sleep) -> None:
         """Run cooperative ticks until paused, completed, or emergency-stopped."""
@@ -1684,6 +1982,8 @@ class FarmingOrchestrator:
     ) -> None:
         if not self._readiness_was_blocked:
             self._clear_armed_actions()
+            if self._autopilot.armed:
+                self._autopilot.begin_recovery(self._clock())
         self._readiness_was_blocked = True
         reason = self._readiness.primary_reason
         source = self._readiness.primary_source
@@ -1956,8 +2256,10 @@ class FarmingOrchestrator:
                     self._set_mode(FarmingMode.APPROACHING, reason="navmesh_target_selected")
                     return False
                 if should_approach and self._policy_attack_point_override is not None:
+                    # The candidate is skipped for this decision; the next tick re-selects
+                    # rather than the session being paused for an unroutable attack point.
                     self._policy_attack_point_override = None
-                    self._halt_learned_automation(
+                    self._record_policy_fault(
                         PolicyFault(
                             PolicyFaultCode.INVALID_OR_MASKED_ACTION,
                             "attack_point_route_unavailable",
@@ -2331,32 +2633,37 @@ class FarmingOrchestrator:
             pathing.cancel_target_approach()
             self._set_mode(FarmingMode.SEARCHING, reason="quest_npc_reached")
             return False
+        if npc.position is None:
+            interaction.observe_navigation(
+                None, False, route_available=False, at_seconds=self._state.observed_at_seconds
+            )
+            return False
         npc_screen_position = None
         if in_range:
-            for mob in self._state.visible_mobs:
-                if (
-                    mob.world_x is None
-                    or mob.world_y is None
-                    or mob.world_z is None
-                    or npc.position is None
-                ):
-                    continue
-                if (
-                    math.dist(
-                        (mob.world_x, mob.world_y, mob.world_z),
-                        (
-                            npc.position.x,
-                            npc.position.y,
-                            npc.position.z,
-                        ),
-                    )
-                    <= 1.0
-                ):
-                    npc_screen_position = Position(mob.x, mob.y + mob.height // 2)
-                    break
+            # The NPC's click target is projected through the live view-projection matrix.
+            # Anything the projection cannot prove drops the stale target instead of clicking
+            # where the NPC used to be; the bounded interaction timeout then fails the goal
+            # with a typed reason (US-086).
+            camera = pathing.camera_state
+            viewport = self._state.viewport
+            projection = (
+                None
+                if camera is None or not viewport.has_size
+                else project_world_to_screen(npc.position, viewport.width, viewport.height, camera)
+            )
+            if projection is None:
+                interaction.observe_npc_projection_failure(NPC_PROJECTION_UNAVAILABLE_REASON)
+            elif (
+                projection.status is not WorldProjectionStatus.VISIBLE
+                or projection.x is None
+                or projection.y is None
+            ):
+                interaction.observe_npc_projection_failure(projection.status.value)
+            else:
+                npc_screen_position = Position(projection.x, projection.y)
         if not in_range and interaction.mode.startswith("navigating_"):
             if not pathing.begin_position_approach(
-                npc.position if npc.position is not None else WorldPosition(0.0, 0.0, 0.0),
+                npc.position,
                 self._state.observed_at_seconds,
             ):
                 interaction.observe_navigation(
@@ -2487,6 +2794,7 @@ class FarmingOrchestrator:
     def _record_kill(self, class_name: str | None) -> None:
         if not self._kill_goals.record_kill(class_name):
             return
+        self._session_kills += 1
         if self._kill_goals.has_quotas:
             self._apply_active_target_classes()
         self._advance_quest_queue(class_name)
@@ -2503,10 +2811,11 @@ class FarmingOrchestrator:
         queue = self._quest_queue
         if queue is None or not queue.record_kill(class_name):
             return
+        self._completed_quests += 1
         following = queue.advance()
-        if following is None:
-            return
-        self._bind_quest(following)
+        if following is not None:
+            self._bind_quest(following)
+        self._arbitrate_autopilot_goal()
 
     def _goal_completed(self) -> bool:
         queue = self._quest_queue
@@ -2581,6 +2890,8 @@ class FarmingOrchestrator:
                     readiness=self._readiness,
                     policy_fault=self._policy_fault,
                     tactical_parameter_diagnostics=self._tactical_parameter_diagnostics,
+                    autopilot=self._autopilot.snapshot(self._clock()),
+                    autopilot_summary=self._autopilot.summary,
                 )
             )
         return tick
@@ -2644,6 +2955,10 @@ def _dashboard_status(
         return BotStatus.EMERGENCY_TELEPORT
     if mode is FarmingMode.EMERGENCY_STOPPED:
         return BotStatus.EMERGENCY_STOPPED
+    if mode is FarmingMode.DEAD:
+        return BotStatus.DEAD
+    if mode is FarmingMode.FAULTED:
+        return BotStatus.FAULTED
     if teleport_unavailable:
         return BotStatus.EMERGENCY_TELEPORT_UNAVAILABLE
     if alignment_failed:

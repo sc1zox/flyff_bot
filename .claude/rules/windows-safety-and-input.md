@@ -15,7 +15,9 @@ Strict safety and platform interaction rules for Windows Win32 API.
 
 ## 2. Emergency Stop (Killswitch)
 
-- A global keyboard hotkey / hook (e.g. `F12` or `Ctrl+Shift+Q`) must be registered to immediately halt all bot actions.
+- The global `F12` hotkey must immediately halt all bot actions. It is read with both held and pressed-since-last-query state so a short press is not missed; `ESC` is never a killswitch because it is an ordinary dialogue key.
+- The dashboard and map windows bind the same `F12` key, so the operator never has to remember
+  a second shortcut depending on which window has focus.
 - The emergency stop must release all held virtual keys, stop worker loops, and update status to halted.
 
 ## 3. Explicit Safety Boundaries

@@ -224,7 +224,7 @@ def test_controls_emit_intent_and_update_status() -> None:
 
     window.start_button.click()
     window.pause_button.click()
-    QTest.keyClick(window, Qt.Key.Key_Escape)
+    QTest.keyClick(window, Qt.Key.Key_F12)
     application.processEvents()
 
     assert requested == ["start", "pause", "emergency"]
@@ -335,7 +335,7 @@ def test_farming_controls_connect_dashboard_intent() -> None:
     window.start_button.click()
     window.pause_button.click()
     window.tab_widget.setCurrentIndex(DashboardTab.DIAGNOSTICS_LOGS)
-    QTest.keyClick(window, Qt.Key.Key_Escape)
+    QTest.keyClick(window, Qt.Key.Key_F12)
     window.align_camera_button.click()
     window.auto_align_toggle.setChecked(False)
     application.processEvents()
@@ -1289,7 +1289,7 @@ def test_main_window_escape_key_triggers_emergency_stop() -> None:
     stopped: list[bool] = []
     window.emergency_stop_requested.connect(lambda: stopped.append(True))
 
-    QTest.keyClick(window, Qt.Key.Key_Escape)
+    QTest.keyClick(window, Qt.Key.Key_F12)
     application.processEvents()
 
     assert stopped == [True]
@@ -1304,7 +1304,7 @@ def test_navigation_map_window_escape_key_triggers_emergency_stop() -> None:
     stopped: list[bool] = []
     map_window.emergency_stop_requested.connect(lambda: stopped.append(True))
 
-    QTest.keyClick(map_window, Qt.Key.Key_Escape)
+    QTest.keyClick(map_window, Qt.Key.Key_F12)
     application.processEvents()
 
     assert stopped == [True]

@@ -48,9 +48,12 @@ POINTER_MOVE_SETTLE_SECONDS = 0.15
 # Standard "please close yourself" notification; the client keeps full control over
 # whether and how it shuts down.
 WINDOW_MESSAGE_CLOSE = 0x0010
-VIRTUAL_KEY_END = 0x23
-VIRTUAL_KEY_ESCAPE = 0x1B
+VIRTUAL_KEY_F12 = 0x7B
 KEY_IS_DOWN_MASK = 0x8000
+# GetAsyncKeyState records a press since the caller last queried this key in its
+# low-order bit.  This makes a short emergency-stop press deterministic even when
+# it happens between farming ticks.
+KEY_PRESSED_SINCE_LAST_QUERY_MASK = 0x0001
 MAXIMUM_PROCESS_PATH_LENGTH = 32_768
 FOCUS_SETTLE_SECONDS = 0.25
 WAIT_POLL_SECONDS = 0.02
@@ -282,12 +285,15 @@ class WindowsInputController:
         return bool(self._user32.PostMessageW(window_handle, WINDOW_MESSAGE_CLOSE, 0, 0))
 
     def is_aborted(self) -> bool:
-        """Return whether the emergency-stop key is currently held."""
+        """Return whether the F12 emergency stop is held or was just pressed.
 
-        return bool(
-            self._user32.GetAsyncKeyState(VIRTUAL_KEY_END) & KEY_IS_DOWN_MASK
-            or self._user32.GetAsyncKeyState(VIRTUAL_KEY_ESCAPE) & KEY_IS_DOWN_MASK
-        )
+        ESC intentionally is not an abort key: the client uses it for ordinary
+        dialogue handling, and treating it as a killswitch makes quest execution
+        unsafe and nondeterministic.
+        """
+
+        key_state = self._user32.GetAsyncKeyState(VIRTUAL_KEY_F12)
+        return bool(key_state & (KEY_IS_DOWN_MASK | KEY_PRESSED_SINCE_LAST_QUERY_MASK))
 
     def is_foreground(self, window_handle: int) -> bool:
         """Return whether a target window remains foregrounded for combat input."""

@@ -8,9 +8,6 @@ from typing import cast
 import pytest
 
 from flyff_bot.features.automation.controllers import (
-    VIRTUAL_KEY_A,
-    VIRTUAL_KEY_S,
-    VIRTUAL_KEY_W,
     SearchConfig,
 )
 from flyff_bot.features.automation.models import (
@@ -26,6 +23,11 @@ from flyff_bot.features.automation.orchestrator import (
     FarmingInputAdapter,
     FarmingMode,
     FarmingOrchestrator,
+)
+from flyff_bot.features.input_control.keymap import (
+    VIRTUAL_KEY_A,
+    VIRTUAL_KEY_S,
+    VIRTUAL_KEY_W,
 )
 from flyff_bot.features.navigation.live_camera import (
     CameraReading,

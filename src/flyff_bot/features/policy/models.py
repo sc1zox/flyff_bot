@@ -42,6 +42,10 @@ __all__ = [
     "WaitAction",
 ]
 
+# Measured, not assumed: live hierarchical-policy evaluation on the target machine peaks at
+# 0.070 ms across 1-16 candidates, so 5 ms leaves ~70x headroom for scheduling jitter while
+# still catching a policy that stopped returning in bounded time. See
+# docs/sources/2026-08-28-tactical-policy-inference-latency-measurement.md (US-086).
 POLICY_LATENCY_BUDGET_SECONDS = 0.005
 DEFAULT_POLICY_WAIT_SECONDS = 0.1
 

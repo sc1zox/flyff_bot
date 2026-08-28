@@ -79,6 +79,7 @@ from flyff_bot.features.tactical_parameters import (
 )
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.i18n import Language, Message, Translator
+from flyff_bot.ui.autopilot_panel import AutopilotPanel
 from flyff_bot.ui.dashboard import (
     BotStatus,
     DashboardUpdate,
@@ -160,6 +161,9 @@ class MainWindow(QMainWindow):
     # Emits the freshly loaded mover catalog join (or ``None``) so the live perception
     # pipeline can adopt a new extraction without an application restart (US-085).
     client_data_reloaded = Signal(object)
+    # One control arms a self-directed session; no zone, monster, or quest selection is
+    # required beyond what the session arbitrates for itself (US-086).
+    autopilot_arm_requested = Signal()
 
     def __init__(
         self,
@@ -292,6 +296,7 @@ class MainWindow(QMainWindow):
         self._quest_controller = QuestDatabaseController(self._quest_panel, self._translator)
         self._dungeon_panel = DungeonCooldownPanel(self._translator)
         self._readiness_panel = ReadinessPanel(self._translator)
+        self._autopilot_panel = AutopilotPanel(self._translator)
 
         self._target_debug_panel = TargetDebugPanel()
         self._target_anchor_val = self._target_debug_panel.anchor_value
@@ -702,6 +707,7 @@ class MainWindow(QMainWindow):
 
         self._add_scroll_tab(
             DashboardTab.DASHBOARD,
+            self._autopilot_panel,
             self._summary_card,
             self._readiness_panel,
             preview_controls,
@@ -769,6 +775,7 @@ class MainWindow(QMainWindow):
         self._tab_scroll_areas[tab] = scroll_area
 
     def _connect_controls(self) -> None:
+        self._autopilot_panel.arm_requested.connect(self.autopilot_arm_requested)
         self._start_button.clicked.connect(self._request_start)
         self._pause_button.clicked.connect(self._request_pause)
         self._attack_key_button.clicked.connect(self._begin_attack_key_recording)
@@ -1050,6 +1057,10 @@ class MainWindow(QMainWindow):
 
         self._setup_required = self.is_setup_required()
         self._start_button.setEnabled(not self._setup_required)
+        self._autopilot_panel.set_arming_allowed(
+            not self._setup_required,
+            refusal=self._translator.text(Message.UI_SETUP_REQUIRED_STATUS),
+        )
         self._apply_setup_tooltip()
 
     def _apply_setup_tooltip(self) -> None:
@@ -1103,6 +1114,7 @@ class MainWindow(QMainWindow):
         self._quest_panel.set_translator(self._translator)
         self._dungeon_panel.set_translator(self._translator)
         self._readiness_panel.set_translator(self._translator)
+        self._autopilot_panel.set_translator(self._translator)
         self._target_debug_panel.retranslate(self._translator)
         self._monster_stats_panel.retranslate(self._translator)
         self._monster_stats_panel.render_metrics(
@@ -1190,6 +1202,17 @@ class MainWindow(QMainWindow):
         self._latest_update = update
         self._render_update()
 
+    @property
+    def autopilot_panel(self) -> AutopilotPanel:
+        """Expose the unattended-session card for focused UI tests."""
+
+        return self._autopilot_panel
+
+    def set_worker_stalled(self, stalled: bool) -> None:
+        """Say the worker stopped ticking instead of leaving the last state on screen."""
+
+        self._autopilot_panel.set_worker_stalled(stalled)
+
     def update_status(self, status: BotStatus) -> None:
         if self._latest_update is None:
             return
@@ -1222,6 +1245,7 @@ class MainWindow(QMainWindow):
         self._quest_panel.set_goal(update.quest_goal)
         self._dungeon_panel.set_snapshots(update.dungeons)
         self._readiness_panel.set_status(update.readiness)
+        self._autopilot_panel.set_snapshot(update.autopilot, update.autopilot_summary)
         self._combat_panel.set_policy_diagnostic(self._translator, update.policy_fault)
         self._tactical_parameters_panel.show_diagnostics(update.tactical_parameter_diagnostics)
         self._event_log_panel.set_events(update.events)
@@ -1347,7 +1371,7 @@ class MainWindow(QMainWindow):
         return super().eventFilter(watched, event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() == Qt.Key.Key_Escape:
+        if event.key() == Qt.Key.Key_F12:
             self._request_emergency_stop()
             event.accept()
             return

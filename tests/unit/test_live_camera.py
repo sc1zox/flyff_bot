@@ -15,15 +15,19 @@ from flyff_bot.features.navigation.live_camera import (
     MATRIX_SIZE_BYTES,
     CameraReadError,
     CameraReadErrorCode,
+    CameraState,
     ClientCameraProfile,
     LiveCameraReader,
+    WorldProjectionStatus,
     invert_matrix,
     load_client_camera_profiles,
+    project_world_to_screen,
     unproject_screen_ray,
 )
 from flyff_bot.features.navigation.live_position import (
     PROCESS_QUERY_LIMITED_INFORMATION,
     PROCESS_VM_READ,
+    WorldPosition,
 )
 
 WINDOW_HANDLE = 42
@@ -331,3 +335,44 @@ def test_unprojection_matches_the_d3d_perspective_frustum(
     assert bottom_right.direction.x == pytest.approx(2.0 / math.sqrt(6.0))
     assert bottom_right.direction.y == pytest.approx(-1.0 / math.sqrt(6.0))
     assert bottom_right.direction.z == pytest.approx(1.0 / math.sqrt(6.0))
+
+
+def test_world_projection_returns_the_client_pixel_of_a_point_ahead_of_the_camera(
+    configured_reader: tuple[LiveCameraReader, FakeCameraMemoryApi, list[CameraReadError]],
+) -> None:
+    reader, _api, _events = configured_reader
+    state = reader.poll(0.0).state
+    assert state is not None
+
+    projection = project_world_to_screen(WorldPosition(0.0, 0.0, 10.0), 200, 100, state)
+
+    assert projection.status is WorldProjectionStatus.VISIBLE
+    assert (projection.x, projection.y) == (100, 50)
+
+
+@pytest.mark.parametrize(
+    ("position", "status"),
+    [
+        (WorldPosition(0.0, 0.0, -10.0), WorldProjectionStatus.BEHIND_CAMERA),
+        (WorldPosition(500.0, 0.0, 10.0), WorldProjectionStatus.OUTSIDE_VIEWPORT),
+        (WorldPosition(math.nan, 0.0, 10.0), WorldProjectionStatus.INVALID),
+    ],
+)
+def test_world_projection_refuses_a_click_target_it_cannot_prove(
+    configured_reader: tuple[LiveCameraReader, FakeCameraMemoryApi, list[CameraReadError]],
+    position: WorldPosition,
+    status: WorldProjectionStatus,
+) -> None:
+    reader, _api, _events = configured_reader
+    state = reader.poll(0.0).state
+    assert state is not None
+
+    projection = project_world_to_screen(position, 200, 100, state)
+
+    assert projection.status is status
+    assert projection.x is None and projection.y is None
+
+
+def test_world_projection_requires_a_positive_viewport() -> None:
+    with pytest.raises(ValueError, match="Viewport"):
+        project_world_to_screen(WorldPosition(0.0, 0.0, 1.0), 0, 100, CameraState())

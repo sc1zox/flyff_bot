@@ -14,6 +14,9 @@ DEFAULT_HP_THRESHOLD_PERCENTAGE = 70.0
 DEFAULT_MP_THRESHOLD_PERCENTAGE = 30.0
 DEFAULT_FP_THRESHOLD_PERCENTAGE = 20.0
 DEFAULT_VITALS_DEBOUNCE_SECONDS = 0.8
+# Zero percent HP is death evidence, never an item-consumption trigger.  The
+# small positive lower bound also keeps a malformed zero reading fail-closed.
+MINIMUM_TRIGGERABLE_VITAL_PERCENTAGE = 0.1
 
 VIRTUAL_KEY_F1 = 0x70
 VIRTUAL_KEY_F2 = 0x71
@@ -153,7 +156,10 @@ class VitalsTriggerController:
 
         for rule in sorted_rules:
             current_pct = self._get_vital_percentage(vitals, rule.vital_type)
-            if current_pct <= rule.threshold_percentage:
+            if (
+                current_pct >= MINIMUM_TRIGGERABLE_VITAL_PERCENTAGE
+                and current_pct <= rule.threshold_percentage
+            ):
                 last_fired = self._last_triggered_at_seconds.get(rule.vital_type, 0.0)
                 if observed_at - last_fired >= rule.debounce_seconds:
                     self._last_triggered_at_seconds[rule.vital_type] = observed_at

@@ -28,8 +28,11 @@ from flyff_bot.features.automation.camera_alignment import (
     CameraAligner,
     CameraAlignmentStatus,
 )
-from flyff_bot.features.automation.controllers import VIRTUAL_KEY_DOWN, VIRTUAL_KEY_UP
 from flyff_bot.features.input_control import WindowsInputController
+from flyff_bot.features.input_control.keymap import (
+    VIRTUAL_KEY_DOWN,
+    VIRTUAL_KEY_UP,
+)
 
 DEFAULT_COUNTDOWN_SECONDS = 3.0
 FOCUS_SETTLE_SECONDS = 0.3

@@ -7,7 +7,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
-from flyff_bot.features.automation.controllers import (
+from flyff_bot.features.automation.models import VisibleMob, WorldState
+from flyff_bot.features.input_control.keymap import (
     VIRTUAL_KEY_A,
     VIRTUAL_KEY_D,
     VIRTUAL_KEY_LEFT,
@@ -15,7 +16,6 @@ from flyff_bot.features.automation.controllers import (
     VIRTUAL_KEY_S,
     VIRTUAL_KEY_W,
 )
-from flyff_bot.features.automation.models import VisibleMob, WorldState
 from flyff_bot.features.navigation.attack_point_planner import (
     MELEE_ATTACK_MAXIMUM_DISTANCE_UNITS,
     MELEE_ATTACK_MINIMUM_DISTANCE_UNITS,
@@ -35,6 +35,11 @@ from flyff_bot.features.navigation.live_position import (
     WorldPosition,
 )
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
+from flyff_bot.features.navigation.snapshots import (
+    NavigationSnapshot,
+    NavMeshMobSnapshot,
+    VectorZoneSnapshot,
+)
 from flyff_bot.features.navigation.targeting import enrich_visible_mobs, mob_world_position
 from flyff_bot.features.navigation.teleport import (
     TeleportConfig,
@@ -57,11 +62,6 @@ from flyff_bot.features.navigation.vector_navigation import (
 from flyff_bot.features.navigation.world_extractor import VectorSpawnZone, WorldCoordinate
 from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 from flyff_bot.features.vision.models import CapturedFrame
-from flyff_bot.ui.dashboard import (
-    NavigationSnapshot,
-    NavMeshMobSnapshot,
-    VectorZoneSnapshot,
-)
 
 DEFAULT_PATHING_STEP_DURATION_SECONDS = 0.6
 DEFAULT_PATHING_TURN_DURATION_SECONDS = 0.08

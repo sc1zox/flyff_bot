@@ -74,6 +74,24 @@ class WorldRay3D:
     direction: Vector3D
 
 
+class WorldProjectionStatus(StrEnum):
+    """Why a world point can or cannot be used as a client-space click target."""
+
+    VISIBLE = "visible"
+    BEHIND_CAMERA = "behind_camera"
+    OUTSIDE_VIEWPORT = "outside_viewport"
+    INVALID = "invalid"
+
+
+@dataclass(frozen=True, slots=True)
+class WorldScreenProjection:
+    """A fail-closed forward projection into client pixels."""
+
+    status: WorldProjectionStatus
+    x: int | None = None
+    y: int | None = None
+
+
 DEFAULT_IDENTITY_MATRIX: Matrix4x4 = (
     (1.0, 0.0, 0.0, 0.0),
     (0.0, 1.0, 0.0, 0.0),
@@ -551,6 +569,51 @@ def unproject_screen_ray(
         far_world[2] - camera_state.position.z,
     ).normalized()
     return WorldRay3D(origin=camera_state.position, direction=direction)
+
+
+def project_world_to_screen(
+    world_position: WorldPosition,
+    viewport_width: int,
+    viewport_height: int,
+    camera_state: CameraState,
+) -> WorldScreenProjection:
+    """Project a world point through the verified D3D view-projection matrix.
+
+    The result is deliberately not a best-effort point.  Points behind the camera,
+    outside the client area, or with malformed homogeneous coordinates cannot cause
+    an input dispatch.
+    """
+
+    if viewport_width <= 0 or viewport_height <= 0:
+        raise ValueError("Viewport dimensions must be positive.")
+    values = (world_position.x, world_position.y, world_position.z)
+    if not all(math.isfinite(value) for value in values):
+        return WorldScreenProjection(WorldProjectionStatus.INVALID)
+    homogeneous = tuple(
+        sum(
+            (world_position.x, world_position.y, world_position.z, 1.0)[row]
+            * camera_state.view_projection_matrix[row][column]
+            for row in range(4)
+        )
+        for column in range(4)
+    )
+    if not all(math.isfinite(value) for value in homogeneous):
+        return WorldScreenProjection(WorldProjectionStatus.INVALID)
+    clip_x, clip_y, clip_z, clip_w = homogeneous
+    if clip_w <= SINGULAR_MATRIX_EPSILON:
+        return WorldScreenProjection(WorldProjectionStatus.BEHIND_CAMERA)
+    ndc_x = clip_x / clip_w
+    ndc_y = clip_y / clip_w
+    ndc_z = clip_z / clip_w
+    if not all(math.isfinite(value) for value in (ndc_x, ndc_y, ndc_z)):
+        return WorldScreenProjection(WorldProjectionStatus.INVALID)
+    if not (-1.0 <= ndc_x <= 1.0 and -1.0 <= ndc_y <= 1.0 and 0.0 <= ndc_z <= 1.0):
+        return WorldScreenProjection(WorldProjectionStatus.OUTSIDE_VIEWPORT)
+    screen_x = round((ndc_x + 1.0) * viewport_width / 2.0)
+    screen_y = round((1.0 - ndc_y) * viewport_height / 2.0)
+    if not (0 <= screen_x < viewport_width and 0 <= screen_y < viewport_height):
+        return WorldScreenProjection(WorldProjectionStatus.OUTSIDE_VIEWPORT)
+    return WorldScreenProjection(WorldProjectionStatus.VISIBLE, screen_x, screen_y)
 
 
 def _matrix_from_bytes(payload: bytes, offset: int = 0) -> Matrix4x4:

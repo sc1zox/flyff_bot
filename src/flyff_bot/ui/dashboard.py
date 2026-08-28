@@ -1,4 +1,8 @@
-"""Typed UI-facing updates delivered to the Qt main thread."""
+"""Typed UI-facing updates delivered to the Qt main thread.
+
+The navigation snapshots are produced by the navigation feature and only re-exported here,
+so that no feature module has to import the UI layer to describe its own output.
+"""
 
 from __future__ import annotations
 
@@ -7,17 +11,17 @@ from enum import StrEnum
 
 from PySide6.QtCore import QObject, Signal
 
+from flyff_bot.features.automation.autopilot import AutopilotSnapshot, AutopilotSummary
 from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.kill_goals import MobKillProgress
 from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.automation.readiness import LiveReadinessStatus
 from flyff_bot.features.diagnostics import SessionEvent
 from flyff_bot.features.dungeons.models import DungeonStateSnapshot
-from flyff_bot.features.navigation.live_camera import CameraReadErrorCode, CameraState
-from flyff_bot.features.navigation.live_position import (
-    PositionReadErrorCode,
-    PositionSource,
-    WorldPosition,
+from flyff_bot.features.navigation.snapshots import (
+    NavigationSnapshot,
+    NavMeshMobSnapshot,
+    VectorZoneSnapshot,
 )
 from flyff_bot.features.policy.runner import PolicyFault
 from flyff_bot.features.quests.models import QuestObjectiveProgress
@@ -44,6 +48,8 @@ class BotStatus(StrEnum):
     ALIGNMENT_FAILED = "alignment_failed"
     EMERGENCY_TELEPORT = "emergency_teleport"
     EMERGENCY_TELEPORT_UNAVAILABLE = "emergency_teleport_unavailable"
+    DEAD = "dead"
+    FAULTED = "faulted"
 
 
 class WindowStatus(StrEnum):
@@ -71,50 +77,6 @@ class FarmingGoal:
 
 
 @dataclass(frozen=True, slots=True)
-class VectorZoneSnapshot:
-    """Immutable view of the extracted spawn zone the session is currently bound to."""
-
-    monster_name: str
-    center_x: float
-    center_y: float
-    half_width_pixels: float
-    half_depth_pixels: float
-    capacity: int
-
-
-@dataclass(frozen=True, slots=True)
-class NavMeshMobSnapshot:
-    """Read-only 3D candidate diagnostic projected onto the inspector's X/Z plane."""
-
-    world_x: float
-    world_z: float
-    reachable: bool | None
-    locked_out: bool = False
-    selected: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class NavigationSnapshot:
-    """Immutable view of authoritative 3D GPS, NavMesh, and active vector route."""
-
-    player_x: float
-    player_y: float
-    heading_degrees: float
-    waypoints: tuple[tuple[float, float], ...] = ()
-    vector_zone: VectorZoneSnapshot | None = None
-    vector_zones: tuple[VectorZoneSnapshot, ...] = ()
-    position_source: PositionSource = PositionSource.UNAVAILABLE
-    position_error_code: PositionReadErrorCode | None = None
-    world_position: WorldPosition | None = None
-    camera_state: CameraState | None = None
-    camera_error_code: CameraReadErrorCode | None = None
-    world_waypoints: tuple[WorldPosition, ...] = ()
-    terrain_samples: tuple[tuple[float, float, float], ...] = ()
-    navmesh_mobs: tuple[NavMeshMobSnapshot, ...] = ()
-    navigation_trajectory: tuple[WorldPosition, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class DashboardUpdate:
     """One optional frame plus the matching immutable perception state."""
 
@@ -137,6 +99,10 @@ class DashboardUpdate:
     # shown heuristic behaviour under a learned label (BUG-031).
     policy_fault: PolicyFault | None = None
     tactical_parameter_diagnostics: tuple[TacticalParameterDiagnostic, ...] = ()
+    # Unattended-session state, so an operator can tell from the dashboard alone whether the
+    # bot is still working and what it is currently pursuing (US-086).
+    autopilot: AutopilotSnapshot = field(default_factory=AutopilotSnapshot)
+    autopilot_summary: AutopilotSummary | None = None
 
 
 class DashboardFeed(QObject):
@@ -148,3 +114,15 @@ class DashboardFeed(QObject):
         """Queue or deliver an immutable dashboard update to connected slots."""
 
         self.update_available.emit(update)
+
+
+__all__ = [
+    "BotStatus",
+    "DashboardFeed",
+    "DashboardUpdate",
+    "FarmingGoal",
+    "NavMeshMobSnapshot",
+    "NavigationSnapshot",
+    "VectorZoneSnapshot",
+    "WindowStatus",
+]

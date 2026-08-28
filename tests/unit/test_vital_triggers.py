@@ -161,6 +161,12 @@ def test_vitals_controller_disabled_rules_do_not_fire() -> None:
     assert not decision.triggered
 
 
+def test_vitals_controller_refuses_zero_percent_vitals() -> None:
+    controller = VitalsTriggerController()
+
+    assert not controller.step(_make_world_state(observed_at=10.0, hp=0.0)).triggered
+
+
 def test_vitals_controller_reset_clears_cooldowns() -> None:
     controller = VitalsTriggerController()
     decision1 = controller.step(_make_world_state(observed_at=10.0, hp=50.0))
