@@ -20,11 +20,11 @@ from flyff_bot.features.automation.controllers import (
     MELEE_ENGAGEMENT_DISTANCE_UNITS,
     CombatClassProfile,
 )
-from flyff_bot.features.automation.orchestrator import (
+from flyff_bot.features.policy.contract import ContractIncompatibility
+from flyff_bot.features.policy.models import (
     DEFAULT_POLICY_RUNTIME_MODE,
     PolicyRuntimeMode,
 )
-from flyff_bot.features.policy.contract import ContractIncompatibility
 from flyff_bot.features.policy.runner import PolicyFault
 from flyff_bot.features.vision.target_verification import (
     DEFAULT_ANCHOR_MATCH_THRESHOLD,

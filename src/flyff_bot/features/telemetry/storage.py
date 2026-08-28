@@ -187,6 +187,12 @@ class JsonlTelemetryWorker:
         self.failed_records = 0
         self._thread.start()
 
+    @property
+    def database_path(self) -> Path:
+        """Return the durable store this worker persists into, JSONL when there is none."""
+
+        return self.path if self._store is None else self._store.path
+
     def submit(self, record: dict[str, Any]) -> bool:
         """Queue a record immediately, dropping it under load instead of blocking farming."""
 

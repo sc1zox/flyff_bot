@@ -32,7 +32,6 @@ from flyff_bot.features.automation.kill_persistence import (
 from flyff_bot.features.automation.orchestrator import (
     FarmingConfig,
     FarmingOrchestrator,
-    PolicyRuntimeMode,
 )
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.quest_execution_models import QuestMenuPerceiver
@@ -48,6 +47,7 @@ from flyff_bot.features.navigation.vector_navigation import (
 )
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.player_stats.reader import LivePlayerStatsReader
+from flyff_bot.features.policy.models import PolicyRuntimeMode
 from flyff_bot.features.quests.goals import (
     QuestFarmingQueue,
     QuestGoalResolver,

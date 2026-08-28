@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
-from flyff_bot.features.automation.orchestrator import PolicyRuntimeMode
+from flyff_bot.features.policy.models import PolicyRuntimeMode
 from flyff_bot.i18n import Language, Translator
 from flyff_bot.ui.main_window import MainWindow
 

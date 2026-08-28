@@ -53,7 +53,6 @@ from flyff_bot.features.automation.models import (
     MonsterStatsMetrics,
     WorldState,
 )
-from flyff_bot.features.automation.orchestrator import PolicyRuntimeMode
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
@@ -66,6 +65,7 @@ from flyff_bot.features.navigation.teleporter_models import (
     TeleporterDestination,
 )
 from flyff_bot.features.perception.catalog_join import MobCatalogJoin, load_mob_catalog_join
+from flyff_bot.features.policy.models import PolicyRuntimeMode
 from flyff_bot.features.quests.goals import QuestNpc
 from flyff_bot.features.quests.persistence import (
     QuestDatabaseError,

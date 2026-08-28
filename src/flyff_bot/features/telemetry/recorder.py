@@ -44,6 +44,7 @@ from flyff_bot.features.telemetry.models import (
     NavigationEpisode,
     NavigationOutcome,
     ObjectiveProgress,
+    SessionExperienceTotals,
     TelemetryEventKind,
     TelemetryPosition,
     TelemetrySessionMetadata,
@@ -102,12 +103,42 @@ class TelemetryRecorder:
         self._stall_seconds = 0.0
         self._navigation: _ActiveNavigation | None = None
         self._navmesh = navmesh
+        self._session_started_at_ns: int | None = None
+        self._experience = SessionExperienceTotals(
+            reward_config_version=self._rewards.config.version,
+            storage_path=str(self._worker.database_path),
+        )
 
     @property
     def session_id(self) -> str:
         """Return this recorder's generated or caller-supplied UUID4 session identity."""
 
         return self._metadata.session_id
+
+    @property
+    def experience(self) -> SessionExperienceTotals:
+        """Return one immutable view of what this session has recorded so far (US-087).
+
+        Elapsed time and the reward accrued inside the unfinished episode are derived at read
+        time, so a dashboard poll never has to wait for the next completed kill cycle to see
+        that the session is still spending time.
+        """
+
+        started = self._session_started_at_ns
+        elapsed = 0.0 if started is None else (self._clock_ns() - started) / 1_000_000_000
+        config = self._rewards.config
+        open_penalty = (
+            config.travel_weight * self._navigation_seconds
+            + config.stuck_weight * self._stall_seconds
+        )
+        return replace(
+            self._experience,
+            elapsed_seconds=elapsed,
+            episode_reward=-open_penalty,
+            navigation_seconds=self._experience.navigation_seconds + self._navigation_seconds,
+            stall_seconds=self._experience.stall_seconds + self._stall_seconds,
+            dropped_records=self._worker.dropped_records,
+        )
 
     def start(
         self,
@@ -142,6 +173,7 @@ class TelemetryRecorder:
         self._submit(TelemetryEventKind.SESSION_HEADER, primitive(self._metadata))
         self._selection_started_at_ns = self._clock_ns()
         self._cycle_started_at_ns = self._selection_started_at_ns
+        self._session_started_at_ns = self._selection_started_at_ns
 
     def record_snapshot(
         self,
@@ -319,6 +351,11 @@ class TelemetryRecorder:
         self._decision_seconds += (timestamp_ns - self._selection_started_at_ns) / 1_000_000_000
         self._selection_started_at_ns = timestamp_ns
         self._active_decision_timestamp_ns = timestamp_ns
+        self._experience = replace(
+            self._experience,
+            decisions=self._experience.decisions + 1,
+            episode_steps=self._experience.episode_steps + 1,
+        )
 
     def begin_navigation(
         self,
@@ -386,6 +423,13 @@ class TelemetryRecorder:
             ),
             timestamp_ns,
         )
+        config = self._rewards.config
+        self._experience = replace(
+            self._experience,
+            objective_reward=self._experience.objective_reward
+            + config.quest_step_weight * max(0.0, progress_delta)
+            + config.objective_complete_weight * float(completed),
+        )
 
     def finish_navigation(self, outcome: str) -> None:
         """Persist the active live-GPS episode without ever deriving minimap trajectories."""
@@ -445,6 +489,7 @@ class TelemetryRecorder:
         self.record_navigation_episode(episode)
         self._navigation_seconds += (ended_at_ns - navigation.started_at_ns) / 1_000_000_000
         self._navigation = None
+        self._experience = replace(self._experience, last_termination_reason=outcome)
 
     def close(self) -> None:
         """Close the worker idempotently; telemetry failure never affects client control."""
@@ -517,32 +562,33 @@ class TelemetryRecorder:
                 0.0,
                 total_seconds - self._decision_seconds - self._navigation_seconds - combat_seconds,
             )
-            self.record_kill_cycle(
-                KillCycle(
-                    timestamp_ns=ended_at_ns,
-                    decision_seconds=self._decision_seconds,
-                    navigation_seconds=self._navigation_seconds,
-                    combat_seconds=combat_seconds,
-                    idle_seconds=idle_seconds,
-                    damage_taken=max(0.0, started[2] - state.player_vitals.hp_percentage),
-                    stall_seconds=self._stall_seconds,
-                    verified_kill=True,
-                    reward=self._rewards.reward(
-                        RewardEvent(
-                            verified_kill=True,
-                            travel_seconds=self._navigation_seconds,
-                            idle_seconds=idle_seconds,
-                            stuck_seconds=self._stall_seconds,
-                        )
-                    ),
-                    target_decision_timestamp_ns=self._active_decision_timestamp_ns,
-                )
+            cycle = KillCycle(
+                timestamp_ns=ended_at_ns,
+                decision_seconds=self._decision_seconds,
+                navigation_seconds=self._navigation_seconds,
+                combat_seconds=combat_seconds,
+                idle_seconds=idle_seconds,
+                damage_taken=max(0.0, started[2] - state.player_vitals.hp_percentage),
+                stall_seconds=self._stall_seconds,
+                verified_kill=True,
+                reward=self._rewards.reward(
+                    RewardEvent(
+                        verified_kill=True,
+                        travel_seconds=self._navigation_seconds,
+                        idle_seconds=idle_seconds,
+                        stuck_seconds=self._stall_seconds,
+                    )
+                ),
+                target_decision_timestamp_ns=self._active_decision_timestamp_ns,
             )
+            self.record_kill_cycle(cycle)
+            self._accumulate_completed_episode(cycle, idle_seconds)
             self._last_verified_kill_at_ns = ended_at_ns
             self._cycle_started_at_ns = ended_at_ns
             self._decision_seconds = 0.0
             self._navigation_seconds = 0.0
             self._stall_seconds = 0.0
+        self._experience = replace(self._experience, last_termination_reason=outcome)
         self._combat_started_at = None
         self._attack_actions = []
         self._active_decision_timestamp_ns = None
@@ -559,9 +605,37 @@ class TelemetryRecorder:
         if self._started:
             self._submit(TelemetryEventKind.KILL_CYCLE, primitive(cycle), cycle.timestamp_ns)
 
+    def _accumulate_completed_episode(self, cycle: KillCycle, idle_seconds: float) -> None:
+        """Fold one finished kill cycle into the session's reward decomposition (US-087).
+
+        The decomposition uses the same weights the cycle's own reward was computed with, so
+        the parts an operator reads always add up to the total the session was steered by.
+        """
+
+        config = self._rewards.config
+        penalty = (
+            config.travel_weight * cycle.navigation_seconds
+            + config.idle_weight * idle_seconds
+            + config.stuck_weight * cycle.stall_seconds
+        )
+        self._experience = replace(
+            self._experience,
+            episode_index=self._experience.episode_index + 1,
+            episode_steps=0,
+            session_reward=self._experience.session_reward + cycle.reward,
+            kill_reward=self._experience.kill_reward + config.kill_weight,
+            navigation_penalty=self._experience.navigation_penalty + penalty,
+            verified_kills=self._experience.verified_kills + 1,
+            navigation_seconds=self._experience.navigation_seconds + cycle.navigation_seconds,
+            stall_seconds=self._experience.stall_seconds + cycle.stall_seconds,
+        )
+
     def _submit(
         self, kind: TelemetryEventKind, payload: object, timestamp_ns: int | None = None
     ) -> None:
+        self._experience = replace(
+            self._experience, recorded_records=self._experience.recorded_records + 1
+        )
         self._worker.submit(
             {
                 "schema_version": TELEMETRY_SCHEMA_VERSION,

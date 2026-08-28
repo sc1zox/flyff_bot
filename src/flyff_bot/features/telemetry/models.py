@@ -10,6 +10,7 @@ from uuid import uuid4
 
 TELEMETRY_SCHEMA_VERSION = 5
 TRAJECTORY_SCHEMA_VERSION = 2
+SECONDS_PER_MINUTE = 60.0
 
 
 class TelemetryEventKind(StrEnum):
@@ -318,6 +319,59 @@ class ObjectiveProgress:
     quest_id: str | None
     progress_delta: float
     objective_completed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SessionExperienceTotals:
+    """What one live session has actually contributed to the experience record (US-087).
+
+    Every field is a count or a measurement the recorder observed. Nothing here is projected
+    from an offline run: a rate that has not been measured yet is ``None`` rather than zero,
+    because a session that has produced no kill has no kill rate, not a rate of zero.
+    """
+
+    schema_version: int = TELEMETRY_SCHEMA_VERSION
+    reward_config_version: str = ""
+    storage_path: str = ""
+    recorded_records: int = 0
+    dropped_records: int = 0
+    decisions: int = 0
+    episode_index: int = 0
+    episode_steps: int = 0
+    episode_reward: float = 0.0
+    session_reward: float = 0.0
+    kill_reward: float = 0.0
+    navigation_penalty: float = 0.0
+    objective_reward: float = 0.0
+    last_termination_reason: str = ""
+    verified_kills: int = 0
+    elapsed_seconds: float = 0.0
+    navigation_seconds: float = 0.0
+    stall_seconds: float = 0.0
+
+    @property
+    def kills_per_minute(self) -> float | None:
+        """Return verified kills per elapsed minute, or ``None`` before any time passed."""
+
+        if self.elapsed_seconds <= 0.0:
+            return None
+        return self.verified_kills / (self.elapsed_seconds / SECONDS_PER_MINUTE)
+
+    @property
+    def navigation_seconds_per_kill(self) -> float | None:
+        """Return the travel time one verified kill cost, or ``None`` before the first."""
+
+        if self.verified_kills <= 0:
+            return None
+        return self.navigation_seconds / self.verified_kills
+
+    @property
+    def stall_rate(self) -> float | None:
+        """Return the fraction of elapsed time spent stalled, or ``None`` when unmeasured."""
+
+        if self.elapsed_seconds <= 0.0:
+            return None
+        return self.stall_seconds / self.elapsed_seconds
 
 
 def primitive(value: object) -> object:

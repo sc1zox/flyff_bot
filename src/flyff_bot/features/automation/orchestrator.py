@@ -161,10 +161,12 @@ from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjectiveKind,
 )
 from flyff_bot.features.policy.models import (
+    DEFAULT_POLICY_RUNTIME_MODE,
     AttackPointAction,
     LiveObservationState,
     PolicyCandidate,
     PolicyContext,
+    PolicyRuntimeMode,
     TargetAction,
 )
 from flyff_bot.features.policy.runner import (
@@ -273,15 +275,6 @@ class FarmingMode(StrEnum):
     COMPLETED = "completed"
 
 
-class PolicyRuntimeMode(StrEnum):
-    """Selectable policy execution modes (US-067)."""
-
-    HEURISTIC = "HEURISTIC"
-    ML_SHADOW = "ML_SHADOW"
-    ML_ACTIVE = "ML_ACTIVE"
-
-
-DEFAULT_POLICY_RUNTIME_MODE = PolicyRuntimeMode.HEURISTIC
 HIERARCHICAL_METADATA_NAME = "hierarchical-metadata.json"
 POLICY_MODEL_NOT_CONFIGURED = "not_configured"
 LEARNED_POLICY_HALTED_REASON = "learned_policy_halted"

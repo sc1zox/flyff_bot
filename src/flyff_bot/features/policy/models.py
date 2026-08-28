@@ -8,6 +8,7 @@ automation execution boundary (US-067).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum, unique
 from typing import Protocol
 
 import numpy as np
@@ -29,11 +30,13 @@ from flyff_bot.features.policy.goal_preconditions import SessionGrounding
 from flyff_bot.features.rl.models import NavMeshContext, PlayerKinematics
 
 __all__ = [
+    "DEFAULT_POLICY_RUNTIME_MODE",
     "AttackPointAction",
     "CorridorAction",
     "InteractAction",
     "LiveObservationState",
     "NavigateAction",
+    "PolicyRuntimeMode",
     "StrategicDecision",
     "StrategicGoalKind",
     "TacticalActionKind",
@@ -48,6 +51,23 @@ __all__ = [
 # docs/sources/2026-08-28-tactical-policy-inference-latency-measurement.md (US-086).
 POLICY_LATENCY_BUDGET_SECONDS = 0.005
 DEFAULT_POLICY_WAIT_SECONDS = 0.1
+
+
+@unique
+class PolicyRuntimeMode(StrEnum):
+    """Selectable policy execution modes (US-067).
+
+    The mode lives beside the policy contract rather than inside the automation orchestrator,
+    so a presentation layer can name the mode a decision was taken in without depending on the
+    session that executed it (US-087).
+    """
+
+    HEURISTIC = "HEURISTIC"
+    ML_SHADOW = "ML_SHADOW"
+    ML_ACTIVE = "ML_ACTIVE"
+
+
+DEFAULT_POLICY_RUNTIME_MODE = PolicyRuntimeMode.HEURISTIC
 
 
 @dataclass(frozen=True, slots=True)

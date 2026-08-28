@@ -487,9 +487,9 @@ def test_a_real_artifact_selects_the_intended_instance_of_two_same_class_candida
     from flyff_bot.features.automation.orchestrator import (
         FarmingConfig,
         FarmingOrchestrator,
-        PolicyRuntimeMode,
     )
     from flyff_bot.features.perception.pipeline import PerceptionPipeline
+    from flyff_bot.features.policy.models import PolicyRuntimeMode
 
     directory = write_minimal_value_model(tmp_path / "model")
     far, near = _same_class_pair()
@@ -523,9 +523,9 @@ def test_shadow_records_the_learned_choice_while_active_executes_it(tmp_path: Pa
     from flyff_bot.features.automation.orchestrator import (
         FarmingConfig,
         FarmingOrchestrator,
-        PolicyRuntimeMode,
     )
     from flyff_bot.features.perception.pipeline import PerceptionPipeline
+    from flyff_bot.features.policy.models import PolicyRuntimeMode
 
     directory = write_minimal_value_model(tmp_path / "model")
     heuristic_choice, learned_choice = _diverging_pair()
@@ -675,9 +675,9 @@ def test_an_unusable_model_halts_the_session_instead_of_running_the_heuristic(
         FarmingConfig,
         FarmingMode,
         FarmingOrchestrator,
-        PolicyRuntimeMode,
     )
     from flyff_bot.features.perception.pipeline import PerceptionPipeline
+    from flyff_bot.features.policy.models import PolicyRuntimeMode
 
     broken = tmp_path / "broken"
     broken.mkdir()
@@ -711,9 +711,9 @@ def test_selecting_a_learned_mode_without_a_model_fails_closed(tmp_path: Path) -
         FarmingConfig,
         FarmingMode,
         FarmingOrchestrator,
-        PolicyRuntimeMode,
     )
     from flyff_bot.features.perception.pipeline import PerceptionPipeline
+    from flyff_bot.features.policy.models import PolicyRuntimeMode
 
     far, near = _same_class_pair()
     state = _state(1.0, mobs=(far, near))

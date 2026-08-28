@@ -48,10 +48,8 @@ from flyff_bot.features.automation.controllers import (
 )
 from flyff_bot.features.automation.models import DesiredState
 from flyff_bot.features.automation.orchestrator import (
-    DEFAULT_POLICY_RUNTIME_MODE,
     FarmingConfig,
     FarmingOrchestrator,
-    PolicyRuntimeMode,
 )
 from flyff_bot.features.dungeons.extraction import (
     DungeonExtractionDiagnostic,
@@ -94,6 +92,10 @@ from flyff_bot.features.navigation.world_geometry import terrain_triangles
 from flyff_bot.features.perception.catalog_join import load_mob_catalog_join
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.player_stats.reader import LivePlayerStatsReader
+from flyff_bot.features.policy.models import (
+    DEFAULT_POLICY_RUNTIME_MODE,
+    PolicyRuntimeMode,
+)
 from flyff_bot.features.quests.extraction import (
     DEFAULT_QUEST_LANGUAGE,
     QuestExtractionDiagnostic,

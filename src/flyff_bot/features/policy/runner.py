@@ -108,6 +108,10 @@ class PolicyRunner:
         self._objective: HierarchicalObjective | None = None
         self.last_fault: PolicyFault | None = None
         self.last_fallback_reason: str | None = None
+        #: Wall time the last learned evaluation took, so the operator can watch the decision
+        #: budget being spent instead of only learning that it was exceeded (US-087). It stays
+        #: ``None`` while no learned policy has been evaluated.
+        self.last_latency_seconds: float | None = None
 
     @property
     def has_learned_policy(self) -> bool:
@@ -153,6 +157,7 @@ class PolicyRunner:
         """Return one legal learned action, or ``None`` alongside a recorded fault."""
 
         if self._learned is None:
+            self.last_latency_seconds = None
             if self._load_fault is not None:
                 self._fail(self._load_fault)
                 return None
@@ -165,11 +170,14 @@ class PolicyRunner:
             action = self._learned.evaluate(world_state, context)
             elapsed = self._monotonic() - started_at
         except (AttributeError, TypeError, ValueError, OSError) as error:
+            self.last_latency_seconds = self._monotonic() - started_at
             self._fail(PolicyFault(PolicyFaultCode.POLICY_EXCEPTION, str(error) or None))
             return None
         except Exception as error:
+            self.last_latency_seconds = self._monotonic() - started_at
             self._fail(PolicyFault(PolicyFaultCode.POLICY_EXCEPTION, type(error).__name__))
             return None
+        self.last_latency_seconds = elapsed
         if elapsed > POLICY_LATENCY_BUDGET_SECONDS:
             self._fail(PolicyFault(PolicyFaultCode.LATENCY_BUDGET_EXCEEDED))
             return None

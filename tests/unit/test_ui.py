@@ -44,7 +44,6 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
-from flyff_bot.features.automation.orchestrator import PolicyRuntimeMode
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig, PowerUpEntry
 from flyff_bot.features.automation.powerup_persistence import (
     load_powerup_config,
@@ -93,6 +92,7 @@ from flyff_bot.features.navigation.world_extractor import (
     WorldVectorMap,
     save_world_map,
 )
+from flyff_bot.features.policy.models import PolicyRuntimeMode
 from flyff_bot.features.tactical_parameters import (
     TacticalParameterProfile,
     TacticalParameterSpace,
