@@ -107,7 +107,7 @@ coherent, safe control loop in the client**.
       metadata binds every static dataset, observation/action/reward schema, YOLO model/labels, world
       map/NavMesh, and training-session set by digest; a mismatch rejects the artifact without a
       compatibility fallback.
-- [ ] Given a source is missing, stale, malformed, unsupported, or belongs to another client build,
+- [x] Given a source is missing, stale, malformed, unsupported, or belongs to another client build,
       when a dependent decision is requested, then readiness and the decision builder fail closed
       with a stable diagnostic and no fabricated value. Recovery requires a fresh coherent sample
       set; END/Escape, foreground checks, emergency latching, and guarded key release remain

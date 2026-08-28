@@ -377,6 +377,12 @@ def _names(candidate_index: int | None, target_id: int, candidate: PolicyCandida
     return target_id == candidate.mob.class_id
 
 
+# Stable diagnostics a refused decision reports. They are matched by callers and tests, so
+# they are named constants rather than inline strings.
+LIVE_OBSERVATION_UNAVAILABLE = "live_observation_unavailable"
+INCOHERENT_OBSERVATION_INTERVAL = "incoherent_observation_interval"
+
+
 def live_observation(
     state: WorldState,
     context: PolicyContext,
@@ -391,7 +397,14 @@ def live_observation(
 
     live = context.live_state
     if live is None:
-        raise ValueError("live_observation_unavailable")
+        raise ValueError(LIVE_OBSERVATION_UNAVAILABLE)
+    # A tick whose sources did not describe one instant in one world has no coherent state to
+    # encode. Building a vector from it anyway would serve the model measured-looking numbers
+    # that no single moment produced, so the decision fails closed and names the reason
+    # instead (US-083 AC12). Recovery needs a coherent sample set, not merely a later tick.
+    interval = state.observation_interval
+    if not interval.is_coherent and interval.rejection is not None:
+        raise ValueError(f"{INCOHERENT_OBSERVATION_INTERVAL}:{interval.rejection.value}")
     candidates = tuple(
         CandidateObservation(
             candidate.original_position if candidate.original_position is not None else index,
