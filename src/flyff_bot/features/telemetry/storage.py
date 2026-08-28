@@ -20,6 +20,10 @@ DEFAULT_TELEMETRY_DATABASE = Path("data/telemetry.sqlite3")
 DEFAULT_QUEUE_CAPACITY = 1_000
 WORKER_JOIN_TIMEOUT_SECONDS = 5.0
 _AREA_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
+# Named so the handler below stays a single-name `except` clause. The pinned formatter
+# rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
+# what the group of failures means.
+RECORD_WRITE_ERRORS = (OSError, TypeError, ValueError, sqlite3.DatabaseError)
 
 
 class SqliteTelemetryStore:
@@ -226,7 +230,7 @@ class JsonlTelemetryWorker:
                         stream.flush()
                         if self._store is not None:
                             self._store.persist(record)
-                    except OSError, TypeError, ValueError, sqlite3.DatabaseError:
+                    except RECORD_WRITE_ERRORS:
                         self.failed_records += 1
         except OSError:
             self.failed_records += 1

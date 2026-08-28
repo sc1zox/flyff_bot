@@ -2245,3 +2245,57 @@ encoder parity, the reward version stamp, per-field contract rejection and the l
 diagnostics. This completes [US-079](../user-stories/completed/US-079-unified-goal-conditioned-decision-contract.md).
 Evidence is offline: the 2026-08-28 gate passed at 994 passed, 5 skipped, 89.26% coverage; no live
 `neuz.exe` shadow-mode session has been run against the new contract.
+
+## Authoritative static client catalog and its source manifest (US-083, partial)
+
+`features/client_data/` owns the normalized static gameplay tables and the manifest that says who
+reads them. It is the data layer the remaining US-083 fusion criteria build on; the perception,
+policy, telemetry and reporting halves of that story are not implemented.
+
+**Catalog.** `tables.py` parses movers, drops, items, skills and NPCs; `extraction.py` reads them
+through the keyed-archive reader `features/quests/extraction.py` already owns, rather than opening
+the archives a second way; `persistence.py` writes and reloads a schema-versioned
+`data/client/catalog.json`. Every record is either fully parsed or is absent with a typed
+`CatalogRejection` naming the reason and locator. Nothing is completed from a neighbouring row.
+
+A mover's numeric columns are located by the client's own commented column header, not by a fixed
+index, because a private-server table can carry extra columns and a fixed index would hand a policy
+a value the client never stated about that mover. The header's comment marker occupies a
+tab-separated field that data rows lack, so leading blank fields are dropped to keep names aligned
+with data columns. With no header the combat fields stay `None` behind a `LAYOUT_UNVERIFIED`
+rejection, and `MoverCombatProperties.is_aggressive` returns `None` rather than defaulting to
+passive.
+
+**Setup.** `UnifiedClientExtractor._run_mover_stage` parses, validates, persists and only then
+counts. The presence-only `monster_table_count` and `static_item_table_found` fields are deleted:
+finding a file name is not ingestion (BUG-033).
+
+**Source manifest.** `manifest.py` and `sources.py` describe every parsed table with its client
+digest, content digest, schema version, completeness, freshness rule, per-field provenance and the
+exact production consumers that read it. A static table's freshness is `STATIC_UNTIL_REEXTRACTION`;
+a live provider must state a sample age instead, which its constructor enforces.
+`verify_consumer_coverage` refuses a manifest in which any declared field names no consumer, and
+`undeclared_tables` refuses a table that produced records but appears in no entry - together they
+make "extracted but silently unused" a test failure. The check found a real gap on its first run:
+no decision path reads the client's skill rows, so `client.skills` carries zero promoted fields and
+`PARTIAL` completeness rather than an invented consumer.
+
+**Label join.** The client does not ship the `MI_*`-to-numeric-mover-id table; it is compiled into
+`neuz.exe` (see `docs/sources/2026-08-21-entropia-keyed-archive-and-quest-data-analysis.md`), so the
+join from a YOLO class to a mover is a curated, versioned artifact rather than a derivation.
+`label_mapping.py` binds a detector label to exactly one mover id and symbol, stamped with the
+client digest it was proven against. It fails closed on an unmapped label, a label bound to two
+movers, a display name shared by two movers, a binding naming a symbol the mover table never
+declared, a foreign client digest and a foreign mapping version. The join is keyed by the US-079
+per-instance candidate identity, so two simultaneously visible monsters of one class stay distinct.
+It is not yet called from `PerceptionPipeline`.
+
+**Detector whitelist.** `OpenCVDnnYoloDetector._decode` applies the operator's class whitelist
+before `_suppress_per_class`, so a filtered class never reaches suppression, tracking, world
+projection, catalog joins or ranking, and no enrichment step can reintroduce it. A regression test
+records what reaches NMS and asserts an unknown class name cannot widen the selection.
+
+**Formatter constraint.** The pinned `ruff format` rewrites an inline `except (A, B):` into invalid
+Python. Multi-type handlers must therefore use a named module-level tuple constant. Four committed
+files (`navigation/teleporter_extraction.py`, `quests/extraction.py`, `setup/profiles.py`,
+`telemetry/storage.py`) had been left syntactically invalid by this defect and were repaired.

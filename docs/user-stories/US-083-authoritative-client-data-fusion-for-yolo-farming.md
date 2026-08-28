@@ -1,9 +1,9 @@
 ---
 id: US-083
 title: Authoritative client-data fusion for YOLO-guided efficient farming
-status: draft
+status: in-progress
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-08-28
 ---
 
 # US-083: Authoritative client-data fusion for YOLO-guided efficient farming
@@ -112,12 +112,85 @@ coherent, safe control loop in the client**.
       with a stable diagnostic and no fabricated value. Recovery requires a fresh coherent sample
       set; END/Escape, foreground checks, emergency latching, and guarded key release remain
       authoritative downstream.
-- [ ] Given the target-class selection changes, when the next frame is decoded, then filtering still
+- [x] Given the target-class selection changes, when the next frame is decoded, then filtering still
       occurs inside the YOLO decode boundary before NMS, tracking, world projection, catalog joins,
       candidate ranking, or target verification. Data enrichment must not reintroduce a filtered
       class or widen the operator's whitelist.
 - [ ] All user-visible source states, incompleteness reasons, efficiency metrics, policy refusals,
       and provenance diagnostics are available as complete synchronized German and English strings.
+
+## Progress
+
+- 2026-08-28 - **Foundation layer (data + manifest + join) landed; the fusion, policy, telemetry
+  and reporting criteria are not started.** This story is epic-sized; the work below is the layer
+  every remaining criterion consumes.
+
+  - **Prerequisite fix.** `main` did not parse. Four committed files carried Python 2-style
+    `except A, B:` clauses produced by the pinned formatter, which rewrites an inline
+    `except (A, B):` into invalid Python: `navigation/teleporter_extraction.py`,
+    `quests/extraction.py`, `setup/profiles.py`, and `telemetry/storage.py`. Each now uses the
+    named module-level tuple idiom already used by `DETECTION_ERRORS`. The defect reproduced
+    against new code written during this story, so the idiom is not optional.
+
+  - **Static catalog (AC2, partial).** New `features/client_data/` package. `tables.py` parses
+    movers, drops, items, skills and NPCs; `extraction.py` reads them through the existing keyed
+    archive reader and returns one `ClientCatalog`; `persistence.py` writes and reloads a
+    schema-versioned artifact. Mover numeric columns are located by the client's *own* column
+    header rather than by a fixed index, and without a header the combat fields stay `None`
+    behind a `LAYOUT_UNVERIFIED` rejection instead of being read from a neighbouring column. A
+    duplicated symbol rejects both rows; a drop naming an undeclared mover is rejected rather
+    than attached. Still outstanding for this criterion: NavMesh baking, and enrolling the
+    already-extracted world/spawn/terrain artifacts into the same typed-rejection reporting.
+
+  - **Setup stage rewired (BUG-033).** `_run_mover_stage` no longer counts file names. It parses,
+    validates, writes `data/client/catalog.json` and `data/client/source_manifest.json`, and
+    reports `mover_count`, `drop_count`, `item_count`, `skill_count` and `npc_count` - rows
+    actually persisted. The presence-only `monster_table_count` and `static_item_table_found`
+    fields are deleted.
+
+  - **Source/consumer manifest (AC1, partial).** `manifest.py` and `sources.py` declare every
+    parsed table with client digest, content digest, schema version, completeness, freshness rule,
+    per-field provenance and the exact production consumers that read it.
+    `verify_consumer_coverage` makes an unconsumed field a test failure, and `undeclared_tables`
+    closes the loophole of hiding a table by declaring no field for it. The check immediately
+    surfaced a real gap: **nothing consumes the client's skill rows**, so `client.skills` is
+    declared with zero promoted fields and `PARTIAL` completeness rather than an invented
+    consumer. AC6 is where that field gets promoted. Live providers are not yet enrolled as
+    manifest entries, which is the remaining half of this criterion.
+
+  - **Label-to-mover join (AC3, partial).** The source analysis in
+    `docs/sources/2026-08-21-entropia-keyed-archive-and-quest-data-analysis.md` records that the
+    client does not ship the `MI_*`-to-numeric-mover-id table; it is compiled into `neuz.exe`.
+    The join therefore cannot be derived from the packed tables and is a curated versioned
+    artifact instead. `label_mapping.py` binds a detector label to exactly one mover id and
+    symbol, stamped with the client digest it was proven against, and fails closed on an
+    unmapped label, a label bound to two movers, a display name shared by two movers, a binding
+    naming an undeclared symbol, a foreign client digest, and a foreign mapping version. The
+    join is keyed by the US-079 per-instance candidate identity, so two simultaneously visible
+    monsters of one class stay distinct. Not yet wired into `PerceptionPipeline`, which is what
+    this criterion needs to be complete.
+
+  - **Early YOLO whitelist (AC13, done).** Verified that `OpenCVDnnYoloDetector._decode` already
+    applies the operator whitelist before `_suppress_per_class`, and pinned it with a regression
+    test that records what reaches NMS, plus a test that an unknown class name cannot widen the
+    selection.
+
+  - **Localization.** Thirteen new message identifiers for catalog, manifest-completeness and
+    label-join diagnostics, complete and synchronized in `de.json` and `en.json`.
+
+  - **Gate.** `uv sync`, `ruff check`, `ruff format --check` and `mypy` (296 files) pass. `pytest`
+    reports 1052 passed, 11 failed; **all 11 failures belong to a concurrent US-084 session
+    editing the same working tree** (`_CameraAligner.update_tactical_parameters` and a
+    `{parameter}` locale placeholder), not to this story. The 172 tests covering the files this
+    story touches all pass.
+
+## Remaining work
+
+Criteria 4-12 are untouched: temporal and cross-world fusion coherence, rich player/target
+missingness and reconciliation, goal-driven option gating, the single canonical snapshot builder,
+the time-and-cost farming objective, efficiency reporting, the fused telemetry record, train/serve
+parity with artifact digest binding, and fail-closed readiness. Wiring `label_mapping` into
+`PerceptionPipeline` is the natural next step, since criteria 4 and 5 build directly on it.
 
 ## Out of scope
 

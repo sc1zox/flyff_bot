@@ -35,6 +35,11 @@ DEFAULT_CLIENT_DATA_ROOT = "Entropia/Entropia/Data"
 DEFAULT_QUEST_DATABASE_PATH = "data/quests/quests.json"
 DEFAULT_DUNGEON_DATABASE_PATH = "data/dungeons/dungeons.json"
 DEFAULT_QUEST_NPC_POSITIONS_PATH = "data/quests/npc_positions.json"
+# Normalized static gameplay catalog and the source/consumer manifest that describes
+# every table and live provider a decision is allowed to rest on (US-083).
+DEFAULT_CLIENT_CATALOG_PATH = "data/client/catalog.json"
+DEFAULT_SOURCE_MANIFEST_PATH = "data/client/source_manifest.json"
+DEFAULT_MOVER_LABEL_MAPPING_PATH = "data/client/mover_label_mapping.json"
 # Reference screenshot of the in-game session stats window; its header line is the template
 # that locates the same window in a live frame.
 DEFAULT_MONSTER_STATS_PANEL_PATH = "data/assets/stats/monster_stats.png"

@@ -24,6 +24,16 @@ CLIENT_SYSTEM_DIRECTORY = "System3"
 UTF16_BYTE_ORDER_MARKS = (b"\xff\xfe", b"\xfe\xff")
 CLIENT_TEXT_FALLBACK_ENCODING = "cp1252"
 TELEPORTER_DATABASE_SCHEMA_VERSION = 1
+# Named so the handler below stays a single-name `except` clause. The pinned formatter
+# rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
+# what the group of failures means.
+TELEPORTER_DOCUMENT_ERRORS = (
+    OSError,
+    json.JSONDecodeError,
+    KeyError,
+    TypeError,
+    ValueError,
+)
 
 # The public Flyff source declares destinations with `AddTeleportOption`; the Entropia
 # binary additionally exposes the plural spelling. Accepted forms are 3, 7, 8, and 10
@@ -371,5 +381,5 @@ def load_teleporter_catalog(path: Path) -> TeleporterCatalog:
             if isinstance(record, dict)
         )
         return TeleporterCatalog(destinations)
-    except OSError, json.JSONDecodeError, KeyError, TypeError, ValueError:
+    except TELEPORTER_DOCUMENT_ERRORS:
         return TeleporterCatalog(())

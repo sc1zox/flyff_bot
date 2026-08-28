@@ -61,6 +61,10 @@ MONSTER_TEXT_CATALOG = "propMover.txt.txt"
 ITEM_TABLE_FILE = "Spec_Item.txt"
 ITEM_TEXT_CATALOG = "propItem.txt.txt"
 WORLD_ROOT_DIRECTORY = "World"
+# Named so the handler below stays a single-name `except` clause. The pinned formatter
+# rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
+# what the group of failures means.
+DYNAMIC_OBJECT_READ_ERRORS = (OSError, WorldExtractionError)
 
 
 class QuestExtractionWarning(StrEnum):
@@ -217,7 +221,7 @@ def _npc_positions(client_data_root: Path) -> dict[str, QuestNpc]:
     for object_path in world_root.glob("**/*.dyo"):
         try:
             placements = dynamic_object_placements(object_path.read_bytes())
-        except OSError, WorldExtractionError:
+        except DYNAMIC_OBJECT_READ_ERRORS:
             continue
         for symbol, position in placements:
             if not symbol or symbol in positions:

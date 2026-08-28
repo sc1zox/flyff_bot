@@ -17,6 +17,8 @@ class SetupExtractionWarning(StrEnum):
     MEMORY_PROFILE_NOT_FOUND = "memory_profile_not_found"
     INVALID_MEMORY_PROFILE = "invalid_memory_profile"
     BINARY_ARCHITECTURE_UNKNOWN = "binary_architecture_unknown"
+    CATALOG_EMPTY = "catalog_empty"
+    CATALOG_TABLE_REJECTED = "catalog_table_rejected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +53,8 @@ class ClientSetupPaths:
     quest_npc_positions: Path
     dungeon_database: Path
     player_stats_profiles: Path
+    client_catalog: Path
+    source_manifest: Path
 
 
 @dataclass(slots=True)
@@ -70,8 +74,13 @@ class SetupExtractionResult:
     world_names: tuple[str, ...] = ()
     quest_count: int = 0
     dungeon_count: int = 0
-    monster_table_count: int = 0
-    static_item_table_found: bool = False
+    # Records actually parsed, validated and written. A found file name is not ingestion,
+    # so these stay zero until the corresponding rows reach the persisted catalog (US-083).
+    mover_count: int = 0
+    drop_count: int = 0
+    item_count: int = 0
+    skill_count: int = 0
+    npc_count: int = 0
     memory_profile: SetupMemoryProfile | None = None
     diagnostics: tuple[SetupDiagnostic, ...] = ()
 

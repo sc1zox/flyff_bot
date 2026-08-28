@@ -1088,3 +1088,23 @@ localized in German and English. Evidence is offline: goal-conditioning, parity,
 per-field rejection and localization tests, with the gate at 994 passed, 5 skipped, 89.26% coverage.
 No live `neuz.exe` shadow-mode session against the new contract is claimed, and no new client access
 or input capability was added.
+
+## [2026-08-28] synthesis | Static client catalog, source manifest and label join (US-083, partial)
+
+Recorded the US-083 foundation layer in `architecture.md`. `features/client_data/` normalizes the
+client's mover, drop, item, skill and NPC tables into a schema-versioned catalog in which every
+record is either parsed or carries a typed rejection; mover numeric columns are located by the
+client's own column header so a differently laid out table cannot yield a fabricated combat value.
+`UnifiedClientExtractor` now parses and persists those rows instead of counting file names
+(BUG-033). One versioned source manifest states each table's client digest, content digest, schema,
+completeness, freshness rule, field provenance and exact production consumers, and refuses a
+manifest with an unconsumed field or an undeclared table - which surfaced that nothing yet reads the
+client's skill rows. The YOLO-label-to-mover join is a curated versioned artifact, because the
+source analysis shows the symbol-to-id table is compiled into `neuz.exe` and not shipped; it fails
+closed on every ambiguity rather than matching a similar name. Also pinned that the operator class
+whitelist is applied inside YOLO decoding before NMS, and repaired four files the pinned formatter
+had left syntactically invalid. Evidence is offline: 31 new catalog/manifest/join tests plus
+whitelist regression tests; ruff and mypy clean across 296 files; the 172 tests covering the touched
+files pass. The 11 failing tests in the full run belong to a concurrent US-084 session sharing the
+working tree. No live `neuz.exe` session is claimed, and no new client access or input capability
+was added. Criteria 4-12 of US-083 remain open.

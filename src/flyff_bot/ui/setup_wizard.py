@@ -279,7 +279,9 @@ class SetupWizard(QDialog):
             worlds=result.world_count,
             quests=result.quest_count,
             dungeons=result.dungeon_count,
-            monsters=result.monster_table_count,
+            movers=result.mover_count,
+            drops=result.drop_count,
+            items=result.item_count,
             memory=memory_text,
         )
         if not result.diagnostics:

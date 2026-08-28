@@ -7,22 +7,28 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_CATALOG_PATH,
     DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH,
     DEFAULT_DUNGEON_DATABASE_PATH,
     DEFAULT_QUEST_DATABASE_PATH,
     DEFAULT_QUEST_NPC_POSITIONS_PATH,
+    DEFAULT_SOURCE_MANIFEST_PATH,
     DEFAULT_WORLD_MAP_DIRECTORY,
 )
+from flyff_bot.features.client_data.extraction import (
+    MOVER_TABLE_FILE,
+    extract_client_catalog,
+)
+from flyff_bot.features.client_data.persistence import (
+    save_client_catalog,
+    save_source_manifest,
+)
+from flyff_bot.features.client_data.sources import build_source_manifest
 from flyff_bot.features.dungeons.extraction import (
     DungeonExtractionDiagnostic,
     extract_dungeon_definitions,
 )
 from flyff_bot.features.dungeons.persistence import save_dungeon_database
-from flyff_bot.features.navigation.client_archive import (
-    ARCHIVE_INDEX_SUFFIX,
-    ClientArchiveError,
-    KeyedClientArchive,
-)
 from flyff_bot.features.navigation.world_extractor import (
     ExtractionDiagnostic,
     discover_world_directories,
@@ -96,6 +102,8 @@ class UnifiedClientExtractor:
             quest_npc_positions=Path(DEFAULT_QUEST_NPC_POSITIONS_PATH),
             dungeon_database=Path(DEFAULT_DUNGEON_DATABASE_PATH),
             player_stats_profiles=Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+            client_catalog=Path(DEFAULT_CLIENT_CATALOG_PATH),
+            source_manifest=Path(DEFAULT_SOURCE_MANIFEST_PATH),
         )
 
     @staticmethod
@@ -179,34 +187,33 @@ class UnifiedClientExtractor:
         result: SetupExtractionResult,
         diagnostics: list[SetupDiagnostic],
     ) -> None:
-        _executable, data_root = _validate_client_layout(self._client_root)
-        system = data_root / CLIENT_SYSTEM_DIRECTORY
-        names = ("propMover.txt", "PropMoverEx.inc", "Spec_Item.txt")
-        loose_count = 0
-        packed_names: set[str] = set()
-        for name in names:
-            if (system / name).is_file():
-                loose_count += 1
-        if system.is_dir():
-            for index_path in sorted(system.iterdir()):
-                if index_path.suffix.lower() != ARCHIVE_INDEX_SUFFIX:
-                    continue
-                try:
-                    archive = KeyedClientArchive.open_pair(index_path)
-                except ClientArchiveError:
-                    continue
-                if archive is None:
-                    continue
-                try:
-                    packed_names.update(name for name in names if archive.read(name) is not None)
-                except ClientArchiveError:
-                    continue
-        result.monster_table_count = sum(
-            name in packed_names or (system / name).is_file() for name in names[:2]
-        )
-        result.static_item_table_found = (
-            system / "Spec_Item.txt"
-        ).is_file() or "Spec_Item.txt" in packed_names
+        """Normalize the static gameplay tables and write the catalog and manifest.
+
+        The counts reported here are rows this pass actually parsed and persisted. A table
+        that is present but unreadable contributes a typed rejection, never a count (US-083).
+        """
+
+        executable, data_root = _validate_client_layout(self._client_root)
+        catalog = extract_client_catalog(data_root, language=DEFAULT_MEMORY_PROFILE_LANGUAGE)
+        save_client_catalog(catalog, self._output_paths.client_catalog)
+        digest = fingerprint_executable(executable).sha256 or ""
+        manifest = build_source_manifest(catalog, client_digest=digest)
+        save_source_manifest(manifest, self._output_paths.source_manifest)
+
+        result.mover_count = len(catalog.movers)
+        result.drop_count = len(catalog.drops)
+        result.item_count = len(catalog.items)
+        result.skill_count = len(catalog.skills)
+        result.npc_count = len(catalog.npcs)
+        if not catalog.movers:
+            diagnostics.append(SetupDiagnostic(WarningCode.CATALOG_EMPTY, MOVER_TABLE_FILE))
+        for rejection in catalog.rejections:
+            diagnostics.append(
+                SetupDiagnostic(
+                    WarningCode.CATALOG_TABLE_REJECTED,
+                    f"{rejection.table.value}/{rejection.reason.value}: {rejection.locator}",
+                )
+            )
 
     def _run_quest_stage(
         self,

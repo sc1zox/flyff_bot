@@ -98,6 +98,8 @@ def test_unified_extraction_runs_stages_and_collects_missing_profile(
     paths.quest_npc_positions = output / "npc.json"
     paths.dungeon_database = output / "dungeons.json"
     paths.player_stats_profiles = output / "profiles.json"
+    paths.client_catalog = output / "catalog.json"
+    paths.source_manifest = output / "source_manifest.json"
     progress: list[int] = []
 
     extractor = UnifiedClientExtractor(
@@ -107,7 +109,10 @@ def test_unified_extraction_runs_stages_and_collects_missing_profile(
     )
     result = extractor.run()
 
-    assert result.monster_table_count >= 1
+    # The stage reports rows it actually parsed and wrote, not files it found (BUG-033).
+    assert result.mover_count == 1
+    assert paths.client_catalog.is_file()
+    assert paths.source_manifest.is_file()
     assert result.world_names == ("TestWorld",)
     assert paths.quest_database.is_file()
     assert paths.dungeon_database.is_file()

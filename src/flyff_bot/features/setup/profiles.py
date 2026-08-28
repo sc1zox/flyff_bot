@@ -19,6 +19,10 @@ _PE_HEADER_OFFSET = 0x3C
 _PE_MACHINE_OFFSET = 4
 _MACHINE_X86 = 0x14C
 _MACHINE_X64 = 0x8664
+# Named so the handler below stays a single-name `except` clause. The pinned formatter
+# rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
+# what the group of failures means.
+PROFILE_DOCUMENT_ERRORS = (OSError, json.JSONDecodeError)
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +116,7 @@ def _pe_machine_type(path: Path) -> int | None:
 def _read_existing_profiles(path: Path) -> list[dict[str, object]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except PROFILE_DOCUMENT_ERRORS:
         return []
     if not isinstance(payload, list):
         return []

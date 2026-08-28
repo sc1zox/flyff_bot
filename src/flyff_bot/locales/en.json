@@ -481,7 +481,7 @@
   "ui.setup_complete": "Unified extraction completed.",
   "ui.setup_failed": "Extraction failed: {reason}",
   "ui.setup_invalid_directory": "Select the Entropia folder that contains neuz.exe and Data.",
-  "ui.setup_summary": "Worlds: {worlds} Â· Quests: {quests} Â· Dungeons: {dungeons} Â· Mover tables: {monsters} Â· Memory profile: {memory}",
+  "ui.setup_summary": "Worlds: {worlds} · Quests: {quests} · Dungeons: {dungeons} · Movers: {movers} · Drops: {drops} · Items: {items} · Memory profile: {memory}",
   "ui.setup_memory_profile_verified": "verified SHA-256 {sha256}, {fields} proven fields",
   "ui.setup_memory_profile_missing": "not installed; no exact-fingerprint profile was supplied",
   "ui.readiness_title": "Live-state readiness",
@@ -525,5 +525,17 @@
   "ui.policy_model_browse": "Browse...",
   "ui.policy_model_dialog": "Select policy model directory",
   "help.policy_mode": "Tactical policy mode: HEURISTIC, ML_SHADOW, or ML_ACTIVE",
-  "help.policy_model_dir": "Directory holding the trained policy artifacts to load"
+  "help.policy_model_dir": "Directory holding the trained policy artifacts to load",
+  "error.client_catalog_empty": "No mover row could be parsed from {table}; the static catalog stays empty.",
+  "error.client_catalog_table_rejected": "{table}: {reason} ({locator})",
+  "status.source_completeness_complete": "Complete",
+  "status.source_completeness_partial": "Partly available",
+  "status.source_completeness_unavailable": "Unavailable",
+  "status.source_completeness_unverified_layout": "Layout unverified",
+  "error.label_join_label_unmapped": "The detected class {label} is bound to no client mover.",
+  "error.label_join_label_ambiguous": "The detected class {label} is bound to more than one client mover.",
+  "error.label_join_display_name_ambiguous": "More than one client mover carries the name of the detected class {label}.",
+  "error.label_join_mover_symbol_unknown": "The mover bound to {label} is not declared by the client mover table.",
+  "error.label_join_client_digest_mismatch": "The label mapping was produced for another client build.",
+  "error.label_join_mapping_version_mismatch": "The label mapping was written under another mapping version."
 }

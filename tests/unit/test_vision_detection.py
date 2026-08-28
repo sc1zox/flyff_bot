@@ -200,3 +200,66 @@ def test_detector_rejects_non_finite_class_scores() -> None:
         detector.detect(_frame())
 
     assert error.value.code is DetectionErrorCode.INVALID_MODEL_OUTPUT
+
+
+def test_a_filtered_class_never_reaches_suppression_tracking_or_world_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The operator whitelist is applied inside decoding, before NMS (US-083).
+
+    Everything downstream - suppression, tracking, world projection, catalog joins and
+    candidate ranking - consumes the decoded list, so a class filtered here cannot be
+    reintroduced by a later enrichment step.
+    """
+
+    import cv2
+
+    suppressed: list[list[list[int]]] = []
+    original = cv2.dnn.NMSBoxes
+
+    def _record(
+        boxes: list[list[int]],
+        confidences: list[float],
+        score_threshold: float,
+        nms_threshold: float,
+    ) -> object:
+        suppressed.append(list(boxes))
+        return original(boxes, confidences, score_threshold, nms_threshold)
+
+    monkeypatch.setattr(cv2.dnn, "NMSBoxes", _record)
+
+    # One high-confidence `npc` and one high-confidence `mob` in the same frame.
+    output = np.array(
+        [
+            [
+                [320.0, 320.0, 100.0, 100.0, 0.95, 0.05],
+                [160.0, 160.0, 100.0, 100.0, 0.05, 0.95],
+            ]
+        ],
+        dtype=np.float32,
+    )
+    detector = OpenCVDnnYoloDetector(
+        _Network(output),
+        ("npc", "mob"),
+        DetectionConfig(allowed_class_names=frozenset({"mob"})),
+    )
+
+    detections = detector.detect(_frame())
+
+    assert [detection.class_name for detection in detections] == ["mob"]
+    # Only the surviving class was ever offered to suppression.
+    assert len(suppressed) == 1
+
+
+def test_widening_the_whitelist_cannot_be_done_by_an_unknown_class_name() -> None:
+    """Data enrichment must not widen the operator's selection to an unmodelled class."""
+
+    detector = OpenCVDnnYoloDetector(
+        _Network(np.zeros((1, 1, 6), dtype=np.float32)), ("npc", "mob")
+    )
+
+    with pytest.raises(DetectionError) as error:
+        detector.update_allowed_class_names(frozenset({"mob", "Rapra"}))
+
+    assert error.value.code is DetectionErrorCode.UNKNOWN_CLASS_FILTER
+    assert detector.config.allowed_class_names == frozenset()

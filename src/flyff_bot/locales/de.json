@@ -481,7 +481,7 @@
   "ui.setup_complete": "Vereinheitlichte Extraktion abgeschlossen.",
   "ui.setup_failed": "Extraktion fehlgeschlagen: {reason}",
   "ui.setup_invalid_directory": "WÃ¤hlen Sie den Entropia-Ordner aus, der neuz.exe und Data enthÃ¤lt.",
-  "ui.setup_summary": "Welten: {worlds} Â· Quests: {quests} Â· Dungeons: {dungeons} Â· Mover-Tabellen: {monsters} Â· Speicherprofil: {memory}",
+  "ui.setup_summary": "Welten: {worlds} · Quests: {quests} · Dungeons: {dungeons} · Mover: {movers} · Drops: {drops} · Items: {items} · Speicherprofil: {memory}",
   "ui.setup_memory_profile_verified": "verifiziert, SHA-256 {sha256}, {fields} belegte Felder",
   "ui.setup_memory_profile_missing": "nicht installiert; es wurde kein exakt passendes Profil bereitgestellt",
   "ui.readiness_title": "Live-Status-Bereitschaft",
@@ -525,5 +525,17 @@
   "ui.policy_model_browse": "Durchsuchen...",
   "ui.policy_model_dialog": "Verzeichnis des Richtlinienmodells waehlen",
   "help.policy_mode": "Taktikmodus der Richtlinie: HEURISTIC, ML_SHADOW oder ML_ACTIVE",
-  "help.policy_model_dir": "Verzeichnis mit den zu ladenden trainierten Richtlinien-Artefakten"
+  "help.policy_model_dir": "Verzeichnis mit den zu ladenden trainierten Richtlinien-Artefakten",
+  "error.client_catalog_empty": "Aus {table} konnte keine Mover-Zeile gelesen werden; der statische Katalog bleibt leer.",
+  "error.client_catalog_table_rejected": "{table}: {reason} ({locator})",
+  "status.source_completeness_complete": "Vollständig",
+  "status.source_completeness_partial": "Teilweise verfügbar",
+  "status.source_completeness_unavailable": "Nicht verfügbar",
+  "status.source_completeness_unverified_layout": "Spaltenlayout unbestätigt",
+  "error.label_join_label_unmapped": "Die erkannte Klasse {label} ist keinem Client-Mover zugeordnet.",
+  "error.label_join_label_ambiguous": "Die erkannte Klasse {label} ist mehr als einem Client-Mover zugeordnet.",
+  "error.label_join_display_name_ambiguous": "Mehr als ein Client-Mover trägt den Namen der erkannten Klasse {label}.",
+  "error.label_join_mover_symbol_unknown": "Der {label} zugeordnete Mover ist in der Client-Mover-Tabelle nicht deklariert.",
+  "error.label_join_client_digest_mismatch": "Die Label-Zuordnung wurde für einen anderen Client-Build erzeugt.",
+  "error.label_join_mapping_version_mismatch": "Die Label-Zuordnung wurde unter einer anderen Zuordnungsversion geschrieben."
 }
