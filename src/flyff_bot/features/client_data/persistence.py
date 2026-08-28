@@ -10,6 +10,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from flyff_bot.features.client_data.label_mapping import (
+    MOVER_LABEL_MAPPING_VERSION,
+    MoverLabelBinding,
+    MoverLabelMapping,
+)
 from flyff_bot.features.client_data.manifest import (
     SOURCE_MANIFEST_SCHEMA_VERSION,
     FieldProvenance,
@@ -255,3 +260,58 @@ def _rows(value: object) -> list[dict[str, object]]:
 
 def _sequence(value: object) -> list[object]:
     return list(value) if isinstance(value, list) else []
+
+
+def mapping_document(mapping: MoverLabelMapping) -> dict[str, object]:
+    """Return the curated label mapping in the form written to disk."""
+
+    return {
+        "mapping_version": mapping.mapping_version,
+        "client_digest": mapping.client_digest,
+        "bindings": [
+            {
+                "detector_label": binding.detector_label,
+                "mover_id": binding.mover_id,
+                "mover_symbol": binding.mover_symbol,
+            }
+            for binding in mapping.bindings
+        ],
+    }
+
+
+def save_mover_label_mapping(mapping: MoverLabelMapping, path: Path) -> None:
+    """Write the curated label mapping, creating its directory when needed."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(mapping_document(mapping), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def load_mover_label_mapping(path: Path) -> MoverLabelMapping:
+    """Return the curated label mapping, refusing a document of another mapping version.
+
+    The version is checked here rather than at join time so a stale artifact can never
+    contribute even one binding: a label bound to a mover id that has since been reassigned
+    would otherwise teach a policy another mover's combat properties.
+    """
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise CatalogSchemaError(expected=MOVER_LABEL_MAPPING_VERSION, found="none")
+    found = str(payload.get("mapping_version", "none"))
+    if found != MOVER_LABEL_MAPPING_VERSION:
+        raise CatalogSchemaError(expected=MOVER_LABEL_MAPPING_VERSION, found=found)
+    return MoverLabelMapping(
+        bindings=tuple(
+            MoverLabelBinding(
+                str(row["detector_label"]),
+                _required_int(row.get("mover_id"), "mover_id"),
+                str(row["mover_symbol"]),
+            )
+            for row in _rows(payload.get("bindings"))
+        ),
+        client_digest=str(payload.get("client_digest", "")),
+        mapping_version=found,
+    )

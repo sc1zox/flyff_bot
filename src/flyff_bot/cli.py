@@ -16,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_CATALOG_PATH,
     DEFAULT_CLIENT_DATA_ROOT,
     DEFAULT_CLIENT_WORLD_ROOT,
     DEFAULT_DATASET_MANIFEST_PATH,
@@ -23,8 +24,10 @@ from flyff_bot.constants import (
     DEFAULT_KEY_DURATION_SECONDS,
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
+    DEFAULT_MOVER_LABEL_MAPPING_PATH,
     DEFAULT_PROCESS_NAME,
     DEFAULT_QUEST_DATABASE_PATH,
+    DEFAULT_SOURCE_MANIFEST_PATH,
     DEFAULT_START_DELAY_SECONDS,
     DEFAULT_TARGET_ANCHOR_PATH,
     DEFAULT_TELEMETRY_AREA_ID,
@@ -88,6 +91,7 @@ from flyff_bot.features.navigation.world_extractor import (
     summarize,
 )
 from flyff_bot.features.navigation.world_geometry import terrain_triangles
+from flyff_bot.features.perception.catalog_join import load_mob_catalog_join
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.player_stats.reader import LivePlayerStatsReader
 from flyff_bot.features.quests.extraction import (
@@ -838,6 +842,15 @@ def _farming_orchestrator(
     # The pathing controller polls the camera and owns the baked mesh, so it is what lets a
     # perception tick unproject its own detections onto walkable ground (US-057).
     pipeline.attach_world_geometry(pathing)
+    # The extracted catalog is what turns a class name into the mover the client actually
+    # declares. Absent artifacts leave detections unenriched (US-083).
+    pipeline.attach_client_catalog(
+        load_mob_catalog_join(
+            Path(DEFAULT_CLIENT_CATALOG_PATH),
+            Path(DEFAULT_MOVER_LABEL_MAPPING_PATH),
+            Path(DEFAULT_SOURCE_MANIFEST_PATH),
+        )
+    )
     return FarmingOrchestrator(
         pipeline,
         controller,

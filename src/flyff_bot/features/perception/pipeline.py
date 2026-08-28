@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from time import monotonic
@@ -18,6 +18,8 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
+from flyff_bot.features.client_data.label_mapping import SpawnZoneDeclaration
+from flyff_bot.features.perception.catalog_join import MobCatalogJoin
 from flyff_bot.features.perception.mob_world_position import (
     MobWorldGeometryFeed,
     MobWorldPositionEstimator,
@@ -125,6 +127,7 @@ class PerceptionPipeline:
         self._monster_stats_interval_seconds = monster_stats_interval_seconds
         self._next_monster_stats_read_at_seconds = 0.0
         self._mob_world_estimator: MobWorldPositionEstimator | None = None
+        self._catalog_join: MobCatalogJoin | None = None
 
     def attach_world_geometry(self, geometry: MobWorldGeometryFeed | None) -> None:
         """Bind, or release, the live camera and NavMesh detections are unprojected against.
@@ -136,6 +139,25 @@ class PerceptionPipeline:
         self._mob_world_estimator = (
             None if geometry is None else MobWorldPositionEstimator(geometry)
         )
+
+    def attach_client_catalog(self, catalog_join: MobCatalogJoin | None) -> None:
+        """Bind, or release, the authoritative catalog detections are enriched from.
+
+        Without a join the pipeline reports the same unenriched detections it always has,
+        which is what an install with no extracted client data has to work from.
+        """
+
+        self._catalog_join = catalog_join
+
+    def attach_spawn_zones(self, zones: Iterable[SpawnZoneDeclaration]) -> None:
+        """Read spawn capacity and respawn cadence from the world now being farmed.
+
+        Does nothing until a catalog is attached: spawn numbers describe a mover, and
+        without the join there is no mover to attribute them to.
+        """
+
+        if self._catalog_join is not None:
+            self._catalog_join = self._catalog_join.with_spawn_zones(zones)
 
     @property
     def has_player_stats_provider(self) -> bool:
@@ -160,10 +182,13 @@ class PerceptionPipeline:
         player_vitals = previous_state.player_vitals
         monster_kill_count = previous_state.monster_kill_count
         monster_stats = previous_state.monster_stats
+        catalog_joins = previous_state.mob_catalog_joins
+        catalog_rejections = previous_state.mob_catalog_rejections
 
         try:
             visible_mobs = tuple(
-                _visible_mob(detection) for detection in self._detector.detect(frame)
+                _visible_mob(index, detection)
+                for index, detection in enumerate(self._detector.detect(frame))
             )
         except DETECTION_ERRORS:
             failures.add(PerceptionFailure.DETECTION)
@@ -172,6 +197,12 @@ class PerceptionPipeline:
                 visible_mobs = with_estimated_world_positions(
                     visible_mobs, self._mob_world_estimator.estimate(visible_mobs, viewport)
                 )
+            # Joined against this frame's own detections, so the enrichment can never
+            # outlive the boxes it describes: a failed detection keeps the previous join
+            # alongside the previous mobs instead of re-keying a stale one.
+            catalog_joins, catalog_rejections = (
+                ((), ()) if self._catalog_join is None else self._catalog_join.join(visible_mobs)
+            )
         try:
             selected_target = _selected_target(self._target_verifier.verify(frame))
         except FRAME_READ_ERRORS:
@@ -227,6 +258,8 @@ class PerceptionPipeline:
             player_stats_snapshot=player_stats_snapshot,
             monster_kill_count=monster_kill_count,
             monster_stats=monster_stats,
+            mob_catalog_joins=catalog_joins,
+            mob_catalog_rejections=catalog_rejections,
         )
         return PerceptionTick(state, _events(previous_state, state), frozenset(failures), frame)
 
@@ -238,7 +271,9 @@ class PerceptionPipeline:
             close()
 
 
-def _visible_mob(detection: Detection) -> VisibleMob:
+def _visible_mob(candidate_index: int, detection: Detection) -> VisibleMob:
+    """Give one decoded box its per-instance identity for the rest of the tick (US-079)."""
+
     box = detection.bounding_box
     return VisibleMob(
         detection.class_id,
@@ -248,6 +283,7 @@ def _visible_mob(detection: Detection) -> VisibleMob:
         box.y,
         box.width,
         box.height,
+        candidate_index=candidate_index,
     )
 
 

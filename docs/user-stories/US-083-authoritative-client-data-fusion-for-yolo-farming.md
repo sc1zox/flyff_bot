@@ -63,7 +63,7 @@ coherent, safe control loop in the client**.
       NavMeshes in the client, when extraction completes, then each supported record is available as
       a typed normalized artifact or is reported with a typed rejection reason. Filename discovery
       or a positive file counter is not accepted as ingestion.
-- [ ] Given a YOLO detection, when it enters perception, then it receives a stable per-instance
+- [x] Given a YOLO detection, when it enters perception, then it receives a stable per-instance
       candidate identity from US-079 and is joined through an exact versioned mapping to its mover
       ID, class metadata, verified combat/movement properties, spawn capacity/respawn evidence, and
       available drop metadata. Ambiguous or missing label mappings remain explicit and cannot join
@@ -167,8 +167,34 @@ coherent, safe control loop in the client**.
     unmapped label, a label bound to two movers, a display name shared by two movers, a binding
     naming an undeclared symbol, a foreign client digest, and a foreign mapping version. The
     join is keyed by the US-079 per-instance candidate identity, so two simultaneously visible
-    monsters of one class stay distinct. Not yet wired into `PerceptionPipeline`, which is what
-    this criterion needs to be complete.
+    monsters of one class stay distinct.
+
+  - **Perception enrichment (AC3, done).** `PerceptionPipeline` now assigns each decoded box
+    its candidate identity and joins the frame's own detections, so `WorldState` carries
+    `mob_catalog_joins` - mover id, symbol, display name, verified combat properties, declared
+    drops and spawn evidence - keyed by that identity, plus `mob_catalog_rejections` for the
+    classes it could not join. Spawn evidence (zone count, total capacity, shortest respawn
+    interval per mover) is aggregated from the adopted world map and pushed in by
+    `configure_vector_navigation`, which is the moment the session learns which world it is
+    farming. `persistence.py` gained the versioned read/write for
+    `data/client/mover_label_mapping.json`, the artifact `constants.py` had declared but nothing
+    produced or consumed.
+
+    Three states are kept distinct rather than collapsed into "no enrichment": no artifacts
+    installed yields no join and no rejection; a mapping stamped with a foreign client digest or
+    mapping version loads as a *refused* join that keeps stating the refusal on every tick; a
+    label the installed mapping does not bind is `LABEL_UNMAPPED`. A rejection is a property of
+    the class, so five unjoinable boxes of one class state one fact. The join runs on the boxes
+    the same tick produced, so a failed detection keeps the previous mobs *and* their previous
+    join instead of re-keying a stale one.
+
+    One caveat, and it is data rather than code: the curated mapping artifact binds a detector
+    label to a mover *symbol*, and the six symbols behind `Flame`, `LadyBlum`, `MiniMush`,
+    `NightMist`, `Oldrut` and `Rapra` have not been proven against a client. The numeric ids in
+    `data/assets/world/monster_ids.json` are evidenced by the extracted spawn zones; the symbols
+    are not, and deriving them by name similarity is exactly what this criterion forbids. Until
+    an operator authors the artifact against a fingerprinted client, the mechanism runs and
+    reports every detection as explicitly unmapped - the same posture as an unbaked NavMesh.
 
   - **Early YOLO whitelist (AC13, done).** Verified that `OpenCVDnnYoloDetector._decode` already
     applies the operator whitelist before `_suppress_per_class`, and pinned it with a regression
@@ -178,19 +204,31 @@ coherent, safe control loop in the client**.
   - **Localization.** Thirteen new message identifiers for catalog, manifest-completeness and
     label-join diagnostics, complete and synchronized in `de.json` and `en.json`.
 
-  - **Gate.** `uv sync`, `ruff check`, `ruff format --check` and `mypy` (296 files) pass. `pytest`
-    reports 1052 passed, 11 failed; **all 11 failures belong to a concurrent US-084 session
-    editing the same working tree** (`_CameraAligner.update_tactical_parameters` and a
-    `{parameter}` locale placeholder), not to this story. The 172 tests covering the files this
-    story touches all pass.
+  - **Gate.** `uv sync`, `ruff check`, `ruff format --check` and `mypy` (298 files) pass.
+    `pytest` reports 1085 passed, 5 skipped, 0 failed at 89% coverage. The 11 failures recorded
+    here earlier belonged to a concurrent US-084 session editing the same working tree; that
+    session has since landed and they are gone.
 
 ## Remaining work
 
 Criteria 4-12 are untouched: temporal and cross-world fusion coherence, rich player/target
 missingness and reconciliation, goal-driven option gating, the single canonical snapshot builder,
 the time-and-cost farming objective, efficiency reporting, the fused telemetry record, train/serve
-parity with artifact digest binding, and fail-closed readiness. Wiring `label_mapping` into
-`PerceptionPipeline` is the natural next step, since criteria 4 and 5 build directly on it.
+parity with artifact digest binding, and fail-closed readiness.
+
+Criterion 4 is the natural next step and now has what it needs: every detection carries an
+identity, an authoritative mover, and a world position, but nothing yet checks that the camera,
+GPS, world map and NavMesh samples behind one enriched candidate came from the *same* valid
+interval and the same world. Two known seams to close along the way:
+
+- The policy layer's `PolicyCandidate.original_position` is still an index into the *eligible*
+  candidate list, not the perception candidate identity the join is keyed by. Downstream code can
+  bridge the two through `candidate.mob.candidate_index`, but reconciling them into one identity
+  belongs to criteria 5 and 7, which own the canonical snapshot.
+- Nothing consumes `mob_catalog_joins` yet. The manifest declares the join function as the
+  consumer of the mover and drop fields, which is now true, but no decision reads the enriched
+  record; the farming objective in criterion 8 is where the combat, drop and spawn columns start
+  changing a ranking.
 
 ## Out of scope
 

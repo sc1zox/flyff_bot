@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from flyff_bot.features.client_data.label_mapping import (
+    JoinedMoverCandidate,
+    LabelJoinRejection,
+)
 from flyff_bot.features.player_stats.models import ClientPlayerStatsSnapshot
 from flyff_bot.features.vision.models import MonsterStatsMetrics as MonsterStatsMetrics
 from flyff_bot.features.vision.models import MonsterStatsSource as MonsterStatsSource
@@ -99,6 +103,10 @@ class VisibleMob:
     navmesh_path_distance: float | None = None
     navmesh_reachable: bool | None = None
     navmesh_within_leash: bool | None = None
+    #: Stable per-instance identity assigned when this box was decoded (US-079). It keys the
+    #: authoritative catalog join, so two simultaneously visible mobs of one class stay
+    #: distinct. ``None`` for a mob built outside a perception tick.
+    candidate_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +139,20 @@ class WorldState:
     player_stats_snapshot: ClientPlayerStatsSnapshot | None = None
     monster_kill_count: int = 0
     monster_stats: MonsterStatsMetrics = field(default_factory=MonsterStatsMetrics)
+    #: The authoritative mover each detection was joined to, keyed by candidate identity.
+    mob_catalog_joins: tuple[JoinedMoverCandidate, ...] = ()
+    #: Why a detected class stayed unjoined, stated once per class rather than per box.
+    mob_catalog_rejections: tuple[LabelJoinRejection, ...] = ()
+
+    def catalog_join(self, candidate_index: int | None) -> JoinedMoverCandidate | None:
+        """Return the authoritative record joined to one detection, or ``None``."""
+
+        if candidate_index is None:
+            return None
+        for join in self.mob_catalog_joins:
+            if join.candidate_index == candidate_index:
+                return join
+        return None
 
 
 @dataclass(frozen=True, slots=True)

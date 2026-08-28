@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum, unique
+from typing import Protocol
 
 from flyff_bot.features.client_data.models import (
     ClientCatalog,
@@ -80,6 +81,60 @@ class MoverLabelMapping:
         return tuple(binding.detector_label for binding in self.bindings)
 
 
+class SpawnZoneDeclaration(Protocol):
+    """The three spawn columns this join reads from an extracted world zone.
+
+    Declared structurally so the static catalog keeps depending only on client tables: the
+    world artifact is produced by the navigation feature and is not imported here.
+    """
+
+    @property
+    def monster_id(self) -> int: ...
+
+    @property
+    def capacity(self) -> int: ...
+
+    @property
+    def respawn_seconds(self) -> int: ...
+
+
+@dataclass(frozen=True, slots=True)
+class SpawnEvidence:
+    """What the extracted world declares about one mover's presence, as declared.
+
+    These are the client's own spawn numbers, not an observation: they say how many of a
+    mover the world may hold and how quickly it replaces one, which is what a follow-up or
+    camp decision needs. A mover with no zone in the loaded world has no evidence at all
+    rather than a zeroed record.
+    """
+
+    zone_count: int
+    total_capacity: int
+    minimum_respawn_seconds: int | None = None
+
+
+def spawn_evidence_by_mover(
+    zones: Iterable[SpawnZoneDeclaration],
+) -> dict[int, SpawnEvidence]:
+    """Aggregate every zone of one world into per-mover spawn evidence."""
+
+    aggregated: dict[int, SpawnEvidence] = {}
+    for zone in zones:
+        previous = aggregated.get(zone.monster_id)
+        respawn_seconds = zone.respawn_seconds
+        if previous is None:
+            aggregated[zone.monster_id] = SpawnEvidence(1, zone.capacity, respawn_seconds)
+            continue
+        aggregated[zone.monster_id] = SpawnEvidence(
+            previous.zone_count + 1,
+            previous.total_capacity + zone.capacity,
+            respawn_seconds
+            if previous.minimum_respawn_seconds is None
+            else min(previous.minimum_respawn_seconds, respawn_seconds),
+        )
+    return aggregated
+
+
 @dataclass(frozen=True, slots=True)
 class LabelJoinRejection:
     """Why one detection stays unenriched, stated instead of being resolved by guess."""
@@ -102,6 +157,8 @@ class JoinedMoverCandidate:
     drops: tuple[DropRecord, ...]
     mapping_version: str
     client_digest: str
+    #: Declared spawn capacity and respawn cadence, absent when the loaded world has no zone.
+    spawn: SpawnEvidence | None = None
 
     @property
     def has_verified_combat_properties(self) -> bool:
@@ -151,12 +208,16 @@ def join_detected_candidates(
     detections: Mapping[int, str],
     mapping: MoverLabelMapping,
     catalog: ClientCatalog,
+    spawn_evidence: Mapping[int, SpawnEvidence] | None = None,
 ) -> tuple[tuple[JoinedMoverCandidate, ...], tuple[LabelJoinRejection, ...]]:
     """Join detections to authoritative movers, keyed by stable candidate identity.
 
     ``detections`` maps each candidate's per-instance identity to its detector label, so two
     simultaneously visible monsters of the same class each receive their own joined record
     rather than collapsing into one.
+
+    ``spawn_evidence`` is keyed by mover id and supplies the declared capacity and respawn
+    cadence of the loaded world. A mover the world never declares stays without evidence.
     """
 
     duplicated_labels = _duplicate_labels(mapping)
@@ -200,6 +261,7 @@ def join_detected_candidates(
                 drops=catalog.drops_for(mover.symbol),
                 mapping_version=mapping.mapping_version,
                 client_digest=mapping.client_digest,
+                spawn=None if spawn_evidence is None else spawn_evidence.get(binding.mover_id),
             )
         )
     return tuple(joined), tuple(rejections)
