@@ -69,19 +69,38 @@ def test_first_run_detection_checks_all_required_datasets(
     quest_path = tmp_path / "quests.json"
     dungeon_path = tmp_path / "dungeons.json"
     profile_path = tmp_path / "profiles.json"
+    catalog_path = tmp_path / "catalog.json"
+    manifest_path = tmp_path / "source_manifest.json"
+    required_paths = (quest_path, dungeon_path, profile_path, catalog_path, manifest_path)
     assert UnifiedClientExtractor.is_first_run_required(
         world_map_directory=tmp_path / "worlds",
         quest_database=quest_path,
         dungeon_database=dungeon_path,
         player_profiles=profile_path,
+        client_catalog=catalog_path,
+        source_manifest=manifest_path,
     )
-    for path in (quest_path, dungeon_path, profile_path):
+    for path in required_paths[:-2]:
+        path.write_text("[]", encoding="utf-8")
+    # The catalog and its manifest are mandatory too: without them no detection can be
+    # attributed to the mover the client declares (US-085).
+    assert UnifiedClientExtractor.is_first_run_required(
+        world_map_directory=tmp_path,
+        quest_database=quest_path,
+        dungeon_database=dungeon_path,
+        player_profiles=profile_path,
+        client_catalog=catalog_path,
+        source_manifest=manifest_path,
+    )
+    for path in required_paths[-2:]:
         path.write_text("[]", encoding="utf-8")
     assert not UnifiedClientExtractor.is_first_run_required(
         world_map_directory=tmp_path,
         quest_database=quest_path,
         dungeon_database=dungeon_path,
         player_profiles=profile_path,
+        client_catalog=catalog_path,
+        source_manifest=manifest_path,
     )
 
 

@@ -271,14 +271,12 @@ def _build_quest(
                 npc = npc_positions.get(symbol)
                 if npc is not None and npc.position is not None:
                     position = npc.position
-                    assert position is not None
                     turn_in_npc_destination = QuestDestination(position.x, position.z)
 
     if accept_npc_symbol:
         npc = npc_positions.get(accept_npc_symbol)
         if npc is not None and npc.position is not None:
             position = npc.position
-            assert position is not None
             accept_npc_destination = QuestDestination(position.x, position.z)
 
     resolved_items = tuple(

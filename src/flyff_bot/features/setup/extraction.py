@@ -126,6 +126,8 @@ class UnifiedClientExtractor:
         quest_database: Path = Path(DEFAULT_QUEST_DATABASE_PATH),
         dungeon_database: Path = Path(DEFAULT_DUNGEON_DATABASE_PATH),
         player_profiles: Path = Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+        client_catalog: Path = Path(DEFAULT_CLIENT_CATALOG_PATH),
+        source_manifest: Path = Path(DEFAULT_SOURCE_MANIFEST_PATH),
     ) -> SetupRequiredDatasets:
         worlds = tuple(world_map_directory.glob("*.json"))
         return SetupRequiredDatasets(
@@ -133,6 +135,8 @@ class UnifiedClientExtractor:
             quests=quest_database,
             dungeons=dungeon_database,
             player_profiles=player_profiles,
+            client_catalog=client_catalog,
+            source_manifest=source_manifest,
         )
 
     @staticmethod
@@ -142,12 +146,22 @@ class UnifiedClientExtractor:
         quest_database: Path = Path(DEFAULT_QUEST_DATABASE_PATH),
         dungeon_database: Path = Path(DEFAULT_DUNGEON_DATABASE_PATH),
         player_profiles: Path = Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+        client_catalog: Path = Path(DEFAULT_CLIENT_CATALOG_PATH),
+        source_manifest: Path = Path(DEFAULT_SOURCE_MANIFEST_PATH),
     ) -> bool:
+        """Return whether any mandatory extracted artifact is still absent.
+
+        The catalog and its source manifest count as mandatory: without them a detection
+        can never be enriched with the mover the client actually declares (US-083).
+        """
+
         datasets = UnifiedClientExtractor.required_datasets(
             world_map_directory=world_map_directory,
             quest_database=quest_database,
             dungeon_database=dungeon_database,
             player_profiles=player_profiles,
+            client_catalog=client_catalog,
+            source_manifest=source_manifest,
         )
         return bool(missing_required_datasets(datasets))
 

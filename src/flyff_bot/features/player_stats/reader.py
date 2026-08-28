@@ -151,14 +151,8 @@ class LivePlayerStatsReader:
                 if self._window_handle != window_handle:
                     self.close()
                     self._window_handle = window_handle
-                self._ensure_open(window_handle)
-                profile = self._profile
-                if profile is None:
-                    raise _PlayerStatsOpenError(
-                        PlayerStatsReadErrorCode.NO_PROFILE,
-                        "The reader has no active player-stats profile.",
-                    )
-                fields = self._read_fields(api)
+                handle, module_base, profile = self._ensure_open(window_handle)
+                fields = self._read_fields(api, handle, module_base, profile)
                 self._last_snapshot = ClientPlayerStatsSnapshot(
                     PlayerStatsSource.CLIENT_MEMORY,
                     sampled_at_seconds=at_seconds,
@@ -205,9 +199,15 @@ class LivePlayerStatsReader:
                 ) from error
         return self._api
 
-    def _ensure_open(self, window_handle: int) -> None:
-        if self._handle is not None:
-            return
+    def _ensure_open(self, window_handle: int) -> tuple[int, int, ClientPlayerStatsProfile]:
+        """Return the open handle, module base, and profile, opening the process on demand.
+
+        Returning the triple keeps the read path from re-narrowing three optional attributes
+        that only ever exist together.
+        """
+
+        if self._handle is not None and self._module_base is not None and self._profile is not None:
+            return self._handle, self._module_base, self._profile
         api = self._api_or_raise()
         try:
             process_id = api.process_id_for_window(window_handle)
@@ -243,29 +243,25 @@ class LivePlayerStatsReader:
         self._handle = handle
         self._module_base = module_base
         self._profile = profile
+        return handle, module_base, profile
 
     def _read_fields(
         self,
         api: PlayerStatsProcessMemoryApi,
+        handle: int,
+        module_base: int,
+        profile: ClientPlayerStatsProfile,
     ) -> dict[str, float]:
-        assert self._handle is not None
-        assert self._module_base is not None
-        profile = self._profile
-        if profile is None:
-            raise _PlayerStatsOpenError(
-                PlayerStatsReadErrorCode.NO_PROFILE,
-                "The reader has no active profile.",
-            )
         pointer_plan = _POINTER_PLANS[profile.pointer_size_bytes]
-        pointer_address = self._module_base + profile.player_pointer_rva
-        pointer_bytes = api.read(self._handle, pointer_address, pointer_plan.size_bytes)
+        pointer_address = module_base + profile.player_pointer_rva
+        pointer_bytes = api.read(handle, pointer_address, pointer_plan.size_bytes)
         if len(pointer_bytes) != pointer_plan.size_bytes:
             raise _MalformedStatsRead("The player pointer read was incomplete.")
         player_address = int(struct.unpack(pointer_plan.format, pointer_bytes)[0])
         if player_address <= 0:
             raise _InvalidPlayerPointer("The player pointer is null.")
         payload = api.read(
-            self._handle,
+            handle,
             player_address + profile.read_start_offset,
             profile.read_size_bytes,
         )

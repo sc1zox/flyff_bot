@@ -13,13 +13,10 @@ import numpy.typing as npt
 from PySide6.QtWidgets import QApplication
 
 from flyff_bot.constants import (
-    DEFAULT_CLIENT_CATALOG_PATH,
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
     DEFAULT_MONSTER_STATS_PANEL_PATH,
-    DEFAULT_MOVER_LABEL_MAPPING_PATH,
     DEFAULT_PROCESS_NAME,
-    DEFAULT_SOURCE_MANIFEST_PATH,
     DEFAULT_TARGET_ANCHOR_PATH,
 )
 from flyff_bot.features.automation.camera_alignment import CameraAligner
@@ -47,7 +44,6 @@ from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationRequest,
     VectorZoneNavigator,
 )
-from flyff_bot.features.perception.catalog_join import load_mob_catalog_join
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.player_stats.reader import LivePlayerStatsReader
 from flyff_bot.features.quests.goals import (
@@ -274,16 +270,22 @@ def start_farming(
 def run_desktop(arguments: Sequence[str] | None = None) -> int:
     """Launch the localized PySide6 dashboard."""
 
-    app = QApplication.instance()
-    owns_app = False
-    if app is None:
+    existing = QApplication.instance()
+    owns_app = existing is None
+    if existing is None:
         app = QApplication(list(arguments or sys.argv))
-        owns_app = True
-    assert isinstance(app, QApplication)
+    elif isinstance(existing, QApplication):
+        app = existing
+    else:
+        raise RuntimeError(
+            "The desktop dashboard requires a QApplication, not a bare QCoreApplication."
+        )
 
     translator = Translator.from_environment()
     window = MainWindow(translator)
-    window.load_quest_database()
+    # Everything the operator extracted earlier is adopted before the window is shown, so a
+    # complete install never needs a manual reload step (US-085).
+    window.reload_client_data()
     feed = DashboardFeed()
     feed.update_available.connect(window.update_dashboard)
 
@@ -350,13 +352,10 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 pipeline.attach_world_geometry(pathing)
                 # The extracted catalog is what turns a class name into the mover the client
                 # actually declares. Absent artifacts leave detections unenriched (US-083).
-                pipeline.attach_client_catalog(
-                    load_mob_catalog_join(
-                        Path(DEFAULT_CLIENT_CATALOG_PATH),
-                        Path(DEFAULT_MOVER_LABEL_MAPPING_PATH),
-                        Path(DEFAULT_SOURCE_MANIFEST_PATH),
-                    )
-                )
+                pipeline.attach_client_catalog(window.mob_catalog_join)
+                # A wizard run mid-session republishes the join, so a fresh extraction takes
+                # effect without restarting the application (US-085).
+                window.client_data_reloaded.connect(pipeline.attach_client_catalog)
                 quest_menu_perceiver = QuestMenuPerceiver(
                     TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
                 )
@@ -440,6 +439,10 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
 
     apply_theme(window)
     window.show()
+    # A fresh or incomplete install cannot farm anything, so the wizard is offered before the
+    # operator can arm a session rather than after it fails (US-085).
+    if window.is_setup_required():
+        window.show_setup_wizard()
 
     if owns_app:
         exit_code = app.exec()

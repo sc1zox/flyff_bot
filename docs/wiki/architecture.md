@@ -28,6 +28,7 @@ related:
   - ../user-stories/completed/US-008-reactive-combat-controller.md
   - ../user-stories/completed/US-079-unified-goal-conditioned-decision-contract.md
   - ../user-stories/completed/US-084-ml-modifiable-tactical-parameters-and-tuning.md
+  - ../user-stories/completed/US-085-production-readiness-and-autonomous-farming-polish.md
   - ../user-stories/completed/US-009-reactive-loot-controller.md
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
   - ../user-stories/completed/US-012-real-world-vision-refactoring.md
@@ -2363,3 +2364,52 @@ records what reaches NMS and asserts an unknown class name cannot widen the sele
 Python. Multi-type handlers must therefore use a named module-level tuple constant. Four committed
 files (`navigation/teleporter_extraction.py`, `quests/extraction.py`, `setup/profiles.py`,
 `telemetry/storage.py`) had been left syntactically invalid by this defect and were repaired.
+
+## Production readiness: setup autostart, artifact autoload, HUD fallback (US-085, completed)
+
+**Mandatory artifacts.** `SetupRequiredDatasets` now also names `data/client/catalog.json` and
+`data/client/source_manifest.json` alongside the world maps, quest database, dungeon database and
+player-stat profile registry. Without the catalog and its manifest no detection can be attributed
+to the mover the client declares, so an install missing them is unfinished setup rather than a
+degraded session. `UnifiedClientExtractor.is_first_run_required` reports the same set the wizard
+writes.
+
+**One load path.** `MainWindow.reload_client_data()` loads the teleporter catalog, the quest
+database and the mover catalog join, refreshes the world-data dialog, re-evaluates the arming gate,
+and republishes the join over the `client_data_reloaded` signal. `ui/app.py::run_desktop` calls it
+before the window is shown, and `SetupWizard.setup_completed` calls it again, so a fresh extraction
+reaches the live `PerceptionPipeline` without restarting the application. A catalog written under
+another schema version cannot be repaired at runtime, so it is treated as unfinished setup - which
+is exactly the remedy the wizard offers - rather than crashing startup.
+
+**Arming gate.** `run_desktop` opens the wizard automatically when `MainWindow.is_setup_required()`
+holds. While it holds, the start button is disabled and carries a localized reason. Constructing the
+window never reads the filesystem: only a load pass re-evaluates the gate, so window construction
+stays deterministic in tests and headless runs.
+
+**Graceful memory-profile fallback.** A client build with no verified player-stat profile reports
+`ProviderHealth.UNSUPPORTED` forever, which previously left combat and vitals blocked and the
+autonomous loop deadlocked. After `PLAYER_STATS_FALLBACK_GRACE_SECONDS` of continuous unsupported
+results, `FarmingOrchestrator` calls `LiveReadinessGate.demote_source` and
+`PerceptionPipeline.demote_player_stats_provider`: the gate stops requiring the source and drops any
+capability it solely carried, and the pipeline releases the read-only handle and resumes reading
+vitals from the visual HUD. Only `UNSUPPORTED` demotes - a window that lost focus or a handle that
+dropped reports `UNAVAILABLE` and keeps its chance to recover, so alt-tabbing can never cost the
+session its exact statistics. The demotion is recorded once as a `capability_degraded` session event
+and surfaces in the readiness panel as a localized fallback row plus a distinct ready-with-fallback
+summary. `LiveReadinessStatus.degraded_sources` carries the same fact to telemetry consumers.
+
+**No asserts in production code.** `src/flyff_bot/` contains no `assert` statement, so behavior under
+`python -O` is identical to a normal run. Where a statement only re-narrowed optional attributes, the
+owning read-only reader's `_ensure_open` now returns the `(handle, module_base, profile)` triple that
+only ever exists together (`live_position`, `live_camera`, `live_world_id`, `player_stats.reader`,
+`dungeons.live_reader`), and the Qt painters in `path_inspector` take the already-narrowed `scene` or
+`snapshot` as a parameter from the one place that checked it. The remaining cases became typed
+exceptions or total functions: the readiness failure sort key ranks a reasonless source behind every
+real failure instead of asserting, and `_telemetry_position` is a non-optional converter beside the
+optional `_position`. A guard test parses every production module and fails on any `ast.Assert`.
+
+**Verification gate.** `--cov-fail-under` moved from 60% to 85%. The 2026-08-28 run of
+`scripts/check.ps1` passed with 1176 tests passed, 5 skipped, and 89.60% coverage; `uv sync --locked`,
+Ruff, `ruff format --check`, and mypy (316 files) were clean. Live-client walkthroughs (wizard on a
+clean install, farming, and the END / focus-loss release) remain operator validation on Windows.

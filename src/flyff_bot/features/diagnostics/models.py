@@ -16,6 +16,7 @@ class SessionEventKind(StrEnum):
     SUPERVISOR_FAILURE = "supervisor_failure"
     FRAME_CAPTURE_ERROR = "frame_capture_error"
     GOAL_COMPLETED = "goal_completed"
+    CAPABILITY_DEGRADED = "capability_degraded"
 
 
 @dataclass(frozen=True, slots=True)

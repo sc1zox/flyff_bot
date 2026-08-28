@@ -30,11 +30,14 @@ from PySide6.QtWidgets import (
 )
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_CATALOG_PATH,
     DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH,
     DEFAULT_CLIENT_WORLD_ROOT,
     DEFAULT_DUNGEON_DATABASE_PATH,
+    DEFAULT_MOVER_LABEL_MAPPING_PATH,
     DEFAULT_QUEST_DATABASE_PATH,
     DEFAULT_QUEST_NPC_POSITIONS_PATH,
+    DEFAULT_SOURCE_MANIFEST_PATH,
     DEFAULT_TELEPORTER_DATABASE_PATH,
     DEFAULT_WORLD_MAP_DIRECTORY,
     DEFAULT_WORLD_MONSTER_IDS_PATH,
@@ -56,11 +59,13 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerType,
 )
+from flyff_bot.features.client_data.persistence import CatalogSchemaError
 from flyff_bot.features.navigation.teleporter_extraction import load_teleporter_catalog
 from flyff_bot.features.navigation.teleporter_models import (
     TeleporterCatalog,
     TeleporterDestination,
 )
+from flyff_bot.features.perception.catalog_join import MobCatalogJoin, load_mob_catalog_join
 from flyff_bot.features.quests.goals import QuestNpc
 from flyff_bot.features.quests.persistence import (
     QuestDatabaseError,
@@ -152,6 +157,9 @@ class MainWindow(QMainWindow):
     quest_selection_changed = Signal(object)
     vector_navigation_requested = Signal(object)
     vector_navigation_cleared = Signal()
+    # Emits the freshly loaded mover catalog join (or ``None``) so the live perception
+    # pipeline can adopt a new extraction without an application restart (US-085).
+    client_data_reloaded = Signal(object)
 
     def __init__(
         self,
@@ -166,6 +174,11 @@ class MainWindow(QMainWindow):
         monster_names_path: Path | None = None,
         quest_database_path: Path | None = None,
         quest_npc_positions_path: Path | None = None,
+        dungeon_database_path: Path | None = None,
+        player_profiles_path: Path | None = None,
+        client_catalog_path: Path | None = None,
+        mover_label_mapping_path: Path | None = None,
+        source_manifest_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._translator = translator
@@ -176,10 +189,22 @@ class MainWindow(QMainWindow):
         self._quest_npc_positions_path = quest_npc_positions_path or Path(
             DEFAULT_QUEST_NPC_POSITIONS_PATH
         )
-        teleporter_database_path = teleporter_database_path or Path(
+        self._dungeon_database_path = dungeon_database_path or Path(DEFAULT_DUNGEON_DATABASE_PATH)
+        self._player_profiles_path = player_profiles_path or Path(
+            DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH
+        )
+        self._client_catalog_path = client_catalog_path or Path(DEFAULT_CLIENT_CATALOG_PATH)
+        self._mover_label_mapping_path = mover_label_mapping_path or Path(
+            DEFAULT_MOVER_LABEL_MAPPING_PATH
+        )
+        self._source_manifest_path = source_manifest_path or Path(DEFAULT_SOURCE_MANIFEST_PATH)
+        self._teleporter_database_path = teleporter_database_path or Path(
             DEFAULT_TELEPORTER_DATABASE_PATH
         )
-        self._teleporter_catalog = load_teleporter_catalog(teleporter_database_path)
+        self._teleporter_catalog = load_teleporter_catalog(self._teleporter_database_path)
+        self._mob_catalog_join: MobCatalogJoin | None = None
+        self._client_catalog_unusable = False
+        self._setup_required = False
         self._latest_update: DashboardUpdate | None = None
         # Persistent header cards
         self._status_card = StatusHeaderCard()
@@ -948,10 +973,89 @@ class MainWindow(QMainWindow):
                 monster_names_path=self._monster_names_path,
                 parent=self,
             )
-            self._setup_wizard.setup_completed.connect(lambda _result: self.load_quest_database())
+            self._setup_wizard.setup_completed.connect(self._on_setup_completed)
         self._setup_wizard.show()
         self._setup_wizard.raise_()
         self._setup_wizard.activateWindow()
+
+    @property
+    def setup_wizard(self) -> SetupWizard | None:
+        """Expose the lazily created setup wizard for composition wiring and verification."""
+
+        return self._setup_wizard
+
+    @Slot(object)
+    def _on_setup_completed(self, _result: object) -> None:
+        self.reload_client_data()
+
+    @property
+    def mob_catalog_join(self) -> MobCatalogJoin | None:
+        """Expose the most recently loaded authoritative mover join for composition wiring."""
+
+        return self._mob_catalog_join
+
+    def reload_client_data(self) -> None:
+        """Load every extracted client artifact into this window and its live controllers.
+
+        Called once at startup and again the moment the setup wizard finishes, so a fresh
+        extraction reaches the running session without an application restart (US-085).
+        """
+
+        self._teleporter_catalog = load_teleporter_catalog(self._teleporter_database_path)
+        self.set_teleporter_destinations(self._teleporter_catalog.destinations)
+        self.load_quest_database()
+        self._load_mob_catalog_join()
+        if self._navigation_controller is not None:
+            self._navigation_controller.dialog.refresh()
+        self.refresh_setup_state()
+        self.client_data_reloaded.emit(self._mob_catalog_join)
+
+    def _load_mob_catalog_join(self) -> None:
+        """Bind the extracted catalog, treating an unreadable artifact as unfinished setup.
+
+        A catalog written under another schema version cannot be repaired at runtime; the
+        remedy is to re-run extraction, which is exactly what the wizard offers.
+        """
+
+        try:
+            self._mob_catalog_join = load_mob_catalog_join(
+                self._client_catalog_path,
+                self._mover_label_mapping_path,
+                self._source_manifest_path,
+            )
+        except CatalogSchemaError:
+            self._mob_catalog_join = None
+            self._client_catalog_unusable = True
+            return
+        self._client_catalog_unusable = False
+
+    def is_setup_required(self) -> bool:
+        """Return whether this install still needs the wizard before farming can be armed."""
+
+        return self._client_catalog_unusable or self.is_first_run_setup_required(
+            world_map_directory=self._world_map_dir,
+            quest_database=self._quest_database_path,
+            dungeon_database=self._dungeon_database_path,
+            player_profiles=self._player_profiles_path,
+            client_catalog=self._client_catalog_path,
+            source_manifest=self._source_manifest_path,
+        )
+
+    def refresh_setup_state(self) -> None:
+        """Keep arming disabled, and say why, while mandatory artifacts are still missing.
+
+        Only a load pass re-reads the artifacts, so constructing the window never depends on
+        what happens to be on disk.
+        """
+
+        self._setup_required = self.is_setup_required()
+        self._start_button.setEnabled(not self._setup_required)
+        self._apply_setup_tooltip()
+
+    def _apply_setup_tooltip(self) -> None:
+        self._start_button.setToolTip(
+            self._translator.text(Message.UI_SETUP_REQUIRED_STATUS) if self._setup_required else ""
+        )
 
     @staticmethod
     def is_first_run_setup_required(
@@ -960,12 +1064,16 @@ class MainWindow(QMainWindow):
         quest_database: Path | None = None,
         dungeon_database: Path | None = None,
         player_profiles: Path | None = None,
+        client_catalog: Path | None = None,
+        source_manifest: Path | None = None,
     ) -> bool:
         return UnifiedClientExtractor.is_first_run_required(
             world_map_directory=world_map_directory or Path(DEFAULT_WORLD_MAP_DIRECTORY),
             quest_database=quest_database or Path(DEFAULT_QUEST_DATABASE_PATH),
             dungeon_database=dungeon_database or Path(DEFAULT_DUNGEON_DATABASE_PATH),
             player_profiles=player_profiles or Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+            client_catalog=client_catalog or Path(DEFAULT_CLIENT_CATALOG_PATH),
+            source_manifest=source_manifest or Path(DEFAULT_SOURCE_MANIFEST_PATH),
         )
 
     def _retranslate(self) -> None:
@@ -1023,6 +1131,9 @@ class MainWindow(QMainWindow):
         )
         self._language_selector.setCurrentIndex(self._language_selector.findData(previous_language))
         self._language_selector.blockSignals(False)
+
+        # The arming tooltip explains a disabled control, so it has to follow the language.
+        self._apply_setup_tooltip()
 
         if self._latest_update is not None:
             self._render_update()

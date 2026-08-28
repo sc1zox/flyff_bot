@@ -242,7 +242,8 @@ class SetupWizard(QDialog):
     @Slot(object)
     def _on_completed(self, result: object) -> None:
         self._set_running_state(False)
-        assert isinstance(result, SetupExtractionResult)
+        if not isinstance(result, SetupExtractionResult):
+            raise TypeError("The setup worker completed without a typed extraction result.")
         self._progress_bar.setValue(100)
         self._status_label.setText(self._translator.text(Message.UI_SETUP_COMPLETE))
         self._summary_view.setPlainText(self._summary_text(result))

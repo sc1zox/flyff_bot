@@ -97,10 +97,19 @@ class SetupRequiredDatasets:
     quests: Path
     dungeons: Path
     player_profiles: Path
+    client_catalog: Path
+    source_manifest: Path
 
     def is_complete(self) -> bool:
         return bool(self.worlds) and all(
-            path.is_file() for path in (self.quests, self.dungeons, self.player_profiles)
+            path.is_file()
+            for path in (
+                self.quests,
+                self.dungeons,
+                self.player_profiles,
+                self.client_catalog,
+                self.source_manifest,
+            )
         )
 
 
@@ -114,6 +123,8 @@ def missing_required_datasets(paths: SetupRequiredDatasets) -> tuple[str, ...]:
         ("quests", paths.quests),
         ("dungeons", paths.dungeons),
         ("player_profiles", paths.player_profiles),
+        ("client_catalog", paths.client_catalog),
+        ("source_manifest", paths.source_manifest),
     ):
         if not path.is_file():
             missing.append(dataset_name)

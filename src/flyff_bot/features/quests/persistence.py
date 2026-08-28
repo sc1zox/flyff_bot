@@ -15,6 +15,8 @@ QUEST_DATABASE_SCHEMA_VERSION = 1
 # The operator-authored NPC locations are deliberately separate from extracted quests:
 # the current client evidence names objective coordinates but not giver/finisher identity.
 QUEST_NPC_SCHEMA_VERSION = 1
+# A persisted NPC location is only usable once all three world axes decoded as numbers.
+_POSITION_AXIS_COUNT = 3
 
 
 class QuestDatabaseError(ValueError):
@@ -80,14 +82,17 @@ def _quest_npc(document: dict[str, object]) -> QuestNpc:
     if not isinstance(name, str) or not name.strip():
         raise ValueError("A quest NPC needs a display name.")
     raw_radius = document.get("interaction_radius_units", DEFAULT_QUEST_INTERACTION_RADIUS_UNITS)
-    if any(not isinstance(value, int | float) or isinstance(value, bool) for value in (x, y, z)):
+    coordinates = tuple(
+        value
+        for value in (x, y, z)
+        if isinstance(value, int | float) and not isinstance(value, bool)
+    )
+    if len(coordinates) != _POSITION_AXIS_COUNT:
         raise ValueError("A quest NPC position must contain numeric x, y, and z values.")
     if not isinstance(raw_radius, int | float) or isinstance(raw_radius, bool) or raw_radius <= 0.0:
         raise ValueError("A quest NPC interaction radius must be positive.")
-    assert isinstance(x, int | float)
-    assert isinstance(y, int | float)
-    assert isinstance(z, int | float)
-    position = WorldPosition(float(x), float(y), float(z))
+    axis_x, axis_y, axis_z = coordinates
+    position = WorldPosition(float(axis_x), float(axis_y), float(axis_z))
     if not all(math.isfinite(value) for value in (position.x, position.y, position.z)):
         raise ValueError("A quest NPC position must be finite.")
     return QuestNpc(

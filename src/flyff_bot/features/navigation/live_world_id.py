@@ -167,13 +167,10 @@ class LiveWorldIdReader:
                         WorldIdReadErrorCode.INVALID_PROFILE_CONFIGURATION,
                         self._profile_configuration_error,
                     )
-                self._ensure_open()
-                assert self._handle is not None
-                assert self._module_base is not None
-                assert self._profile is not None
+                handle, module_base, profile = self._ensure_open()
                 payload = self._api_or_raise().read(
-                    self._handle,
-                    self._module_base + self._profile.world_id_rva,
+                    handle,
+                    module_base + profile.world_id_rva,
                     WORLD_ID_STRUCT_SIZE_BYTES,
                 )
                 if len(payload) != WORLD_ID_STRUCT_SIZE_BYTES:
@@ -210,9 +207,15 @@ class LiveWorldIdReader:
                 ) from error
         return self._api
 
-    def _ensure_open(self) -> None:
-        if self._handle is not None:
-            return
+    def _ensure_open(self) -> tuple[int, int, ClientWorldIdProfile]:
+        """Return the open handle, module base, and profile, opening the process on demand.
+
+        Returning the triple keeps the read path from re-narrowing three optional attributes
+        that only ever exist together.
+        """
+
+        if self._handle is not None and self._module_base is not None and self._profile is not None:
+            return self._handle, self._module_base, self._profile
         api = self._api_or_raise()
         try:
             process_id = api.process_id_for_window(self._window_handle)
@@ -243,6 +246,7 @@ class LiveWorldIdReader:
         self._handle = handle
         self._module_base = module_base
         self._profile = profile
+        return handle, module_base, profile
 
     def _fail(self, code: WorldIdReadErrorCode, detail: str) -> None:
         self.close()

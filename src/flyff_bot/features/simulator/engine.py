@@ -642,7 +642,8 @@ class FarmingSimulator:
         objective = self._active_objective()
         if objective is None or objective.kind is ObjectiveKind.KILL:
             return False
-        assert objective.position_x is not None and objective.position_z is not None
+        if objective.position_x is None or objective.position_z is None:
+            return False
         radius = (
             objective.radius_units
             if objective.kind is ObjectiveKind.GO_TO

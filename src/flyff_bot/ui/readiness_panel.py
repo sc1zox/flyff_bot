@@ -111,14 +111,22 @@ class ReadinessPanel(QGroupBox):
                 self._health_text(source),
                 self._age_text(source.age_seconds),
                 source.diagnostic_code,
-                self._consequence_text(source),
+                self._consequence_text(source, degraded=status.is_degraded(source.source)),
             )
             for column, value in enumerate(values):
                 self._table.setItem(row, column, QTableWidgetItem(value))
 
     def _summary_text(self, status: LiveReadinessStatus) -> str:
         if status.state is ReadinessState.READY:
-            return self._translator.text(Message.UI_READINESS_SUMMARY_READY)
+            if not status.degraded_sources:
+                return self._translator.text(Message.UI_READINESS_SUMMARY_READY)
+            return self._translator.text(
+                Message.UI_READINESS_SUMMARY_DEGRADED,
+                source=", ".join(
+                    self._translator.text(_SOURCE_MESSAGES[item])
+                    for item in status.degraded_sources
+                ),
+            )
         reason = self._reason_text(status.primary_reason)
         if status.state is ReadinessState.CANCELLED:
             return self._translator.text(
@@ -151,7 +159,9 @@ class ReadinessPanel(QGroupBox):
             return self._translator.text(Message.UI_READINESS_NO_SAMPLE)
         return self._translator.text(Message.UI_READINESS_AGE, seconds=age_seconds)
 
-    def _consequence_text(self, source: SourceReadiness) -> str:
+    def _consequence_text(self, source: SourceReadiness, *, degraded: bool = False) -> str:
+        if degraded:
+            return self._translator.text(Message.UI_READINESS_DEGRADED)
         if not source.required_by:
             return self._translator.text(Message.UI_READINESS_NO_DEPENDENTS)
         capabilities = ", ".join(

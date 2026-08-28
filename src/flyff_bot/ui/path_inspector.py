@@ -391,21 +391,23 @@ class PathInspectorWidget(QWidget):
             visible.maximum_z,
             scale,
         )
-        if self._scene is not None:
-            self._draw_world_terrain(painter, to_screen, scale, visible)
-            self._draw_navmesh_passability(painter, to_screen, visible)
-            self._draw_obstacles(painter, to_screen, visible)
-            self._draw_world_zones(painter, to_screen, visible)
-        else:
-            self._draw_terrain(painter, to_screen, scale)
-            self._draw_vector_zones(painter, to_screen, scale)
-        if self._snapshot is not None:
-            self._draw_active_route(painter, to_screen)
-            self._draw_navigation_trajectory(painter, to_screen)
-            self._draw_navmesh_mobs(painter, to_screen)
-            self._draw_player_marker(painter, to_screen, scale)
-            self._draw_elevation_profile(painter, width, height)
-            self._draw_overlay_hud(painter, width)
+        scene = self._scene
+        snapshot = self._snapshot
+        if scene is not None:
+            self._draw_world_terrain(painter, scene, to_screen, scale, visible)
+            self._draw_navmesh_passability(painter, scene, to_screen, visible)
+            self._draw_obstacles(painter, scene, to_screen, visible)
+            self._draw_world_zones(painter, scene, to_screen, visible)
+        elif snapshot is not None:
+            self._draw_terrain(painter, snapshot, to_screen, scale)
+            self._draw_vector_zones(painter, snapshot, to_screen, scale)
+        if snapshot is not None:
+            self._draw_active_route(painter, snapshot, to_screen)
+            self._draw_navigation_trajectory(painter, snapshot, to_screen)
+            self._draw_navmesh_mobs(painter, snapshot, to_screen)
+            self._draw_player_marker(painter, snapshot, to_screen, scale)
+            self._draw_elevation_profile(painter, snapshot, width, height)
+            self._draw_overlay_hud(painter, snapshot, width)
         self._draw_legend(painter, width, height)
         painter.end()
 
@@ -623,12 +625,11 @@ class PathInspectorWidget(QWidget):
     def _draw_world_terrain(
         self,
         painter: QPainter,
+        scene: WorldMapScene,
         to_screen: Callable[[float, float], QPointF],
         scale: float,
         visible: WorldBounds,
     ) -> None:
-        scene = self._scene
-        assert scene is not None
         blocks = scene.visible_terrain_blocks(visible)
         self._last_visible_terrain_block_count = len(blocks)
         span = scene.world_map.dimensions.block_span_units
@@ -688,11 +689,10 @@ class PathInspectorWidget(QWidget):
     def _draw_navmesh_passability(
         self,
         painter: QPainter,
+        scene: WorldMapScene,
         to_screen: Callable[[float, float], QPointF],
         visible: WorldBounds,
     ) -> None:
-        scene = self._scene
-        assert scene is not None
         polygons = scene.visible_navmesh_polygons(visible)
         if not polygons:
             return
@@ -719,11 +719,10 @@ class PathInspectorWidget(QWidget):
     def _draw_obstacles(
         self,
         painter: QPainter,
+        scene: WorldMapScene,
         to_screen: Callable[[float, float], QPointF],
         visible: WorldBounds,
     ) -> None:
-        scene = self._scene
-        assert scene is not None
         for obstacle in scene.world_map.obstacles:
             bounds = WorldBounds(
                 obstacle.minimum_x,
@@ -750,11 +749,10 @@ class PathInspectorWidget(QWidget):
     def _draw_world_zones(
         self,
         painter: QPainter,
+        scene: WorldMapScene,
         to_screen: Callable[[float, float], QPointF],
         visible: WorldBounds,
     ) -> None:
-        scene = self._scene
-        assert scene is not None
         for zone in scene.visible_zones(visible):
             is_selected = zone == self._selected_zone
             is_active = self._is_active_zone(zone)
@@ -800,11 +798,10 @@ class PathInspectorWidget(QWidget):
     def _draw_terrain(
         self,
         painter: QPainter,
+        snapshot: NavigationSnapshot,
         to_screen: Callable[[float, float], QPointF],
         scale: float,
     ) -> None:
-        snapshot = self._snapshot
-        assert snapshot is not None
         samples = snapshot.terrain_samples
         if not samples:
             return
@@ -840,11 +837,10 @@ class PathInspectorWidget(QWidget):
     def _draw_vector_zones(
         self,
         painter: QPainter,
+        snapshot: NavigationSnapshot,
         to_screen: Callable[[float, float], QPointF],
         scale: float,
     ) -> None:
-        snapshot = self._snapshot
-        assert snapshot is not None
         zones: list[VectorZoneSnapshot] = []
         if snapshot.vector_zone is not None:
             zones.append(snapshot.vector_zone)
@@ -876,10 +872,11 @@ class PathInspectorWidget(QWidget):
                 painter.drawText(rect.topLeft() + QPointF(4, 12), label)
 
     def _draw_active_route(
-        self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
+        self,
+        painter: QPainter,
+        snapshot: NavigationSnapshot,
+        to_screen: Callable[[float, float], QPointF],
     ) -> None:
-        snapshot = self._snapshot
-        assert snapshot is not None
         if not snapshot.waypoints:
             return
 
@@ -908,12 +905,13 @@ class PathInspectorWidget(QWidget):
             painter.drawEllipse(to_screen(waypoint.x, waypoint.z), 4.0, 4.0)
 
     def _draw_navigation_trajectory(
-        self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
+        self,
+        painter: QPainter,
+        snapshot: NavigationSnapshot,
+        to_screen: Callable[[float, float], QPointF],
     ) -> None:
         """Draw only measured GPS points collected during the active Funnel approach."""
 
-        snapshot = self._snapshot
-        assert snapshot is not None
         if len(snapshot.navigation_trajectory) < 2:
             return
         path = QPainterPath(
@@ -926,12 +924,13 @@ class PathInspectorWidget(QWidget):
         painter.drawPath(path)
 
     def _draw_navmesh_mobs(
-        self, painter: QPainter, to_screen: Callable[[float, float], QPointF]
+        self,
+        painter: QPainter,
+        snapshot: NavigationSnapshot,
+        to_screen: Callable[[float, float], QPointF],
     ) -> None:
         """Render candidate topology without feeding the diagnostic view back into control."""
 
-        snapshot = self._snapshot
-        assert snapshot is not None
         for mob in snapshot.navmesh_mobs:
             color = (
                 NAVMESH_LOCKED_COLOR
@@ -945,9 +944,13 @@ class PathInspectorWidget(QWidget):
             painter.setBrush(QBrush(_with_alpha(color, 90)))
             painter.drawEllipse(point, 5.0 if mob.selected else 3.5, 5.0 if mob.selected else 3.5)
 
-    def _draw_elevation_profile(self, painter: QPainter, width: int, height: int) -> None:
-        snapshot = self._snapshot
-        assert snapshot is not None
+    def _draw_elevation_profile(
+        self,
+        painter: QPainter,
+        snapshot: NavigationSnapshot,
+        width: int,
+        height: int,
+    ) -> None:
         if not snapshot.world_waypoints:
             return
         positions = (
@@ -985,11 +988,10 @@ class PathInspectorWidget(QWidget):
     def _draw_player_marker(
         self,
         painter: QPainter,
+        snapshot: NavigationSnapshot,
         to_screen: Callable[[float, float], QPointF],
         scale: float,
     ) -> None:
-        snapshot = self._snapshot
-        assert snapshot is not None
 
         pt = to_screen(snapshot.player_x, snapshot.player_y)
         heading_rad = math.radians(snapshot.heading_degrees)
@@ -1033,9 +1035,12 @@ class PathInspectorWidget(QWidget):
         painter.setBrush(QBrush(PLAYER_ACCENT_COLOR))
         painter.drawEllipse(pt, 3.5, 3.5)
 
-    def _draw_overlay_hud(self, painter: QPainter, width: int) -> None:
-        snapshot = self._snapshot
-        assert snapshot is not None
+    def _draw_overlay_hud(
+        self,
+        painter: QPainter,
+        snapshot: NavigationSnapshot,
+        width: int,
+    ) -> None:
 
         hud_w = min(float(width - 20), HUD_MAXIMUM_WIDTH_PIXELS)
         gps_status = (

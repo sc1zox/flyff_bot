@@ -214,6 +214,13 @@ GPS_FRESHNESS_SECONDS = 0.5
 CAMERA_FRESHNESS_SECONDS = 0.5
 PLAYER_STATS_FRESHNESS_SECONDS = 1.0
 DUNGEON_STATE_FRESHNESS_SECONDS = 2.0
+# The stable diagnostic reason recorded once when an unfingerprinted client build forces the
+# session off exact client-memory statistics and back onto the visual HUD (US-085).
+PLAYER_STATS_HUD_FALLBACK_REASON = "player_stats_hud_fallback"
+# How long an unsupported client-memory profile is tolerated before the session gives up on it
+# and reads vitals from the visible HUD instead. A profile is only ever declared unsupported by
+# the client build itself, so this grace only absorbs the reader's pre-first-poll state.
+PLAYER_STATS_FALLBACK_GRACE_SECONDS = 5.0
 TACTICAL_APPROACH_DISTANCE_MULTIPLIERS = (0.75, 1.0, 1.25)
 
 
@@ -492,6 +499,7 @@ class FarmingOrchestrator:
         self._last_policy_action: TargetAction | AttackPointAction | None = None
         self._load_learned_policy(self._config.policy_model_directory)
         self._readiness_gate = LiveReadinessGate()
+        self._player_stats_unsupported_since_seconds: float | None = None
         self._readiness = LiveReadinessStatus()
         self._readiness_was_blocked = False
         self._configure_readiness_gate()
@@ -693,6 +701,44 @@ class FarmingOrchestrator:
                     error_code.value if error_code is not None else "unavailable",
                 )
         self._readiness_gate.update(sample)
+        self._track_player_stats_fallback(sample.health, at_seconds)
+
+    def _track_player_stats_fallback(self, health: ProviderHealth, at_seconds: float) -> None:
+        """Give up on client-memory statistics this client build has never supported.
+
+        Only an ``UNSUPPORTED`` result describes the build itself; a window that lost focus or
+        a handle that dropped reports ``UNAVAILABLE`` and keeps its chance to recover.
+        """
+
+        if health is not ProviderHealth.UNSUPPORTED:
+            self._player_stats_unsupported_since_seconds = None
+            return
+        since = self._player_stats_unsupported_since_seconds
+        if since is None:
+            self._player_stats_unsupported_since_seconds = at_seconds
+            return
+        if at_seconds - since >= PLAYER_STATS_FALLBACK_GRACE_SECONDS:
+            self._demote_player_stats_to_hud()
+
+    def _demote_player_stats_to_hud(self) -> None:
+        """Fall back to the visual HUD when this client build has no verified stats profile.
+
+        An unsupported profile can never start working during the session, so keeping combat
+        and vitals blocked on it would stall autonomous farming for good (US-085).
+        """
+
+        if not self._readiness_gate.demote_source(LiveStateSource.PLAYER_STATS):
+            return
+        demote = getattr(self._pipeline, "demote_player_stats_provider", None)
+        if callable(demote):
+            demote()
+        if self._event_logger is not None:
+            self._event_logger.record(
+                SessionEventKind.CAPABILITY_DEGRADED,
+                self._mode.value,
+                previous_mode=self._mode.value,
+                reason=PLAYER_STATS_HUD_FALLBACK_REASON,
+            )
 
     def _update_dungeon_readiness(self, at_seconds: float) -> None:
         provider = self._dungeon_provider

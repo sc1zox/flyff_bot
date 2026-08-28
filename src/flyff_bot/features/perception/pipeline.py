@@ -120,9 +120,10 @@ class PerceptionPipeline:
         self._detector = detector
         self._target_verifier = target_verifier
         self._clock = clock
-        self._vitals_reader = (
-            None if player_stats_reader is not None else (vitals_reader or PlayerVitalsReader())
-        )
+        # The HUD reader is always built, even when an exact client-memory provider is
+        # configured: a client whose build is not fingerprinted has to keep reporting vitals
+        # from what is on screen instead of blocking the session (US-085).
+        self._vitals_reader = vitals_reader or PlayerVitalsReader()
         self._player_stats_reader = player_stats_reader
         self._monster_stats_reader = monster_stats_reader
         self._monster_stats_interval_seconds = monster_stats_interval_seconds
@@ -176,6 +177,20 @@ class PerceptionPipeline:
         """Return whether exact client-memory player statistics are configured."""
 
         return self._player_stats_reader is not None
+
+    def demote_player_stats_provider(self) -> bool:
+        """Release the exact client-memory reader and fall back to the visual HUD.
+
+        A profile the running client build was never fingerprinted for can never start
+        working, so the session drops it once instead of reporting the same block forever.
+        Returns whether this call was the one that performed the demotion.
+        """
+
+        if self._player_stats_reader is None:
+            return False
+        self.close()
+        self._player_stats_reader = None
+        return True
 
     def tick(
         self,
@@ -242,7 +257,6 @@ class PerceptionPipeline:
                             values["fp"],
                         )
             elif self._player_stats_reader is None:
-                assert self._vitals_reader is not None
                 player_vitals = self._vitals_reader.read(frame)
         except FRAME_READ_ERRORS:
             failures.add(PerceptionFailure.VITALS_READING)

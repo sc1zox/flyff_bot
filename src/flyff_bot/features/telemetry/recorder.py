@@ -330,9 +330,7 @@ class TelemetryRecorder:
         if not self._started or not planned_route:
             return
         timestamp_ns = self._clock_ns()
-        route = tuple(_position(point) for point in planned_route)
-        assert all(point is not None for point in route)
-        resolved_route = tuple(point for point in route if point is not None)
+        resolved_route = tuple(_telemetry_position(point) for point in planned_route)
         navigation = self._navigation
         if navigation is not None:
             if navigation.planned_route != resolved_route:
@@ -340,8 +338,7 @@ class TelemetryRecorder:
                 navigation.target_position = resolved_route[-1]
                 navigation.replans_count += 1
             return
-        start = _position(start_position)
-        assert start is not None
+        start = _telemetry_position(start_position)
         self._navigation = _ActiveNavigation(
             timestamp_ns, start, resolved_route[-1], resolved_route
         )
@@ -576,10 +573,14 @@ class TelemetryRecorder:
         )
 
 
+def _telemetry_position(position: WorldPosition) -> TelemetryPosition:
+    return TelemetryPosition(position.x, position.y, position.z)
+
+
 def _position(position: WorldPosition | None) -> TelemetryPosition | None:
     if position is None:
         return None
-    return TelemetryPosition(position.x, position.y, position.z)
+    return _telemetry_position(position)
 
 
 def _projected_position(projected: ProjectedCandidate | None) -> TelemetryPosition | None:

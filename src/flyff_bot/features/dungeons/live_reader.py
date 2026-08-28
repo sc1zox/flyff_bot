@@ -84,14 +84,13 @@ class LiveDungeonCooldownReader:
         self._window_handle = window_handle
         self._definitions = dict(definitions)
         self._api = api
-        self._profiles = profiles
+        self._profiles: Mapping[str, ClientDungeonProfile] = {} if profiles is None else profiles
         self._profiles_path = profiles_path
         self._profile_configuration_error: str | None = None
         if profiles is None:
             try:
                 self._profiles = load_client_dungeon_profiles(profiles_path)
             except ValueError as error:
-                self._profiles = {}
                 self._profile_configuration_error = str(error)
         self._poll_interval_seconds = 1.0 / poll_hertz
         self._polled_at_seconds: float | None = None
@@ -141,10 +140,10 @@ class LiveDungeonCooldownReader:
         self._polled_at_seconds = None
 
     def _close_handle(self) -> None:
-        if self._handle is not None:
-            api = self._api_or_raise()
-            assert api is not None
-            api.close(self._handle)
+        # A handle only ever exists once the platform API resolved, so an absent API here
+        # means there is nothing left to release.
+        if self._handle is not None and self._api is not None:
+            self._api.close(self._handle)
         self._handle = None
         self._module_base = None
         self._profile = None
@@ -157,7 +156,6 @@ class LiveDungeonCooldownReader:
                 DungeonReadStatus.UNCONFIGURED_PROFILE,
                 self._profile_configuration_error,
             )
-        assert self._profiles is not None
         if not self._profiles:
             return {}, DungeonReadDiagnostic(DungeonReadStatus.UNCONFIGURED_PROFILE)
         api = self._api_or_raise()
@@ -172,13 +170,7 @@ class LiveDungeonCooldownReader:
                 "The game window is not foregrounded.",
             )
         try:
-            self._ensure_open(api)
-            profile = self._profile
-            assert profile is not None
-            handle = self._handle
-            module_base = self._module_base
-            assert handle is not None
-            assert module_base is not None
+            handle, module_base, profile = self._ensure_open(api)
             pointer_bytes = api.read(
                 handle,
                 module_base + profile.runtime_state_pointer_rva,
@@ -216,9 +208,18 @@ class LiveDungeonCooldownReader:
             return {}, DungeonReadDiagnostic(error.status, error.detail)
         return self._decode(profile, payload), None
 
-    def _ensure_open(self, api: ForegroundProcessMemoryApi) -> None:
-        if self._handle is not None:
-            return
+    def _ensure_open(
+        self,
+        api: ForegroundProcessMemoryApi,
+    ) -> tuple[int, int, ClientDungeonProfile]:
+        """Return the open handle, module base, and profile, opening the process on demand.
+
+        Returning the triple keeps the read path from re-narrowing three optional attributes
+        that only ever exist together.
+        """
+
+        if self._handle is not None and self._module_base is not None and self._profile is not None:
+            return self._handle, self._module_base, self._profile
         try:
             process_id = api.process_id_for_window(self._window_handle)
             handle = api.open_read_process(process_id)
@@ -232,7 +233,6 @@ class LiveDungeonCooldownReader:
                     f"Expected {EXPECTED_PROCESS_NAME}, got {executable.name}.",
                 )
             digest = executable_sha256(executable)
-            assert self._profiles is not None
             profile = self._profiles.get(digest)
             if profile is None:
                 raise _DungeonOpenError(
@@ -248,6 +248,7 @@ class LiveDungeonCooldownReader:
         self._handle = handle
         self._module_base = module_base
         self._profile = profile
+        return handle, module_base, profile
 
     def _api_or_raise(self) -> ForegroundProcessMemoryApi | None:
         if self._api is None:

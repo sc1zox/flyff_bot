@@ -1140,3 +1140,18 @@ and confirmed that the six Eden detector labels bind 1-to-1 to mover IDs 1453–
 `architecture.md` and US-083 with this grounded evidence, resolving the unproven-symbol caveat for the
 Eden detector classes.
 
+
+## [2026-08-28] synthesis | Production readiness and autonomous farming polish (US-085)
+
+Recorded the production-readiness pass in [architecture.md](architecture.md): the catalog and its
+source manifest joined the mandatory first-run artifact set; `MainWindow.reload_client_data()` became
+the single load path that `run_desktop` and the finished setup wizard both drive, republishing the
+mover catalog join to the live pipeline without an application restart; arming is gated on
+`is_setup_required()` with a localized reason and the wizard now autostarts on an incomplete install;
+a client build whose player-stat profile is unsupported is demoted after a bounded grace so vitals
+fall back to the visual HUD instead of deadlocking combat, while a focus loss still reports
+`UNAVAILABLE` and keeps its chance to recover; and `src/flyff_bot/` is free of `assert`, with the
+read-only readers returning their open handle triple and the Qt painters taking an already-narrowed
+scene or snapshot. Evidence is offline: 17 new tests plus updated setup-detection coverage;
+`scripts/check.ps1` passed with 1176 passed, 5 skipped, 89.60% coverage against the raised 85% gate.
+No live `neuz.exe` session is claimed and no new client access or input capability was added.

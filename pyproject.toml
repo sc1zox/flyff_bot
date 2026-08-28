@@ -63,7 +63,7 @@ module = ["cv2", "onnx", "onnx.*", "pyarrow", "pyarrow.*", "ultralytics"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-addopts = "--strict-config --strict-markers --cov=flyff_bot --cov-report=term-missing --cov-fail-under=60"
+addopts = "--strict-config --strict-markers --cov=flyff_bot --cov-report=term-missing --cov-fail-under=85"
 testpaths = ["tests"]
 pythonpath = ["scripts"]
 

@@ -136,6 +136,14 @@ class LiveReadinessStatus:
     primary_source: LiveStateSource | None = None
     action_blocked: bool = False
     evaluated_at_seconds: float = 0.0
+    # Sources the session stopped requiring because they can never recover on this client.
+    # They keep reporting their own health, but nothing is blocked on them any more.
+    degraded_sources: tuple[LiveStateSource, ...] = ()
+
+    def is_degraded(self, source: LiveStateSource) -> bool:
+        """Return whether one source was demoted to an optional, non-blocking feed."""
+
+        return source in self.degraded_sources
 
     @property
     def failed_source_codes(self) -> tuple[str, ...]:
@@ -160,6 +168,8 @@ _REASON_PRECEDENCE = {
     ReadinessReason.UNREGISTERED: 5,
     ReadinessReason.STALE: 6,
 }
+# A source with no block reason is not a failure at all, so it sorts behind every ranked one.
+_UNRANKED_REASON_PRECEDENCE = len(_REASON_PRECEDENCE)
 _SOURCE_ORDER = {source: index for index, source in enumerate(LiveStateSource)}
 _CAPABILITY_ORDER = {capability: index for index, capability in enumerate(SessionCapability)}
 
@@ -175,6 +185,7 @@ class LiveReadinessGate:
         self._last_evaluated_at_seconds: float | None = None
         self._clock_recovery_versions: dict[LiveStateSource, int] | None = None
         self._terminal_reason: ReadinessReason | None = None
+        self._degraded_sources: set[LiveStateSource] = set()
 
     def register_provider(self, registration: ProviderRegistration) -> None:
         """Register one source exactly once; duplicate registration is a setup error."""
@@ -198,6 +209,33 @@ class LiveReadinessGate:
             raise ValueError(f"Provider {sample.source.value} is not registered.")
         self._samples[sample.source] = sample
         self._sample_versions[sample.source] += 1
+
+    def demote_source(self, source: LiveStateSource) -> bool:
+        """Stop requiring one source so a permanent failure cannot block the session forever.
+
+        A capability left without any requirement is unregistered outright: there is nothing
+        left for it to be ready or blocked on. Returns whether this call demoted the source.
+        """
+
+        if source in self._degraded_sources:
+            return False
+        self._degraded_sources.add(source)
+        remaining: dict[SessionCapability, CapabilityRequirement] = {}
+        for capability, requirement in self._capabilities.items():
+            required = requirement.required_sources - {source}
+            if not required:
+                continue
+            remaining[capability] = (
+                requirement
+                if required == requirement.required_sources
+                else CapabilityRequirement(
+                    capability,
+                    required,
+                    blocks_session_actions=requirement.blocks_session_actions,
+                )
+            )
+        self._capabilities = remaining
+        return True
 
     def emergency_stop(self) -> None:
         """Latch the terminal emergency override; repeated calls are harmless."""
@@ -256,6 +294,7 @@ class LiveReadinessGate:
                 primary_reason=terminal_reason,
                 action_blocked=True,
                 evaluated_at_seconds=at_seconds,
+                degraded_sources=self._ordered_degraded_sources(),
             )
         required_failures = tuple(item for item in failures if item.source in required_sources)
         primary = min(required_failures, key=self._failure_sort_key) if required_failures else None
@@ -277,7 +316,11 @@ class LiveReadinessGate:
             primary_source=None if primary is None else primary.source,
             action_blocked=action_blocked,
             evaluated_at_seconds=at_seconds,
+            degraded_sources=self._ordered_degraded_sources(),
         )
+
+    def _ordered_degraded_sources(self) -> tuple[LiveStateSource, ...]:
+        return tuple(sorted(self._degraded_sources, key=_SOURCE_ORDER.__getitem__))
 
     def _detect_clock_discontinuity(self, at_seconds: float) -> None:
         backwards = (
@@ -404,5 +447,9 @@ class LiveReadinessGate:
 
     @staticmethod
     def _failure_sort_key(item: SourceReadiness) -> tuple[int, int]:
-        assert item.reason is not None
-        return _REASON_PRECEDENCE[item.reason], _SOURCE_ORDER[item.source]
+        """Order failures by reason precedence, sorting a ready source behind every failure."""
+
+        precedence = (
+            _UNRANKED_REASON_PRECEDENCE if item.reason is None else _REASON_PRECEDENCE[item.reason]
+        )
+        return precedence, _SOURCE_ORDER[item.source]

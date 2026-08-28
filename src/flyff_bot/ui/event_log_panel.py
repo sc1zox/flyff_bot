@@ -28,6 +28,7 @@ _KIND_MESSAGES: dict[SessionEventKind, Message] = {
     SessionEventKind.SUPERVISOR_FAILURE: Message.UI_EVENT_KIND_SUPERVISOR_FAILURE,
     SessionEventKind.FRAME_CAPTURE_ERROR: Message.UI_EVENT_KIND_FRAME_CAPTURE_ERROR,
     SessionEventKind.GOAL_COMPLETED: Message.UI_EVENT_KIND_GOAL_COMPLETED,
+    SessionEventKind.CAPABILITY_DEGRADED: Message.UI_EVENT_KIND_CAPABILITY_DEGRADED,
 }
 
 _KIND_BADGE_COLORS: dict[SessionEventKind, QColor] = {
@@ -38,6 +39,7 @@ _KIND_BADGE_COLORS: dict[SessionEventKind, QColor] = {
     SessionEventKind.SUPERVISOR_FAILURE: _WARNING_BADGE_COLOR,
     SessionEventKind.FRAME_CAPTURE_ERROR: _WARNING_BADGE_COLOR,
     SessionEventKind.GOAL_COMPLETED: _SUCCESS_BADGE_COLOR,
+    SessionEventKind.CAPABILITY_DEGRADED: _WARNING_BADGE_COLOR,
 }
 
 _MODE_MESSAGES: dict[str, Message] = {

@@ -337,8 +337,7 @@ class LiveCameraReader:
                 if self._window_handle != window_handle:
                     self.close()
                     self._window_handle = window_handle
-                self._ensure_open(window_handle)
-                state = self._read_state()
+                state = self._read_state(*self._ensure_open(window_handle))
                 self._last_reading = CameraReading(state=state, sampled_at_seconds=at_seconds)
                 self._last_error_code = None
             except _MalformedCameraRead as error:
@@ -368,9 +367,15 @@ class LiveCameraReader:
                 ) from error
         return self._api
 
-    def _ensure_open(self, window_handle: int) -> None:
-        if self._handle is not None:
-            return
+    def _ensure_open(self, window_handle: int) -> tuple[int, int, ClientCameraProfile]:
+        """Return the open handle, module base, and profile, opening the process on demand.
+
+        Returning the triple keeps the read path from re-narrowing three optional attributes
+        that only ever exist together.
+        """
+
+        if self._handle is not None and self._module_base is not None and self._profile is not None:
+            return self._handle, self._module_base, self._profile
         api = self._api_or_raise()
         try:
             process_id = api.process_id_for_window(window_handle)
@@ -400,44 +405,47 @@ class LiveCameraReader:
         self._handle = handle
         self._module_base = module_base
         self._profile = profile
+        return handle, module_base, profile
 
-    def _read_state(self) -> CameraState:
-        assert self._handle is not None
-        assert self._module_base is not None
-        assert self._profile is not None
+    def _read_state(
+        self,
+        handle: int,
+        module_base: int,
+        profile: ClientCameraProfile,
+    ) -> CameraState:
         api = self._api_or_raise()
         pointer_bytes = api.read(
-            self._handle,
-            self._module_base + self._profile.camera_pointer_rva,
-            self._profile.pointer_size_bytes,
+            handle,
+            module_base + profile.camera_pointer_rva,
+            profile.pointer_size_bytes,
         )
-        if len(pointer_bytes) != self._profile.pointer_size_bytes:
+        if len(pointer_bytes) != profile.pointer_size_bytes:
             raise _MalformedCameraRead("The camera pointer read was incomplete.")
-        pointer_format = "<I" if self._profile.pointer_size_bytes == 4 else "<Q"
+        pointer_format = "<I" if profile.pointer_size_bytes == 4 else "<Q"
         camera_address = int(struct.unpack(pointer_format, pointer_bytes)[0])
         if camera_address == 0:
             raise _MalformedCameraRead("The active camera pointer is null.")
         camera_bytes = api.read(
-            self._handle,
-            camera_address + self._profile.camera_read_start_offset,
-            self._profile.camera_read_size_bytes,
+            handle,
+            camera_address + profile.camera_read_start_offset,
+            profile.camera_read_size_bytes,
         )
-        if len(camera_bytes) != self._profile.camera_read_size_bytes:
+        if len(camera_bytes) != profile.camera_read_size_bytes:
             raise _MalformedCameraRead("The camera structure read was incomplete.")
         projection_bytes = api.read(
-            self._handle,
-            self._module_base + self._profile.projection_matrix_rva,
+            handle,
+            module_base + profile.projection_matrix_rva,
             MATRIX_SIZE_BYTES,
         )
         if len(projection_bytes) != MATRIX_SIZE_BYTES:
             raise _MalformedCameraRead("The projection matrix read was incomplete.")
         view = _matrix_from_bytes(
             camera_bytes,
-            self._profile.view_matrix_offset - self._profile.camera_read_start_offset,
+            profile.view_matrix_offset - profile.camera_read_start_offset,
         )
         look_at = _vector_from_bytes(
             camera_bytes,
-            self._profile.look_at_offset - self._profile.camera_read_start_offset,
+            profile.look_at_offset - profile.camera_read_start_offset,
         )
         projection = _matrix_from_bytes(projection_bytes)
         try:

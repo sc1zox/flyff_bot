@@ -257,9 +257,7 @@ class TeleporterDispatcher:
 
         observation = self._observer.observe()
         if self._is_arrived(observation):
-            destination = self._destination
             self.cancel()
-            assert destination is not None
             return TeleporterDispatchResult(TeleporterDispatchStatus.CONFIRMED)
         if at_seconds - self._started_at_seconds >= self._config.confirmation_timeout_seconds:
             return self._fail("confirmation_timeout")
