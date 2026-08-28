@@ -156,9 +156,17 @@ from flyff_bot.features.policy.goal_preconditions import (
     can_interact,
     can_navigate,
 )
+from flyff_bot.features.policy.heuristic import HeuristicPolicy
 from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjective,
     HierarchicalObjectiveKind,
+)
+from flyff_bot.features.policy.insights import (
+    POLICY_MODULATED_PARAMETERS,
+    ParameterOverrideInsight,
+    PolicyInsightRecorder,
+    PolicyInsightSnapshot,
+    baseline_candidate_index,
 )
 from flyff_bot.features.policy.models import (
     DEFAULT_POLICY_RUNTIME_MODE,
@@ -167,6 +175,7 @@ from flyff_bot.features.policy.models import (
     PolicyCandidate,
     PolicyContext,
     PolicyRuntimeMode,
+    TacticalActionPayload,
     TargetAction,
 )
 from flyff_bot.features.policy.runner import (
@@ -200,6 +209,7 @@ from flyff_bot.features.telemetry.models import (
     CombatOutcome,
     CombatVerificationSource,
     NavigationOutcome,
+    SessionExperienceTotals,
 )
 from flyff_bot.features.vision.models import (
     CapturedFrame,
@@ -537,6 +547,7 @@ class FarmingOrchestrator:
         self._policy_load_fault: PolicyFault | None = None
         self._policy_runner = PolicyRunner(None)
         self._policy_fault: PolicyFault | None = None
+        self._policy_insights = PolicyInsightRecorder()
         self._policy_attack_point_override: AttackPointAction | None = None
         self._tactical_parameter_diagnostics: tuple[TacticalParameterDiagnostic, ...] = (
             self._tactical_parameters.diagnostics
@@ -1213,6 +1224,8 @@ class FarmingOrchestrator:
         self._policy_mode = selected_mode
         self._policy_fault = None
         self._policy_runner.reset_fault()
+        self._policy_insights.reset_decision()
+        self._policy_insights.reset_shadow()
 
     def configure_policy_model_directory(self, directory: str | None) -> None:
         """Point the session at a trained artifact directory while it is paused."""
@@ -1266,6 +1279,11 @@ class FarmingOrchestrator:
                 self._learned_policy = learned
                 self._policy_load_fault = None
         self._policy_runner = PolicyRunner(self._learned_policy, load_fault=self._policy_load_fault)
+        self._policy_insights.set_artifact(
+            Path(directory) if directory and self._learned_policy is not None else None
+        )
+        self._policy_insights.reset_decision()
+        self._policy_insights.reset_shadow()
 
     @property
     def target_reconciliation(self) -> TargetReconciliation:
@@ -1475,12 +1493,14 @@ class FarmingOrchestrator:
 
         self._policy_attack_point_override = None
         if self._policy_mode is PolicyRuntimeMode.HEURISTIC:
+            self._policy_insights.reset_decision()
             return None
         candidates = self._policy_candidates()
         if not any(candidate.is_eligible for candidate in candidates):
             # Nothing legal to choose between is an empty option set, not a serving failure:
             # the deterministic search path keeps running and no fault is raised.
             self._last_policy_action = None
+            self._policy_insights.reset_decision()
             return None
         context = self._policy_context(candidates)
         self._bind_policy_objective()
@@ -1489,6 +1509,7 @@ class FarmingOrchestrator:
         if fault is not None:
             self._record_policy_fault(fault)
             return None
+        self._record_policy_insight(candidates, context, action)
         self._autopilot.clear_policy_faults()
         self._last_policy_action = (
             action if isinstance(action, TargetAction | AttackPointAction) else None
@@ -1508,6 +1529,61 @@ class FarmingOrchestrator:
                 if candidate.original_position == action.candidate_index
             ),
             None,
+        )
+
+    def _record_policy_insight(
+        self,
+        candidates: tuple[PolicyCandidate, ...],
+        context: PolicyContext,
+        action: TacticalActionPayload | None,
+    ) -> None:
+        """Retain what this decision revealed, for the operator-facing ML view (US-087).
+
+        In shadow mode the deterministic baseline is what actually executed, so its choice is
+        evaluated alongside the learned one and the two are compared. Producing it costs one
+        deterministic ranking over an option set the tick already built.
+        """
+
+        position = self._pathing.live_position if self._pathing is not None else None
+        baseline_index = (
+            baseline_candidate_index(candidates, HeuristicPolicy().evaluate(self._state, context))
+            if self._policy_mode is PolicyRuntimeMode.ML_SHADOW
+            else None
+        )
+        self._policy_insights.record_decision(
+            candidates,
+            action,
+            latency_seconds=self._policy_runner.last_latency_seconds,
+            player_position=None if position is None else (position.x, position.y, position.z),
+            baseline_candidate_index=baseline_index,
+        )
+
+    def _tactical_parameter_overrides(self) -> tuple[ParameterOverrideInsight, ...]:
+        """Compare the configured baseline with the value this decision actually used."""
+
+        parameters = self._tactical_parameters
+        override = self._policy_attack_point_override
+        dynamic_distance = None if override is None else override.approach_distance_units
+        overrides: list[ParameterOverrideInsight] = []
+        for name in POLICY_MODULATED_PARAMETERS:
+            baseline = float(getattr(parameters, name.value))
+            active = (
+                dynamic_distance
+                if name is TacticalParameterName.ENGAGEMENT_DISTANCE_UNITS
+                and dynamic_distance is not None
+                else baseline
+            )
+            overrides.append(ParameterOverrideInsight(name, baseline, active))
+        return tuple(overrides)
+
+    def _policy_insight_snapshot(self) -> PolicyInsightSnapshot:
+        """Return the immutable ML and policy view published with every dashboard update."""
+
+        telemetry = self._telemetry
+        return self._policy_insights.snapshot(
+            self._policy_mode,
+            experience=(SessionExperienceTotals() if telemetry is None else telemetry.experience),
+            parameter_overrides=self._tactical_parameter_overrides(),
         )
 
     def _bind_policy_objective(self) -> None:
@@ -1541,6 +1617,7 @@ class FarmingOrchestrator:
 
         self._policy_fault = fault
         self._last_policy_action = None
+        self._policy_insights.reset_decision()
         if fault.code is PolicyFaultCode.MODEL_UNAVAILABLE:
             self._halt_learned_automation(fault)
             return
@@ -2882,6 +2959,7 @@ class FarmingOrchestrator:
                     dungeons=self._dungeon_snapshots,
                     readiness=self._readiness,
                     policy_fault=self._policy_fault,
+                    policy_insights=self._policy_insight_snapshot(),
                     tactical_parameter_diagnostics=self._tactical_parameter_diagnostics,
                     autopilot=self._autopilot.snapshot(self._clock()),
                     autopilot_summary=self._autopilot.summary,

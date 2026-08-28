@@ -1,9 +1,9 @@
 ---
 id: US-087
 title: Dedicated ML/RL insights and policy debugging dashboard tab
-status: draft
+status: completed
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # US-087: Dedicated ML/RL Insights and Policy Debugging Dashboard Tab
@@ -42,48 +42,48 @@ so that **I can inspect real-time ML/RL decision-making, monitor inference laten
 ## Acceptance criteria
 
 ### 1. Dedicated Dashboard Tab (`DashboardTab.ML_POLICY`)
-- [ ] **Given** the PySide6 `MainWindow`, **when** constructed, **then** an 8th tab named `ML & Policy` (`DashboardTab.ML_POLICY` / index 7) is available in stable index order.
-- [ ] **Given** the `ML & Policy` tab, **when** displayed, **then** it follows the application's dark theme, scrollable container pattern (`QScrollArea`), and modular card structure.
+- [x] **Given** the PySide6 `MainWindow`, **when** constructed, **then** an 8th tab named `ML & Policy` (`DashboardTab.ML_POLICY` / index 7) is available in stable index order.
+- [x] **Given** the `ML & Policy` tab, **when** displayed, **then** it follows the application's dark theme, scrollable container pattern (`QScrollArea`), and modular card structure.
 
 ### 2. Live Policy & Inference Telemetry Panel
-- [ ] **Given** a running or standby farming session, **when** the policy telemetry card renders, **then** it displays:
+- [x] **Given** a running or standby farming session, **when** the policy telemetry card renders, **then** it displays:
   - **Policy Mode:** Active mode (`HEURISTIC`, `SHADOW`, `ACTIVE`).
   - **Model Artifact:** Loaded model directory, artifact filename, and SHA-256 digest (or `N/A (Heuristic)`).
   - **Inference Latency:** Last decision inference latency in milliseconds, formatted with a badge indicating SLA adherence (e.g. green $\le 5\,\text{ms}$, yellow $\le 10\,\text{ms}$, red $> 10\,\text{ms}$).
   - **Policy Fault Status:** Active fault indicator (`NONE`, `TIMEOUT`, `MASKED_ACTION`, `NON_FINITE`, `MODEL_MISSING`, `INCOMPATIBLE_SCHEMA`) with fail-closed diagnostics per ADR-008.
 
 ### 3. Candidate Evaluation & Decision Inspector
-- [ ] **Given** decision ticks with multiple mob candidates, **when** viewing the decision inspector, **then** a structured candidate ranking table presents:
+- [x] **Given** decision ticks with multiple mob candidates, **when** viewing the decision inspector, **then** a structured candidate ranking table presents:
   - Candidate instance index and mob class name.
   - 3D distance and line-of-sight / NavMesh reachability status.
   - Model evaluation score / Q-value estimate.
   - Action mask verdict (Allowed vs. Rejected/Masked).
   - Highlighting for the chosen candidate.
-- [ ] **Given** a hierarchical action decision, **when** inspected, **then** the chosen action details are shown: meta-goal, target candidate index, dynamic attack point / approach distance, corridor index, and wait duration.
-- [ ] **Given** `SHADOW` policy mode, **when** active, **then** the inspector displays both the heuristic decision and the shadow policy decision side-by-side, tracking a running agreement/disagreement rate.
+- [x] **Given** a hierarchical action decision, **when** inspected, **then** the chosen action details are shown: meta-goal, target candidate index, dynamic attack point / approach distance, corridor index, and wait duration.
+- [x] **Given** `SHADOW` policy mode, **when** active, **then** the inspector displays both the heuristic decision and the shadow policy decision side-by-side, tracking a running agreement/disagreement rate.
 
 ### 4. Reward & Learning Episode Telemetry Panel
-- [ ] **Given** an active session, **when** viewing the reward telemetry card, **then** it displays:
+- [x] **Given** an active session, **when** viewing the reward telemetry card, **then** it displays:
   - Current episode index and step count.
   - Cumulative episode reward and total session reward.
   - Decomposed reward terms: kill cycle rewards, navigation/evasion efficiency penalties/rewards, and objective progress contributions.
   - Episode termination/truncation reason for the last completed episode.
 
 ### 5. Experience Database & Offline Evaluation Diagnostic Panel
-- [ ] **Given** experience collection, **when** viewing the experience status card, **then** it displays:
+- [x] **Given** experience collection, **when** viewing the experience status card, **then** it displays:
   - Total recorded transitions and episodes in the current session.
   - Experience database status (storage path, total records, schema version).
-- [ ] **Given** offline evaluation or benchmark data (e.g., from simulator runs or promoted model registries), **when** present, **then** key benchmark metrics (e.g. KPM, travel time, stall rate vs. heuristic baseline) are summarized for operator inspection.
+- [x] **Given** offline evaluation or benchmark data (e.g., from simulator runs or promoted model registries), **when** present, **then** key benchmark metrics (e.g. KPM, travel time, stall rate vs. heuristic baseline) are summarized for operator inspection.
 
 ### 6. Dynamic Tactical Parameters & Overrides View
-- [ ] **Given** live ML/RL modulation of tactical parameters ([US-084](completed/US-084-ml-modifiable-tactical-parameters-and-tuning.md)), **when** active overrides are emitted, **then** a read-only table compares configured static baseline parameters against dynamic policy offsets (e.g., dynamic approach distance, contextual replan intervals).
+- [x] **Given** live ML/RL modulation of tactical parameters ([US-084](completed/US-084-ml-modifiable-tactical-parameters-and-tuning.md)), **when** active overrides are emitted, **then** a read-only table compares configured static baseline parameters against dynamic policy offsets (e.g., dynamic approach distance, contextual replan intervals).
 
 ### 7. Performance & Thread-Safety Non-Blocking Guarantees
-- [ ] **Given** 20 Hz tick rates and high-frequency perception updates, **when** telemetry is published, **then** UI updates are delivered via immutable snapshots without blocking or slowing the background worker thread.
-- [ ] **Given** a policy fault or invalid action in `ACTIVE` mode, **when** detected, **then** the UI displays the fail-closed halt state with localized actionable diagnostic details without crashing or locking the application.
+- [x] **Given** 20 Hz tick rates and high-frequency perception updates, **when** telemetry is published, **then** UI updates are delivered via immutable snapshots without blocking or slowing the background worker thread.
+- [x] **Given** a policy fault or invalid action in `ACTIVE` mode, **when** detected, **then** the UI displays the fail-closed halt state with localized actionable diagnostic details without crashing or locking the application.
 
 ### 8. Localization & Synchronized Strings
-- [ ] All user-visible titles, card headers, column headers, tooltips, and diagnostic messages are synchronized in German and English locale resources (`src/flyff_bot/locales/de.json` and `src/flyff_bot/locales/en.json`).
+- [x] All user-visible titles, card headers, column headers, tooltips, and diagnostic messages are synchronized in German and English locale resources (`src/flyff_bot/locales/de.json` and `src/flyff_bot/locales/en.json`).
 
 ---
 
@@ -115,3 +115,32 @@ uv run mypy
 4. Verify reward telemetry cards display decomposed reward terms and cumulative totals.
 5. Verify language switching between German and English updates all headers, table columns, and tooltips seamlessly.
 6. Verify emergency stop (`F12` / `Ctrl+Shift+Q`) immediately halts execution and reflects in the UI.
+
+---
+
+## Resolution
+
+- 2026-08-29: Implemented. The eighth tab (`DashboardTab.ML_POLICY`, index 7) renders one immutable
+  `PolicyInsightSnapshot` (`features/policy/insights.py`) that the farming worker publishes on the
+  existing `DashboardUpdate`, so no second publication path and no worker-thread access were added.
+  `PolicyRuntimeMode` moved from `features/automation/orchestrator.py` to
+  `features/policy/models.py` so the view can name the serving mode without importing the session.
+- Two criteria are satisfied with a stated limit rather than an invented number:
+  - **Candidate scores (AC 3).** A model evaluation score is shown for the chosen candidate only.
+    The hierarchical heads rank strategic goals and action kinds and expose no per-instance value,
+    so a score for the rejected candidates would be fabricated. Reachability is the NavMesh
+    predicate; the client exposes no line-of-sight trace.
+  - **Offline evaluation (AC 5).** The train/evaluate/promote registry proposed by
+    [US-081](US-081-experience-database-and-train-evaluate-promote-loop.md) was consolidated away,
+    so there is no promoted-model report to summarize. Verified kills per minute, travel seconds per
+    kill, and stall rate are therefore measured from the live session's own recorded kill cycles,
+    and read as "not measured" until the session has produced them.
+- Fault states are reported with the project's own `PolicyFaultCode` values (`MODEL_UNAVAILABLE`,
+  `NO_VALID_ACTION`, `INVALID_OR_MASKED_ACTION`, `LATENCY_BUDGET_EXCEEDED`, `POLICY_EXCEPTION`)
+  rather than the indicative names in the criterion, each with a synchronized German and English
+  name and the existing fail-closed diagnostic sentence as its tooltip.
+- Verification: `./scripts/check.ps1` green - 1293 passed, 5 skipped, coverage 89.99%. New coverage
+  in `tests/unit/test_policy_insights.py`, `tests/unit/test_ml_policy_panel.py`, plus recorder
+  totals in `tests/unit/test_telemetry.py` and end-to-end publication in
+  `tests/unit/test_learning_loop.py`. The manual Windows walkthrough against a live `neuz.exe`
+  remains operator validation.

@@ -27,6 +27,7 @@ from flyff_bot.features.telemetry import (
     TelemetryRecorder,
     TelemetrySessionMetadata,
 )
+from flyff_bot.features.telemetry.models import CombatVerificationSource
 
 
 def _state() -> WorldState:
@@ -260,6 +261,51 @@ def test_target_selection_keeps_live_position_and_controller_lockout(tmp_path: P
     )["payload"]
     assert payload["player_position"] == {"x": 9.0, "y": 8.0, "z": 7.0}
     assert payload["candidates"][0]["is_locked_out"] is True
+
+
+def test_experience_totals_report_decisions_episodes_and_decomposed_reward(
+    tmp_path: Path,
+) -> None:
+    """One verified kill closes an episode and lands in the session reward decomposition."""
+
+    timestamps = iter(range(100, 100 + 40 * 1_000_000_000, 1_000_000_000))
+    recorder = TelemetryRecorder(
+        TelemetrySessionMetadata(area_id="Wd Eden", session_id="totals"),
+        lambda session_id, area_id: JsonlTelemetryWorker(session_id, area_id, root=tmp_path),
+        clock_ns=lambda: next(timestamps),
+        utc_now=lambda: datetime(2026, 8, 28, tzinfo=UTC),
+    )
+    recorder.start(tactical_parameter_digest=DEFAULT_TACTICAL_PARAMETERS.content_digest)
+    state = _state()
+
+    recorder.record_target_selection(
+        state,
+        50,
+        40,
+        reason="nearest_to_viewport_center",
+        tactical_parameter_digest=DEFAULT_TACTICAL_PARAMETERS.content_digest,
+    )
+    assert recorder.experience.decisions == 1
+    assert recorder.experience.episode_steps == 1
+
+    recorder.record_objective_progress(1.0, quest_id="quest-1", completed=True)
+    recorder.begin_combat(state)
+    recorder.finish_combat(
+        state,
+        outcome="kill_verified",
+        verification_source=CombatVerificationSource.HP_ZERO,
+    )
+    totals = recorder.experience
+
+    assert totals.episode_index == 1
+    assert totals.episode_steps == 0
+    assert totals.verified_kills == 1
+    assert totals.kill_reward == 1.0
+    assert totals.objective_reward == 2.5
+    assert totals.last_termination_reason == "kill_verified"
+    assert totals.storage_path.endswith(".jsonl")
+    assert totals.recorded_records > 0
+    recorder.close()
 
 
 def _session_file(root: Path, area: str, session_id: str) -> Path:

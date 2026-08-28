@@ -1,5 +1,18 @@
 # Wiki log
 
+## [2026-08-29] completion | ML and policy insight view (US-087)
+
+Recorded the read-only decision-telemetry pass in [architecture.md](architecture.md): the frozen
+`PolicyInsightSnapshot` published on the existing `DashboardUpdate`, the retained
+`PolicyRunner.last_latency_seconds` against the 5 ms budget, artifact identity by provenance-document
+digest, the rejected candidates the option table deliberately keeps, `SessionExperienceTotals`
+maintained by `TelemetryRecorder` with a decomposition computed from the same reward weights the kill
+cycle used, live-session benchmarks in place of the consolidated-away offline registry, the
+`POLICY_MODULATED_PARAMETERS` baseline-versus-active table, and the move of `PolicyRuntimeMode` into
+`features/policy/models.py`. Evidence is offline: new unit coverage for the recorder, the totals and
+the localized panel; `./scripts/check.ps1` green. Live `neuz.exe` validation remains the operator
+walkthrough in the story.
+
 ## [2026-08-25] synthesis | Simulator dynamics and evaluation invariants (BUG-032)
 
 Recorded the repaired offline-simulator invariants in `architecture.md`: one budgeted tick clock

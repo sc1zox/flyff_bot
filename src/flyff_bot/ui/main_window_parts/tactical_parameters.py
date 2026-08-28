@@ -29,7 +29,7 @@ from flyff_bot.features.tactical_parameters import (
 )
 from flyff_bot.i18n import Message, Translator
 
-_PARAMETER_MESSAGES = {
+PARAMETER_MESSAGES = {
     TacticalParameterName.NAVMESH_WAYPOINT_ARRIVAL_UNITS: (
         Message.UI_TACTICAL_NAVMESH_ARRIVAL,
         Message.UI_TACTICAL_NAVMESH_ARRIVAL_TOOLTIP,
@@ -230,22 +230,24 @@ class TacticalParametersPanel(QGroupBox):
             else self._profile_name
         )
         for name, (name_label, value_label, range_label) in self._rows.items():
-            title, tooltip = _PARAMETER_MESSAGES[name]
+            title, tooltip = PARAMETER_MESSAGES[name]
             definition = TACTICAL_PARAMETER_DEFINITIONS[name]
             name_label.setText(self._translator.text(title))
             name_label.setToolTip(self._translator.text(tooltip))
-            value = _number(float(getattr(self._parameters, name.value)))
+            value = format_number(float(getattr(self._parameters, name.value)))
             if (
                 name is TacticalParameterName.ENGAGEMENT_DISTANCE_UNITS
                 and self._parameters.engagement_distance_profiles
             ):
                 overrides = ", ".join(
-                    f"{item.monster_class_name}={_number(item.distance_units)}"
+                    f"{item.monster_class_name}={format_number(item.distance_units)}"
                     for item in self._parameters.engagement_distance_profiles
                 )
                 value = f"{value} ({overrides})"
             value_label.setText(value)
-            range_label.setText(f"{_number(definition.minimum)} - {_number(definition.maximum)}")
+            range_label.setText(
+                f"{format_number(definition.minimum)} - {format_number(definition.maximum)}"
+            )
         self._render_diagnostics(self._parameters.diagnostics)
 
     def _render_diagnostics(self, diagnostics: tuple[TacticalParameterDiagnostic, ...]) -> None:
@@ -263,7 +265,7 @@ class TacticalParametersPanel(QGroupBox):
             )
             return
         diagnostic = diagnostics[-1]
-        parameter_message = _PARAMETER_MESSAGES[diagnostic.parameter][0]
+        parameter_message = PARAMETER_MESSAGES[diagnostic.parameter][0]
         message = (
             Message.UI_TACTICAL_NON_FINITE_FALLBACK
             if diagnostic.code is TacticalParameterDiagnosticCode.NON_FINITE_FALLBACK
@@ -273,8 +275,8 @@ class TacticalParametersPanel(QGroupBox):
             self._translator.text(
                 message,
                 parameter=self._translator.text(parameter_message),
-                received=_number(diagnostic.received),
-                applied=_number(diagnostic.applied),
+                received=format_number(diagnostic.received),
+                applied=format_number(diagnostic.applied),
             )
         )
 
@@ -299,5 +301,7 @@ class TacticalParametersPanel(QGroupBox):
             self.export_profile(Path(path))
 
 
-def _number(value: float) -> str:
+def format_number(value: float) -> str:
+    """Return a compact fixed-point value without trailing zeroes."""
+
     return f"{value:.3f}".rstrip("0").rstrip(".")

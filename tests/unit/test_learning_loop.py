@@ -40,6 +40,7 @@ from flyff_bot.features.policy.action_payloads import (
 )
 from flyff_bot.features.policy.hierarchical import HierarchicalObjective
 from flyff_bot.features.policy.hierarchical_onnx import live_observation
+from flyff_bot.features.policy.insights import POLICY_MODULATED_PARAMETERS
 from flyff_bot.features.policy.learned import LearnedPolicy
 from flyff_bot.features.policy.models import (
     LiveObservationState,
@@ -558,6 +559,99 @@ def test_shadow_records_the_learned_choice_while_active_executes_it(tmp_path: Pa
     assert active_adapter.clicks == [(WINDOW_HANDLE, *_centre(learned_choice))]
     assert shadow_adapter.clicks != active_adapter.clicks
     assert shadow.policy_fault is None and active.policy_fault is None
+
+
+def test_a_shadow_session_publishes_candidate_reward_and_agreement_telemetry(
+    tmp_path: Path,
+) -> None:
+    """The dashboard receives one frozen snapshot per tick, built off the tick thread."""
+
+    from typing import cast
+
+    from test_orchestrator import WINDOW_HANDLE, _InputAdapter, _Pipeline, _state
+
+    from flyff_bot.features.automation.orchestrator import (
+        FarmingConfig,
+        FarmingOrchestrator,
+    )
+    from flyff_bot.features.perception.pipeline import PerceptionPipeline
+    from flyff_bot.features.policy.insights import CandidateVerdict
+    from flyff_bot.features.policy.models import PolicyRuntimeMode
+    from flyff_bot.ui.dashboard import DashboardFeed, DashboardUpdate
+
+    directory = write_minimal_value_model(tmp_path / "model")
+    heuristic_choice, learned_choice = _diverging_pair()
+    state = _state(1.0, mobs=(heuristic_choice, learned_choice))
+    feed = DashboardFeed()
+    updates: list[DashboardUpdate] = []
+    feed.update_available.connect(updates.append)
+    session = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline([state, state])),
+        _InputAdapter(),
+        WINDOW_HANDLE,
+        pathing=_pathing_at_origin(),
+        config=FarmingConfig(
+            policy_mode=PolicyRuntimeMode.ML_SHADOW,
+            policy_model_directory=str(directory),
+        ),
+        dashboard_feed=feed,
+    )
+    session.start()
+    session._state = state
+
+    session._advance()
+    snapshot = session._policy_insight_snapshot()
+
+    assert snapshot.mode is PolicyRuntimeMode.ML_SHADOW
+    assert snapshot.artifact.is_loaded
+    assert len(snapshot.artifact.sha256) == 64
+    assert snapshot.inference_latency_seconds is not None
+    assert [item.verdict for item in snapshot.candidates] == [
+        CandidateVerdict.ALLOWED,
+        CandidateVerdict.ALLOWED,
+    ]
+    assert snapshot.chosen is not None and snapshot.chosen.candidate_index == 1
+    assert snapshot.shadow is not None and snapshot.shadow.comparisons == 1
+    assert snapshot.shadow.heuristic_candidate_index == 0
+    assert [override.parameter for override in snapshot.parameter_overrides] == list(
+        POLICY_MODULATED_PARAMETERS
+    )
+
+
+def test_a_heuristic_session_publishes_no_candidate_ranking_at_all() -> None:
+    """Nothing was served, so there is no learned decision to inspect."""
+
+    from typing import cast
+
+    from test_orchestrator import WINDOW_HANDLE, _InputAdapter, _Pipeline, _state
+
+    from flyff_bot.features.automation.orchestrator import (
+        FarmingConfig,
+        FarmingOrchestrator,
+    )
+    from flyff_bot.features.perception.pipeline import PerceptionPipeline
+    from flyff_bot.features.policy.models import PolicyRuntimeMode
+
+    heuristic_choice, learned_choice = _diverging_pair()
+    state = _state(1.0, mobs=(heuristic_choice, learned_choice))
+    session = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline([state])),
+        _InputAdapter(),
+        WINDOW_HANDLE,
+        pathing=_pathing_at_origin(),
+        config=FarmingConfig(policy_mode=PolicyRuntimeMode.HEURISTIC),
+    )
+    session.start()
+    session._state = state
+
+    session._advance()
+    snapshot = session._policy_insight_snapshot()
+
+    assert snapshot.candidates == ()
+    assert snapshot.chosen is None
+    assert snapshot.shadow is None
+    assert snapshot.inference_latency_seconds is None
+    assert not snapshot.artifact.is_loaded
 
 
 # --------------------------------------------------------------------------------------

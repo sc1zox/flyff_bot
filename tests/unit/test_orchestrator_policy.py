@@ -114,6 +114,7 @@ def test_valid_contextual_approach_distance_is_applied_for_one_live_decision() -
 
     class _ValidatedRunner:
         last_fault = None
+        last_latency_seconds = 0.001
 
         def evaluate(self, _world_state: WorldState, _context: PolicyContext) -> TargetAction:
             return action

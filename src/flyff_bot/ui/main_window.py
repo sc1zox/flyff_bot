@@ -105,6 +105,7 @@ from flyff_bot.ui.main_window_parts.status_presenter import StatusPresenter
 from flyff_bot.ui.main_window_parts.tactical_parameters import TacticalParametersPanel
 from flyff_bot.ui.main_window_parts.vitals_settings import VitalsSettingsPanel
 from flyff_bot.ui.main_window_parts.window_controls import WindowControlsCard
+from flyff_bot.ui.ml_policy_panel import MlPolicyPanel
 from flyff_bot.ui.navigation_window import NavigationMapWindow
 from flyff_bot.ui.path_inspector import PathInspectorWidget
 from flyff_bot.ui.placement_overlay import ClientGeometryProvider, PlacementOverlayWindow
@@ -132,6 +133,7 @@ class DashboardTab(IntEnum):
     DUNGEONS_COOLDOWNS = 4
     NAVIGATION_WORLD = 5
     DIAGNOSTICS_LOGS = 6
+    ML_POLICY = 7
 
 
 class MainWindow(QMainWindow):
@@ -297,6 +299,7 @@ class MainWindow(QMainWindow):
         self._dungeon_panel = DungeonCooldownPanel(self._translator)
         self._readiness_panel = ReadinessPanel(self._translator)
         self._autopilot_panel = AutopilotPanel(self._translator)
+        self._ml_policy_panel = MlPolicyPanel(self._translator)
 
         self._target_debug_panel = TargetDebugPanel()
         self._target_anchor_val = self._target_debug_panel.anchor_value
@@ -745,6 +748,10 @@ class MainWindow(QMainWindow):
             self._target_debug_panel,
             self._monster_stats_panel,
         )
+        self._add_scroll_tab(
+            DashboardTab.ML_POLICY,
+            self._ml_policy_panel,
+        )
 
         content = QVBoxLayout()
         content.addWidget(self._status_card)
@@ -1115,6 +1122,7 @@ class MainWindow(QMainWindow):
         self._dungeon_panel.set_translator(self._translator)
         self._readiness_panel.set_translator(self._translator)
         self._autopilot_panel.set_translator(self._translator)
+        self._ml_policy_panel.set_translator(self._translator)
         self._target_debug_panel.retranslate(self._translator)
         self._monster_stats_panel.retranslate(self._translator)
         self._monster_stats_panel.render_metrics(
@@ -1180,6 +1188,10 @@ class MainWindow(QMainWindow):
                 Message.UI_TAB_DIAGNOSTICS_LOGS,
                 Message.UI_TAB_DIAGNOSTICS_LOGS_TOOLTIP,
             ),
+            DashboardTab.ML_POLICY: (
+                Message.UI_TAB_ML_POLICY,
+                Message.UI_TAB_ML_POLICY_TOOLTIP,
+            ),
         }
         for tab, (label_key, tooltip_key) in labels.items():
             self._tab_widget.setTabText(int(tab), self._translator.text(label_key))
@@ -1207,6 +1219,12 @@ class MainWindow(QMainWindow):
         """Expose the unattended-session card for focused UI tests."""
 
         return self._autopilot_panel
+
+    @property
+    def ml_policy_panel(self) -> MlPolicyPanel:
+        """Expose the ML and policy view for focused UI tests."""
+
+        return self._ml_policy_panel
 
     def set_worker_stalled(self, stalled: bool) -> None:
         """Say the worker stopped ticking instead of leaving the last state on screen."""
@@ -1247,6 +1265,7 @@ class MainWindow(QMainWindow):
         self._readiness_panel.set_status(update.readiness)
         self._autopilot_panel.set_snapshot(update.autopilot, update.autopilot_summary)
         self._combat_panel.set_policy_diagnostic(self._translator, update.policy_fault)
+        self._ml_policy_panel.set_snapshot(update.policy_insights, update.policy_fault)
         self._tactical_parameters_panel.show_diagnostics(update.tactical_parameter_diagnostics)
         self._event_log_panel.set_events(update.events)
         self._target_debug_panel.render_target(

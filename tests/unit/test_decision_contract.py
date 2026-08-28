@@ -85,7 +85,7 @@ from flyff_bot.features.telemetry import SqliteTelemetryStore
 from flyff_bot.i18n import Language, Translator
 from flyff_bot.ui.main_window_parts.combat_settings import (
     _CONTRACT_MESSAGES,
-    _policy_fault_text,
+    policy_fault_text,
 )
 
 MONSTER_ID = 7
@@ -475,7 +475,7 @@ def test_every_contract_incompatibility_reads_as_one_localized_sentence(
         ContractVersionError(incompatibility, expected="us079-v1", found="bug031-v1")
     )
 
-    texts = {language: _policy_fault_text(Translator(language), fault) for language in Language}
+    texts = {language: policy_fault_text(Translator(language), fault) for language in Language}
 
     names_both_versions = incompatibility is not ContractIncompatibility.CONTRACT_MISSING
 

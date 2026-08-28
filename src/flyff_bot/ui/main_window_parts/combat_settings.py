@@ -135,7 +135,7 @@ class CombatSettingsPanel(QGroupBox):
 
         self.policy_diagnostic_label.setVisible(fault is not None)
         self.policy_diagnostic_label.setText(
-            "" if fault is None else _policy_fault_text(translator, fault)
+            "" if fault is None else policy_fault_text(translator, fault)
         )
 
     def _browse_policy_model_directory(self) -> None:
@@ -208,7 +208,7 @@ _CONTRACT_MESSAGES = {
 }
 
 
-def _policy_fault_text(translator: Translator, fault: PolicyFault) -> str:
+def policy_fault_text(translator: Translator, fault: PolicyFault) -> str:
     """Return the complete localized sentence one halted learned session is reported with."""
 
     if fault.incompatibility is None:

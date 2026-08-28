@@ -339,6 +339,22 @@ QLabel#StatChip[gps="fallback"] {
     border-color: #d97706;
 }
 
+/* Inference latency against the 5 ms decision budget (US-087). */
+QLabel#StatChip[sla="ok"] {
+    color: #86efac;
+    border-color: #16a34a;
+}
+
+QLabel#StatChip[sla="warn"] {
+    color: #fcd34d;
+    border-color: #d97706;
+}
+
+QLabel#StatChip[sla="breach"] {
+    color: #fca5a5;
+    border-color: #dc2626;
+}
+
 /* Tooltips */
 QToolTip {
     background-color: #1e293b;

@@ -2497,3 +2497,47 @@ contained tick fault with a live worker, a death with an OCR-proven respawn and 
 death without autopilot that waits, an exhausted death budget, a focus loss that resumes after the
 backoff, an exhausted absence budget, an arbitrated goal, and a time budget that finishes with a
 summary - with no client, no window, and no dispatched input.
+
+## ML and policy insight view (US-087, completed)
+
+**One frozen snapshot per tick.** `features/policy/insights.py` holds the whole read-only decision
+telemetry vocabulary - `ModelArtifactIdentity`, `CandidateInsight`, `ChosenActionInsight`,
+`ShadowComparison`, `ParameterOverrideInsight` and the `PolicyInsightSnapshot` that carries them -
+plus the `PolicyInsightRecorder` the orchestrator feeds on the farming tick thread. Nothing in the
+module reads live session state and nothing it produces is mutable, so the eighth dashboard tab
+(`DashboardTab.ML_POLICY`) renders it without ever reaching back into the worker (ADR-002). The
+snapshot travels on the existing `DashboardUpdate`, so there is no second publication path.
+
+**What is measured, and what is deliberately absent.** `PolicyRunner.last_latency_seconds` now
+retains the wall time it already measured, so the operator watches the 5 ms decision budget being
+spent rather than only learning that it was exceeded. A learned artifact is identified by digesting
+its provenance document (`hierarchical-metadata.json`, else `metadata.json`) - the document that
+names the contract, the heads and the bound inputs, and therefore the thing that changes when the
+artifact stops being the same artifact. Candidates that the deterministic mask rejected stay in the
+table as rejected: the option set a decision was taken from is what makes the decision judgeable.
+A per-candidate model score is only shown for the chosen candidate, because the hierarchical heads
+rank goals and action kinds and expose no per-instance value; showing a number for the others would
+be an invention. Reachability is the NavMesh predicate, not a line-of-sight trace, which the client
+does not expose.
+
+**Reward and experience come from the recorder that already computes them.**
+`SessionExperienceTotals` (`features/telemetry/models.py`) is maintained incrementally by
+`TelemetryRecorder`: one completed kill cycle is one episode, the decisions since the last one are
+its steps, and the decomposition (kill reward, navigation penalty, objective progress) is computed
+with the same `RewardConfig` weights the cycle's own reward used, so the parts always add up to the
+total the session was steered by. Elapsed time and the reward accrued inside the unfinished episode
+are derived at read time. Benchmarks - verified kills per minute, travel seconds per kill, stall
+rate - are measured from this live session; the offline evaluation registry US-081 once proposed was
+consolidated away, so there is nothing to summarize from a promoted-model report and the view does
+not pretend otherwise. Every unmeasured quantity renders as "not measured" rather than as zero.
+
+**Dynamic parameters.** `POLICY_MODULATED_PARAMETERS` names the tactical parameters a live learned
+decision may modulate. Today that is the approach distance carried by an `AttackPointAction`; the
+replan interval and stall timeout are listed with baseline equal to active, which is the honest
+statement that no policy moves them. The table compares the configured baseline against the value
+the current decision actually used.
+
+**Placement.** `PolicyRuntimeMode` and `DEFAULT_POLICY_RUNTIME_MODE` moved from
+`features/automation/orchestrator.py` to `features/policy/models.py`. The mode is a property of the
+policy contract, and a presentation layer must be able to name the mode a decision was taken in
+without importing the session that executed it.

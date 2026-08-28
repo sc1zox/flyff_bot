@@ -23,6 +23,7 @@ from flyff_bot.features.navigation.snapshots import (
     NavMeshMobSnapshot,
     VectorZoneSnapshot,
 )
+from flyff_bot.features.policy.insights import PolicyInsightSnapshot
 from flyff_bot.features.policy.runner import PolicyFault
 from flyff_bot.features.quests.models import QuestObjectiveProgress
 from flyff_bot.features.quests.objectives import QuestGoalIdentity
@@ -98,6 +99,10 @@ class DashboardUpdate:
     # Set whenever learned automation was halted, so the operator is told instead of being
     # shown heuristic behaviour under a learned label (BUG-031).
     policy_fault: PolicyFault | None = None
+    # Live policy, candidate, reward and experience telemetry for the ML and policy view. It
+    # is a frozen snapshot, so rendering it can never reach back into the running session
+    # (US-087).
+    policy_insights: PolicyInsightSnapshot = field(default_factory=PolicyInsightSnapshot)
     tactical_parameter_diagnostics: tuple[TacticalParameterDiagnostic, ...] = ()
     # Unattended-session state, so an operator can tell from the dashboard alone whether the
     # bot is still working and what it is currently pursuing (US-086).
@@ -123,6 +128,7 @@ __all__ = [
     "FarmingGoal",
     "NavMeshMobSnapshot",
     "NavigationSnapshot",
+    "PolicyInsightSnapshot",
     "VectorZoneSnapshot",
     "WindowStatus",
 ]

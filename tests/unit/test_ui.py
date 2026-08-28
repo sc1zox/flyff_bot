@@ -1374,6 +1374,7 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
         "Dungeons & Cooldowns",
         "Navigation & World",
         "Diagnostics & Logs",
+        "ML & Policy",
     ]
     assert window.tab_widget.count() == len(DashboardTab)
     assert [window.tab_widget.tabText(index) for index in range(window.tab_widget.count())] == (
@@ -1405,6 +1406,9 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
     dungeon_page = window.tab_scroll_area(DashboardTab.DUNGEONS_COOLDOWNS).widget()
     assert dungeon_page is not None
     assert dungeon_page.isAncestorOf(window.dungeon_panel)
+    ml_page = window.tab_scroll_area(DashboardTab.ML_POLICY).widget()
+    assert ml_page is not None
+    assert ml_page.isAncestorOf(window.ml_policy_panel)
 
 
 def test_main_window_dungeon_panel_renders_extracted_and_live_rows() -> None:
@@ -1460,6 +1464,7 @@ def test_main_window_tab_labels_and_tooltips_retranslate_in_place() -> None:
         "Dungeons & Abklingzeiten",
         "Navigation & Karte",
         "Diagnose & Tools",
+        "ML & Policy",
     ]
     assert all(window.tab_widget.tabToolTip(index) for index in range(window.tab_widget.count()))
     assert window.tab_widget.currentIndex() == DashboardTab.NAVIGATION_WORLD
