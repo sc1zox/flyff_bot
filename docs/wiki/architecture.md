@@ -10,6 +10,7 @@ sources:
   - ../sources/2026-08-19-entropia-client-navigation-data-extraction.md
   - ../sources/2026-08-20-entropia-camera-static-analysis.md
   - ../sources/2026-08-21-entropia-keyed-archive-and-quest-data-analysis.md
+  - ../sources/2026-08-28-operator-verified-eden-mover-symbols.md
 related:
   - project-overview.md
   - glossary.md
@@ -2346,9 +2347,12 @@ that keeps stating the refusal on every tick), and a label the installed mapping
 (`LABEL_UNMAPPED`). `load_mob_catalog_join` reads `data/client/catalog.json`,
 `data/client/mover_label_mapping.json` and the manifest's client digest; a catalog artifact of
 another *schema* version is not a label-join problem and is raised to the caller, because the fix
-is to re-run extraction. The curated mapping artifact itself is operator-supplied data, like a baked
-NavMesh: until one is authored against a fingerprinted client, every detection is explicitly
-unmapped and nothing is enriched.
+is to re-run extraction. The curated mapping artifact itself is operator-supplied data: the six
+Eden mover symbols (`MI_FLAME`, `MI_LADYBLUM`, `MI_MINIMUSH`, `MI_NIGHTMIST`, `MI_OLDRUT`,
+`MI_RAPRA`) and their numeric IDs (1453–1458) have been manually verified by the operator against
+the local client (`docs/sources/2026-08-28-operator-verified-eden-mover-symbols.md`). Detections
+for any unmapped class continue to report as explicitly unmapped rather than guessing by name
+similarity.
 
 **Detector whitelist.** `OpenCVDnnYoloDetector._decode` applies the operator's class whitelist
 before `_suppress_per_class`, so a filtered class never reaches suppression, tracking, world

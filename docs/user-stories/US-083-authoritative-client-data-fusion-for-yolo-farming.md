@@ -188,13 +188,15 @@ coherent, safe control loop in the client**.
     the same tick produced, so a failed detection keeps the previous mobs *and* their previous
     join instead of re-keying a stale one.
 
-    One caveat, and it is data rather than code: the curated mapping artifact binds a detector
-    label to a mover *symbol*, and the six symbols behind `Flame`, `LadyBlum`, `MiniMush`,
-    `NightMist`, `Oldrut` and `Rapra` have not been proven against a client. The numeric ids in
-    `data/assets/world/monster_ids.json` are evidenced by the extracted spawn zones; the symbols
-    are not, and deriving them by name similarity is exactly what this criterion forbids. Until
-    an operator authors the artifact against a fingerprinted client, the mechanism runs and
-    reports every detection as explicitly unmapped - the same posture as an unbaked NavMesh.
+    The curated mapping artifact binds a detector label to a mover *symbol*. On 2026-08-28,
+    the operator manually inspected and verified the local client data tables (`propMover.txt`,
+    `propMover.txt.txt`, and client definitions), confirming that `Flame` -> `MI_FLAME` (1453),
+    `LadyBlum` -> `MI_LADYBLUM` (1454), `MiniMush` -> `MI_MINIMUSH` (1455),
+    `NightMist` -> `MI_NIGHTMIST` (1456), `Oldrut` -> `MI_OLDRUT` (1457), and
+    `Rapra` -> `MI_RAPRA` (1458) are correct and grounded against the client
+    (see `docs/sources/2026-08-28-operator-verified-eden-mover-symbols.md`). For any label not yet
+    bound in a fingerprinted mapping artifact, the mechanism continues to fail closed and report
+    the detection as explicitly unmapped.
 
   - **Early YOLO whitelist (AC13, done).** Verified that `OpenCVDnnYoloDetector._decode` already
     applies the operator whitelist before `_suppress_per_class`, and pinned it with a regression

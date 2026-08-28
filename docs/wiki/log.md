@@ -1130,3 +1130,13 @@ every detection as explicitly unmapped rather than joining by name similarity. E
 MyPy (298 files) clean, pytest 1085 passed, 5 skipped, 89.32% coverage. No live `neuz.exe` session
 is claimed and no new client access or input capability was added. Criteria 4-12 of US-083 remain
 open.
+
+## [2026-08-28] ingest | Operator manual verification of Eden mover symbols (US-083)
+
+Ingested [2026-08-28-operator-verified-eden-mover-symbols.md](../sources/2026-08-28-operator-verified-eden-mover-symbols.md):
+the operator manually inspected local client tables (`propMover.txt`, `propMover.txt.txt`, and client definitions)
+and confirmed that the six Eden detector labels bind 1-to-1 to mover IDs 1453–1458 and mover symbols
+`MI_FLAME`, `MI_LADYBLUM`, `MI_MINIMUSH`, `MI_NIGHTMIST`, `MI_OLDRUT`, and `MI_RAPRA`. Updated
+`architecture.md` and US-083 with this grounded evidence, resolving the unproven-symbol caveat for the
+Eden detector classes.
+
