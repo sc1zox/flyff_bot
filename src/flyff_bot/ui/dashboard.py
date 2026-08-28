@@ -22,6 +22,7 @@ from flyff_bot.features.navigation.live_position import (
 from flyff_bot.features.policy.runner import PolicyFault
 from flyff_bot.features.quests.models import QuestObjectiveProgress
 from flyff_bot.features.quests.objectives import QuestGoalIdentity
+from flyff_bot.features.tactical_parameters import TacticalParameterDiagnostic
 from flyff_bot.features.vision.models import CapturedFrame
 
 
@@ -135,6 +136,7 @@ class DashboardUpdate:
     # Set whenever learned automation was halted, so the operator is told instead of being
     # shown heuristic behaviour under a learned label (BUG-031).
     policy_fault: PolicyFault | None = None
+    tactical_parameter_diagnostics: tuple[TacticalParameterDiagnostic, ...] = ()
 
 
 class DashboardFeed(QObject):

@@ -93,6 +93,11 @@ from flyff_bot.features.navigation.world_extractor import (
     WorldVectorMap,
     save_world_map,
 )
+from flyff_bot.features.tactical_parameters import (
+    TacticalParameterProfile,
+    TacticalParameterSpace,
+    save_tactical_profile,
+)
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import TargetVerifier
@@ -895,6 +900,57 @@ def test_main_window_combat_class_and_distance_signals_are_wired(tmp_path: Path)
     application.processEvents()
     assert class_values[-1] is CombatClassProfile.CUSTOM
     assert distance_values[-1] == pytest.approx(8.5)
+
+
+def test_tactical_profile_panel_loads_exports_resets_and_emits_active_values(
+    tmp_path: Path,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    source = tmp_path / "source.json"
+    exported = tmp_path / "exported.json"
+    save_tactical_profile(
+        TacticalParameterProfile(
+            "flaris-aibatt",
+            TacticalParameterSpace(
+                engagement_distance_units=6.5,
+                camera_pitch_degrees=55.0,
+            ),
+        ),
+        source,
+    )
+    emitted: list[TacticalParameterSpace] = []
+    window.tactical_parameters_changed.connect(emitted.append)
+
+    assert window.tactical_parameters_panel.load_profile(source)
+    application.processEvents()
+
+    assert emitted[-1].engagement_distance_units == pytest.approx(6.5)
+    assert window.engagement_distance_spin.value() == pytest.approx(6.5)
+    assert window.tactical_parameters_panel.profile_name == "flaris-aibatt"
+    window.tactical_parameters_panel.export_profile(exported)
+    assert exported.is_file()
+
+    window.tactical_parameters_panel.reset_profile()
+    application.processEvents()
+    assert window.tactical_parameters.engagement_distance_units == pytest.approx(3.0)
+    assert "finite" in window.tactical_parameters_panel.diagnostic_text.lower()
+
+
+def test_tactical_profile_panel_localizes_integrity_errors_without_machine_codes(
+    tmp_path: Path,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text('{"schema_version": "foreign"}', encoding="utf-8")
+
+    assert not window.tactical_parameters_panel.load_profile(invalid)
+    application.processEvents()
+
+    diagnostic = window.tactical_parameters_panel.diagnostic_text
+    assert "schema" in diagnostic.lower()
+    assert "unsupported_schema" not in diagnostic
 
 
 def test_main_window_target_debug_panel_in_tab_and_renders_failure_metrics() -> None:

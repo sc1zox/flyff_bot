@@ -8,7 +8,7 @@ from math import sqrt
 from typing import Any
 from uuid import uuid4
 
-TELEMETRY_SCHEMA_VERSION = 4
+TELEMETRY_SCHEMA_VERSION = 5
 TRAJECTORY_SCHEMA_VERSION = 2
 
 
@@ -80,6 +80,8 @@ class TelemetrySessionMetadata:
     bot_version: str | None = None
     active_models: tuple[str, ...] = ()
     navmesh_version: str | None = None
+    tactical_parameter_schema_version: str | None = None
+    tactical_parameter_digest: str | None = None
     active_spawn_zone: dict[str, Any] | None = None
     session_id: str = ""
     session_start_utc: str = ""
@@ -93,6 +95,8 @@ class TelemetrySessionMetadata:
             bot_version=self.bot_version,
             active_models=self.active_models,
             navmesh_version=self.navmesh_version,
+            tactical_parameter_schema_version=self.tactical_parameter_schema_version,
+            tactical_parameter_digest=self.tactical_parameter_digest,
             active_spawn_zone=self.active_spawn_zone,
             session_id=self.session_id or str(uuid4()),
             session_start_utc=self.session_start_utc or session_start_utc,

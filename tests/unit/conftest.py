@@ -21,6 +21,7 @@ from flyff_bot.features.simulator import (
     QuestObjective,
     SimulatorConfig,
 )
+from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 
 
 @pytest.fixture
@@ -98,6 +99,7 @@ def make_simulator(
         config: SimulatorConfig | None = None,
         *,
         objectives: tuple[QuestObjective, ...] | None = None,
+        tactical_parameters: TacticalParameterSpace | None = None,
         seed: int | None = 42,
     ) -> FarmingSimulator:
         default_objective = QuestObjective(
@@ -108,6 +110,7 @@ def make_simulator(
             start=WorldCoordinate(10.0, 10.0),
             objectives=(default_objective,) if objectives is None else objectives,
             config=config or SimulatorConfig(tick_seconds=0.5),
+            tactical_parameters=tactical_parameters,
             seed=seed,
         )
 

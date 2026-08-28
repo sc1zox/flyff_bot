@@ -103,6 +103,9 @@ def test_each_language_contains_every_message() -> None:
                 heading="0",
                 expected="x",
                 found="x",
+                parameter="x",
+                received="x",
+                applied="x",
             )
 
 

@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-26
+updated: 2026-08-28
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -19,11 +19,14 @@ related:
   - ../decisions/ADR-005-client-folder-asset-access-for-data-extraction.md
   - ../decisions/ADR-006-read-only-process-memory-access.md
   - ../decisions/ADR-008-closed-learning-loop-invariants.md
+  - ../decisions/ADR-009-bounded-tactical-parameter-space.md
   - ../user-stories/completed/US-002-vision-frame-capture.md
   - ../user-stories/completed/US-003-mob-detection-yolo.md
   - ../user-stories/completed/US-004-target-mob-verification.md
   - ../user-stories/completed/US-005-loot-log-ocr.md
   - ../user-stories/completed/US-008-reactive-combat-controller.md
+  - ../user-stories/completed/US-079-unified-goal-conditioned-decision-contract.md
+  - ../user-stories/completed/US-084-ml-modifiable-tactical-parameters-and-tuning.md
   - ../user-stories/completed/US-009-reactive-loot-controller.md
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
   - ../user-stories/completed/US-012-real-world-vision-refactoring.md
@@ -2246,11 +2249,49 @@ diagnostics. This completes [US-079](../user-stories/completed/US-079-unified-go
 Evidence is offline: the 2026-08-28 gate passed at 994 passed, 5 skipped, 89.26% coverage; no live
 `neuz.exe` shadow-mode session has been run against the new contract.
 
+## Bounded tactical parameters and hybrid tuning (US-084)
+
+`features/tactical_parameters.py` is the single boundary for ML-modifiable operational heuristics.
+`TacticalParameterSpace` contains exactly 16 typed scalar fields covering navigation, combat and
+targeting, perception and camera, and vitals/recovery. Each field has one immutable finite
+minimum, maximum, and safe default in `TACTICAL_PARAMETER_DEFINITIONS`; engagement distance also
+has bounded, case-insensitive per-monster profiles. The positive profile allow-list excludes
+Win32 virtual keys, process fingerprints and memory offsets, foreground checks, emergency-stop
+keys, and schema digests.
+
+Values resolve in this order: safe defaults, a loaded validated profile, a per-monster engagement
+profile, then a prevalidated transient approach-distance override supplied by one policy decision.
+The transient override has the highest and final precedence for that decision.
+Finite outliers clamp deterministically. Config-file and offline non-finite values become the safe
+default and retain a typed diagnostic that the synchronized German/English UI can render. A live
+learned non-finite, malformed, masked, or otherwise invalid action instead fails closed under
+[ADR-008](../decisions/ADR-008-closed-learning-loop-invariants.md); it is not silently replaced by
+a default or heuristic action.
+
+`TacticalParameterProfile` persists the vector as deterministic, digest-checked JSON under the
+standalone `us084-v1` schema. This is compatible with a future US-081 model-registry reference;
+US-081's experience database and train/evaluate/promote lifecycle remain draft. The simulator,
+pathing, combat, search, vitals, camera-alignment, and orchestrator boundaries consume the active
+validated vector, and the desktop UI exposes display, export, load, and reset controls. Camera
+pitch and zoom are guarded open-loop actuator calibration settings; foregrounded Windows/live
+client confirmation remains unrun.
+
+Automated evidence is offline: 18 focused tactical tests passed, as did the affected 276-test
+slice after the i18n fix, the 55-test orchestrator slice, Ruff, and MyPy. These checks establish
+contracts and synthetic integration, not live camera or zoom behavior.
+
+The final canonical gate passed on 2026-08-28: `uv sync --locked`, Ruff, format, and MyPy completed
+successfully, and pytest reported 1063 passed, 5 skipped, and 89.38% coverage. This remains
+automated/offline evidence; live camera and zoom confirmation against `neuz.exe` is unrun.
+
+This section records the boundary chosen in [ADR-009](../decisions/ADR-009-bounded-tactical-parameter-space.md).
+
 ## Authoritative static client catalog and its source manifest (US-083, partial)
 
 `features/client_data/` owns the normalized static gameplay tables and the manifest that says who
-reads them. It is the data layer the remaining US-083 fusion criteria build on; the perception,
-policy, telemetry and reporting halves of that story are not implemented.
+reads them, and `features/perception/catalog_join.py` applies it to a tick's own detections. It is
+the data layer the remaining US-083 fusion criteria build on; the policy, telemetry and reporting
+halves of that story are not implemented.
 
 **Catalog.** `tables.py` parses movers, drops, items, skills and NPCs; `extraction.py` reads them
 through the keyed-archive reader `features/quests/extraction.py` already owns, rather than opening
@@ -2288,7 +2329,26 @@ client digest it was proven against. It fails closed on an unmapped label, a lab
 movers, a display name shared by two movers, a binding naming a symbol the mover table never
 declared, a foreign client digest and a foreign mapping version. The join is keyed by the US-079
 per-instance candidate identity, so two simultaneously visible monsters of one class stay distinct.
-It is not yet called from `PerceptionPipeline`.
+
+**Perception enrichment.** `PerceptionPipeline` assigns each decoded box its candidate identity and
+joins the frame's own detections through `MobCatalogJoin`, so `WorldState` carries
+`mob_catalog_joins` (mover id, symbol, display name, verified combat properties, declared drops and
+spawn evidence) keyed by that identity, plus `mob_catalog_rejections` for classes it could not join.
+The join runs on the boxes the same tick produced, so enrichment can never outlive them: a failed
+detection keeps the previous mobs *and* their previous join rather than re-keying a stale one.
+Spawn evidence - zone count, total capacity and the shortest respawn interval per mover - comes from
+the adopted world map, pushed in by `FarmingOrchestrator.configure_vector_navigation`.
+
+A rejection is a property of the class, not of one box, so five unjoinable detections of one class
+state one fact. Three states are deliberately distinct: no artifacts installed (no join, no
+rejection), a mapping refused for a foreign client digest or mapping version (a `MobCatalogJoin`
+that keeps stating the refusal on every tick), and a label the installed mapping does not bind
+(`LABEL_UNMAPPED`). `load_mob_catalog_join` reads `data/client/catalog.json`,
+`data/client/mover_label_mapping.json` and the manifest's client digest; a catalog artifact of
+another *schema* version is not a label-join problem and is raised to the caller, because the fix
+is to re-run extraction. The curated mapping artifact itself is operator-supplied data, like a baked
+NavMesh: until one is authored against a fingerprinted client, every detection is explicitly
+unmapped and nothing is enriched.
 
 **Detector whitelist.** `OpenCVDnnYoloDetector._decode` applies the operator's class whitelist
 before `_suppress_per_class`, so a filtered class never reaches suppression, tracking, world

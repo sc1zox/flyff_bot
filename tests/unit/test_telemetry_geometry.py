@@ -11,6 +11,7 @@ from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.navmesh import NavMeshBaker
 from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
+from flyff_bot.features.tactical_parameters import DEFAULT_TACTICAL_PARAMETERS
 from flyff_bot.features.telemetry import (
     JsonlTelemetryWorker,
     TelemetryRecorder,
@@ -81,6 +82,7 @@ def test_recorder_serializes_measured_candidate_geometry(tmp_path: Path) -> None
         100,
         90,
         reason="nearest",
+        tactical_parameter_digest=DEFAULT_TACTICAL_PARAMETERS.content_digest,
         player_position=WorldPosition(0.0, -1.0, 0.0),
         camera_state=_camera(),
     )

@@ -55,6 +55,7 @@ from flyff_bot.features.navigation.vector_navigation import (
     VectorZoneNavigator,
 )
 from flyff_bot.features.navigation.world_extractor import VectorSpawnZone, WorldCoordinate
+from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.ui.dashboard import (
     NavigationSnapshot,
@@ -65,6 +66,7 @@ from flyff_bot.ui.dashboard import (
 DEFAULT_PATHING_STEP_DURATION_SECONDS = 0.6
 DEFAULT_PATHING_TURN_DURATION_SECONDS = 0.08
 DEFAULT_HEADING_TOLERANCE_DEGREES = 25.0
+DEFAULT_HEADING_PIVOT_THRESHOLD_DEGREES = 45.0
 DEFAULT_REPLAN_INTERVAL_SECONDS = 20.0
 DEFAULT_NAVMESH_LEASH_RADIUS_UNITS = 100.0
 DEFAULT_NAVMESH_WAYPOINT_ARRIVAL_UNITS = 1.5
@@ -117,6 +119,7 @@ class PathingConfig:
     step_duration_seconds: float = DEFAULT_PATHING_STEP_DURATION_SECONDS
     turn_duration_seconds: float = DEFAULT_PATHING_TURN_DURATION_SECONDS
     heading_tolerance_degrees: float = DEFAULT_HEADING_TOLERANCE_DEGREES
+    heading_pivot_threshold_degrees: float = DEFAULT_HEADING_PIVOT_THRESHOLD_DEGREES
     replan_interval_seconds: float = DEFAULT_REPLAN_INTERVAL_SECONDS
     navmesh_leash_radius_units: float = DEFAULT_NAVMESH_LEASH_RADIUS_UNITS
     navmesh_waypoint_arrival_units: float = DEFAULT_NAVMESH_WAYPOINT_ARRIVAL_UNITS
@@ -129,6 +132,8 @@ class PathingConfig:
             raise ValueError("Pathing step durations must be positive.")
         if not 0.0 < self.heading_tolerance_degrees < 180.0:
             raise ValueError("Pathing heading tolerance must be between 0 and 180 degrees.")
+        if not self.heading_tolerance_degrees <= self.heading_pivot_threshold_degrees < 180.0:
+            raise ValueError("Pathing pivot threshold must be at least the heading tolerance.")
         if self.replan_interval_seconds <= 0.0:
             raise ValueError("Pathing replan interval must be positive.")
         if self.navmesh_leash_radius_units <= 0.0:
@@ -154,8 +159,11 @@ class PathingController:
         navmesh: BakedNavMesh | None = None,
         teleport_config: TeleportConfig | None = None,
         teleporter_dispatcher: TeleporterDispatcher | None = None,
+        tactical_parameters: TacticalParameterSpace | None = None,
     ) -> None:
         self._config = config or PathingConfig()
+        if tactical_parameters is not None:
+            self._config = _pathing_config_with_parameters(self._config, tactical_parameters)
         self._stalls = StallDetector(self._config.stall)
         self._vector_navigator = vector_navigator
         self._position_reader = position_reader
@@ -535,6 +543,61 @@ class PathingController:
         self._mode = PathingMode.TRAVELING
         return True
 
+    def begin_tactical_attack_point_approach(
+        self,
+        mob: VisibleMob,
+        attack_point: tuple[float, float, float],
+        at_seconds: float,
+    ) -> bool:
+        """Start a route to the exact prevalidated point selected by a learned action."""
+
+        target = mob_world_position(mob)
+        start = self._live_position
+        mesh = self._navmesh
+        point = WorldPosition(*attack_point)
+        if (
+            target is None
+            or start is None
+            or self._camera_state is None
+            or mesh is None
+            or mob.navmesh_reachable is not True
+            or mob.navmesh_within_leash is not True
+        ):
+            return False
+        route = mesh.find_path(start, point)
+        if not route:
+            return False
+        self._planned_attack_target = target
+        self._navmesh_target = point
+        self._navigation_trajectory = [start]
+        self._world_waypoints = route
+        self._waypoint_index = 0
+        self._planned_at_seconds = at_seconds
+        self._mode = PathingMode.TRAVELING
+        return True
+
+    def plan_tactical_attack_point(
+        self, mob: VisibleMob, distance_units: float
+    ) -> tuple[WorldPosition, float] | None:
+        """Return one NavMesh-contained, policy-rankable point at an exact safe radius."""
+
+        target = mob_world_position(mob)
+        start = self._live_position
+        mesh = self._navmesh
+        if target is None or start is None or mesh is None or not mesh.polygons:
+            return None
+        planner = self._attack_point_planner or AttackPointPlanner(mesh)
+        self._attack_point_planner = planner
+        plan = planner.plan(
+            start,
+            target,
+            EngagementRadii(distance_units, distance_units),
+            heading_degrees=self.heading_degrees,
+        )
+        if plan is None:
+            return None
+        return plan.selected.position, plan.selected.angle_degrees
+
     def _plan_target_route(
         self,
         start: WorldPosition,
@@ -574,6 +637,7 @@ class PathingController:
         route = self._navmesh.find_path(start, target)
         if not route:
             return False
+        self._planned_attack_target = None
         self._navmesh_target = target
         self._navigation_trajectory = [start]
         self._world_waypoints = route
@@ -586,6 +650,7 @@ class PathingController:
         """Discard a selected-target route."""
 
         self._navmesh_target = None
+        self._planned_attack_target = None
         self._navigation_trajectory = []
         self._world_waypoints = ()
         self._waypoint_index = 0
@@ -599,9 +664,15 @@ class PathingController:
         position = self._live_position
         if target is None or position is None:
             return False
+        arrival_distance = (
+            self._config.navmesh_waypoint_arrival_units
+            if self._planned_attack_target is not None
+            and self._planned_attack_target != self._navmesh_target
+            else self._config.navmesh_engagement_distance_units
+        )
         return (
             math.dist((position.x, position.y, position.z), (target.x, target.y, target.z))
-            <= self._config.navmesh_engagement_distance_units
+            <= arrival_distance
         )
 
     def position_target_in_interaction_range(self) -> bool:
@@ -623,6 +694,12 @@ class PathingController:
             self._config,
             navmesh_engagement_distance_units=distance_units,
         )
+
+    def update_tactical_parameters(self, parameters: TacticalParameterSpace) -> None:
+        """Atomically apply the shared navigation heuristics without dropping a route."""
+
+        self._config = _pathing_config_with_parameters(self._config, parameters)
+        self._stalls = StallDetector(self._config.stall)
 
     def observe(self, state: WorldState, frame: CapturedFrame | None = None) -> None:
         """Record live position delta and stall evidence for one tick."""
@@ -925,9 +1002,16 @@ class PathingController:
         self._mode = mode
         bearing = bearing_degrees(pos.x, pos.z, target_x, target_z)
         error = heading_error_degrees(self.heading_degrees, bearing)
-        if abs(error) > self._config.heading_tolerance_degrees:
+        if abs(error) > self._config.heading_pivot_threshold_degrees:
             rotation_key = VIRTUAL_KEY_RIGHT if error > 0.0 else VIRTUAL_KEY_LEFT
             return PathingDecision(mode, rotation_key, self._config.turn_duration_seconds)
+        if abs(error) > self._config.heading_tolerance_degrees:
+            rotation_key = VIRTUAL_KEY_RIGHT if error > 0.0 else VIRTUAL_KEY_LEFT
+            return PathingDecision(
+                mode,
+                key_press_duration_seconds=self._config.turn_duration_seconds,
+                virtual_keys=(VIRTUAL_KEY_W, rotation_key),
+            )
         return PathingDecision(mode, VIRTUAL_KEY_W, self._config.step_duration_seconds)
 
     def _needs_route(self, at_seconds: float) -> bool:
@@ -955,6 +1039,16 @@ class PathingController:
             self.cancel_target_approach()
             return True
         previous_target = self._planned_attack_target
+        if previous_target is not None and previous_target != target:
+            route = mesh.find_path(start, target)
+            if not route:
+                self.cancel_target_approach()
+                return True
+            self._world_waypoints = route
+            self._waypoint_index = 0
+            self._planned_at_seconds = at_seconds
+            self._mode = PathingMode.TRAVELING
+            return True
         if previous_target is not None and not should_replan_attack_target(previous_target, target):
             return False
         route = self._plan_target_route(start, target)
@@ -1017,6 +1111,30 @@ class PathingController:
         self._planned_at_seconds = at_seconds
         self._mode = PathingMode.TRAVELING
         return True
+
+
+def _pathing_config_with_parameters(
+    config: PathingConfig, parameters: TacticalParameterSpace
+) -> PathingConfig:
+    stall = config.stall
+    return replace(
+        config,
+        heading_tolerance_degrees=parameters.heading_tolerance_degrees,
+        heading_pivot_threshold_degrees=parameters.heading_pivot_threshold_degrees,
+        replan_interval_seconds=parameters.replan_interval_seconds,
+        navmesh_waypoint_arrival_units=parameters.navmesh_waypoint_arrival_units,
+        navmesh_engagement_distance_units=parameters.engagement_distance_units,
+        stall=StallConfig(
+            live_motion_threshold_units_per_second=(stall.live_motion_threshold_units_per_second),
+            live_stall_timeout_seconds=parameters.stall_timeout_seconds,
+            motion_threshold=stall.motion_threshold,
+            stall_timeout_seconds=parameters.stall_timeout_seconds,
+            movement_grace_seconds=stall.movement_grace_seconds,
+            sample_stride=stall.sample_stride,
+            center_mask_width_fraction=stall.center_mask_width_fraction,
+            center_mask_height_fraction=stall.center_mask_height_fraction,
+        ),
+    )
 
 
 def _zone_snapshot(zone: VectorSpawnZone) -> VectorZoneSnapshot:

@@ -23,9 +23,12 @@ def _dataset(root: Path) -> Path:
     for split in ("train", "val"):
         (root / "images" / split).mkdir(parents=True)
         (root / "labels" / split).mkdir(parents=True)
-    image = root / "images" / "train" / "sample.png"
-    assert cv2.imwrite(str(image), np.zeros((8, 8, 3), dtype=np.uint8))
-    (root / "labels" / "train" / "sample.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+        image = root / "images" / split / "sample.png"
+        assert cv2.imwrite(str(image), np.zeros((8, 8, 3), dtype=np.uint8))
+        (root / "labels" / split / "sample.txt").write_text(
+            "0 0.5 0.5 0.2 0.2\n",
+            encoding="utf-8",
+        )
     return manifest
 
 

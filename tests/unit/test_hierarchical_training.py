@@ -82,6 +82,7 @@ def test_training_exports_distinct_heads_and_beats_paired_baseline(
     assert report.learned_kills_per_minute > report.baseline_kills_per_minute
     assert report.learned_objectives_per_minute > report.baseline_objectives_per_minute
     assert report.high_level_model_path.read_bytes() != report.mid_level_model_path.read_bytes()
+    assert report.approach_distance_model_path.is_file()
     assert metadata["world_name"] == "WdTest"
     assert metadata["schema_version"] == HIERARCHICAL_METADATA_SCHEMA_VERSION
     assert metadata[CONTRACT_DOCUMENT_KEY] == current_contract_stamp().as_document()
@@ -97,7 +98,7 @@ def test_training_evaluation_and_calibration_seeds_are_disjoint() -> None:
     assert seeds.evaluation.start >= seeds.training.stop
 
 
-def test_the_two_heads_are_fitted_on_different_targets(
+def test_the_three_heads_are_fitted_on_different_targets(
     tmp_path: Path, world_map: WorldVectorMap
 ) -> None:
     report = train_hierarchical_policy(
@@ -112,11 +113,14 @@ def test_the_two_heads_are_fitted_on_different_targets(
     assert isinstance(models, dict)
     high = models["high_level"]
     mid = models["mid_level"]
+    approach = models["approach_distance"]
 
     assert TacticalActionKind.ATTACK_POINT in mid["trained_actions"]
     assert set(mid["trained_actions"]) - set(high["trained_actions"])
     assert set(mid["trained_actions"]).issubset(MID_LEVEL_ACTION_ORDER)
     assert set(mid["trained_actions"]) != set(MID_LEVEL_ACTION_ORDER)
+    assert approach["target"] == "normalized_prevalidated_option"
+    assert approach["sample_count"] > 0
 
 
 def test_an_untrained_action_class_is_never_selected_live(
@@ -218,7 +222,7 @@ def test_model_digest_tampering_is_rejected(tmp_path: Path, world_map: WorldVect
         raise AssertionError("Digest mismatch was accepted.")
 
 
-def test_cached_two_head_inference_stays_inside_five_millisecond_budget(
+def test_cached_three_head_inference_stays_inside_five_millisecond_budget(
     tmp_path: Path, world_map: WorldVectorMap
 ) -> None:
     train_hierarchical_policy(

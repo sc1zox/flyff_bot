@@ -87,6 +87,7 @@ from flyff_bot.features.automation.vitals_controller import (
     VitalsInputDispatcher,
     VitalsTriggerConfig,
     VitalsTriggerController,
+    VitalTriggerType,
 )
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.dungeons.live_reader import DungeonReadStatus
@@ -129,6 +130,7 @@ from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjectiveKind,
 )
 from flyff_bot.features.policy.models import (
+    AttackPointAction,
     LiveObservationState,
     PolicyCandidate,
     PolicyContext,
@@ -148,7 +150,16 @@ from flyff_bot.features.quests.objectives import (
     QuestGoalSequence,
     QuestGoalTimeouts,
 )
+from flyff_bot.features.rl.actions import TacticalActionCatalog
 from flyff_bot.features.rl.models import NavMeshContext, PlayerKinematics
+from flyff_bot.features.tactical_parameters import (
+    DEFAULT_TACTICAL_PARAMETERS,
+    TACTICAL_PARAMETER_DEFINITIONS,
+    TACTICAL_PARAMETER_SCHEMA_VERSION,
+    TacticalParameterDiagnostic,
+    TacticalParameterName,
+    TacticalParameterSpace,
+)
 from flyff_bot.features.telemetry.models import (
     ActiveGoal,
     CombatOutcome,
@@ -191,6 +202,7 @@ GPS_FRESHNESS_SECONDS = 0.5
 CAMERA_FRESHNESS_SECONDS = 0.5
 PLAYER_STATS_FRESHNESS_SECONDS = 1.0
 DUNGEON_STATE_FRESHNESS_SECONDS = 2.0
+TACTICAL_APPROACH_DISTANCE_MULTIPLIERS = (0.75, 1.0, 1.25)
 
 
 def _default_reposition_config() -> SearchConfig:
@@ -317,6 +329,7 @@ class FarmingConfig:
     vitals: VitalsTriggerConfig = field(default_factory=VitalsTriggerConfig)
     powerups: PowerUpConfig = field(default_factory=PowerUpConfig)
     emergency: EmergencyRecoveryConfig = field(default_factory=EmergencyRecoveryConfig)
+    tactical_parameters: TacticalParameterSpace = DEFAULT_TACTICAL_PARAMETERS
     auto_align_camera: bool = DEFAULT_AUTO_ALIGN_CAMERA
     policy_mode: PolicyRuntimeMode = DEFAULT_POLICY_RUNTIME_MODE
     policy_model_directory: str | None = None
@@ -384,11 +397,20 @@ class FarmingOrchestrator:
         self._window_handle = window_handle
         self._supervisor = supervisor or Supervisor()
         self._config = config or FarmingConfig()
-        self._combat = CombatController(self._config.combat)
-        self._search = SearchController(self._config.search)
-        self._reposition = SearchController(self._config.reposition)
+        self._tactical_parameters = self._config.tactical_parameters
+        self._combat = CombatController(
+            self._config.combat, tactical_parameters=self._tactical_parameters
+        )
+        self._search = SearchController(
+            self._config.search, tactical_parameters=self._tactical_parameters
+        )
+        self._reposition = SearchController(
+            self._config.reposition, tactical_parameters=self._tactical_parameters
+        )
         self._approach_stalls = StallDetector(self._config.approach_stall)
-        self._vitals = VitalsTriggerController(self._config.vitals)
+        self._vitals = VitalsTriggerController(
+            self._config.vitals, tactical_parameters=self._tactical_parameters
+        )
         self._powerups = PowerUpScheduler(self._config.powerups)
         self._emergency = EmergencyRecoveryMonitor(self._config.emergency)
         self._combat_dispatcher = CombatInputDispatcher(input_adapter, window_handle)
@@ -403,6 +425,10 @@ class FarmingOrchestrator:
         self._quest_menu_perceiver = quest_menu_perceiver
         self._quest_input_dispatcher = QuestInputDispatcher(input_adapter, window_handle)
         self._pathing = pathing
+        if self._pathing is not None:
+            update_tactical_parameters = getattr(self._pathing, "update_tactical_parameters", None)
+            if callable(update_tactical_parameters):
+                update_tactical_parameters(self._tactical_parameters)
         attach_geometry = getattr(self._pipeline, "attach_world_geometry", None)
         if callable(attach_geometry):
             attach_geometry(pathing)
@@ -416,6 +442,12 @@ class FarmingOrchestrator:
         self._engagement_break: EngagementBreakReason | None = None
         self._engaged_monster_name: str | None = None
         self._camera_aligner = camera_aligner
+        if self._camera_aligner is not None:
+            update_tactical_parameters = getattr(
+                self._camera_aligner, "update_tactical_parameters", None
+            )
+            if callable(update_tactical_parameters):
+                update_tactical_parameters(self._tactical_parameters)
         self._alignment_failure: CameraAlignmentStatus | None = None
         self._mode_after_alignment = FarmingMode.SEARCHING
         self._kill_goals = kill_goals or KillGoalTracker()
@@ -433,14 +465,18 @@ class FarmingOrchestrator:
         self._telemetry_observed_at_seconds: float | None = None
         self._pending_target_click: CombatDecision | None = None
         self._session_active = False
-        self._pathing_engagement_distance = MELEE_ENGAGEMENT_DISTANCE_UNITS
+        self._pathing_engagement_distance = self._tactical_parameters.engagement_distance_units
         self._pathing_engagement_profile: CombatClassProfile = MELEE_COMBAT_CLASS_PROFILE
         self._policy_mode = self._config.policy_mode
         self._learned_policy: LearnedPolicyProtocol | None = None
         self._policy_load_fault: PolicyFault | None = None
         self._policy_runner = PolicyRunner(None)
         self._policy_fault: PolicyFault | None = None
-        self._last_policy_action: TargetAction | None = None
+        self._policy_attack_point_override: AttackPointAction | None = None
+        self._tactical_parameter_diagnostics: tuple[TacticalParameterDiagnostic, ...] = (
+            self._tactical_parameters.diagnostics
+        )
+        self._last_policy_action: TargetAction | AttackPointAction | None = None
         self._load_learned_policy(self._config.policy_model_directory)
         self._readiness_gate = LiveReadinessGate()
         self._readiness = LiveReadinessStatus()
@@ -711,7 +747,9 @@ class FarmingOrchestrator:
             self._telemetry.start(
                 active_spawn_zone=(
                     self._pathing.active_spawn_zone_metadata if self._pathing is not None else None
-                )
+                ),
+                tactical_parameter_schema_version=TACTICAL_PARAMETER_SCHEMA_VERSION,
+                tactical_parameter_digest=self._tactical_parameters.content_digest,
             )
         if self._config.auto_align_camera and self._camera_aligner is not None:
             self._mode_after_alignment = FarmingMode.SEARCHING
@@ -810,7 +848,7 @@ class FarmingOrchestrator:
             raise RuntimeError("Attack key can only be configured while farming is paused.")
         combat = replace(self._config.combat, rotation=(KeyBinding(virtual_key),))
         self._config = replace(self._config, combat=combat)
-        self._combat = CombatController(combat)
+        self._combat = CombatController(combat, tactical_parameters=self._tactical_parameters)
 
     def configure_combat_grace(self, target_acquisition_grace_seconds: float) -> None:
         """Apply a dashboard-selected target-click grace period mid-session."""
@@ -1090,8 +1128,41 @@ class FarmingOrchestrator:
             self._config.combat.allowed_class_names,
             tuple(not candidate.is_unlocked for candidate in candidates),
             feature_matrix(self._policy_feature_rows(candidates)),
+            valid_attack_points=self._policy_attack_points(candidates),
             live_state=self._live_observation_state(),
         )
+
+    def _policy_attack_points(
+        self, candidates: tuple[PolicyCandidate, ...]
+    ) -> tuple[AttackPointAction, ...]:
+        """Offer only bounded, NavMesh-contained distance choices to a learned policy."""
+
+        pathing = self._pathing
+        if pathing is None:
+            return ()
+        definition = TACTICAL_PARAMETER_DEFINITIONS[TacticalParameterName.ENGAGEMENT_DISTANCE_UNITS]
+        options: list[AttackPointAction] = []
+        for candidate in candidates:
+            base = self._tactical_parameters.engagement_distance_for(candidate.mob.class_name)
+            distances = {
+                definition.normalize(base * multiplier)[0]
+                for multiplier in TACTICAL_APPROACH_DISTANCE_MULTIPLIERS
+            }
+            for distance in sorted(distances):
+                planned = pathing.plan_tactical_attack_point(candidate.mob, distance)
+                if planned is None:
+                    continue
+                point, angle = planned
+                options.append(
+                    AttackPointAction(
+                        candidate.mob.class_id,
+                        (point.x, point.y, point.z),
+                        angle,
+                        candidate.original_position,
+                        distance,
+                    )
+                )
+        return tuple(options)
 
     def _policy_feature_rows(
         self, candidates: tuple[PolicyCandidate, ...]
@@ -1164,6 +1235,7 @@ class FarmingOrchestrator:
     def _evaluate_policy_target(self) -> VisibleMob | None:
         """Return a policy-selected candidate only when every deterministic mask passes."""
 
+        self._policy_attack_point_override = None
         if self._policy_mode is PolicyRuntimeMode.HEURISTIC:
             return None
         candidates = self._policy_candidates()
@@ -1179,9 +1251,17 @@ class FarmingOrchestrator:
         if fault is not None:
             self._halt_learned_automation(fault)
             return None
-        self._last_policy_action = action if isinstance(action, TargetAction) else None
-        if self._policy_mode is PolicyRuntimeMode.ML_SHADOW or not isinstance(action, TargetAction):
+        self._last_policy_action = (
+            action if isinstance(action, TargetAction | AttackPointAction) else None
+        )
+        if self._policy_mode is PolicyRuntimeMode.ML_SHADOW or not isinstance(
+            action, TargetAction | AttackPointAction
+        ):
             return None
+        if isinstance(action, TargetAction) and action.attack_point is not None:
+            self._policy_attack_point_override = action.attack_point
+        if isinstance(action, AttackPointAction):
+            self._policy_attack_point_override = action
         return next(
             (
                 candidate.mob
@@ -1234,6 +1314,23 @@ class FarmingOrchestrator:
 
         self._config = replace(self._config, vitals=config)
         self._vitals.update_config(config)
+        parameters = self._tactical_parameters
+        hp = config.rule_for(VitalTriggerType.HP)
+        mp = config.rule_for(VitalTriggerType.MP)
+        if hp is not None:
+            parameters = parameters.with_value(
+                TacticalParameterName.HP_POTION_THRESHOLD_PERCENT,
+                hp.threshold_percentage,
+            ).with_value(
+                TacticalParameterName.RECOVERY_DEBOUNCE_SECONDS,
+                hp.debounce_seconds,
+            )
+        if mp is not None:
+            parameters = parameters.with_value(
+                TacticalParameterName.MP_THRESHOLD_PERCENT,
+                mp.threshold_percentage,
+            )
+        self.configure_tactical_parameters(parameters)
 
     def reset_vitals(self) -> None:
         """Reset vitals debounce cooldowns."""
@@ -1261,6 +1358,11 @@ class FarmingOrchestrator:
     def configure_vector_navigation(self, navigator: VectorZoneNavigator | None) -> None:
         """Adopt or drop the extracted world map that steers this session."""
 
+        # The adopted map is also what declares how densely each mover spawns, so the
+        # catalog join is re-read against the world actually being farmed (US-083).
+        attach_spawn_zones = getattr(self._pipeline, "attach_spawn_zones", None)
+        if callable(attach_spawn_zones):
+            attach_spawn_zones(() if navigator is None else navigator.world_map.zones)
         if self._pathing is not None:
             self._pathing.attach_vector_navigator(navigator)
             self._publish(False)
@@ -1628,6 +1730,45 @@ class FarmingOrchestrator:
         # until the operator changes the selection rather than resuming into the same wall.
         self.pause(kind=SessionEventKind.MODE_TRANSITION, reason=reason)
 
+    def _record_executed_target_selection(
+        self, combat: CombatDecision, requested_target: VisibleMob | None
+    ) -> None:
+        """Record a target action only after its direct dispatch or exact route was accepted."""
+
+        telemetry = self._telemetry
+        if telemetry is None or combat.position is None:
+            return
+        telemetry.record_target_selection(
+            self._state,
+            combat.position.x,
+            combat.position.y,
+            reason=(
+                f"policy_{self._policy_mode.value.lower()}"
+                if requested_target is not None
+                else (
+                    "policy_fallback"
+                    if self._last_policy_action is not None
+                    and self._policy_runner.last_fallback_reason
+                    else "shortest_navmesh_path"
+                )
+                if combat.selected_mob is not None
+                and combat.selected_mob.navmesh_path_distance is not None
+                else "nearest_to_viewport_center"
+            ),
+            player_position=(self._pathing.live_position if self._pathing is not None else None),
+            camera_state=(self._pathing.camera_state if self._pathing is not None else None),
+            is_locked_out=lambda x, y: self._combat.is_position_locked_out(
+                x, y, self._state.observed_at_seconds
+            ),
+            active_goal=self._active_goal_record(),
+            executed_action=(
+                TacticalActionCatalog.encode(self._last_policy_action)
+                if requested_target is not None and self._last_policy_action is not None
+                else None
+            ),
+            tactical_parameter_digest=self._tactical_parameters.content_digest,
+        )
+
     def _advance(self) -> bool:
         if self._quest_interaction is not None:
             self._advance_quest_interaction()
@@ -1640,55 +1781,54 @@ class FarmingOrchestrator:
                 return False
             combat = self._combat.step(self._state, requested_target=requested_target)
             if combat.mode is not CombatMode.IDLE:
-                if self._telemetry is not None and combat.position is not None:
-                    self._telemetry.record_target_selection(
-                        self._state,
-                        combat.position.x,
-                        combat.position.y,
-                        reason=(
-                            f"policy_{self._policy_mode.value.lower()}"
-                            if requested_target is not None
-                            else (
-                                "policy_fallback"
-                                if self._last_policy_action is not None
-                                and self._policy_runner.last_fallback_reason
-                                else "shortest_navmesh_path"
-                            )
-                            if combat.selected_mob is not None
-                            and combat.selected_mob.navmesh_path_distance is not None
-                            else "nearest_to_viewport_center"
-                        ),
-                        player_position=(
-                            self._pathing.live_position if self._pathing is not None else None
-                        ),
-                        camera_state=(
-                            self._pathing.camera_state if self._pathing is not None else None
-                        ),
-                        is_locked_out=lambda x, y: self._combat.is_position_locked_out(
-                            x, y, self._state.observed_at_seconds
-                        ),
-                        active_goal=self._active_goal_record(),
-                    )
-                if (
-                    self._pathing is not None
+                pathing = self._pathing
+                should_approach = (
+                    pathing is not None
                     and combat.selected_mob is not None
                     and not self._should_dispatch_direct_click(combat.selected_mob)
-                    and self._pathing.begin_target_approach(
-                        combat.selected_mob, self._state.observed_at_seconds
+                )
+                approach_started = False
+                if should_approach and pathing is not None and combat.selected_mob is not None:
+                    attack_point = self._policy_attack_point_override
+                    approach_started = (
+                        pathing.begin_tactical_attack_point_approach(
+                            combat.selected_mob,
+                            attack_point.attack_point,
+                            self._state.observed_at_seconds,
+                        )
+                        if attack_point is not None
+                        else pathing.begin_target_approach(
+                            combat.selected_mob, self._state.observed_at_seconds
+                        )
                     )
-                ):
+                if approach_started:
                     self._pending_target_click = combat
-                    if self._telemetry is not None:
-                        route = self._pathing.world_waypoints
-                        start = self._pathing.live_position
+                    self._record_executed_target_selection(combat, requested_target)
+                    self._policy_attack_point_override = None
+                    if self._telemetry is not None and pathing is not None:
+                        route = pathing.world_waypoints
+                        start = pathing.live_position
                         if start is not None and route:
                             self._telemetry.begin_navigation(start, route)
                     self._set_mode(FarmingMode.APPROACHING, reason="navmesh_target_selected")
                     return False
+                if should_approach and self._policy_attack_point_override is not None:
+                    self._policy_attack_point_override = None
+                    self._halt_learned_automation(
+                        PolicyFault(
+                            PolicyFaultCode.INVALID_OR_MASKED_ACTION,
+                            "attack_point_route_unavailable",
+                        )
+                    )
+                    return False
+                self._policy_attack_point_override = None
                 self._set_mode(FarmingMode.TARGETING, reason="mob_detected")
                 self._engagement_break = None
                 self._approach_stalls.reset()
-                return self._combat_dispatcher.dispatch(combat)
+                dispatched = self._combat_dispatcher.dispatch(combat)
+                if dispatched:
+                    self._record_executed_target_selection(combat, requested_target)
+                return dispatched
             if self._exhausted_zone_handed_over():
                 return False
             if self._advance_pathing():
@@ -1852,6 +1992,24 @@ class FarmingOrchestrator:
     def _should_dispatch_direct_click(self, mob: VisibleMob) -> bool:
         """Return whether a selected mob may be clicked without a Funnel approach."""
 
+        distance_limit = (
+            self._policy_attack_point_override.approach_distance_units
+            if self._policy_attack_point_override is not None
+            and self._policy_attack_point_override.approach_distance_units is not None
+            else self._tactical_parameters.engagement_distance_for(mob.class_name)
+        )
+        self._pathing_engagement_distance = distance_limit
+        if self._pathing is not None:
+            self._pathing.update_engagement_distance(distance_limit)
+        if self._policy_attack_point_override is not None:
+            pathing = self._pathing
+            player = None if pathing is None else pathing.live_position
+            if player is None:
+                return False
+            point = self._policy_attack_point_override.attack_point
+            return math.dist((player.x, player.y, player.z), point) <= (
+                self._tactical_parameters.navmesh_waypoint_arrival_units
+            )
         if self._pathing is None or mob.world_x is None or mob.world_z is None:
             return True
         player = self._pathing.live_position
@@ -1861,7 +2019,7 @@ class FarmingOrchestrator:
             (player.x, player.z),
             (mob.world_x, mob.world_z),
         )
-        if distance <= self.pathing_engagement_distance:
+        if distance <= distance_limit:
             return True
         navmesh = self._pathing.navmesh
         if navmesh is None:
@@ -1891,12 +2049,40 @@ class FarmingOrchestrator:
     def configure_engagement_distance(self, distance_units: float) -> None:
         """Apply the operator-selected target engagement distance dynamically."""
 
-        if distance_units <= 0.0:
-            raise ValueError("Engagement distance must be positive.")
-        self._pathing_engagement_distance = distance_units
+        parameters = self._tactical_parameters.with_value(
+            TacticalParameterName.ENGAGEMENT_DISTANCE_UNITS,
+            distance_units,
+        )
+        self.configure_tactical_parameters(parameters)
         self._pathing_engagement_profile = CUSTOM_COMBAT_CLASS_PROFILE
+
+    def configure_tactical_parameters(self, parameters: TacticalParameterSpace) -> None:
+        """Atomically apply one validated profile to every deterministic controller."""
+
+        self._tactical_parameters = parameters
+        self._tactical_parameter_diagnostics = parameters.diagnostics
+        self._config = replace(self._config, tactical_parameters=parameters)
+        self._combat.update_tactical_parameters(parameters)
+        self._search.update_tactical_parameters(parameters)
+        self._reposition.update_tactical_parameters(parameters)
+        self._vitals.update_tactical_parameters(parameters)
+        self._pathing_engagement_distance = parameters.engagement_distance_units
         if self._pathing is not None:
-            self._pathing.update_engagement_distance(distance_units)
+            update_tactical_parameters = getattr(self._pathing, "update_tactical_parameters", None)
+            if callable(update_tactical_parameters):
+                update_tactical_parameters(parameters)
+        if self._camera_aligner is not None:
+            update_tactical_parameters = getattr(
+                self._camera_aligner, "update_tactical_parameters", None
+            )
+            if callable(update_tactical_parameters):
+                update_tactical_parameters(parameters)
+
+    @property
+    def tactical_parameters(self) -> TacticalParameterSpace:
+        """Return the active immutable base profile without a transient policy override."""
+
+        return self._tactical_parameters
 
     @property
     def pathing_engagement_profile(self) -> CombatClassProfile:
@@ -2229,6 +2415,7 @@ class FarmingOrchestrator:
                     dungeons=self._dungeon_snapshots,
                     readiness=self._readiness,
                     policy_fault=self._policy_fault,
+                    tactical_parameter_diagnostics=self._tactical_parameter_diagnostics,
                 )
             )
         return tick

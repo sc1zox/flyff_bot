@@ -12,6 +12,7 @@ from flyff_bot.features.automation.orchestrator import (
 )
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.policy.models import (
+    AttackPointAction,
     PolicyContext,
     TargetAction,
 )
@@ -76,3 +77,51 @@ def test_learned_target_enters_existing_guarded_combat_state_machine() -> None:
     assert orchestrator.mode in {FarmingMode.SEARCHING, FarmingMode.TARGETING}
     if orchestrator.mode is FarmingMode.TARGETING:
         assert adapter.clicks == [(WINDOW_HANDLE, 25, 25)]
+
+
+def test_valid_contextual_approach_distance_is_applied_for_one_live_decision() -> None:
+    mob = VisibleMob(
+        2,
+        "Learned",
+        0.9,
+        20,
+        20,
+        10,
+        10,
+        world_x=1.0,
+        world_y=0.0,
+        world_z=1.0,
+        navmesh_reachable=True,
+        navmesh_within_leash=True,
+    )
+    state = _state(1.0, mobs=(mob,))
+    action = TargetAction(
+        mob.class_id,
+        Position(mob.x, mob.y),
+        attack_point=AttackPointAction(
+            mob.class_id,
+            (1.0, 0.0, 1.0),
+            90.0,
+            0,
+            4.5,
+        ),
+        candidate_index=0,
+    )
+
+    class _ValidatedRunner:
+        last_fault = None
+
+        def evaluate(self, _world_state: WorldState, _context: PolicyContext) -> TargetAction:
+            return action
+
+    orchestrator = _orchestrator([state], _InputAdapter())
+    orchestrator._state = state
+    orchestrator.configure_policy_mode(PolicyRuntimeMode.ML_ACTIVE)
+    orchestrator._policy_runner = cast(PolicyRunner, _ValidatedRunner())
+
+    selected = orchestrator._evaluate_policy_target()
+
+    assert selected is mob
+    assert not orchestrator._should_dispatch_direct_click(mob)
+    assert orchestrator.pathing_engagement_distance == 4.5
+    assert orchestrator._policy_attack_point_override is action.attack_point

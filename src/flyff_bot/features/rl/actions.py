@@ -41,6 +41,7 @@ class ParameterizedAction:
     destination: WorldPoint | None = None
     attack_point: WorldPoint | None = None
     approach_angle: float | None = None
+    approach_distance_units: float | None = None
     corridor_id: str | None = None
     interaction_target_id: str | None = None
     interaction_type: str | None = None
@@ -116,6 +117,9 @@ class TacticalActionCatalog:
                 target_class_id=action.target_id,
                 attack_point=None if attack_point is None else attack_point.attack_point,
                 approach_angle=None if attack_point is None else attack_point.approach_angle,
+                approach_distance_units=(
+                    None if attack_point is None else attack_point.approach_distance_units
+                ),
             )
         if isinstance(action, NavigateAction):
             return ParameterizedAction(
@@ -133,6 +137,7 @@ class TacticalActionCatalog:
                 target_class_id=action.target_id,
                 attack_point=action.attack_point,
                 approach_angle=action.approach_angle,
+                approach_distance_units=action.approach_distance_units,
             )
         if isinstance(action, CorridorAction):
             return ParameterizedAction(
@@ -207,4 +212,5 @@ def _attack_point(action: ParameterizedAction) -> AttackPointAction | None:
         action.attack_point,
         action.approach_angle,
         action.candidate_index,
+        action.approach_distance_units,
     )

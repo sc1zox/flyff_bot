@@ -132,6 +132,12 @@ class SimulationMetrics:
     def mean_travel_seconds(self) -> float:
         return self.travel_seconds / self.kill_count if self.kill_count else 0.0
 
+    @property
+    def stalls_per_minute(self) -> float:
+        """Return the aggregate stall rate used by tactical-profile evaluation."""
+
+        return self.stuck_count * 60.0 / self.elapsed_seconds if self.elapsed_seconds else 0.0
+
 
 @dataclass(frozen=True, slots=True)
 class CalibrationBaseline:

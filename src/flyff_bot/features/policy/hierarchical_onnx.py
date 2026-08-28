@@ -12,6 +12,7 @@ from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.policy.action_payloads import (
     STRATEGIC_GOAL_COUNT,
     STRATEGIC_GOAL_ORDER,
+    AttackPointAction,
     CorridorAction,
     StrategicGoalKind,
     TacticalActionKind,
@@ -23,6 +24,7 @@ from flyff_bot.features.policy.hierarchical import (
     MidLevelTacticalPolicy,
 )
 from flyff_bot.features.policy.hierarchical_training import (
+    APPROACH_DISTANCE_INPUT_NAME,
     HIERARCHICAL_METADATA_FILENAME,
     HIGH_LEVEL_ACTION_ORDER,
     MID_LEVEL_ACTION_ORDER,
@@ -53,7 +55,7 @@ class InferenceNetwork(Protocol):
 
 
 class HierarchicalOnnxPolicy:
-    """Rank only currently masked options through two cached ONNX sessions."""
+    """Rank only currently masked options through three cached ONNX sessions."""
 
     def __init__(
         self,
@@ -69,10 +71,13 @@ class HierarchicalOnnxPolicy:
         loader = network_loader if callable(network_loader) else _load_network
         high = _model_document(models, "high_level")
         mid = _model_document(models, "mid_level")
+        approach = _model_document(models, "approach_distance")
         self._high_network = loader(model_directory / str(high["file"]))
         self._mid_network = loader(model_directory / str(mid["file"]))
+        self._approach_network = loader(model_directory / str(approach["file"]))
         self._high_input_name = str(high["input_name"])
         self._mid_input_name = str(mid["input_name"])
+        self._approach_input_name = str(approach.get("input_name", APPROACH_DISTANCE_INPUT_NAME))
         self._high_trained = _trained_kinds(high, HIGH_LEVEL_ACTION_ORDER)
         self._mid_trained = _trained_kinds(mid, MID_LEVEL_ACTION_ORDER)
         self._high_wait = strategic_goal_index(StrategicGoalKind.WAIT)
@@ -87,6 +92,7 @@ class HierarchicalOnnxPolicy:
         features = np.zeros(OBSERVATION_DIMENSION, dtype=np.float64)
         _predict(self._high_network, features, self._high_input_name, STRATEGIC_GOAL_COUNT)
         _predict(self._mid_network, features, self._mid_input_name, len(MID_LEVEL_ACTION_ORDER))
+        _predict(self._approach_network, features, self._approach_input_name, 1)
 
     def configure_objective(self, objective: HierarchicalObjective) -> None:
         """Bind the objective the session is actually pursuing before the next evaluation."""
@@ -122,15 +128,20 @@ class HierarchicalOnnxPolicy:
         self.last_values = (float(high_logits[high_index]), float(mid_logits[mid_index]))
         selected = _decision_candidate(decision, context)
         if mid_kind is TacticalActionKind.ATTACK_POINT:
-            return next(
-                (
-                    item
-                    for item in context.valid_attack_points
-                    if selected is not None
-                    and _names(item.candidate_index, item.target_id, selected)
-                ),
-                None,
+            options = tuple(
+                item
+                for item in context.valid_attack_points
+                if selected is not None and _names(item.candidate_index, item.target_id, selected)
             )
+            approach_value = float(
+                _predict(
+                    self._approach_network,
+                    features,
+                    self._approach_input_name,
+                    1,
+                )[0]
+            )
+            return _select_attack_point(options, approach_value)
         if mid_kind is TacticalActionKind.CORRIDOR:
             corridor = next(iter(sorted(context.valid_corridor_ids)), None)
             return (
@@ -222,6 +233,29 @@ def _load_network(path: Path) -> InferenceNetwork:
         return cv2.dnn.readNetFromONNX(str(path))
     except cv2.error as error:
         raise ValueError(f"model_load_failed:{path}") from error
+
+
+def _select_attack_point(
+    options: tuple[AttackPointAction, ...], model_value: float
+) -> AttackPointAction | None:
+    """Map one finite learned output onto the ordered prevalidated contextual choices."""
+
+    if not options:
+        return None
+    ordered = tuple(
+        sorted(
+            options,
+            key=lambda item: (
+                float("inf")
+                if item.approach_distance_units is None
+                else item.approach_distance_units,
+                item.attack_point,
+            ),
+        )
+    )
+    normalized = float(np.clip(model_value, 0.0, 1.0))
+    index = min(int(normalized * len(ordered)), len(ordered) - 1)
+    return ordered[index]
 
 
 def _model_document(models: dict[object, object], name: str) -> dict[object, object]:

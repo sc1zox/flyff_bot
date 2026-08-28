@@ -13,10 +13,13 @@ import numpy.typing as npt
 from PySide6.QtWidgets import QApplication
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_CATALOG_PATH,
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
     DEFAULT_MONSTER_STATS_PANEL_PATH,
+    DEFAULT_MOVER_LABEL_MAPPING_PATH,
     DEFAULT_PROCESS_NAME,
+    DEFAULT_SOURCE_MANIFEST_PATH,
     DEFAULT_TARGET_ANCHOR_PATH,
 )
 from flyff_bot.features.automation.camera_alignment import CameraAligner
@@ -44,6 +47,7 @@ from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationRequest,
     VectorZoneNavigator,
 )
+from flyff_bot.features.perception.catalog_join import load_mob_catalog_join
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
 from flyff_bot.features.player_stats.reader import LivePlayerStatsReader
 from flyff_bot.features.quests.goals import (
@@ -316,6 +320,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     allowed_names,
                     anchors,
                     TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
+                    tactical_parameters=window.tactical_parameters,
                 )
                 pipeline = PerceptionPipeline(
                     frame_source,
@@ -338,10 +343,20 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 pathing = PathingController(
                     position_reader=LivePositionReader(window_handle),
                     camera_reader=LiveCameraReader(window_handle),
+                    tactical_parameters=window.tactical_parameters,
                 )
                 # The pathing controller polls the camera and owns the baked mesh, so it is
                 # what lets a perception tick unproject its own detections (US-057).
                 pipeline.attach_world_geometry(pathing)
+                # The extracted catalog is what turns a class name into the mover the client
+                # actually declares. Absent artifacts leave detections unenriched (US-083).
+                pipeline.attach_client_catalog(
+                    load_mob_catalog_join(
+                        Path(DEFAULT_CLIENT_CATALOG_PATH),
+                        Path(DEFAULT_MOVER_LABEL_MAPPING_PATH),
+                        Path(DEFAULT_SOURCE_MANIFEST_PATH),
+                    )
+                )
                 quest_menu_perceiver = QuestMenuPerceiver(
                     TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
                 )
@@ -358,6 +373,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         vitals=window.get_vitals_config(),
                         powerups=window.get_powerup_config(),
                         emergency=window.get_emergency_config(),
+                        tactical_parameters=window.tactical_parameters,
                         auto_align_camera=window.auto_align_toggle.isChecked(),
                     ),
                     dashboard_feed=feed,
@@ -365,6 +381,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     camera_aligner=CameraAligner(
                         controller,
                         window_handle,
+                        tactical_parameters=window.tactical_parameters,
                     ),
                     kill_goals=KillGoalTracker(
                         window.target_selection,
@@ -385,6 +402,14 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 )
                 window.engagement_distance_changed.connect(
                     orchestrator.configure_engagement_distance
+                )
+                window.tactical_parameters_changed.connect(
+                    orchestrator.configure_tactical_parameters
+                )
+                window.tactical_parameters_changed.connect(
+                    lambda parameters: target_verifier.update_anchor_threshold(
+                        parameters.target_verification_threshold
+                    )
                 )
                 window.kill_verification_changed.connect(orchestrator.configure_kill_verification)
                 window.anchor_threshold_changed.connect(target_verifier.update_anchor_threshold)

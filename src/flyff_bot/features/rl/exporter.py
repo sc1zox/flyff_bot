@@ -18,7 +18,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from flyff_bot.features.policy.action_payloads import TargetAction
+from flyff_bot.features.policy.action_payloads import TacticalAction, TargetAction
 from flyff_bot.features.policy.contract import (
     CONTRACT_DOCUMENT_KEY,
     ContractStamp,
@@ -50,7 +50,7 @@ from flyff_bot.features.telemetry.storage import SqliteTelemetryStore
 PARQUET_COMPRESSION = "zstd"
 RL_TRANSITIONS_FILE = "rl_transitions.parquet"
 RL_PROVENANCE_FILE = "rl_provenance.json"
-RL_TRANSITION_SCHEMA_VERSION = "us079-v1"
+RL_TRANSITION_SCHEMA_VERSION = "us084-v1"
 # Parquet stores its own key-value metadata as bytes, so the dataset carries the same stamp the
 # provenance document does without a per-row string column.
 CONTRACT_METADATA_KEY = b"decision_contract"
@@ -59,6 +59,7 @@ NANOSECONDS_PER_SECOND = 1_000_000_000
 
 # Every event family the reward and the state of one interval are reconstructed from.
 _EXPORTED_EVENT_KINDS = (
+    TelemetryEventKind.SESSION_HEADER,
     TelemetryEventKind.WORLD_SNAPSHOT,
     TelemetryEventKind.TARGET_SELECTED,
     TelemetryEventKind.KILL_CYCLE,
@@ -106,12 +107,30 @@ class TelemetryTransitionExporter:
                 CONTRACT_DOCUMENT_KEY: self._stamp().as_document(),
                 "reward_config_version": self.reward_config.version,
                 "reward_config_json": self.reward_config.as_json(),
+                "tactical_parameter_digests": self._tactical_parameter_digests(),
             },
             sort_keys=True,
         )
 
     def _stamp(self) -> ContractStamp:
         return current_contract_stamp(reward_config_version=self.reward_config.version)
+
+    def _tactical_parameter_digests(self) -> list[str]:
+        """Return every exact tactical vector represented by the exported sessions."""
+
+        return sorted(
+            {
+                str(payload["tactical_parameter_digest"])
+                for kind in (
+                    TelemetryEventKind.SESSION_HEADER,
+                    TelemetryEventKind.TARGET_SELECTED,
+                )
+                for event in self._store.events(kind)
+                if isinstance((payload := event.get("payload")), dict)
+                and isinstance(payload.get("tactical_parameter_digest"), str)
+                and payload["tactical_parameter_digest"]
+            }
+        )
 
     def transitions(self) -> list[Transition]:
         """Return every complete transition, grouped and ordered per recorded session."""
@@ -135,6 +154,7 @@ class TelemetryTransitionExporter:
         snapshots = events.get(TelemetryEventKind.WORLD_SNAPSHOT, [])
         if not decisions or not snapshots:
             return []
+        _session_tactical_parameter_digest(events)
         session_end_ns = max(
             int(event["timestamp_ns"]) for family in events.values() for event in family
         )
@@ -151,6 +171,7 @@ class TelemetryTransitionExporter:
             action = _action(decision)
             if previous is None or following is None or action is None:
                 continue
+            tactical_parameter_digest = _decision_tactical_parameter_digest(decision)
 
             observation = ObservationSpace.from_telemetry_snapshot(
                 previous["payload"], _candidates(decision)
@@ -175,6 +196,7 @@ class TelemetryTransitionExporter:
                     is_last and not terminated,
                     session_id,
                     episode_index,
+                    tactical_parameter_digest,
                 )
             )
             if terminated:
@@ -197,6 +219,7 @@ class TelemetryTransitionExporter:
             [
                 pa.field("session_id", pa.string(), nullable=False),
                 pa.field("episode_index", pa.int32(), nullable=False),
+                pa.field("tactical_parameter_digest", pa.string(), nullable=False),
                 pa.field("observation", pa.list_(pa.float64()), nullable=False),
                 pa.field("action", pa.int32(), nullable=False),
                 pa.field("action_candidate_index", pa.int32()),
@@ -233,6 +256,7 @@ class TelemetryTransitionExporter:
             {
                 "session_id": item.session_id,
                 "episode_index": item.episode_index,
+                "tactical_parameter_digest": item.tactical_parameter_digest,
                 "observation": ObservationSpace.encode(item.observation).tolist(),
                 "action": int(item.action.action),
                 "action_candidate_index": item.action.candidate_index,
@@ -322,6 +346,9 @@ def _action(decision: dict[str, Any]) -> ParameterizedAction | None:
     """Return the exact parameterized choice one recorded decision executed."""
 
     payload = decision["payload"]
+    recorded = _recorded_action(payload.get("executed_action"))
+    if recorded is not None:
+        return recorded
     selected_index = payload.get("selected_candidate_index")
     if not isinstance(selected_index, int):
         return None
@@ -340,10 +367,98 @@ def _action(decision: dict[str, Any]) -> ParameterizedAction | None:
     )
 
 
+def _recorded_action(document: object) -> ParameterizedAction | None:
+    """Reconstruct the lossless action document recorded at the guarded click boundary."""
+
+    if not isinstance(document, dict):
+        return None
+    try:
+        return ParameterizedAction(
+            action=TacticalAction(int(document["action"])),
+            candidate_index=_optional_int(document.get("candidate_index")),
+            target_class_id=_optional_int(document.get("target_class_id")),
+            destination=_optional_world_point(document.get("destination")),
+            attack_point=_optional_world_point(document.get("attack_point")),
+            approach_angle=_optional_float(document.get("approach_angle")),
+            approach_distance_units=_optional_float(document.get("approach_distance_units")),
+            corridor_id=_optional_string(document.get("corridor_id")),
+            interaction_target_id=_optional_string(document.get("interaction_target_id")),
+            interaction_type=_optional_string(document.get("interaction_type")),
+            wait_seconds=_optional_float(document.get("wait_seconds")),
+            wait_reason=_optional_string(document.get("wait_reason")),
+            navigate_reason=_optional_string(document.get("navigate_reason")),
+        )
+    except KeyError, TypeError, ValueError:
+        return None
+
+
+def _session_tactical_parameter_digest(events: SessionEvents) -> str:
+    """Require one immutable tactical-vector identity for every exported session."""
+
+    headers = events.get(TelemetryEventKind.SESSION_HEADER, [])
+    digests = {
+        str(payload["tactical_parameter_digest"])
+        for header in headers
+        if isinstance((payload := header.get("payload")), dict)
+        and isinstance(payload.get("tactical_parameter_digest"), str)
+        and payload["tactical_parameter_digest"]
+    }
+    if len(digests) != 1:
+        raise ValueError("Session tactical parameter provenance is missing or ambiguous.")
+    return next(iter(digests))
+
+
+def _decision_tactical_parameter_digest(decision: dict[str, Any]) -> str:
+    """Require the exact decision-time vector with no session-default substitution."""
+
+    payload = decision.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("Decision tactical parameter provenance is invalid.")
+    digest = payload.get("tactical_parameter_digest")
+    if not isinstance(digest, str) or not digest:
+        raise ValueError("Decision tactical parameter provenance is invalid.")
+    return digest
+
+
 def _action_json(action: ParameterizedAction) -> str:
     """Serialize every action parameter so the exported choice stays loss-free."""
 
     return json.dumps(asdict(action), sort_keys=True)
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError
+    return value
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError
+    return float(value)
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError
+    return value
+
+
+def _optional_world_point(value: object) -> tuple[float, float, float] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list | tuple) or len(value) != 3:
+        raise TypeError
+    coordinates = tuple(_optional_float(item) for item in value)
+    if any(item is None for item in coordinates):
+        raise TypeError
+    return coordinates  # type: ignore[return-value]
 
 
 def _candidates(event: dict[str, Any]) -> tuple[CandidateFeatures, ...]:

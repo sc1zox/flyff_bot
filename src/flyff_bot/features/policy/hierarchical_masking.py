@@ -13,6 +13,10 @@ from flyff_bot.features.policy.action_payloads import (
     WaitAction,
 )
 from flyff_bot.features.policy.models import PolicyCandidate, PolicyContext, TacticalActionPayload
+from flyff_bot.features.tactical_parameters import (
+    TACTICAL_PARAMETER_DEFINITIONS,
+    TacticalParameterName,
+)
 
 
 def validate_policy_action(action: TacticalActionPayload, context: PolicyContext) -> bool:
@@ -31,6 +35,10 @@ def validate_policy_action(action: TacticalActionPayload, context: PolicyContext
         )
         if candidate is None or not _finite_optional(action.expected_cost):
             return False
+        if action.attack_point is not None and not _valid_approach_distance(
+            action.attack_point.approach_distance_units
+        ):
+            return False
         return not (
             action.attack_point is not None
             and action.attack_point not in context.valid_attack_points
@@ -41,7 +49,11 @@ def validate_policy_action(action: TacticalActionPayload, context: PolicyContext
             and action.destination in context.valid_destinations
         )
     if isinstance(action, AttackPointAction):
-        return _finite_position(action.attack_point) and action in context.valid_attack_points
+        return (
+            _finite_position(action.attack_point)
+            and _valid_approach_distance(action.approach_distance_units)
+            and action in context.valid_attack_points
+        )
     if isinstance(action, CorridorAction):
         return action.preferred_corridor_id in context.valid_corridor_ids and _eligible_target(
             action.candidate_index, action.target_id, context
@@ -76,6 +88,13 @@ def _finite_position(position: tuple[float, float, float]) -> bool:
 
 def _finite_optional(value: float | None) -> bool:
     return value is None or math.isfinite(value)
+
+
+def _valid_approach_distance(value: float | None) -> bool:
+    if value is None:
+        return True
+    definition = TACTICAL_PARAMETER_DEFINITIONS[TacticalParameterName.ENGAGEMENT_DISTANCE_UNITS]
+    return math.isfinite(value) and definition.minimum <= value <= definition.maximum
 
 
 def _target_position_matches(action: TargetAction, candidate: PolicyCandidate) -> bool:

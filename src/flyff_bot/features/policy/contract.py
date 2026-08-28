@@ -20,10 +20,11 @@ from flyff_bot.features.policy.action_payloads import (
 )
 from flyff_bot.features.rl.models import OBSERVATION_DIMENSION, RL_OBSERVATION_SCHEMA_VERSION
 from flyff_bot.features.rl.rewards import REWARD_CONFIG_VERSION
+from flyff_bot.features.tactical_parameters import TACTICAL_PARAMETER_SCHEMA_VERSION
 
 # Bumped whenever any observation column, action index, goal vocabulary or reward weight
 # changes. Artifacts stamped with any other value are rejected rather than adapted.
-DECISION_CONTRACT_VERSION = "us079-v1"
+DECISION_CONTRACT_VERSION = "us084-v1"
 # The key every artifact document and dataset stores its stamp under.
 CONTRACT_DOCUMENT_KEY = "contract"
 # What is reported as the found value when an artifact states nothing at all for a field.
@@ -41,6 +42,7 @@ class ContractIncompatibility(StrEnum):
     GOAL_VOCABULARY = "goal_vocabulary_mismatch"
     ACTION_VOCABULARY = "action_vocabulary_mismatch"
     REWARD_CONFIG = "reward_config_mismatch"
+    TACTICAL_PARAMETERS = "tactical_parameter_schema_mismatch"
 
 
 class ContractVersionError(ValueError):
@@ -70,6 +72,7 @@ class ContractStamp:
     objective_kind_order: tuple[str, ...]
     tactical_action_count: int
     reward_config_version: str
+    tactical_parameter_schema_version: str
 
     def as_document(self) -> dict[str, object]:
         """Return the stamp in the form written into an artifact or dataset."""
@@ -82,6 +85,7 @@ class ContractStamp:
             "objective_kind_order": list(self.objective_kind_order),
             "tactical_action_count": self.tactical_action_count,
             "reward_config_version": self.reward_config_version,
+            "tactical_parameter_schema_version": self.tactical_parameter_schema_version,
         }
 
 
@@ -96,6 +100,7 @@ def current_contract_stamp(*, reward_config_version: str = REWARD_CONFIG_VERSION
         tuple(kind.value for kind in OBJECTIVE_KIND_ORDER),
         TACTICAL_ACTION_COUNT,
         reward_config_version,
+        TACTICAL_PARAMETER_SCHEMA_VERSION,
     )
 
 
@@ -145,6 +150,11 @@ def verify_contract_document(document: object) -> ContractStamp:
             expected.reward_config_version,
             found.reward_config_version,
         ),
+        (
+            ContractIncompatibility.TACTICAL_PARAMETERS,
+            expected.tactical_parameter_schema_version,
+            found.tactical_parameter_schema_version,
+        ),
     ):
         if expected_value != found_value:
             raise ContractVersionError(incompatibility, expected=expected_value, found=found_value)
@@ -160,6 +170,7 @@ def _read_stamp(document: dict[str, object]) -> ContractStamp:
         _text_tuple(document.get("objective_kind_order")),
         _count(document.get("tactical_action_count")),
         _text(document.get("reward_config_version")),
+        _text(document.get("tactical_parameter_schema_version")),
     )
 
 

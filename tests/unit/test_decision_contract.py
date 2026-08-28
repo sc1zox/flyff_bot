@@ -77,6 +77,10 @@ from flyff_bot.features.rl.rewards import (
 )
 from flyff_bot.features.simulator import FarmingSimulator, QuestObjective, SimulatorConfig
 from flyff_bot.features.simulator.engine import SIMULATED_QUEST_ID
+from flyff_bot.features.tactical_parameters import (
+    DEFAULT_TACTICAL_PARAMETERS,
+    TACTICAL_PARAMETER_SCHEMA_VERSION,
+)
 from flyff_bot.features.telemetry import SqliteTelemetryStore
 from flyff_bot.i18n import Language, Translator
 from flyff_bot.ui.main_window_parts.combat_settings import (
@@ -99,7 +103,12 @@ def transition_store(tmp_path: Path) -> SqliteTelemetryStore:
 
     store = SqliteTelemetryStore(tmp_path / "telemetry.sqlite3")
     store.persist(
-        {"event_kind": "session_header", "session_id": "one", "timestamp_ns": 0, "payload": {}}
+        {
+            "event_kind": "session_header",
+            "session_id": "one",
+            "timestamp_ns": 0,
+            "payload": {"tactical_parameter_digest": DEFAULT_TACTICAL_PARAMETERS.content_digest},
+        }
     )
     snapshot = {
         "player_position": {"x": 1, "y": 2, "z": 3},
@@ -125,6 +134,7 @@ def transition_store(tmp_path: Path) -> SqliteTelemetryStore:
                 "selected_candidate_index": 0,
                 "decision_reason": "nearest",
                 "decision_latency_ms": 1.0,
+                "tactical_parameter_digest": DEFAULT_TACTICAL_PARAMETERS.content_digest,
                 "candidates": [
                     {
                         "candidate_index": 0,
@@ -356,6 +366,7 @@ def test_an_exported_dataset_and_its_provenance_carry_the_reward_version(
     assert provenance["reward_config_version"] == REWARD_CONFIG_VERSION
     assert provenance[CONTRACT_DOCUMENT_KEY] == current_contract_stamp().as_document()
     assert stamp["reward_config_version"] == REWARD_CONFIG_VERSION
+    assert stamp["tactical_parameter_schema_version"] == TACTICAL_PARAMETER_SCHEMA_VERSION
     assert set(table.column("reward_config_version").to_pylist()) == {REWARD_CONFIG_VERSION}
     assert read_transition_contract(transitions_path) == current_contract_stamp()
 
@@ -389,6 +400,11 @@ def test_an_artifact_from_another_contract_is_refused_with_both_versions_named()
         ("objective_kind_order", ["farm"], ContractIncompatibility.GOAL_VOCABULARY),
         ("tactical_action_count", 4, ContractIncompatibility.ACTION_VOCABULARY),
         ("reward_config_version", "us070-v1", ContractIncompatibility.REWARD_CONFIG),
+        (
+            "tactical_parameter_schema_version",
+            "missing-v1",
+            ContractIncompatibility.TACTICAL_PARAMETERS,
+        ),
     ],
 )
 def test_every_contract_field_is_checked_on_its_own(

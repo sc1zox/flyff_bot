@@ -13,6 +13,7 @@ from flyff_bot.features.automation.readiness import LiveReadinessStatus
 from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
+from flyff_bot.features.rl.actions import ParameterizedAction
 from flyff_bot.features.rl.rewards import RewardConfig, RewardEngine, RewardEvent
 from flyff_bot.features.telemetry.geometry import (
     ProjectedCandidate,
@@ -96,13 +97,35 @@ class TelemetryRecorder:
 
         return self._metadata.session_id
 
-    def start(self, *, active_spawn_zone: dict[str, object] | None = None) -> None:
+    def start(
+        self,
+        *,
+        active_spawn_zone: dict[str, object] | None = None,
+        tactical_parameter_schema_version: str | None = None,
+        tactical_parameter_digest: str | None = None,
+    ) -> None:
         """Queue the immutable schema-v1 header before any session observations."""
 
         if self._started:
             return
-        if active_spawn_zone is not None:
-            self._metadata = replace(self._metadata, active_spawn_zone=active_spawn_zone)
+        self._metadata = replace(
+            self._metadata,
+            active_spawn_zone=(
+                active_spawn_zone
+                if active_spawn_zone is not None
+                else self._metadata.active_spawn_zone
+            ),
+            tactical_parameter_schema_version=(
+                tactical_parameter_schema_version
+                if tactical_parameter_schema_version is not None
+                else self._metadata.tactical_parameter_schema_version
+            ),
+            tactical_parameter_digest=(
+                tactical_parameter_digest
+                if tactical_parameter_digest is not None
+                else self._metadata.tactical_parameter_digest
+            ),
+        )
         self._started = True
         self._submit(TelemetryEventKind.SESSION_HEADER, primitive(self._metadata))
         self._selection_started_at_ns = self._clock_ns()
@@ -188,6 +211,8 @@ class TelemetryRecorder:
         camera_state: CameraState | None = None,
         is_locked_out: Callable[[int, int], bool] | None = None,
         active_goal: ActiveGoal | None = None,
+        executed_action: ParameterizedAction | None = None,
+        tactical_parameter_digest: str,
     ) -> None:
         """Persist all visible alternatives in perception order at the actual click boundary."""
 
@@ -269,6 +294,8 @@ class TelemetryRecorder:
             "decision_latency_ms": (timestamp_ns - self._selection_started_at_ns) / 1_000_000,
             "candidates": primitive(tuple(candidates)),
             "active_goal": primitive(active_goal),
+            "executed_action": primitive(executed_action),
+            "tactical_parameter_digest": tactical_parameter_digest,
         }
         self._submit(TelemetryEventKind.TARGET_SELECTED, payload, timestamp_ns)
         self._decision_seconds += (timestamp_ns - self._selection_started_at_ns) / 1_000_000_000

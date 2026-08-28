@@ -161,6 +161,7 @@ class Transition:
     truncated: bool = False
     session_id: str = ""
     episode_index: int = 0
+    tactical_parameter_digest: str = ""
 
 
 class ObservationSpace:

@@ -12,3 +12,4 @@ that are obvious from the code do not need an ADR.
 - [ADR-005: Unrestricted read-only client asset access for offline data extraction](ADR-005-client-folder-asset-access-for-data-extraction.md)
 - [ADR-006: Unrestricted read-only process memory access for runtime game state extraction](ADR-006-read-only-process-memory-access.md)
 - [ADR-008: Closed learning-loop invariants](ADR-008-closed-learning-loop-invariants.md)
+- [ADR-009: Bounded tactical parameter space and hybrid tuning boundary](ADR-009-bounded-tactical-parameter-space.md)

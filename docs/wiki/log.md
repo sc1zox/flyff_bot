@@ -1108,3 +1108,25 @@ whitelist regression tests; ruff and mypy clean across 296 files; the 172 tests 
 files pass. The 11 failing tests in the full run belong to a concurrent US-084 session sharing the
 working tree. No live `neuz.exe` session is claimed, and no new client access or input capability
 was added. Criteria 4-12 of US-083 remain open.
+
+## [2026-08-28] synthesis | Bounded tactical parameter space and hybrid tuning (US-084)
+
+Recorded US-084 in `architecture.md`, `glossary.md`, and [ADR-009](../decisions/ADR-009-bounded-tactical-parameter-space.md): exactly 16 immutable bounded scalar parameters, per-monster engagement profiles, precedence from defaults through loaded and per-monster profiles to a prevalidated transient approach override, deterministic finite clamping, source-specific non-finite handling, and a positive allow-list that excludes system invariants. The standalone digest-checked `us084-v1` profile is documented as compatible with a future US-081 registry reference while US-081 remains draft. Camera pitch and zoom are guarded open-loop calibration settings with no live confirmation claimed. Evidence is offline: 18 focused tactical tests, the affected 276-test slice after the i18n fix, 55 orchestrator tests, Ruff, and MyPy passed. The final canonical gate passed on 2026-08-28: `uv sync --locked`, Ruff, format, and MyPy completed successfully, and pytest reported 1063 passed, 5 skipped, and 89.38% coverage; live Windows validation remains unrun.
+
+## [2026-08-28] synthesis | YOLO detections joined to the client catalog in perception (US-083 AC3)
+
+Recorded in `architecture.md` that `PerceptionPipeline` now assigns each decoded box its US-079
+per-instance candidate identity and joins the frame's own detections through `MobCatalogJoin`, so
+`WorldState` carries `mob_catalog_joins` (mover id, symbol, display name, verified combat
+properties, declared drops, spawn evidence) and `mob_catalog_rejections`. Spawn evidence is
+aggregated per mover from the adopted world map and pushed in by `configure_vector_navigation`.
+Documented the three deliberately distinct states - no artifacts installed, a mapping refused for a
+foreign client digest or mapping version, and an unbound label - and that a rejection is a property
+of the class rather than of one box. Also recorded that the curated
+`data/client/mover_label_mapping.json` artifact is operator-supplied data: the six detector-label
+mover *symbols* are not proven against a client, so until one is authored the mechanism reports
+every detection as explicitly unmapped rather than joining by name similarity. Evidence is offline:
+16 new perception/join tests plus one orchestrator wiring test; `uv sync --locked`, Ruff, format and
+MyPy (298 files) clean, pytest 1085 passed, 5 skipped, 89.32% coverage. No live `neuz.exe` session
+is claimed and no new client access or input capability was added. Criteria 4-12 of US-083 remain
+open.

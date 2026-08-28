@@ -64,6 +64,7 @@ from flyff_bot.features.rl.models import (
     RlObservation,
 )
 from flyff_bot.features.rl.rewards import RewardConfig, RewardEngine
+from flyff_bot.features.tactical_parameters import DEFAULT_TACTICAL_PARAMETERS
 from flyff_bot.features.telemetry import SqliteTelemetryStore
 from flyff_bot.features.telemetry.models import (
     CombatOutcome,
@@ -115,6 +116,7 @@ def _decision_payload(selected: int, candidates: list[dict[str, Any]]) -> dict[s
         "selected_candidate_index": selected,
         "decision_reason": "policy_ml_active",
         "decision_latency_ms": 1.0,
+        "tactical_parameter_digest": DEFAULT_TACTICAL_PARAMETERS.content_digest,
         "candidates": candidates,
     }
 
@@ -122,6 +124,8 @@ def _decision_payload(selected: int, candidates: list[dict[str, Any]]) -> dict[s
 def _persist(
     store: SqliteTelemetryStore, session: str, kind: str, timestamp_ns: int, payload: object
 ) -> None:
+    if kind == "session_header" and payload == {}:
+        payload = {"tactical_parameter_digest": DEFAULT_TACTICAL_PARAMETERS.content_digest}
     store.persist(
         {
             "event_kind": kind,

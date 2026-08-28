@@ -16,6 +16,10 @@ from flyff_bot.features.automation.readiness import (
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import NavMeshBaker
 from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
+from flyff_bot.features.tactical_parameters import (
+    DEFAULT_TACTICAL_PARAMETERS,
+    TACTICAL_PARAMETER_SCHEMA_VERSION,
+)
 from flyff_bot.features.telemetry import (
     JsonlTelemetryWorker,
     KinematicsDeriver,
@@ -54,7 +58,10 @@ def test_recorder_writes_versioned_header_snapshots_and_explicit_nulls(tmp_path:
         clock_ns=lambda: next(timestamps),
         utc_now=lambda: datetime(2026, 8, 19, tzinfo=UTC),
     )
-    recorder.start()
+    recorder.start(
+        tactical_parameter_schema_version=TACTICAL_PARAMETER_SCHEMA_VERSION,
+        tactical_parameter_digest=DEFAULT_TACTICAL_PARAMETERS.content_digest,
+    )
     failure = SourceReadiness(
         LiveStateSource.GPS,
         ProviderHealth.UNAVAILABLE,
@@ -75,7 +82,13 @@ def test_recorder_writes_versioned_header_snapshots_and_explicit_nulls(tmp_path:
             action_blocked=True,
         ),
     )
-    recorder.record_target_selection(_state(), 50, 40, reason="nearest_to_viewport_center")
+    recorder.record_target_selection(
+        _state(),
+        50,
+        40,
+        reason="nearest_to_viewport_center",
+        tactical_parameter_digest=DEFAULT_TACTICAL_PARAMETERS.content_digest,
+    )
     recorder.close()
 
     path = _session_file(tmp_path, "Wd_Eden", "session-1")
@@ -85,7 +98,12 @@ def test_recorder_writes_versioned_header_snapshots_and_explicit_nulls(tmp_path:
         "world_snapshot",
         "target_selected",
     ]
-    assert records[0]["schema_version"] == 4
+    assert records[0]["schema_version"] == 5
+    assert records[0]["payload"]["tactical_parameter_schema_version"] == "us084-v1"
+    assert (
+        records[0]["payload"]["tactical_parameter_digest"]
+        == DEFAULT_TACTICAL_PARAMETERS.content_digest
+    )
     assert records[1]["payload"]["player_position"] is None
     assert records[1]["payload"]["readiness_state"] == "blocked"
     assert records[1]["payload"]["readiness_primary_reason"] == "unavailable"
@@ -232,6 +250,7 @@ def test_target_selection_keeps_live_position_and_controller_lockout(tmp_path: P
         50,
         40,
         reason="nearest",
+        tactical_parameter_digest=DEFAULT_TACTICAL_PARAMETERS.content_digest,
         player_position=WorldPosition(9.0, 8.0, 7.0),
         is_locked_out=lambda _x, _y: True,
     )

@@ -102,6 +102,26 @@ class HierarchicalTrainingSimulator:
             )
         return TacticalActionKind.WAIT
 
+    @staticmethod
+    def approach_distance_target(observation: RlObservation) -> float:
+        """Return the normalized expert label for the contextual distance head.
+
+        Multiple eligible monsters favor the far prevalidated option to retain separation from
+        a cluster. A single candidate scales with measured NavMesh path distance. Missing
+        distance stays neutral instead of being fabricated as zero.
+        """
+
+        candidates = tuple(
+            item
+            for item in observation.candidates
+            if not item.is_dead and not item.is_locked_out and not item.is_unreachable
+        )
+        if len(candidates) > 1:
+            return 1.0
+        if not candidates or candidates[0].path_distance is None:
+            return 0.5
+        return min(max(candidates[0].path_distance / 30.0, 0.0), 1.0)
+
     def reset(self, *, seed: int) -> tuple[RlObservation, tuple[bool, ...]]:
         observation, info = self._simulator.reset(seed=seed)
         mask = _bool_tuple(info["action_mask"])

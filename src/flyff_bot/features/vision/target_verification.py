@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
+from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 from flyff_bot.features.vision.models import (
     CapturedFrame,
     ClientSize,
@@ -283,10 +284,16 @@ class TargetVerifier:
         header_anchor_template: npt.NDArray[np.uint8] | Sequence[npt.NDArray[np.uint8]],
         recognizer: TextRecognizer,
         config: TargetVerificationConfig | None = None,
+        tactical_parameters: TacticalParameterSpace | None = None,
     ) -> None:
         self._allowed_names = _validated_names(allowed_names)
         self._recognizer = recognizer
         self._config = config or TargetVerificationConfig()
+        if tactical_parameters is not None:
+            self._config = replace(
+                self._config,
+                anchor_match_threshold=tactical_parameters.target_verification_threshold,
+            )
         self._header_anchor_templates = _validated_templates(header_anchor_template)
         self._last_name_mask: npt.NDArray[np.uint8] | None = None
         self._last_name_reading: _NameReading = (None, "", TargetNameStatus.NOT_EVALUATED)

@@ -7,7 +7,7 @@ from dataclasses import replace
 from enum import IntEnum
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
@@ -54,6 +54,7 @@ from flyff_bot.features.automation.orchestrator import PolicyRuntimeMode
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
+    VitalTriggerType,
 )
 from flyff_bot.features.navigation.teleporter_extraction import load_teleporter_catalog
 from flyff_bot.features.navigation.teleporter_models import (
@@ -67,6 +68,10 @@ from flyff_bot.features.quests.persistence import (
     load_quest_npc_positions,
 )
 from flyff_bot.features.setup.extraction import UnifiedClientExtractor
+from flyff_bot.features.tactical_parameters import (
+    TacticalParameterName,
+    TacticalParameterSpace,
+)
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.dashboard import (
@@ -91,6 +96,7 @@ from flyff_bot.ui.main_window_parts.quests import QuestDatabaseController
 from flyff_bot.ui.main_window_parts.recovery_settings import RecoverySettingsPanel
 from flyff_bot.ui.main_window_parts.settings_controllers import SettingsController
 from flyff_bot.ui.main_window_parts.status_presenter import StatusPresenter
+from flyff_bot.ui.main_window_parts.tactical_parameters import TacticalParametersPanel
 from flyff_bot.ui.main_window_parts.vitals_settings import VitalsSettingsPanel
 from flyff_bot.ui.main_window_parts.window_controls import WindowControlsCard
 from flyff_bot.ui.navigation_window import NavigationMapWindow
@@ -139,6 +145,7 @@ class MainWindow(QMainWindow):
     policy_mode_changed = Signal(object)
     policy_model_directory_changed = Signal(str)
     engagement_distance_changed = Signal(float)
+    tactical_parameters_changed = Signal(object)
     kill_verification_changed = Signal(bool)
     anchor_threshold_changed = Signal(float)
     target_selection_changed = Signal(object)
@@ -249,6 +256,7 @@ class MainWindow(QMainWindow):
 
         # Sub-panels
         self._combat_panel = CombatSettingsPanel()
+        self._tactical_parameters_panel = TacticalParametersPanel(self._translator)
         self._target_grace_spin = self._combat_panel.grace_spin
         self._kill_verification_toggle = self._combat_panel.verification_toggle
         self._anchor_threshold_spin = self._combat_panel.anchor_spin
@@ -294,6 +302,24 @@ class MainWindow(QMainWindow):
             emergency_path=emergency_config_path,
             teleporter_destinations=self._teleporter_catalog.destinations,
         )
+        initial_parameters = self._tactical_parameters_panel.parameters
+        initial_vitals = self._settings.vitals_config
+        initial_hp = initial_vitals.rule_for(VitalTriggerType.HP)
+        initial_mp = initial_vitals.rule_for(VitalTriggerType.MP)
+        if initial_hp is not None:
+            initial_parameters = initial_parameters.with_value(
+                TacticalParameterName.HP_POTION_THRESHOLD_PERCENT,
+                initial_hp.threshold_percentage,
+            ).with_value(
+                TacticalParameterName.RECOVERY_DEBOUNCE_SECONDS,
+                initial_hp.debounce_seconds,
+            )
+        if initial_mp is not None:
+            initial_parameters = initial_parameters.with_value(
+                TacticalParameterName.MP_THRESHOLD_PERCENT,
+                initial_mp.threshold_percentage,
+            )
+        self._tactical_parameters_panel.set_parameters(initial_parameters)
 
         self._build_layout()
         self._connect_controls()
@@ -438,6 +464,14 @@ class MainWindow(QMainWindow):
     @property
     def engagement_distance_spin(self) -> QDoubleSpinBox:
         return self._combat_panel.engagement_distance_spin
+
+    @property
+    def tactical_parameters_panel(self) -> TacticalParametersPanel:
+        return self._tactical_parameters_panel
+
+    @property
+    def tactical_parameters(self) -> TacticalParameterSpace:
+        return self._tactical_parameters_panel.parameters
 
     @property
     def vitals_panel(self) -> QGroupBox:
@@ -652,6 +686,7 @@ class MainWindow(QMainWindow):
             DashboardTab.COMBAT_TARGETS,
             self._target_panel,
             self._combat_panel,
+            self._tactical_parameters_panel,
             self._recovery_panel,
         )
         self._add_scroll_tab(
@@ -740,6 +775,9 @@ class MainWindow(QMainWindow):
         )
         self._combat_panel.verification_toggle.toggled.connect(self._on_kill_verification_changed)
         self._combat_panel.anchor_spin.valueChanged.connect(self._on_anchor_threshold_changed)
+        self._tactical_parameters_panel.parameters_changed.connect(
+            self._on_tactical_parameters_changed
+        )
         self._target_panel.selection_changed.connect(self._on_target_selection_changed)
         self._quest_panel.selection_changed.connect(self.quest_selection_changed)
         self._recovery_panel.timeout_spin.valueChanged.connect(self._on_emergency_changed)
@@ -756,6 +794,23 @@ class MainWindow(QMainWindow):
     def _on_vitals_changed(self) -> None:
         config = self._settings.save_vitals()
         self.vitals_config_changed.emit(config)
+        parameters = self._tactical_parameters_panel.parameters
+        hp = config.rule_for(VitalTriggerType.HP)
+        mp = config.rule_for(VitalTriggerType.MP)
+        if hp is not None:
+            parameters = parameters.with_value(
+                TacticalParameterName.HP_POTION_THRESHOLD_PERCENT,
+                hp.threshold_percentage,
+            ).with_value(
+                TacticalParameterName.RECOVERY_DEBOUNCE_SECONDS,
+                hp.debounce_seconds,
+            )
+        if mp is not None:
+            parameters = parameters.with_value(
+                TacticalParameterName.MP_THRESHOLD_PERCENT,
+                mp.threshold_percentage,
+            )
+        self._tactical_parameters_panel.set_parameters(parameters, emit=True)
 
     @Slot()
     def _on_combat_class_changed(self) -> None:
@@ -797,6 +852,55 @@ class MainWindow(QMainWindow):
             self._combat_panel.class_selector.setCurrentIndex(
                 list(CombatClassProfile).index(profile)
             )
+        self._tactical_parameters_panel.set_parameters(
+            self._tactical_parameters_panel.parameters.with_value(
+                TacticalParameterName.ENGAGEMENT_DISTANCE_UNITS,
+                distance_units,
+            ),
+            emit=True,
+        )
+
+    @Slot(object)
+    def _on_tactical_parameters_changed(self, parameters: object) -> None:
+        if not isinstance(parameters, TacticalParameterSpace):
+            return
+        for widget, value in (
+            (self._combat_panel.engagement_distance_spin, parameters.engagement_distance_units),
+            (self._combat_panel.anchor_spin, parameters.target_verification_threshold),
+        ):
+            widget.blockSignals(True)
+            widget.setValue(value)
+            widget.blockSignals(False)
+        current = self._vitals_panel.get_config()
+        blockers = [
+            QSignalBlocker(control)
+            for row in self._vitals_panel.rows
+            for control in (row.enabled, row.threshold, row.hotkey, row.debounce)
+        ]
+        self._vitals_panel.load_config(
+            VitalsTriggerConfig(
+                rules=tuple(
+                    replace(
+                        rule,
+                        threshold_percentage=(
+                            parameters.hp_potion_threshold_percent
+                            if rule.vital_type is VitalTriggerType.HP
+                            else parameters.mp_threshold_percent
+                            if rule.vital_type is VitalTriggerType.MP
+                            else rule.threshold_percentage
+                        ),
+                        debounce_seconds=(
+                            parameters.recovery_debounce_seconds
+                            if rule.vital_type in {VitalTriggerType.HP, VitalTriggerType.MP}
+                            else rule.debounce_seconds
+                        ),
+                    )
+                    for rule in current.rules
+                )
+            )
+        )
+        del blockers
+        self.tactical_parameters_changed.emit(parameters)
 
     def show_error_dialog(self, title: str, message: str) -> None:
         QMessageBox.warning(self, title, message)
@@ -885,6 +989,7 @@ class MainWindow(QMainWindow):
         self._placements_toggle.setText(self._translator.text(Message.UI_PLACEMENTS_TOGGLE))
         self._placements_toggle.setToolTip(self._translator.text(Message.UI_PLACEMENTS_TOOLTIP))
         self._combat_panel.retranslate(self._translator)
+        self._tactical_parameters_panel.retranslate(self._translator)
         self._recovery_panel.retranslate(self._translator)
         self._target_panel.set_translator(self._translator)
         self._quest_panel.set_translator(self._translator)
@@ -1007,6 +1112,7 @@ class MainWindow(QMainWindow):
         self._dungeon_panel.set_snapshots(update.dungeons)
         self._readiness_panel.set_status(update.readiness)
         self._combat_panel.set_policy_diagnostic(self._translator, update.policy_fault)
+        self._tactical_parameters_panel.show_diagnostics(update.tactical_parameter_diagnostics)
         self._event_log_panel.set_events(update.events)
         self._target_debug_panel.render_target(
             self._translator,
@@ -1074,6 +1180,13 @@ class MainWindow(QMainWindow):
     @Slot(float)
     def _on_anchor_threshold_changed(self, value: float) -> None:
         self.anchor_threshold_changed.emit(value)
+        self._tactical_parameters_panel.set_parameters(
+            self._tactical_parameters_panel.parameters.with_value(
+                TacticalParameterName.TARGET_VERIFICATION_THRESHOLD,
+                value,
+            ),
+            emit=True,
+        )
 
     @Slot(bool)
     def _on_kill_verification_changed(self, enabled: bool) -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +57,11 @@ from flyff_bot.features.navigation.live_position import (
 )
 from flyff_bot.features.navigation.pathing import (
     PathingController,
+)
+from flyff_bot.features.navigation.vector_navigation import VectorZoneNavigator
+from flyff_bot.features.navigation.world_extractor import (
+    VectorSpawnZone,
+    WorldVectorMap,
 )
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
 from flyff_bot.features.player_stats.models import (
@@ -1516,3 +1521,28 @@ def test_repeated_pause_from_the_same_mode_does_not_duplicate_events(tmp_path: P
     orchestrator.pause()
 
     assert len(logger.recent_events) == 2
+
+
+class _SpawnZoneRecordingPipeline(_Pipeline):
+    """A pipeline that records the spawn declarations a session hands it."""
+
+    def __init__(self, states: list[WorldState]) -> None:
+        super().__init__(states)
+        self.spawn_zones: list[tuple[VectorSpawnZone, ...]] = []
+
+    def attach_spawn_zones(self, zones: Iterable[VectorSpawnZone]) -> None:
+        self.spawn_zones.append(tuple(zones))
+
+
+def test_adopting_a_world_map_hands_perception_its_spawn_declarations(
+    world_map: WorldVectorMap,
+) -> None:
+    """US-083: the adopted map is what declares how densely each mover spawns."""
+
+    pipeline = _SpawnZoneRecordingPipeline([_state(1.0)])
+    orchestrator = _orchestrator([_state(1.0)], _InputAdapter(), pipeline=pipeline)
+
+    orchestrator.configure_vector_navigation(VectorZoneNavigator(world_map))
+    orchestrator.configure_vector_navigation(None)
+
+    assert pipeline.spawn_zones == [world_map.zones, ()]

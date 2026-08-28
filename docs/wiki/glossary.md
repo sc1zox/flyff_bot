@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-26
+updated: 2026-08-28
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -15,6 +15,8 @@ related:
   - ../decisions/ADR-006-read-only-process-memory-access.md
   - ../user-stories/completed/US-071-unified-rl-environment-and-reward.md
   - ../user-stories/completed/US-077-central-live-state-readiness-gate.md
+  - ../user-stories/completed/US-084-ml-modifiable-tactical-parameters-and-tuning.md
+  - ../decisions/ADR-009-bounded-tactical-parameter-space.md
 ---
 
 # Glossary
@@ -441,6 +443,18 @@ related:
 - **Hierarchical policy** — The US-073 two-tier boundary where a macro-event-driven strategic head
   selects a sub-goal and a tactical head selects a prevalidated action; deterministic controllers
   and safety guards remain outside it.
+- **Tactical parameter space** — The immutable `TacticalParameterSpace` containing exactly 16
+  bounded operational scalar parameters, plus optional per-monster engagement distances. It
+  excludes system invariants such as keys, offsets, focus checks, emergency stops, and digests.
+- **Tactical parameter profile** — A deterministic, digest-checked `us084-v1` JSON document holding
+  one tactical parameter vector. It is standalone and suitable for a future US-081 registry
+  reference; it is not itself a train/evaluate/promote registry entry.
+- **Transient approach override** — A one-decision, prevalidated approach distance carried by an
+  `AttackPointAction`; it has the highest and final precedence after defaults, loaded profiles,
+  and per-monster profiles, and an invalid learned action fails closed under ADR-008.
+- **Open-loop actuator calibration** — A guarded camera pitch or zoom command whose parameter may
+  be tuned in the operational profile, but whose live client effect is not confirmed by automated
+  or offline evidence.
 - **World-map scene** — The read-only Qt scene built from one `WorldVectorMap` and optional baked
   NavMesh, rendering extracted terrain, passability, routes, and spawn zones with culling and X/Z
   hit-testing without injecting input into the client.

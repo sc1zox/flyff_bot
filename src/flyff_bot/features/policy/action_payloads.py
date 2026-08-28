@@ -166,6 +166,7 @@ class AttackPointAction:
     attack_point: tuple[float, float, float]
     approach_angle: float
     candidate_index: int | None = None
+    approach_distance_units: float | None = None
     kind: TacticalActionKind = TacticalActionKind.ATTACK_POINT
 
 

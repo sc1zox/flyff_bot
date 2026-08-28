@@ -1,4 +1,4 @@
-"""Reproducible masked policy training and two-head ONNX export for US-073."""
+"""Reproducible masked policy training and three-head ONNX export."""
 
 from __future__ import annotations
 
@@ -42,11 +42,13 @@ from flyff_bot.features.simulator.models import (
 )
 
 HIERARCHICAL_METADATA_FILENAME = "hierarchical-metadata.json"
-HIERARCHICAL_METADATA_SCHEMA_VERSION = 4
+HIERARCHICAL_METADATA_SCHEMA_VERSION = 5
 HIGH_LEVEL_INPUT_NAME = "strategic_features"
 MID_LEVEL_INPUT_NAME = "tactical_features"
+APPROACH_DISTANCE_INPUT_NAME = "approach_distance_features"
 HIGH_LEVEL_OUTPUT_NAME = "strategic_logits"
 MID_LEVEL_OUTPUT_NAME = "tactical_logits"
+APPROACH_DISTANCE_OUTPUT_NAME = "normalized_approach_distance"
 MINIMUM_TRAINING_EPISODES = 8
 EVALUATION_EPISODES = 4
 CALIBRATION_EPISODES = 4
@@ -63,7 +65,7 @@ Q_LEARNING_RATE = 0.35
 Q_DISCOUNT_FACTOR = 0.95
 Q_INITIAL_EXPLORATION = 0.5
 Q_MINIMUM_EXPLORATION = 0.05
-# Both heads emit one column per vocabulary member. Deriving the orders from the shared
+# Both categorical heads emit one column per vocabulary member. Deriving the orders from the shared
 # contract is what keeps an exported artifact readable by the live policy.
 HIGH_LEVEL_ACTION_ORDER = tuple(goal.value for goal in STRATEGIC_GOAL_ORDER)
 MID_LEVEL_ACTION_ORDER = tuple(action.value for action in TacticalActionKind)
@@ -110,6 +112,7 @@ class HierarchicalTrainingReport:
     baseline_kills_per_minute: float
     learned_objectives_per_minute: float
     baseline_objectives_per_minute: float
+    approach_distance_model_path: Path
 
 
 def train_hierarchical_policy(
@@ -134,6 +137,8 @@ def train_hierarchical_policy(
     features: list[NDArray[np.float64]] = []
     high_actions: list[int] = []
     mid_actions: list[int] = []
+    approach_features: list[NDArray[np.float64]] = []
+    approach_targets: list[float] = []
     for seed in seeds.training[:episode_count]:
         observation, mask = simulator.reset(seed=seed)
         terminated = False
@@ -142,11 +147,16 @@ def train_hierarchical_policy(
             action = learned_policy(observation, mask)
             features.append(simulator.encode(observation))
             high_actions.append(action)
-            mid_actions.append(MID_LEVEL_ACTION_ORDER.index(simulator.tactical_kind(action)))
+            tactical_kind = simulator.tactical_kind(action)
+            mid_actions.append(MID_LEVEL_ACTION_ORDER.index(tactical_kind))
+            if tactical_kind is TacticalActionKind.ATTACK_POINT:
+                approach_features.append(features[-1])
+                approach_targets.append(simulator.approach_distance_target(observation))
             observation, _reward, terminated, truncated, mask, _events = simulator.step(action)
 
     high_weights = _fit_linear_classifier(features, high_actions, len(HIGH_LEVEL_ACTION_ORDER))
     mid_weights = _fit_linear_classifier(features, mid_actions, len(MID_LEVEL_ACTION_ORDER))
+    approach_weights = _fit_linear_regressor(approach_features, approach_targets)
     learned_metrics, baseline_metrics = _evaluate_paired(
         simulator, high_weights, seeds=seeds.evaluation
     )
@@ -175,6 +185,12 @@ def train_hierarchical_policy(
         mid_weights,
         input_name=MID_LEVEL_INPUT_NAME,
         output_name=MID_LEVEL_OUTPUT_NAME,
+    )
+    approach_path = _export_policy_graph(
+        output_directory / "approach-distance.onnx",
+        approach_weights,
+        input_name=APPROACH_DISTANCE_INPUT_NAME,
+        output_name=APPROACH_DISTANCE_OUTPUT_NAME,
     )
     metadata_path = output_directory / HIERARCHICAL_METADATA_FILENAME
     reward_config = simulator.config.reward
@@ -217,6 +233,14 @@ def train_hierarchical_policy(
                 "action_order": list(MID_LEVEL_ACTION_ORDER),
                 "trained_actions": _trained_actions(mid_actions, MID_LEVEL_ACTION_ORDER),
             },
+            "approach_distance": {
+                "file": approach_path.name,
+                "sha256": _file_digest(approach_path),
+                "input_name": APPROACH_DISTANCE_INPUT_NAME,
+                "output_name": APPROACH_DISTANCE_OUTPUT_NAME,
+                "target": "normalized_prevalidated_option",
+                "sample_count": len(approach_targets),
+            },
         },
         "metrics": {
             "learned_kills_per_minute": report_metrics[0],
@@ -238,6 +262,7 @@ def train_hierarchical_policy(
         mid_path,
         episode_count,
         *report_metrics,
+        approach_path,
     )
 
 
@@ -381,6 +406,19 @@ def _fit_linear_classifier(
     return np.stack(weights, axis=1)
 
 
+def _fit_linear_regressor(
+    features: list[NDArray[np.float64]], targets: list[float]
+) -> NDArray[np.float64]:
+    if not features or len(features) != len(targets):
+        raise ValueError("Approach-distance training observations are empty or inconsistent.")
+    matrix = np.vstack(features).astype(np.float64)
+    labels = np.asarray(targets, dtype=np.float64)
+    if not np.isfinite(labels).all() or np.any((labels < 0.0) | (labels > 1.0)):
+        raise ValueError("Approach-distance labels must be finite and normalized.")
+    design = matrix.T @ matrix + np.eye(matrix.shape[1]) * RIDGE_PENALTY
+    return np.linalg.solve(design, matrix.T @ labels).reshape(-1, 1)
+
+
 def _export_policy_graph(
     path: Path,
     weights: NDArray[np.float64],
@@ -417,7 +455,7 @@ def _export_policy_graph(
 
 
 def read_hierarchical_metadata(path: Path) -> dict[str, object]:
-    """Read and strictly validate the two-head artifact provenance document.
+    """Read and strictly validate the three-head artifact provenance document.
 
     An artifact stamped with another decision contract is refused by
     :func:`verify_contract_document` rather than loaded through a compatibility shim (US-079).
@@ -435,7 +473,11 @@ def read_hierarchical_metadata(path: Path) -> dict[str, object]:
     if payload.get("schema_version") != HIERARCHICAL_METADATA_SCHEMA_VERSION:
         raise ValueError("schema_incompatible")
     verify_contract_document(payload.get(CONTRACT_DOCUMENT_KEY))
-    if not isinstance(models, dict) or set(models) != {"high_level", "mid_level"}:
+    if not isinstance(models, dict) or set(models) != {
+        "high_level",
+        "mid_level",
+        "approach_distance",
+    }:
         raise ValueError("model_heads_missing")
     expected_actions = {
         "high_level": list(HIGH_LEVEL_ACTION_ORDER),
@@ -459,6 +501,21 @@ def read_hierarchical_metadata(path: Path) -> dict[str, object]:
         model_path = path.parent / filename
         if not model_path.is_file() or _file_digest(model_path) != digest:
             raise ValueError("model_digest_mismatch")
+    approach = models.get("approach_distance")
+    if (
+        not isinstance(approach, dict)
+        or approach.get("target") != "normalized_prevalidated_option"
+        or not isinstance(approach.get("sample_count"), int)
+        or int(approach["sample_count"]) < 1
+    ):
+        raise ValueError("approach_distance_metadata_invalid")
+    approach_file = approach.get("file")
+    approach_digest = approach.get("sha256")
+    if not isinstance(approach_file, str) or not isinstance(approach_digest, str):
+        raise ValueError("model_metadata_invalid")
+    approach_path = path.parent / approach_file
+    if not approach_path.is_file() or _file_digest(approach_path) != approach_digest:
+        raise ValueError("model_digest_mismatch")
     if not isinstance(metrics, dict) or any(
         not isinstance(value, int | float) or not math.isfinite(float(value))
         for value in metrics.values()

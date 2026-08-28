@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from flyff_bot.features.automation.models import (
@@ -13,6 +13,7 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
     WorldState,
 )
+from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 
 VIRTUAL_KEY_SPACE = 0x20
 VIRTUAL_KEY_DIGIT_MINIMUM = 0x30
@@ -38,6 +39,7 @@ VIRTUAL_KEY_DOWN = 0x28
 DEFAULT_TARGET_ACQUISITION_GRACE_SECONDS = 0.8
 DEFAULT_ENGAGEMENT_GRACE_SECONDS = 0.5
 DEFAULT_TARGET_LOCKOUT_SECONDS = 1.0
+DEFAULT_CLICK_DEBOUNCE_SECONDS = 0.2
 DEFAULT_TARGET_LOCKOUT_RADIUS_PIXELS = 15
 DEFAULT_ENGAGEMENT_TIMEOUT_SECONDS = 10.0
 # A location that blocked two approaches in a row is treated as unreachable rather than
@@ -197,6 +199,7 @@ class CombatConfig:
     engagement_grace_seconds: float = DEFAULT_ENGAGEMENT_GRACE_SECONDS
     kill_verification_enabled: bool = True
     target_lockout_seconds: float = DEFAULT_TARGET_LOCKOUT_SECONDS
+    click_debounce_seconds: float = DEFAULT_CLICK_DEBOUNCE_SECONDS
     target_lockout_radius_pixels: int = DEFAULT_TARGET_LOCKOUT_RADIUS_PIXELS
     engagement_timeout_seconds: float = DEFAULT_ENGAGEMENT_TIMEOUT_SECONDS
     unreachable_lockout_seconds: float = DEFAULT_UNREACHABLE_LOCKOUT_SECONDS
@@ -213,6 +216,8 @@ class CombatConfig:
             raise ValueError("Engagement grace period must not be negative.")
         if self.target_lockout_seconds < 0.0:
             raise ValueError("Target lockout duration must not be negative.")
+        if self.click_debounce_seconds < 0.0:
+            raise ValueError("Target click debounce must not be negative.")
         if self.target_lockout_radius_pixels < 0:
             raise ValueError("Target lockout radius must not be negative.")
         if self.engagement_timeout_seconds <= 0.0:
@@ -285,11 +290,20 @@ class ApproachFailure:
 class CombatController:
     """Select and fight whitelisted mobs using later visual snapshots as verification."""
 
-    def __init__(self, config: CombatConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: CombatConfig | None = None,
+        *,
+        tactical_parameters: TacticalParameterSpace | None = None,
+    ) -> None:
         self._config = config or CombatConfig()
+        self._tactical_parameters = tactical_parameters
+        if tactical_parameters is not None:
+            self._config = _combat_config_with_parameters(self._config, tactical_parameters)
         self._mode = CombatMode.IDLE
         self._rotation_index = 0
         self._next_attack_at_seconds = 0.0
+        self._next_target_click_at_seconds = 0.0
         self._previous_hp_pixel_count: int | None = None
         self._previous_kill_count: int | None = None
         self._targeting_started_at_seconds: float | None = None
@@ -327,7 +341,17 @@ class CombatController:
     def update_config(self, config: CombatConfig) -> None:
         """Apply a new configuration without resetting the in-progress engagement."""
 
-        self._config = config
+        self._config = (
+            config
+            if self._tactical_parameters is None
+            else _combat_config_with_parameters(config, self._tactical_parameters)
+        )
+
+    def update_tactical_parameters(self, parameters: TacticalParameterSpace) -> None:
+        """Apply shared combat timing without resetting an in-progress engagement."""
+
+        self._tactical_parameters = parameters
+        self._config = _combat_config_with_parameters(self._config, parameters)
 
     def reset(self) -> None:
         """Finish a completed engagement so candidate selection can resume immediately."""
@@ -356,6 +380,8 @@ class CombatController:
         """
 
         if self._mode is CombatMode.IDLE:
+            if state.observed_at_seconds < self._next_target_click_at_seconds:
+                return CombatDecision(CombatMode.IDLE)
             eligible = self._eligible_candidates(state)
             candidate = (requested_target if requested_target in eligible else None) or (
                 self._best_candidate(state)
@@ -371,6 +397,9 @@ class CombatController:
             )
             self._engaged_position = _mob_center(candidate)
             self._engaged_class_name = candidate.class_name
+            self._next_target_click_at_seconds = (
+                state.observed_at_seconds + self._config.click_debounce_seconds
+            )
             return CombatDecision(
                 CombatMode.TARGETING,
                 CombatInputKind.CLICK,
@@ -661,6 +690,17 @@ class CombatController:
         self._last_progress_at_seconds = None
 
 
+def _combat_config_with_parameters(
+    config: CombatConfig, parameters: TacticalParameterSpace
+) -> CombatConfig:
+    return replace(
+        config,
+        key_press_duration_seconds=parameters.attack_key_delay_seconds,
+        target_lockout_seconds=parameters.target_lockout_seconds,
+        click_debounce_seconds=parameters.click_debounce_seconds,
+    )
+
+
 def _navmesh_candidate_key(mob: VisibleMob) -> tuple[int, float]:
     """Sort measured reachable routes ahead of unprojected viewport-only candidates."""
 
@@ -689,8 +729,18 @@ class NavigationController:
 class SearchController:
     """Emit timed rotation and roaming actions until a target is found."""
 
-    def __init__(self, config: SearchConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: SearchConfig | None = None,
+        *,
+        tactical_parameters: TacticalParameterSpace | None = None,
+    ) -> None:
         self._config = config or SearchConfig()
+        if tactical_parameters is not None:
+            self._config = replace(
+                self._config,
+                rotation_step_duration_seconds=tactical_parameters.search_turn_duration_seconds,
+            )
         self._mode = SearchMode.ROTATE
         self._started_at_seconds: float | None = None
         self._next_action_at_seconds = 0.0
@@ -723,6 +773,14 @@ class SearchController:
         self._rotation_index = 0
         self._roam_index = 0
         self._completed_cycles = 0
+
+    def update_tactical_parameters(self, parameters: TacticalParameterSpace) -> None:
+        """Apply the active search-turn duration without resetting the current sweep."""
+
+        self._config = replace(
+            self._config,
+            rotation_step_duration_seconds=parameters.search_turn_duration_seconds,
+        )
 
     def step(self, observed_at_seconds: float) -> SearchDecision:
         """Advance one non-blocking search tick using the latest perception timestamp."""

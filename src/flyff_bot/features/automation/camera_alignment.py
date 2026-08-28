@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
 
 from flyff_bot.features.automation.controllers import VIRTUAL_KEY_DOWN, VIRTUAL_KEY_UP
+from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 
 ZOOM_OUT_WHEEL_NOTCHES = 20
 PITCH_UP_HOLD_SECONDS = 0.8
 PITCH_DOWN_PULSE_SECONDS = 0.55
 STEP_SETTLE_SECONDS = 0.2
 DEFAULT_AUTO_ALIGN_CAMERA = True
+CALIBRATED_CAMERA_PITCH_DEGREES = 45.0
 
 
 class CameraAlignmentStatus(StrEnum):
@@ -70,12 +72,20 @@ class CameraAligner:
         window_handle: int,
         *,
         config: CameraAlignmentConfig | None = None,
+        tactical_parameters: TacticalParameterSpace | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._adapter = adapter
         self._window_handle = window_handle
         self._config = config or CameraAlignmentConfig()
+        if tactical_parameters is not None:
+            self._config = _camera_config_with_parameters(self._config, tactical_parameters)
         self._sleep = sleep
+
+    def update_tactical_parameters(self, parameters: TacticalParameterSpace) -> None:
+        """Apply bounded actuator targets for the next explicit alignment request."""
+
+        self._config = _camera_config_with_parameters(self._config, parameters)
 
     def align(self) -> CameraAlignmentStatus:
         """Run the standardized sequence, halting before any step that is no longer safe."""
@@ -120,3 +130,17 @@ class CameraAligner:
         if not self._adapter.is_foreground(self._window_handle):
             return CameraAlignmentStatus.FOCUS_LOST
         return None
+
+
+def _camera_config_with_parameters(
+    config: CameraAlignmentConfig, parameters: TacticalParameterSpace
+) -> CameraAlignmentConfig:
+    return replace(
+        config,
+        zoom_out_notches=round(parameters.camera_zoom_level),
+        pitch_down_pulse_seconds=(
+            PITCH_DOWN_PULSE_SECONDS
+            * parameters.camera_pitch_degrees
+            / CALIBRATED_CAMERA_PITCH_DEGREES
+        ),
+    )

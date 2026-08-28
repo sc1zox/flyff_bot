@@ -43,6 +43,10 @@ from flyff_bot.features.simulator.models import (
     SimulatorConfig,
     sample_log_normal,
 )
+from flyff_bot.features.tactical_parameters import (
+    DEFAULT_TACTICAL_PARAMETERS,
+    TacticalParameterSpace,
+)
 
 FULL_CIRCLE_RADIANS = math.tau
 INTERACTION_RADIUS_UNITS = 3.0
@@ -123,10 +127,12 @@ class FarmingSimulator:
         start: WorldCoordinate,
         objectives: tuple[QuestObjective, ...] = (),
         config: SimulatorConfig | None = None,
+        tactical_parameters: TacticalParameterSpace | None = None,
         seed: int | None = None,
     ) -> None:
         self._world_map = world_map
         self._config = config or SimulatorConfig()
+        self._tactical_parameters = tactical_parameters or DEFAULT_TACTICAL_PARAMETERS
         self._objectives = objectives
         self._start = start
         self._zones = world_map.zones
@@ -263,7 +269,7 @@ class FarmingSimulator:
 
         target = self._target
         return target is not None and self._distance(target.position_x, target.position_z) <= (
-            MAXIMUM_COMBAT_ENGAGE_DISTANCE_UNITS
+            self._tactical_parameters.engagement_distance_for(str(target.monster_id))
         )
 
     @property
@@ -505,7 +511,9 @@ class FarmingSimulator:
                 route = []
                 self._route_goal = None
                 break
-            if self._distance(waypoint.x, waypoint.z) <= ARRIVAL_EPSILON_UNITS:
+            if self._distance(waypoint.x, waypoint.z) <= (
+                self._tactical_parameters.navmesh_waypoint_arrival_units
+            ):
                 route.pop(0)
             else:
                 break
@@ -516,9 +524,12 @@ class FarmingSimulator:
         self, waypoint: WorldCoordinate, budget: float, tick: _TickAccounting
     ) -> float:
         bearing = self._bearing(waypoint.x, waypoint.z)
+        heading_error = abs(_signed_angle(bearing - self._heading))
+        if math.degrees(heading_error) <= self._tactical_parameters.heading_tolerance_degrees:
+            return budget
         turn_seconds = min(
             budget,
-            _signed_angle(bearing - self._heading) / self._config.turn_rate_radians_per_second,
+            heading_error / self._config.turn_rate_radians_per_second,
         )
         self._heading = bearing
         self._travel_seconds += turn_seconds

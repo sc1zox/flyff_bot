@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Protocol
 
 from flyff_bot.features.automation.controllers import DEFAULT_KEY_PRESS_DURATION_SECONDS
 from flyff_bot.features.automation.models import ActionKind, PlayerVitals, WorldState
+from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 
 DEFAULT_HP_THRESHOLD_PERCENTAGE = 70.0
 DEFAULT_MP_THRESHOLD_PERCENTAGE = 30.0
@@ -107,14 +108,26 @@ class VitalsInputAdapter(Protocol):
 class VitalsTriggerController:
     """Evaluate WorldState player vitals against rules with priority and debounce."""
 
-    def __init__(self, config: VitalsTriggerConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: VitalsTriggerConfig | None = None,
+        *,
+        tactical_parameters: TacticalParameterSpace | None = None,
+    ) -> None:
         self._config = config or VitalsTriggerConfig()
+        if tactical_parameters is not None:
+            self._config = _vitals_config_with_parameters(self._config, tactical_parameters)
         self._last_triggered_at_seconds: dict[VitalTriggerType, float] = {}
 
     def update_config(self, config: VitalsTriggerConfig) -> None:
         """Update the active rules configuration."""
 
         self._config = config
+
+    def update_tactical_parameters(self, parameters: TacticalParameterSpace) -> None:
+        """Apply shared recovery thresholds while preserving keys and enabled flags."""
+
+        self._config = _vitals_config_with_parameters(self._config, parameters)
 
     def reset(self) -> None:
         """Clear all debounce cooldowns."""
@@ -163,6 +176,29 @@ class VitalsTriggerController:
         if vital_type is VitalTriggerType.FP:
             return vitals.fp_percentage
         return 100.0
+
+
+def _vitals_config_with_parameters(
+    config: VitalsTriggerConfig, parameters: TacticalParameterSpace
+) -> VitalsTriggerConfig:
+    thresholds = {
+        VitalTriggerType.HP: parameters.hp_potion_threshold_percent,
+        VitalTriggerType.MP: parameters.mp_threshold_percent,
+    }
+    return VitalsTriggerConfig(
+        rules=tuple(
+            replace(
+                rule,
+                threshold_percentage=thresholds.get(rule.vital_type, rule.threshold_percentage),
+                debounce_seconds=(
+                    parameters.recovery_debounce_seconds
+                    if rule.vital_type in thresholds
+                    else rule.debounce_seconds
+                ),
+            )
+            for rule in config.rules
+        )
+    )
 
 
 class VitalsInputDispatcher:
