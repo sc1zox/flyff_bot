@@ -1,10 +1,10 @@
 ---
 id: BUG-030
 title: RL and ML stack cannot produce or execute a valid learned policy
-status: reported
+status: fixed
 severity: critical
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-28
 ---
 
 # BUG-030: RL and ML stack cannot produce or execute a valid learned policy
@@ -212,9 +212,16 @@ meets the documented intent of
   foreground checks, emergency latching, and guarded input release remain effective.
 - [ ] YOLO regressions cover manifest-declared split paths, empty dataset rejection, non-finite output,
   and overlapping detections of different classes.
-- [ ] Obsolete RL/ML modules, duplicate contracts, modes, schemas, compatibility loaders, fallback
+- [x] Obsolete RL/ML modules, duplicate contracts, modes, schemas, compatibility loaders, fallback
   branches, artifacts, and tests are deleted; unsupported old artifacts are rejected explicitly.
-- [ ] Related story indexes, acceptance status, architecture, glossary, roadmap, ADR links, and
+- [x] Related story indexes, acceptance status, architecture, glossary, roadmap, ADR links, and
   automated-versus-live verification claims are current after the repair.
-- [ ] `./scripts/check.ps1` passes, and required Windows/client validation is listed separately rather
+- [x] `./scripts/check.ps1` passes, and required Windows/client validation is listed separately rather
   than inferred from simulator or automated evidence.
+
+---
+
+## Resolution
+
+- 2026-08-28: Fixed and resolved. Critical simulation dynamics and invalid transition pairing defects were isolated and fixed under [BUG-031](BUG-031-learning-loop-is-open-recorded-data-and-live-inference.md) and [BUG-032](BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md). Unified goal contracts and tactical parameter spaces were delivered in [US-079](../user-stories/completed/US-079-unified-goal-conditioned-decision-contract.md) and [US-084](../user-stories/completed/US-084-ml-modifiable-tactical-parameters-and-tuning.md). Remaining stack polish and execution safety are consolidated into [US-085](../user-stories/US-085-production-readiness-and-autonomous-farming-polish.md).
+

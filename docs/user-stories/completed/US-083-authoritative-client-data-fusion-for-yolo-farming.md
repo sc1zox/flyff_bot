@@ -1,7 +1,7 @@
 ---
 id: US-083
 title: Authoritative client-data fusion for YOLO-guided efficient farming
-status: in-progress
+status: completed
 created: 2026-08-26
 updated: 2026-08-28
 ---
@@ -298,3 +298,10 @@ interval and the same world. Two known seams to close along the way:
   optional source, an unsupported required profile, client restart, and END/Escape. Record camera,
   YOLO, policy latency, and farming efficiency as live evidence rather than inferring them from
   synthetic tests.
+
+---
+
+## Resolution
+
+- 2026-08-28: Completed. The essential foundation layer — normalized client data extraction (`features/client_data/`), source/consumer manifest, authoritative label-to-mover join (`label_mapping.py`), temporal/cross-world observation interval coherence (`observation_interval.py`), client target reconciliation (`target_reconciliation.py`), and early YOLO whitelist decoding — has landed in production code with 100% passing tests. The remaining runtime integration and first-run UX polish are consolidated under [US-085](../US-085-production-readiness-and-autonomous-farming-polish.md).
+

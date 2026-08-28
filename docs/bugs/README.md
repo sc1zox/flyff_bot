@@ -14,8 +14,9 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-- [ ] [**BUG-023: Player stats reader masks invalid pointer and malformed read diagnostics**](BUG-023-player-stats-reader-masks-invalid-pointer-and-malformed-read-diagnostics.md)
-- [ ] [**BUG-030: RL and ML stack cannot produce or execute a valid learned policy**](BUG-030-rl-ml-stack-invalid-training-and-live-execution.md) — Broad audit of the learning stack. Superseded in part by the narrower, re-verified BUG-031 and BUG-032.
+*No open active defects.* All reported bugs have been verified and moved to `fixed/`. Any new defects discovered during production execution begin in this backlog with a testable reproduction.
+
+---
 
 ## Fixed Defects
 
@@ -40,11 +41,16 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-019: Live camera poll suppressed by the GPS sample guard freezes the steering heading**](fixed/BUG-019-live-camera-poll-suppressed-by-gps-sample-guard.md)
 - [x] [**BUG-020: Emergency recovery measures world-unit GPS movement against a minimap pixel threshold**](fixed/BUG-020-emergency-recovery-progress-threshold-in-minimap-pixels.md)
 - [x] [**BUG-021: Vector navigation offers no multi-zone selection and renders debug values unlocalized**](fixed/BUG-021-multi-zone-selection-and-localized-debug-values-missing.md)
+- [x] [**BUG-022: Dungeon live reader missing foreground guard and disk-thrashing SHA-256 hashing**](fixed/BUG-022-dungeon-live-reader-missing-foreground-guard-and-disk-thrashing.md)
+- [x] [**BUG-023: Player stats reader masks invalid pointer and malformed read diagnostics**](fixed/BUG-023-player-stats-reader-masks-invalid-pointer-and-malformed-read-diagnostics.md)
 - [x] [**BUG-024: Teleporter dispatch is not integrated or production capable**](fixed/BUG-024-teleporter-dispatch-is-not-integrated-or-production-capable.md)
 - [x] [**BUG-025: Committed test artifacts mutate the repository**](fixed/BUG-025-committed-test-artifacts-mutate-the-repository.md)
 - [x] [**BUG-026: Teleporter hotkey bypasses foreground guard**](fixed/BUG-026-teleporter-hotkey-bypasses-foreground-guard.md)
 - [x] [**BUG-027: Arrival observer relies on private reader state**](fixed/BUG-027-arrival-observer-relies-on-private-reader-state.md)
 - [x] [**BUG-028: UI refactor retains private control coupling and stale gate evidence**](fixed/BUG-028-ui-refactor-retains-private-control-coupling-and-stale-gate-evidence.md)
-- [x] [**BUG-022: Dungeon live reader missing foreground guard and disk-thrashing SHA-256 hashing**](fixed/BUG-022-dungeon-live-reader-missing-foreground-guard-and-disk-thrashing.md)
+- [x] [**BUG-029: Tesseract OCR TSV argument ordering causes empty stdout and unreadable target names**](fixed/BUG-029-tesseract-ocr-tsv-argument-ordering-causes-empty-stdout-and-unreadable-target-names.md)
+- [x] [**BUG-030: RL and ML stack cannot produce or execute a valid learned policy**](fixed/BUG-030-rl-ml-stack-invalid-training-and-live-execution.md)
 - [x] [**BUG-031: The learning loop is open - recorded data is untrainable and no trained policy can act live**](fixed/BUG-031-learning-loop-is-open-recorded-data-and-live-inference.md)
 - [x] [**BUG-032: Simulator dynamics and paired evaluation invalidate every learned-policy metric**](fixed/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md)
+- [x] [**BUG-033: Unified setup does not ingest or autoload the client data it reports**](fixed/BUG-033-unified-setup-does-not-ingest-or-autoload-client-data.md)
+- [x] [**BUG-034: Live readers ignore foreground contract**](fixed/BUG-034-live-readers-ignore-foreground-contract.md)

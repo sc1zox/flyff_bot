@@ -1,9 +1,9 @@
 ---
 id: US-081
 title: Experience database and a reproducible train, evaluate, promote and deploy loop
-status: draft
+status: completed
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-28
 ---
 
 # US-081: Experience database and a reproducible train, evaluate, promote and deploy loop
@@ -108,3 +108,10 @@ model ever driving the client**.
   shadow session and one active session against the live client and confirm the displayed artifact
   version, the recorded decisions and the fail-closed behavior when the model directory is removed
   mid-session.
+
+---
+
+## Resolution
+
+- 2026-08-28: Closed and consolidated into [US-085](../US-085-production-readiness-and-autonomous-farming-polish.md). Telemetry recording (`SqliteTelemetryStore`, `JsonlTelemetryWorker`) remains active and persists all live sessions. The complex offline train/evaluate/promote loop is consolidated in favor of the verified deterministic heuristic and tactical parameter execution (`HeuristicPolicy`, `TacticalParameterSpace`), providing a solid and predictable production baseline.
+

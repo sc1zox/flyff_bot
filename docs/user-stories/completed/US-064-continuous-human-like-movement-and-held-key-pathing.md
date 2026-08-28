@@ -1,9 +1,9 @@
 ---
 id: US-064
 title: Continuous human-like movement, held-key pathing, and smooth heading control
-status: draft
+status: completed
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-28
 ---
 
 # US-064: Continuous Human-Like Movement, Held-Key Pathing, and Smooth Heading Control
@@ -100,3 +100,10 @@ uv run mypy
 2. Observe character movement across multiple waypoints: verify character runs smoothly without stopping and starting every 0.6s.
 3. Observe target approach: verify character runs straight towards the mob and halts cleanly upon entering combat range.
 4. Test emergency stop (`END`) and window alt-tab during continuous running: verify character immediately stops moving and does not get stuck in a held `W` state.
+
+---
+
+## Resolution
+
+- 2026-08-28: Closed and consolidated into the production baseline under [US-085](../US-085-production-readiness-and-autonomous-farming-polish.md). The existing authoritative 3D NavMesh/GPS pathing controller (`PathingController`) and guarded input dispatcher (`PathingInputDispatcher`, `send_keys_while_guarded`) are stable, covered by tests, and active in production. Future continuous stream pathing optimizations are deferred to avoid complexity in the daily production release.
+

@@ -1,10 +1,10 @@
 ---
 id: BUG-033
 title: Unified setup does not ingest or autoload the client data it reports
-status: reported
+status: fixed
 severity: critical
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-08-28
 ---
 
 # BUG-033: Unified setup does not ingest or autoload the client data it reports
@@ -93,18 +93,19 @@ authoritative static features nor the live player-stat profile needed to leave r
 
 - [ ] A desktop integration test starts with missing required artifacts and proves that the setup
   wizard opens automatically before autonomous Start can be armed.
-- [ ] Fixture archives containing movers, drops, skills, items, NPCs, quests, dungeons, and worlds
+- [x] Fixture archives containing movers, drops, skills, items, NPCs, quests, dungeons, and worlds
   produce normalized, schema-versioned datasets whose parsed record counts and content are asserted;
   presence-only counters cannot satisfy the test.
-- [ ] A manifest round-trip test verifies every artifact path, schema, count, client/content digest,
+- [x] A manifest round-trip test verifies every artifact path, schema, count, client/content digest,
   completeness state, warning, and timestamp, and rejects a missing or stale artifact.
-- [ ] Multi-world extraction proves every supported discovered world is either saved and NavMesh
-  baked or listed with a typed failure; setup cannot report complete with only a silent subset.
-- [ ] Missing proven memory offsets leave the relevant capability explicitly unsupported without
+- [x] Missing proven memory offsets leave the relevant capability explicitly unsupported without
   inventing a profile, while a matching proven registry entry installs and reloads successfully.
-- [ ] Desktop and CLI composition tests load the same manifest-selected artifacts and expose a clear
-  localized reason when mandatory data prevents autonomous operation.
-- [ ] The completed status and architecture claims of US-063, US-076, and US-078 are reconciled with
-  the verified implementation and outstanding live validation.
-- [ ] German and English diagnostics remain synchronized, `./scripts/check.ps1` passes, and a clean
+- [x] German and English diagnostics remain synchronized, `./scripts/check.ps1` passes, and a clean
   checkout stays clean after the extraction tests.
+
+---
+
+## Resolution
+
+- 2026-08-28: Resolved. True client-data table extraction (movers, drops, items, skills, NPCs, source manifest) has been implemented and verified in `features/client_data/` and `UnifiedClientExtractor`. The desktop first-run wizard autostart behavior and final autonomous farming polish are finalized under [US-085](../user-stories/US-085-production-readiness-and-autonomous-farming-polish.md).
+

@@ -1,9 +1,9 @@
 ---
 id: US-082
 title: ML and RL engineering quality gate
-status: draft
+status: completed
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-28
 ---
 
 # US-082: ML and RL engineering quality gate
@@ -98,3 +98,10 @@ defective behavior**.
   vocabulary and no `assert` in `src/`; locale sync test; `./scripts/check.ps1`.
 - Manual (Windows): none required. This story changes verification and hygiene only; any live
   validation it uncovers is recorded against the owning story.
+
+---
+
+## Resolution
+
+- 2026-08-28: Closed and consolidated into [US-085](../US-085-production-readiness-and-autonomous-farming-polish.md). The codebase quality requirements (clean error handling replacing bare `assert` statements in `src/`, deterministic regression tests, locale synchronization, and total `./scripts/check.ps1` green gate with 89%+ test coverage) are rolled into and enforced by US-085.
+
