@@ -173,8 +173,6 @@
   "status.world_extracted": "{world}: {blocks} of {declared} terrain blocks, {zones} spawn zones, {obstacles} impassable areas -> {path}",
   "status.world_extraction_complete": "{regions} regions extracted into {directory}",
   "status.world_object_file_skipped": "{world}: the placed-object file {detail} uses an unsupported record layout and was skipped",
-  "ui.align_camera": "Align Camera",
-  "ui.align_camera_tooltip": "Zoom the camera out to its hard stop and set the standardized 45 degree pitch.",
   "ui.anchor_threshold": "Header anchor match threshold",
   "ui.anchor_threshold_tooltip": "Minimum template match score required to accept the target header. Lower it when a selected target is reported as no target.",
   "ui.attack_key": "Attack key",

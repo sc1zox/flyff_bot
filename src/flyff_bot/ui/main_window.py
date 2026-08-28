@@ -147,7 +147,6 @@ class MainWindow(QMainWindow):
     pause_requested = Signal()
     emergency_stop_requested = Signal()
     attack_key_changed = Signal(int)
-    align_camera_requested = Signal()
     auto_align_changed = Signal(bool)
     vitals_config_changed = Signal(object)
     powerup_config_changed = Signal(object)
@@ -281,7 +280,6 @@ class MainWindow(QMainWindow):
         self._start_button = self._controls_card.start_button
         self._pause_button = self._controls_card.pause_button
         self._attack_key_button = self._controls_card.attack_key_button
-        self._align_camera_button = self._controls_card.align_camera_button
         self._auto_align_toggle = self._controls_card.auto_align_toggle
         self._language_selector = self._controls_card.language_selector
 
@@ -550,10 +548,6 @@ class MainWindow(QMainWindow):
         return self._vitals_label
 
     @property
-    def align_camera_button(self) -> QPushButton:
-        return self._align_camera_button
-
-    @property
     def target_panel(self) -> TargetSelectionPanel:
         return self._target_panel
 
@@ -803,7 +797,6 @@ class MainWindow(QMainWindow):
         self._start_button.clicked.connect(self._request_start)
         self._pause_button.clicked.connect(self._request_pause)
         self._attack_key_button.clicked.connect(self._begin_attack_key_recording)
-        self._align_camera_button.clicked.connect(self._request_camera_alignment)
         self._auto_align_toggle.toggled.connect(self.auto_align_changed)
         self._attack_key_button.installEventFilter(self)
         self._camera_preview_toggle.toggled.connect(self._update_overlay_visibility)
@@ -1216,10 +1209,6 @@ class MainWindow(QMainWindow):
             self._tab_widget.setTabToolTip(int(tab), self._translator.text(tooltip_key))
 
     @Slot()
-    def _request_camera_alignment(self) -> None:
-        self.align_camera_requested.emit()
-
-    @Slot()
     def _begin_attack_key_recording(self) -> None:
         self._controls_card.begin_attack_key_recording(self._translator)
 
@@ -1292,9 +1281,6 @@ class MainWindow(QMainWindow):
             update.engagement_break,
         )
         self._monster_stats_panel.render_metrics(self._translator, update.state.monster_stats)
-        self._align_camera_button.setEnabled(
-            update.status in {BotStatus.PAUSED, BotStatus.STANDBY, BotStatus.ALIGNMENT_FAILED}
-        )
         if update.frame is not None:
             self._render_overlay_frame(update.frame, update.state)
 

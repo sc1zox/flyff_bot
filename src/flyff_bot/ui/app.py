@@ -97,8 +97,6 @@ class FarmingControls(Protocol):
 
     def configure_emergency_recovery(self, config: EmergencyRecoveryConfig) -> None: ...
 
-    def request_camera_alignment(self) -> None: ...
-
     def configure_auto_align(self, enabled: bool) -> None: ...
 
     def configure_policy_mode(self, mode: PolicyRuntimeMode) -> None: ...
@@ -161,7 +159,6 @@ def connect_farming_controls(
     window.powerup_config_changed.connect(orchestrator.configure_powerups)
     window.emergency_config_changed.connect(orchestrator.configure_emergency_recovery)
     window.auto_align_changed.connect(orchestrator.configure_auto_align)
-    window.align_camera_requested.connect(orchestrator.request_camera_alignment)
 
 
 def connect_vector_navigation(

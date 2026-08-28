@@ -173,8 +173,6 @@
   "status.world_extracted": "{world}: {blocks} von {declared} Geländeblöcken, {zones} Spawn-Zonen, {obstacles} unpassierbare Flächen -> {path}",
   "status.world_extraction_complete": "{regions} Regionen nach {directory} extrahiert",
   "status.world_object_file_skipped": "{world}: Die Objektdatei {detail} nutzt ein nicht unterstütztes Satzformat und wurde übersprungen",
-  "ui.align_camera": "Kamera ausrichten",
-  "ui.align_camera_tooltip": "Kamera bis zum Anschlag herauszoomen und den standardisierten 45-Grad-Winkel setzen.",
   "ui.anchor_threshold": "Schwellenwert Kopf-Anker",
   "ui.anchor_threshold_tooltip": "Mindestwert der Vorlagenübereinstimmung, damit der Zielkopf akzeptiert wird. Verringern, wenn ein ausgewähltes Ziel als kein Ziel gemeldet wird.",
   "ui.attack_key": "Angriffstaste",

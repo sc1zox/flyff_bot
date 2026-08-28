@@ -228,8 +228,6 @@ class Message(StrEnum):
     UI_ATTACK_KEY_TOOLTIP = "ui.attack_key_tooltip"
     UI_ATTACK_KEY_RECORDING = "ui.attack_key_recording"
     UI_ATTACK_KEY_UNSUPPORTED = "ui.attack_key_unsupported"
-    UI_ALIGN_CAMERA = "ui.align_camera"
-    UI_ALIGN_CAMERA_TOOLTIP = "ui.align_camera_tooltip"
     UI_AUTO_ALIGN_CAMERA = "ui.auto_align_camera"
     UI_AUTO_ALIGN_CAMERA_TOOLTIP = "ui.auto_align_camera_tooltip"
     UI_CAMERA_PREVIEW = "ui.camera_preview"

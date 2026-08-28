@@ -872,9 +872,8 @@ still. The blocking sequence runs on the existing `SessionWorker` thread, never 
 and the orchestrator publishes the `BotStatus.ALIGNING` dashboard update *before* it blocks so the
 badge covers the whole sequence. A failed pre-flight never farms on an uncalibrated perspective: a
 lost foreground pauses the session and latches `BotStatus.ALIGNMENT_FAILED` until the next start,
-and a held `END` latches the session-local emergency stop. The dashboard's "Align Camera" button
-queues the same routine for the next worker tick rather than calling it from the click handler, and
-is enabled only while the session is idle. `capture_spawn_distance_samples.py` runs the identical
+and a held `END` latches the session-local emergency stop. Pre-flight alignment is configured via the
+"Auto-align camera on start" dashboard toggle. `capture_spawn_distance_samples.py` runs the identical
 routine after `acquire_window` and refuses to record a run it could not align (`--no-camera-align`
 opts out).
 
