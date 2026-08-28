@@ -18,6 +18,11 @@ from flyff_bot.features.policy.action_payloads import (
     STRATEGIC_GOAL_ORDER,
     TACTICAL_ACTION_COUNT,
 )
+from flyff_bot.features.policy.artifact_binding import (
+    ARTIFACT_BINDING_DOCUMENT_KEY,
+    ArtifactBinding,
+    verify_artifact_binding,
+)
 from flyff_bot.features.rl.models import OBSERVATION_DIMENSION, RL_OBSERVATION_SCHEMA_VERSION
 from flyff_bot.features.rl.rewards import REWARD_CONFIG_VERSION
 from flyff_bot.features.tactical_parameters import TACTICAL_PARAMETER_SCHEMA_VERSION
@@ -104,11 +109,19 @@ def current_contract_stamp(*, reward_config_version: str = REWARD_CONFIG_VERSION
     )
 
 
-def verify_contract_document(document: object) -> ContractStamp:
+def verify_contract_document(
+    document: object, *, runtime_binding: ArtifactBinding | None = None
+) -> ContractStamp:
     """Return the stamp an artifact carries, or reject the artifact.
 
     Every difference is reported as the exact field that disagrees, so an operator is told why
     an artifact was refused instead of seeing a generic load failure. No shim is attempted.
+
+    ``runtime_binding`` is what this session can actually produce - the installed detector, the
+    tables, the geometry. It defaults to nothing, which is the fail-closed reading: an artifact
+    that names an input is refused unless the caller can prove that input is the one present.
+    An artifact that names none is unaffected, so nothing that never bound its inputs changes
+    behaviour.
     """
 
     if not isinstance(document, dict):
@@ -158,7 +171,21 @@ def verify_contract_document(document: object) -> ContractStamp:
     ):
         if expected_value != found_value:
             raise ContractVersionError(incompatibility, expected=expected_value, found=found_value)
+    # The schema versions agreeing only means the columns line up. What those columns *mean*
+    # depends on the detector, the tables, and the geometry the artifact was built from, so
+    # those are checked too and by digest (US-083 AC11).
+    verify_artifact_binding(
+        runtime_binding or ArtifactBinding(),
+        ArtifactBinding.from_document(_binding_document(document)),
+    )
     return found
+
+
+def _binding_document(document: dict[str, object]) -> dict[str, object]:
+    """Return the artifact's binding block, or nothing when it declares none."""
+
+    binding = document.get(ARTIFACT_BINDING_DOCUMENT_KEY)
+    return binding if isinstance(binding, dict) else {}
 
 
 def _read_stamp(document: dict[str, object]) -> ContractStamp:

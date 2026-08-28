@@ -102,7 +102,7 @@ coherent, safe control loop in the client**.
       exact mask and parameterized action, model/artifact version, latency, source freshness, route,
       combat/resource deltas, objective/loot outcome, and reward interval needed by US-081 without
       post-decision leakage.
-- [ ] Given offline training, evaluation, and live inference, when the same recorded state is encoded,
+- [x] Given offline training, evaluation, and live inference, when the same recorded state is encoded,
       then train/serve parity tests produce the same vector and candidate identities. Artifact
       metadata binds every static dataset, observation/action/reward schema, YOLO model/labels, world
       map/NavMesh, and training-session set by digest; a mismatch rejects the artifact without a

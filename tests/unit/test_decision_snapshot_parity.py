@@ -21,7 +21,11 @@ from flyff_bot.features.rl.models import (
     PlayerVitals,
     RlObservation,
 )
-from flyff_bot.features.telemetry.models import DecisionProvenance, primitive
+from flyff_bot.features.telemetry.models import (
+    CandidateFeatures,
+    DecisionProvenance,
+    primitive,
+)
 
 LEVEL = 72.0
 EXPERIENCE_FRACTION = 0.4
@@ -145,3 +149,46 @@ PROFILE_BLOCK_WIDTH = 19
 GOAL_BLOCK_WIDTH = 10
 PROFILE_BLOCK_START = OBSERVATION_DIMENSION - GOAL_BLOCK_WIDTH - PROFILE_BLOCK_WIDTH
 PROFILE_BLOCK_END = OBSERVATION_DIMENSION - GOAL_BLOCK_WIDTH
+
+
+def test_candidate_identities_survive_the_round_trip_unchanged() -> None:
+    """The identity a candidate had when it was decided on is the identity it replays with.
+
+    A vector that matches while the candidate identities have shifted is worse than one that
+    does not: the numbers line up, so nothing fails, and the recorded action now refers to a
+    different actor than the one it was taken against (US-083 AC11).
+    """
+
+    recorded: dict[str, object] = {
+        "player_position": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "player_velocity": {"x": 0.0, "y": 0.0, "z": 0.0},
+    }
+    candidates = tuple(
+        CandidateFeatures(
+            candidate_index=identity,
+            class_id=identity + 1,
+            class_name=f"Mob{identity}",
+            confidence=0.9,
+            x=0,
+            y=0,
+            width=10,
+            height=10,
+            center_x=5.0,
+            center_y=5.0,
+            screen_distance_to_center=None,
+            bbox_area=100,
+            world_position=None,
+            relative_distance=None,
+            relative_elevation=None,
+            target_navmesh_polygon_id=None,
+            path_distance=None,
+            is_locked_out=False,
+        )
+        # Deliberately not 0..n: the identities perception assigns are not list positions,
+        # so a replay that renumbered them would pass a naive equality check.
+        for identity in (7, 3, 11)
+    )
+
+    observation = ObservationSpace.from_telemetry_snapshot(recorded, candidates)
+
+    assert [item.candidate_index for item in observation.candidates] == [7, 3, 11]
