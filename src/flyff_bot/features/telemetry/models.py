@@ -201,6 +201,12 @@ class CandidateFeatures:
     target_navmesh_polygon_id: str | None
     path_distance: float | None
     is_locked_out: bool
+    #: The authoritative mover this detection joined to, and the artifact that bound it
+    #: (US-083). All three are absent together when the class never joined, so a replay can
+    #: tell an unmapped candidate from one mapped by a since-changed artifact.
+    mover_id: int | None = None
+    mover_symbol: str | None = None
+    catalog_mapping_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +219,12 @@ class TargetDecision:
     decision_reason: str
     decision_latency_ms: float
     candidates: tuple[CandidateFeatures, ...]
+    #: The artifact that actually produced this decision, so an outcome is never attributed
+    #: to a model that did not take it. Empty when the deterministic path decided.
+    model_artifact_version: str = ""
+    #: The exact legality mask the decision was taken under, in strategic-goal order. A
+    #: recorded choice cannot be evaluated without knowing what else was on offer.
+    action_mask: tuple[bool, ...] = ()
     active_goal: ActiveGoal | None = None
 
 

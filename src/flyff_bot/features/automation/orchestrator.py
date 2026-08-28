@@ -129,8 +129,14 @@ from flyff_bot.features.player_stats.models import (
     PlayerStatsReadErrorCode,
     PlayerStatsSource,
 )
-from flyff_bot.features.policy.contract import ContractVersionError
-from flyff_bot.features.policy.goal_preconditions import SessionGrounding
+from flyff_bot.features.policy.action_payloads import STRATEGIC_GOAL_ORDER, StrategicGoalKind
+from flyff_bot.features.policy.contract import ContractVersionError, current_contract_stamp
+from flyff_bot.features.policy.goal_preconditions import (
+    SessionGrounding,
+    can_engage_targets,
+    can_interact,
+    can_navigate,
+)
 from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjective,
     HierarchicalObjectiveKind,
@@ -1150,6 +1156,33 @@ class FarmingOrchestrator:
             grounding=self._session_grounding(),
         )
 
+    def _decision_artifact_version(self) -> str:
+        """Return the artifact that produced this decision, or empty for the heuristic path.
+
+        Empty rather than a placeholder name: the deterministic path is not a model, and
+        giving it a version would let it be compared against one in a promotion report.
+        """
+
+        if self._policy_mode is PolicyRuntimeMode.HEURISTIC or self._learned_policy is None:
+            return ""
+        return current_contract_stamp().contract_version
+
+    def _strategic_action_mask(self) -> tuple[bool, ...]:
+        """Return which strategic goals were legal when this decision was taken.
+
+        A recorded choice cannot be evaluated without knowing what else was on offer: the
+        same action is a good decision among three options and a forced one among one.
+        """
+
+        grounding = self._session_grounding()
+        legality = {
+            StrategicGoalKind.TARGET: can_engage_targets(grounding),
+            StrategicGoalKind.NAVIGATE: can_navigate(grounding),
+            StrategicGoalKind.INTERACT: can_interact(grounding),
+            StrategicGoalKind.WAIT: True,
+        }
+        return tuple(legality.get(goal, False) for goal in STRATEGIC_GOAL_ORDER)
+
     def _session_grounding(self) -> SessionGrounding:
         """Describe the facts that decide which goals can be grounded this tick (US-083).
 
@@ -1826,6 +1859,11 @@ class FarmingOrchestrator:
                 else None
             ),
             tactical_parameter_digest=self._tactical_parameters.content_digest,
+            # Attributing an outcome to the artifact that did not take the decision is how a
+            # promotion gate credits the wrong model, so the decision names its own producer
+            # and the mask it was taken under (US-083 AC10).
+            model_artifact_version=self._decision_artifact_version(),
+            action_mask=self._strategic_action_mask(),
         )
 
     def _advance(self) -> bool:

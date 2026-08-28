@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from math import dist, hypot
 from time import monotonic_ns
 
-from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.automation.models import VisibleMob, WorldState
 from flyff_bot.features.automation.readiness import LiveReadinessStatus
 from flyff_bot.features.automation.target_reconciliation import TargetAgreement
 from flyff_bot.features.navigation.live_camera import CameraState
@@ -226,6 +226,8 @@ class TelemetryRecorder:
         active_goal: ActiveGoal | None = None,
         executed_action: ParameterizedAction | None = None,
         tactical_parameter_digest: str,
+        model_artifact_version: str = "",
+        action_mask: tuple[bool, ...] = (),
     ) -> None:
         """Persist all visible alternatives in perception order at the actual click boundary."""
 
@@ -295,6 +297,7 @@ class TelemetryRecorder:
                         else projected.path_distance
                     ),
                     False if is_locked_out is None else is_locked_out(int(center_x), int(center_y)),
+                    *_catalog_provenance(state, mob),
                 )
             )
         if selected_index < 0:
@@ -309,6 +312,8 @@ class TelemetryRecorder:
             "active_goal": primitive(active_goal),
             "executed_action": primitive(executed_action),
             "tactical_parameter_digest": tactical_parameter_digest,
+            "model_artifact_version": model_artifact_version,
+            "action_mask": list(action_mask),
         }
         self._submit(TelemetryEventKind.TARGET_SELECTED, payload, timestamp_ns)
         self._decision_seconds += (timestamp_ns - self._selection_started_at_ns) / 1_000_000_000
@@ -666,3 +671,18 @@ def _decision_provenance(state: WorldState) -> DecisionProvenance:
         ),
         observation_interval_world_id=interval.world_id,
     )
+
+
+def _catalog_provenance(
+    state: WorldState, mob: VisibleMob
+) -> tuple[int | None, str | None, str | None]:
+    """Return the mover this detection joined to and the artifact that bound it.
+
+    All three are absent together when the class never joined, so a replay can tell an
+    unmapped candidate apart from one that was mapped by an artifact since replaced.
+    """
+
+    join = state.catalog_join(mob.candidate_index)
+    if join is None:
+        return None, None, None
+    return join.mover_id, join.mover_symbol, join.mapping_version

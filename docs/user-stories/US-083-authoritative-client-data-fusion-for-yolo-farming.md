@@ -97,7 +97,7 @@ coherent, safe control loop in the client**.
       time decomposition, distance, damage/resource cost, stalls, and action failures are shown
       separately. Given a goal or verified loot-value configuration, its reward weights and units
       are versioned and reported; the UI never labels an unobserved expected drop as real yield.
-- [ ] Given a live decision and its later outcome, when telemetry is recorded, then the session-safe
+- [x] Given a live decision and its later outcome, when telemetry is recorded, then the session-safe
       record contains the fused decision-time snapshot, candidate mapping/provenance, active goal,
       exact mask and parameterized action, model/artifact version, latency, source freshness, route,
       combat/resource deltas, objective/loot outcome, and reward interval needed by US-081 without
