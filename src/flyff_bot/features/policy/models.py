@@ -88,7 +88,14 @@ class PolicyCandidate:
     is_within_leash: bool
     is_navmesh_reachable: bool
     has_valid_world_position: bool
+    #: Index of this candidate in the eligible list the mask was built from. The policy's
+    #: action space is defined over these positions, so it is a list coordinate, not an
+    #: identity: the same actor gets a different position as other candidates come and go.
     original_position: int | None = None
+    #: The per-instance identity perception assigned when this box was decoded (US-079).
+    #: Telemetry, the catalog join and the client-target reconciliation all key on this,
+    #: because it is the only value that still means the same actor on the next tick.
+    candidate_identity: int | None = None
 
     @property
     def is_eligible(self) -> bool:

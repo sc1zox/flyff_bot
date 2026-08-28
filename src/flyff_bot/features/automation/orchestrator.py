@@ -82,6 +82,11 @@ from flyff_bot.features.automation.readiness import (
 )
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
+from flyff_bot.features.automation.target_reconciliation import (
+    TargetAgreement,
+    TargetReconciliation,
+    reconcile_selected_target,
+)
 from flyff_bot.features.automation.vitals_controller import (
     VitalsInputAdapter,
     VitalsInputDispatcher,
@@ -441,6 +446,7 @@ class FarmingOrchestrator:
         self._has_live_frame = False
         self._engagement_break: EngagementBreakReason | None = None
         self._engaged_monster_name: str | None = None
+        self._target_reconciliation = TargetReconciliation(TargetAgreement.NO_AUTHORITATIVE_PROFILE)
         self._camera_aligner = camera_aligner
         if self._camera_aligner is not None:
             update_tactical_parameters = getattr(
@@ -1096,6 +1102,12 @@ class FarmingOrchestrator:
                 self._policy_load_fault = None
         self._policy_runner = PolicyRunner(self._learned_policy, load_fault=self._policy_load_fault)
 
+    @property
+    def target_reconciliation(self) -> TargetReconciliation:
+        """Return whether the client and the engaged detection agree on the target."""
+
+        return self._target_reconciliation
+
     def _policy_candidates(self) -> tuple[PolicyCandidate, ...]:
         candidates = self._combat._eligible_candidates(self._state)
         allowed = self._config.combat.allowed_class_names
@@ -1115,6 +1127,7 @@ class FarmingOrchestrator:
                     mob.world_x is not None and mob.world_y is not None and mob.world_z is not None
                 ),
                 original_position=index,
+                candidate_identity=mob.candidate_index,
             )
             for index in eligible_positions
             for mob in (candidates[index],)
@@ -1900,6 +1913,20 @@ class FarmingOrchestrator:
                 self._record_kill(combat.engaged_class_name)
                 self._attribute_kill()
                 self._set_mode(FarmingMode.RECONCILING, reason="target_dead")
+                return False
+            # The client states exactly which actor is selected; perception infers it from a
+            # box. Attacking is the action that needs a proven identity, so a stated
+            # disagreement between the two stops the swing rather than resolving itself in
+            # favour of whichever source happened to be read last (US-083).
+            self._target_reconciliation = reconcile_selected_target(
+                self._state, combat.selected_mob
+            )
+            if self._target_reconciliation.blocks_identity_dependent_action:
+                self._approach_stalls.reset()
+                self._engaged_monster_name = None
+                self._set_mode(
+                    FarmingMode.SEARCHING, reason=TargetAgreement.IDENTITY_MISMATCH.value
+                )
                 return False
             if combat.mode in {CombatMode.ENGAGING, CombatMode.FIGHTING}:
                 if self._telemetry is not None:
