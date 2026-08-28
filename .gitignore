@@ -62,6 +62,10 @@ data/emergency_recovery_config.json
 # Quest database extracted from the operator's own client install (US-061)
 data/quests/
 
+# Catalog, world maps, and dungeon tables extracted from the operator's client install (US-085)
+data/client/
+data/dungeons/
+
 # Local per-monster kill history recorded during farming sessions
 data/kill_log.sqlite3
 

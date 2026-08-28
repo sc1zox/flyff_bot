@@ -54,3 +54,4 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-032: Simulator dynamics and paired evaluation invalidate every learned-policy metric**](fixed/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md)
 - [x] [**BUG-033: Unified setup does not ingest or autoload the client data it reports**](fixed/BUG-033-unified-setup-does-not-ingest-or-autoload-client-data.md)
 - [x] [**BUG-034: Live readers ignore foreground contract**](fixed/BUG-034-live-readers-ignore-foreground-contract.md)
+- [x] [**BUG-035: Setup wizard rejects the real Entropia client folder**](fixed/BUG-035-setup-wizard-rejects-the-real-entropia-client-folder.md)

@@ -20,6 +20,7 @@ from flyff_bot.features.setup.extraction import (
     _STAGE_COUNT,
     InvalidClientDirectory,
     UnifiedClientExtractor,
+    _validate_client_layout,
 )
 from flyff_bot.features.setup.models import SetupExtractionWarning
 from flyff_bot.features.setup.profiles import fingerprint_executable, install_matching_profile
@@ -61,6 +62,42 @@ def test_client_layout_validation_requires_executable_and_data(tmp_path: Path) -
     (root / "Data").mkdir(parents=True)
     (root / "neuz.exe").write_bytes(b"MZ")
     UnifiedClientExtractor.validate_client_directory(root)
+
+
+def test_client_layout_validation_accepts_architecture_subdirectories(tmp_path: Path) -> None:
+    for subdirectory in ("bin64", "bin32"):
+        root = tmp_path / subdirectory
+        (root / "Data").mkdir(parents=True)
+        (root / subdirectory).mkdir()
+        (root / subdirectory / "neuz.exe").write_bytes(b"MZ")
+
+        UnifiedClientExtractor.validate_client_directory(root)
+
+
+def test_client_layout_validation_prefers_the_sixty_four_bit_build(tmp_path: Path) -> None:
+    root = tmp_path / "Entropia"
+    (root / "Data").mkdir(parents=True)
+    for subdirectory in ("bin32", "bin64"):
+        (root / subdirectory).mkdir()
+        (root / subdirectory / "neuz.exe").write_bytes(b"MZ")
+
+    executable, data_root = _validate_client_layout(root)
+
+    assert executable == root / "bin64" / "neuz.exe"
+    assert data_root == root / "Data"
+
+
+def test_client_layout_validation_accepts_a_nested_install_directory(tmp_path: Path) -> None:
+    outer = tmp_path / "Entropia"
+    inner = outer / "Entropia"
+    (inner / "Data").mkdir(parents=True)
+    (inner / "bin64").mkdir()
+    (inner / "bin64" / "neuz.exe").write_bytes(b"MZ")
+
+    executable, data_root = _validate_client_layout(outer)
+
+    assert executable == inner / "bin64" / "neuz.exe"
+    assert data_root == inner / "Data"
 
 
 def test_first_run_detection_checks_all_required_datasets(

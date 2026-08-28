@@ -63,6 +63,14 @@ from flyff_bot.features.setup.profiles import (
 
 EXECUTABLE_NAME = "neuz.exe"
 DATA_DIRECTORY_NAME = "Data"
+# The shipped Entropia install keeps `neuz.exe` in an architecture folder next to `Data`, while
+# repacked copies place it in the install root. The 64-bit build is listed first because the
+# launcher starts it by default.
+EXECUTABLE_RELATIVE_PATHS: tuple[tuple[str, ...], ...] = (
+    (EXECUTABLE_NAME,),
+    ("bin64", EXECUTABLE_NAME),
+    ("bin32", EXECUTABLE_NAME),
+)
 WORLD_SUBDIRECTORY = "World"
 CLIENT_SYSTEM_DIRECTORY = "System2"
 DEFAULT_MEMORY_PROFILE_LANGUAGE = "English"
@@ -343,12 +351,19 @@ class UnifiedClientExtractor:
 
 
 def _validate_client_layout(client_root: Path) -> tuple[Path, Path]:
-    executable = client_root / EXECUTABLE_NAME
-    data_root = client_root / DATA_DIRECTORY_NAME
-    if executable.is_file() and data_root.is_dir():
-        return executable, data_root
-    nested_executable = client_root / client_root.name / EXECUTABLE_NAME
-    nested_data_root = client_root / client_root.name / DATA_DIRECTORY_NAME
-    if nested_executable.is_file() and nested_data_root.is_dir():
-        return nested_executable, nested_data_root
+    for candidate_root in (client_root, client_root / client_root.name):
+        data_root = candidate_root / DATA_DIRECTORY_NAME
+        if not data_root.is_dir():
+            continue
+        executable = _find_client_executable(candidate_root)
+        if executable is not None:
+            return executable, data_root
     raise InvalidClientDirectory(str(client_root))
+
+
+def _find_client_executable(candidate_root: Path) -> Path | None:
+    for relative_path in EXECUTABLE_RELATIVE_PATHS:
+        executable = candidate_root.joinpath(*relative_path)
+        if executable.is_file():
+            return executable
+    return None
