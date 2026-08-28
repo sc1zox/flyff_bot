@@ -7,7 +7,12 @@ import pytest
 
 from flyff_bot.features.automation.models import Position, Viewport, VisibleMob, WorldState
 from flyff_bot.features.navigation.world_extractor import WorldCoordinate, WorldVectorMap
-from flyff_bot.features.policy.action_payloads import CorridorAction, TacticalActionKind
+from flyff_bot.features.policy.action_payloads import (
+    CorridorAction,
+    ObjectiveKind,
+    TacticalActionKind,
+)
+from flyff_bot.features.policy.contract import CONTRACT_DOCUMENT_KEY, current_contract_stamp
 from flyff_bot.features.policy.hierarchical_onnx import HierarchicalOnnxPolicy
 from flyff_bot.features.policy.hierarchical_training import (
     HIERARCHICAL_METADATA_FILENAME,
@@ -24,15 +29,10 @@ from flyff_bot.features.policy.models import (
     PolicyContext,
 )
 from flyff_bot.features.policy.runner import PolicyRunner
-from flyff_bot.features.rl.models import (
-    OBSERVATION_DIMENSION,
-    RL_OBSERVATION_SCHEMA_VERSION,
-    NavMeshContext,
-    PlayerKinematics,
-)
-from flyff_bot.features.rl.rewards import RewardConfig
+from flyff_bot.features.rl.models import NavMeshContext, PlayerKinematics
+from flyff_bot.features.rl.rewards import REWARD_CONFIG_VERSION, RewardConfig
 from flyff_bot.features.simulator import CalibrationBaseline, CalibrationError
-from flyff_bot.features.simulator.models import QuestObjective, QuestObjectiveKind
+from flyff_bot.features.simulator.models import QuestObjective
 
 # Aggregates a recorded US-054 session on this region would have produced. The training run
 # refuses to write an artifact when its own rollouts drift away from them.
@@ -50,15 +50,15 @@ RECORDED_BASELINE = CalibrationBaseline(
 def _objective() -> TrainingObjective:
     return TrainingObjective(
         (
-            QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=2),
+            QuestObjective(ObjectiveKind.KILL, monster_id=7, required_count=2),
             QuestObjective(
-                QuestObjectiveKind.GO_TO,
+                ObjectiveKind.GO_TO,
                 position_x=20.0,
                 position_z=10.0,
                 radius_units=1.0,
             ),
             QuestObjective(
-                QuestObjectiveKind.TALK_TO_NPC,
+                ObjectiveKind.TALK_TO_NPC,
                 npc_id="npc-1",
                 position_x=20.0,
                 position_z=10.0,
@@ -84,10 +84,7 @@ def test_training_exports_distinct_heads_and_beats_paired_baseline(
     assert report.high_level_model_path.read_bytes() != report.mid_level_model_path.read_bytes()
     assert metadata["world_name"] == "WdTest"
     assert metadata["schema_version"] == HIERARCHICAL_METADATA_SCHEMA_VERSION
-    assert metadata["feature_schema"] == {
-        "version": RL_OBSERVATION_SCHEMA_VERSION,
-        "width": OBSERVATION_DIMENSION,
-    }
+    assert metadata[CONTRACT_DOCUMENT_KEY] == current_contract_stamp().as_document()
 
 
 def test_training_evaluation_and_calibration_seeds_are_disjoint() -> None:
@@ -197,6 +194,10 @@ def test_the_exported_metadata_names_one_versioned_reward_configuration(
     assert isinstance(training, dict)
 
     assert training["reward_config_json"] == RewardConfig().as_json()
+    assert training["reward_config_version"] == REWARD_CONFIG_VERSION
+    contract = metadata[CONTRACT_DOCUMENT_KEY]
+    assert isinstance(contract, dict)
+    assert contract["reward_config_version"] == REWARD_CONFIG_VERSION
 
 
 def test_model_digest_tampering_is_rejected(tmp_path: Path, world_map: WorldVectorMap) -> None:

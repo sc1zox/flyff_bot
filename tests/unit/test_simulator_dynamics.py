@@ -28,8 +28,8 @@ from flyff_bot.features.simulator import (
     FarmingSimulator,
     IllegalSimulatorAction,
     MonsterLifecycle,
+    ObjectiveKind,
     QuestObjective,
-    QuestObjectiveKind,
     SimulatorConfig,
 )
 from flyff_bot.features.simulator.engine import MAXIMUM_COMBAT_ENGAGE_DISTANCE_UNITS
@@ -60,7 +60,7 @@ def farm(simulation: FarmingSimulator, *, step_limit: int = 2000) -> bool:
 
 
 def kill_objective(count: int = 1) -> tuple[QuestObjective, ...]:
-    return (QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=count),)
+    return (QuestObjective(ObjectiveKind.KILL, monster_id=7, required_count=count),)
 
 
 def test_engaging_a_distant_monster_costs_travel_time_and_distance(
@@ -269,9 +269,7 @@ def test_an_objective_free_episode_runs_to_truncation_and_kills(
 def test_an_impassable_wall_forces_a_corridor_detour(
     blocked_world_map: WorldVectorMap,
 ) -> None:
-    goal = QuestObjective(
-        QuestObjectiveKind.GO_TO, position_x=60.0, position_z=10.0, radius_units=1.0
-    )
+    goal = QuestObjective(ObjectiveKind.GO_TO, position_x=60.0, position_z=10.0, radius_units=1.0)
     simulation = FarmingSimulator(
         blocked_world_map,
         start=START,
@@ -295,7 +293,7 @@ def test_an_impassable_wall_forces_a_corridor_detour(
 def test_the_simulator_scores_ticks_with_the_shared_reward_configuration(
     make_simulator: Callable[..., FarmingSimulator],
 ) -> None:
-    loud_idle = RewardConfig(idle_weight=0.5)
+    loud_idle = RewardConfig(idle_weight=0.5, version="test-loud-idle-v1")
     default = make_simulator(SimulatorConfig(tick_seconds=0.5), objectives=())
     configured = make_simulator(SimulatorConfig(tick_seconds=0.5, reward=loud_idle), objectives=())
     default.reset(seed=3)

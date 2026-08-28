@@ -1,12 +1,15 @@
-"""The single action contract shared by the simulator, the exporter and every live policy.
+"""The single decision contract shared by the simulator, the exporter and every live policy.
 
-Three vocabularies live here and nowhere else (US-079):
+Four vocabularies live here and nowhere else (US-079):
 
 * :class:`StrategicGoalKind` - the macro sub-goal the high-level tier picks. Its wire order is
   :data:`STRATEGIC_GOAL_ORDER`, which is also the offline simulator's discrete action space and
   the high-level head's output column order.
 * :class:`TacticalActionKind` - the kind of tactical payload the mid-level tier picks.
 * :class:`TacticalAction` - the stable discrete index a tactical payload encodes to.
+* :class:`ObjectiveKind` - what the objective the agent is currently pursuing asks for. Its wire
+  order is :data:`OBJECTIVE_KIND_ORDER`, the one-hot column order of the goal-conditioned
+  observation block.
 
 Defining any of them a second time would let an offline rollout and a live decision disagree
 about what an index means, which is exactly the drift BUG-031 recorded.
@@ -52,6 +55,40 @@ def strategic_goal_at(index: int) -> StrategicGoalKind:
     if not 0 <= index < STRATEGIC_GOAL_COUNT:
         raise ValueError("Unknown strategic goal index.")
     return STRATEGIC_GOAL_ORDER[index]
+
+
+@unique
+class ObjectiveKind(StrEnum):
+    """What the objective the agent is pursuing right now asks it to do.
+
+    The offline simulator's quest objectives and the live quest goal sequence are stated in
+    these same terms, so an observation encoded offline and one encoded live describe the same
+    goal with the same columns (US-079).
+    """
+
+    FARM = "farm"
+    GO_TO = "go_to"
+    KILL = "kill"
+    INTERACT = "interact"
+    TALK_TO_NPC = "talk_to_npc"
+
+
+# The one-hot column order of the objective kind inside every encoded observation. Trained
+# artifacts record this order, so the sequence is a wire contract and must stay stable.
+OBJECTIVE_KIND_ORDER: tuple[ObjectiveKind, ...] = (
+    ObjectiveKind.FARM,
+    ObjectiveKind.GO_TO,
+    ObjectiveKind.KILL,
+    ObjectiveKind.INTERACT,
+    ObjectiveKind.TALK_TO_NPC,
+)
+OBJECTIVE_KIND_COUNT = len(OBJECTIVE_KIND_ORDER)
+
+
+def objective_kind_index(kind: ObjectiveKind) -> int:
+    """Return the one-hot column one objective kind occupies in every observation."""
+
+    return OBJECTIVE_KIND_ORDER.index(kind)
 
 
 @unique

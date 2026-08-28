@@ -19,6 +19,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from flyff_bot.features.policy.action_payloads import TargetAction
+from flyff_bot.features.policy.contract import (
+    CONTRACT_DOCUMENT_KEY,
+    ContractStamp,
+    current_contract_stamp,
+    verify_contract_document,
+)
 from flyff_bot.features.rl.actions import (
     ParameterizedAction,
     TacticalActionCatalog,
@@ -26,7 +32,12 @@ from flyff_bot.features.rl.actions import (
 )
 from flyff_bot.features.rl.masking import build_tactical_mask
 from flyff_bot.features.rl.models import ObservationSpace, RlObservation, Transition
-from flyff_bot.features.rl.rewards import RewardConfig, RewardEngine, RewardEvent
+from flyff_bot.features.rl.rewards import (
+    DEFAULT_REWARD_CONFIG,
+    RewardConfig,
+    RewardEngine,
+    RewardEvent,
+)
 from flyff_bot.features.telemetry.models import (
     CandidateFeatures,
     CombatOutcome,
@@ -39,7 +50,10 @@ from flyff_bot.features.telemetry.storage import SqliteTelemetryStore
 PARQUET_COMPRESSION = "zstd"
 RL_TRANSITIONS_FILE = "rl_transitions.parquet"
 RL_PROVENANCE_FILE = "rl_provenance.json"
-RL_TRANSITION_SCHEMA_VERSION = "bug031-v1"
+RL_TRANSITION_SCHEMA_VERSION = "us079-v1"
+# Parquet stores its own key-value metadata as bytes, so the dataset carries the same stamp the
+# provenance document does without a per-row string column.
+CONTRACT_METADATA_KEY = b"decision_contract"
 DEFAULT_EXPORT_PATROL_RADIUS = 1000.0
 NANOSECONDS_PER_SECOND = 1_000_000_000
 
@@ -68,7 +82,7 @@ class TelemetryTransitionExporter:
     ) -> None:
         self._store = store
         self._patrol_radius = patrol_radius
-        self.reward_config = reward_config or RewardConfig()
+        self.reward_config = reward_config or DEFAULT_REWARD_CONFIG
 
     def export(self, output_directory: Path) -> tuple[Path, Path]:
         """Write transition and provenance artifacts, returning both paths."""
@@ -84,13 +98,20 @@ class TelemetryTransitionExporter:
         return transitions_path, provenance_path
 
     def provenance(self) -> str:
+        """Return the document stating which contract and reward version produced the rows."""
+
         return json.dumps(
             {
                 "schema_version": RL_TRANSITION_SCHEMA_VERSION,
+                CONTRACT_DOCUMENT_KEY: self._stamp().as_document(),
+                "reward_config_version": self.reward_config.version,
                 "reward_config_json": self.reward_config.as_json(),
             },
             sort_keys=True,
         )
+
+    def _stamp(self) -> ContractStamp:
+        return current_contract_stamp(reward_config_version=self.reward_config.version)
 
     def transitions(self) -> list[Transition]:
         """Return every complete transition, grouped and ordered per recorded session."""
@@ -182,6 +203,7 @@ class TelemetryTransitionExporter:
                 pa.field("action_target_class_id", pa.int32()),
                 pa.field("action_parameters_json", pa.string(), nullable=False),
                 pa.field("reward", pa.float64(), nullable=False),
+                pa.field("reward_config_version", pa.string(), nullable=False),
                 pa.field("reward_components_json", pa.string(), nullable=False),
                 pa.field("next_observation", pa.list_(pa.float64()), nullable=False),
                 pa.field("action_mask", pa.list_(pa.bool_()), nullable=False),
@@ -200,7 +222,12 @@ class TelemetryTransitionExporter:
                 pa.field("next_failed_source_codes", pa.list_(pa.string()), nullable=False),
                 pa.field("next_sample_ages_seconds_json", pa.string(), nullable=False),
                 pa.field("next_action_blocked", pa.bool_(), nullable=False),
-            ]
+            ],
+            metadata={
+                CONTRACT_METADATA_KEY: json.dumps(
+                    self._stamp().as_document(), sort_keys=True
+                ).encode("utf-8")
+            },
         )
         rows = [
             {
@@ -212,6 +239,7 @@ class TelemetryTransitionExporter:
                 "action_target_class_id": item.action.target_class_id,
                 "action_parameters_json": _action_json(item.action),
                 "reward": item.reward,
+                "reward_config_version": self.reward_config.version,
                 "reward_components_json": self.reward_config.as_json(),
                 "next_observation": ObservationSpace.encode(item.next_observation).tolist(),
                 "action_mask": list(item.action_mask.actions),
@@ -240,6 +268,21 @@ class TelemetryTransitionExporter:
             for item in transitions
         ]
         return pa.Table.from_pylist(rows, schema=schema)
+
+
+def read_transition_contract(transitions_path: Path) -> ContractStamp:
+    """Return the contract an exported dataset was produced under, or reject the dataset.
+
+    A dataset whose stamp disagrees with the running application describes different columns,
+    different action indices or differently weighted rewards, so it is refused instead of being
+    read as if it matched (US-079).
+    """
+
+    metadata = pq.read_schema(transitions_path).metadata or {}
+    document = metadata.get(CONTRACT_METADATA_KEY)
+    return verify_contract_document(
+        None if document is None else json.loads(document.decode("utf-8"))
+    )
 
 
 def interval_reward_event(events: SessionEvents, *, start_ns: int, end_ns: int) -> RewardEvent:

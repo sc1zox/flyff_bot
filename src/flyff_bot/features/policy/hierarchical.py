@@ -13,6 +13,7 @@ from flyff_bot.features.policy.action_payloads import (
     AttackPointAction,
     InteractAction,
     NavigateAction,
+    ObjectiveKind,
     TacticalActionKind,
     TargetAction,
     WaitAction,
@@ -54,6 +55,27 @@ class HierarchicalObjective:
     destination_reached: bool = False
     interaction_target_id: str | None = None
     interaction_type: str = "quest"
+    objective_id: str | None = None
+    objective_kind: ObjectiveKind | None = None
+
+    @property
+    def encoded_kind(self) -> ObjectiveKind:
+        """Return the objective kind this session is conditioned on.
+
+        The observation is conditioned on what the objective asks for, which is finer than the
+        objective family: a caller that does not state it gets the kind its family implies
+        (US-079).
+        """
+
+        return self.objective_kind or _DEFAULT_OBJECTIVE_KINDS[self.kind]
+
+    @property
+    def encoded_identity(self) -> str | None:
+        """Return the stable identity of this objective inside its quest sequence."""
+
+        if self.objective_id is not None:
+            return self.objective_id
+        return None if self.quest_id is None else f"{self.quest_id}:{self.objective_index}"
 
     def __post_init__(self) -> None:
         if self.objective_count < 1:
@@ -68,6 +90,15 @@ class HierarchicalObjective:
             raise ValueError("A navigation objective needs a destination.")
         if self.interaction_target_id is not None and not self.interaction_type:
             raise ValueError("A hierarchical interaction needs a type.")
+
+
+# What an objective asks for when its caller states only the objective family: a farming quota
+# is satisfied by kills, a navigation objective by arriving, a quest step by interacting.
+_DEFAULT_OBJECTIVE_KINDS = {
+    HierarchicalObjectiveKind.FARMING: ObjectiveKind.FARM,
+    HierarchicalObjectiveKind.NAVIGATION: ObjectiveKind.GO_TO,
+    HierarchicalObjectiveKind.QUEST: ObjectiveKind.INTERACT,
+}
 
 
 @dataclass(frozen=True, slots=True)

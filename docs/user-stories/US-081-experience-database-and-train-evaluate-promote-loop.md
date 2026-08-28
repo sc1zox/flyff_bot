@@ -36,7 +36,7 @@ model ever driving the client**.
     heuristic baseline (`features/ml/pipeline.py:202`), and `train_hierarchical_policy` gates only on
     two in-sample simulator metrics (see
     [BUG-032](../bugs/fixed/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md)).
-- Depends on [US-079](US-079-unified-goal-conditioned-decision-contract.md) for the contract and on
+- Depends on [US-079](completed/US-079-unified-goal-conditioned-decision-contract.md) for the contract and on
   [US-080](US-080-goal-driven-quest-execution-and-objective-bus.md) for goal-labelled experience.
 - Learning stays offline. Live sessions record experience; weights are never mutated in-process and
   no exploratory or random action is ever dispatched to the client. This preserves

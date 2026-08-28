@@ -11,8 +11,8 @@ from flyff_bot.features.policy.action_payloads import (
 from flyff_bot.features.simulator import (
     FarmingSimulator,
     MonsterLifecycle,
+    ObjectiveKind,
     QuestObjective,
-    QuestObjectiveKind,
     SimulatorConfig,
 )
 
@@ -42,7 +42,7 @@ def farm_until_first_kill(simulation: FarmingSimulator, *, step_limit: int = 400
 def test_combat_samples_are_positive_and_deterministic(
     make_simulator: Callable[..., FarmingSimulator],
 ) -> None:
-    objectives = (QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=1),)
+    objectives = (QuestObjective(ObjectiveKind.KILL, monster_id=7, required_count=1),)
     config = SimulatorConfig(combat_time_mu=1.5, tick_seconds=0.1)
     first = make_simulator(config, objectives=objectives)
     second = make_simulator(config, objectives=objectives)
@@ -63,7 +63,7 @@ def test_a_kill_costs_the_sampled_combat_duration(
 ) -> None:
     simulation = make_simulator(
         SimulatorConfig(combat_time_mu=3.0, combat_time_sigma=0.0, tick_seconds=0.5),
-        objectives=(QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=1),),
+        objectives=(QuestObjective(ObjectiveKind.KILL, monster_id=7, required_count=1),),
     )
     simulation.reset(seed=5)
 
@@ -78,7 +78,7 @@ def test_dead_monsters_respawn_after_the_zone_timer_without_exceeding_capacity(
 ) -> None:
     simulation = make_simulator(
         SimulatorConfig(tick_seconds=0.5),
-        objectives=(QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=4),),
+        objectives=(QuestObjective(ObjectiveKind.KILL, monster_id=7, required_count=4),),
     )
     observation, _info = simulation.reset(seed=3)
 

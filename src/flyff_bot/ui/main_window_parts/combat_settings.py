@@ -24,6 +24,8 @@ from flyff_bot.features.automation.orchestrator import (
     DEFAULT_POLICY_RUNTIME_MODE,
     PolicyRuntimeMode,
 )
+from flyff_bot.features.policy.contract import ContractIncompatibility
+from flyff_bot.features.policy.runner import PolicyFault
 from flyff_bot.features.vision.target_verification import (
     DEFAULT_ANCHOR_MATCH_THRESHOLD,
     MAXIMUM_MATCH_THRESHOLD,
@@ -123,14 +125,17 @@ class CombatSettingsPanel(QGroupBox):
         layout.addWidget(self._anchor_label, 7, 0)
         layout.addWidget(self.anchor_spin, 7, 1)
 
-    def set_policy_diagnostic(self, translator: Translator, reason: str | None) -> None:
-        """Show why learned automation stopped, or hide the diagnostic when it is running."""
+    def set_policy_diagnostic(self, translator: Translator, fault: PolicyFault | None) -> None:
+        """Show why learned automation stopped, or hide the diagnostic when it is running.
 
-        self.policy_diagnostic_label.setVisible(reason is not None)
+        An artifact refused because it was produced under another decision contract is reported
+        as its own complete sentence naming both versions, never as a raw code pasted into a
+        sentence (US-079).
+        """
+
+        self.policy_diagnostic_label.setVisible(fault is not None)
         self.policy_diagnostic_label.setText(
-            ""
-            if reason is None
-            else translator.text(Message.POLICY_MODEL_UNAVAILABLE, reason=reason)
+            "" if fault is None else _policy_fault_text(translator, fault)
         )
 
     def _browse_policy_model_directory(self) -> None:
@@ -188,3 +193,25 @@ class CombatSettingsPanel(QGroupBox):
         self.verification_toggle.setToolTip(translator.text(Message.UI_KILL_VERIFICATION_TOOLTIP))
         self._anchor_label.setText(translator.text(Message.UI_ANCHOR_THRESHOLD))
         self.anchor_spin.setToolTip(translator.text(Message.UI_ANCHOR_THRESHOLD_TOOLTIP))
+
+
+# One complete localized sentence per way an artifact can disagree with the running contract.
+_CONTRACT_MESSAGES = {
+    ContractIncompatibility.CONTRACT_MISSING: Message.POLICY_CONTRACT_STAMP_MISSING,
+    ContractIncompatibility.CONTRACT_VERSION: Message.POLICY_CONTRACT_VERSION_MISMATCH,
+    ContractIncompatibility.OBSERVATION_SCHEMA: Message.POLICY_CONTRACT_OBSERVATION_SCHEMA,
+    ContractIncompatibility.OBSERVATION_WIDTH: Message.POLICY_CONTRACT_OBSERVATION_WIDTH,
+    ContractIncompatibility.GOAL_VOCABULARY: Message.POLICY_CONTRACT_GOAL_VOCABULARY,
+    ContractIncompatibility.ACTION_VOCABULARY: Message.POLICY_CONTRACT_ACTION_VOCABULARY,
+    ContractIncompatibility.REWARD_CONFIG: Message.POLICY_CONTRACT_REWARD_CONFIG,
+}
+
+
+def _policy_fault_text(translator: Translator, fault: PolicyFault) -> str:
+    """Return the complete localized sentence one halted learned session is reported with."""
+
+    if fault.incompatibility is None:
+        return translator.text(Message.POLICY_MODEL_UNAVAILABLE, reason=fault.reason)
+    return translator.text(
+        _CONTRACT_MESSAGES[fault.incompatibility], expected=fault.expected, found=fault.found
+    )

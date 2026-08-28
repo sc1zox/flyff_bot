@@ -20,6 +20,11 @@ from flyff_bot.features.policy.action_payloads import (
     TacticalActionKind,
     strategic_goal_index,
 )
+from flyff_bot.features.policy.contract import (
+    CONTRACT_DOCUMENT_KEY,
+    current_contract_stamp,
+    verify_contract_document,
+)
 from flyff_bot.features.policy.hierarchical_training_simulator import (
     HierarchicalEpisodeMetrics,
     HierarchicalPolicyLearner,
@@ -28,11 +33,7 @@ from flyff_bot.features.policy.hierarchical_training_simulator import (
     TrainingObjective,
     policy_from_logits,
 )
-from flyff_bot.features.rl.models import (
-    OBSERVATION_DIMENSION,
-    RL_OBSERVATION_SCHEMA_VERSION,
-    RlObservation,
-)
+from flyff_bot.features.rl.models import RlObservation
 from flyff_bot.features.simulator.calibration import validate_calibration
 from flyff_bot.features.simulator.models import (
     CalibrationBaseline,
@@ -41,12 +42,11 @@ from flyff_bot.features.simulator.models import (
 )
 
 HIERARCHICAL_METADATA_FILENAME = "hierarchical-metadata.json"
-HIERARCHICAL_METADATA_SCHEMA_VERSION = 3
+HIERARCHICAL_METADATA_SCHEMA_VERSION = 4
 HIGH_LEVEL_INPUT_NAME = "strategic_features"
 MID_LEVEL_INPUT_NAME = "tactical_features"
 HIGH_LEVEL_OUTPUT_NAME = "strategic_logits"
 MID_LEVEL_OUTPUT_NAME = "tactical_logits"
-DEFAULT_ARTIFACT_VERSION = "bug031-v1"
 MINIMUM_TRAINING_EPISODES = 8
 EVALUATION_EPISODES = 4
 CALIBRATION_EPISODES = 4
@@ -177,15 +177,14 @@ def train_hierarchical_policy(
         output_name=MID_LEVEL_OUTPUT_NAME,
     )
     metadata_path = output_directory / HIERARCHICAL_METADATA_FILENAME
+    reward_config = simulator.config.reward
     metadata = {
         "schema_version": HIERARCHICAL_METADATA_SCHEMA_VERSION,
-        "artifact_version": DEFAULT_ARTIFACT_VERSION,
         "onnx_opset": ONNX_OPSET_VERSION,
         "world_name": world_map.world_name,
-        "feature_schema": {
-            "version": RL_OBSERVATION_SCHEMA_VERSION,
-            "width": OBSERVATION_DIMENSION,
-        },
+        CONTRACT_DOCUMENT_KEY: current_contract_stamp(
+            reward_config_version=reward_config.version
+        ).as_document(),
         "training": {
             "algorithm": "masked_q_learning_with_linear_onnx_heads",
             "episode_count": episode_count,
@@ -194,7 +193,8 @@ def train_hierarchical_policy(
             "calibration_seeds": [seeds.calibration.start, seeds.calibration.stop],
             "evaluation_episodes": EVALUATION_EPISODES,
             "calibration_episodes": CALIBRATION_EPISODES,
-            "reward_config_json": simulator.config.reward.as_json(),
+            "reward_config_version": reward_config.version,
+            "reward_config_json": reward_config.as_json(),
             "ridge_penalty": RIDGE_PENALTY,
             "q_learning_rollouts_per_episode": Q_LEARNING_ROLLOUTS_PER_EPISODE,
             "q_learning_rate": Q_LEARNING_RATE,
@@ -417,7 +417,11 @@ def _export_policy_graph(
 
 
 def read_hierarchical_metadata(path: Path) -> dict[str, object]:
-    """Read and strictly validate the two-head artifact provenance document."""
+    """Read and strictly validate the two-head artifact provenance document.
+
+    An artifact stamped with another decision contract is refused by
+    :func:`verify_contract_document` rather than loaded through a compatibility shim (US-079).
+    """
 
     try:
         payload_object: object = json.loads(path.read_text(encoding="utf-8"))
@@ -426,17 +430,11 @@ def read_hierarchical_metadata(path: Path) -> dict[str, object]:
     if not isinstance(payload_object, dict):
         raise ValueError("metadata_invalid")
     payload = payload_object
-    feature_schema = payload.get("feature_schema")
     models = payload.get("models")
     metrics = payload.get("metrics")
     if payload.get("schema_version") != HIERARCHICAL_METADATA_SCHEMA_VERSION:
         raise ValueError("schema_incompatible")
-    if (
-        not isinstance(feature_schema, dict)
-        or feature_schema.get("version") != RL_OBSERVATION_SCHEMA_VERSION
-        or feature_schema.get("width") != OBSERVATION_DIMENSION
-    ):
-        raise ValueError("feature_schema_incompatible")
+    verify_contract_document(payload.get(CONTRACT_DOCUMENT_KEY))
     if not isinstance(models, dict) or set(models) != {"high_level", "mid_level"}:
         raise ValueError("model_heads_missing")
     expected_actions = {

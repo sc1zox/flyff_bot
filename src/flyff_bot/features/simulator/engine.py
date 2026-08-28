@@ -22,6 +22,7 @@ from flyff_bot.features.navigation.world_extractor import (
 from flyff_bot.features.policy.action_payloads import (
     STRATEGIC_GOAL_COUNT,
     STRATEGIC_GOAL_ORDER,
+    ObjectiveKind,
     StrategicGoalKind,
     strategic_goal_at,
 )
@@ -38,7 +39,6 @@ from flyff_bot.features.rl.rewards import RewardEngine, RewardEvent
 from flyff_bot.features.simulator.models import (
     MonsterLifecycle,
     QuestObjective,
-    QuestObjectiveKind,
     SimulationMetrics,
     SimulatorConfig,
     sample_log_normal,
@@ -48,6 +48,9 @@ FULL_CIRCLE_RADIANS = math.tau
 INTERACTION_RADIUS_UNITS = 3.0
 MAXIMUM_COMBAT_ENGAGE_DISTANCE_UNITS = 10.0
 INITIAL_VITALS_PERCENT = 100.0
+# Simulated objectives are one offline quest, so every observation of a simulated episode with
+# objectives reports the same quest identity.
+SIMULATED_QUEST_ID = "simulated-quest"
 OBSERVED_CANDIDATE_SLOTS = 4
 # Two positions this close together are the same place: a waypoint is reached and a route to
 # it needs no further leg.
@@ -266,6 +269,7 @@ class FarmingSimulator:
     @property
     def observation(self) -> RlObservation:
         visible = self._visible_monsters()
+        player_height = self._height_at(self._x, self._z) or 0.0
         candidates = tuple(
             CandidateObservation(
                 index,
@@ -275,7 +279,7 @@ class FarmingSimulator:
                 self._height_at(monster.position_x, monster.position_z) or 0.0,
                 monster.position_z,
                 self._distance(monster.position_x, monster.position_z),
-                0.0,
+                (self._height_at(monster.position_x, monster.position_z) or 0.0) - player_height,
                 is_dead=False,
                 is_unreachable=False,
             )
@@ -288,7 +292,7 @@ class FarmingSimulator:
                 (
                     required,
                     float(progress)
-                    if item.kind is QuestObjectiveKind.KILL
+                    if item.kind is ObjectiveKind.KILL
                     else (float(required) if progress > 0 else 0.0),
                 )
             )
@@ -296,7 +300,7 @@ class FarmingSimulator:
         return RlObservation(
             PlayerKinematics(
                 self._x,
-                self._height_at(self._x, self._z) or 0.0,
+                player_height,
                 self._z,
                 self._heading,
                 math.cos(self._heading) * self.nominal_speed,
@@ -321,11 +325,31 @@ class FarmingSimulator:
                 self._stuck_count,
                 "farming",
             ),
-            ObjectiveState(
-                str(len(self._objectives)) if self._objectives else None,
-                tuple(progress_values),
-                self._objective_distance(),
-            ),
+            self._objective_state(tuple(progress_values)),
+        )
+
+    def _objective_state(self, progress_values: tuple[tuple[int, float], ...]) -> ObjectiveState:
+        """Return the goal the current decision is conditioned on.
+
+        A policy that cannot see which objective it is serving cannot behave differently under
+        two goals, so the active objective is named, typed, placed in its sequence and reported
+        with its measured progress (US-079).
+        """
+
+        active = self._active_objective()
+        if active is None:
+            return ObjectiveState(None, progress_values, self._objective_distance())
+        index = self._objectives.index(active)
+        return ObjectiveState(
+            SIMULATED_QUEST_ID,
+            progress_values,
+            self._objective_distance(),
+            active.identifier or f"{active.kind.value}:{index}",
+            active.kind,
+            index,
+            len(self._objectives),
+            float(self._progress[index]),
+            float(active.required_count),
         )
 
     # -- Episode state ------------------------------------------------------------------
@@ -363,7 +387,7 @@ class FarmingSimulator:
 
     def _validate_objectives(self) -> None:
         for objective in self._objectives:
-            if objective.kind is QuestObjectiveKind.GO_TO and (
+            if objective.kind is ObjectiveKind.GO_TO and (
                 objective.position_x is None
                 or objective.position_z is None
                 or not self._world_map.dimensions.contains(
@@ -405,7 +429,7 @@ class FarmingSimulator:
         if self.is_combat_engagement:
             return self._attack(budget, tick, events)
         objective = self._active_objective()
-        if objective is None or objective.kind is QuestObjectiveKind.KILL:
+        if objective is None or objective.kind is ObjectiveKind.KILL:
             return budget
         index = self._objectives.index(objective)
         self._progress[index] = objective.required_count
@@ -570,7 +594,7 @@ class FarmingSimulator:
         if objective is not None:
             if objective.position_x is not None and objective.position_z is not None:
                 return WorldCoordinate(objective.position_x, objective.position_z)
-            if objective.kind is QuestObjectiveKind.KILL:
+            if objective.kind is ObjectiveKind.KILL:
                 return self._monster_destination(objective.monster_id)
         return self._monster_destination(None)
 
@@ -599,12 +623,12 @@ class FarmingSimulator:
         if self.is_combat_engagement:
             return True
         objective = self._active_objective()
-        if objective is None or objective.kind is QuestObjectiveKind.KILL:
+        if objective is None or objective.kind is ObjectiveKind.KILL:
             return False
         assert objective.position_x is not None and objective.position_z is not None
         radius = (
             objective.radius_units
-            if objective.kind is QuestObjectiveKind.GO_TO
+            if objective.kind is ObjectiveKind.GO_TO
             else INTERACTION_RADIUS_UNITS
         )
         return self._distance(objective.position_x, objective.position_z) <= radius
@@ -613,7 +637,7 @@ class FarmingSimulator:
         changed = False
         for index, objective in enumerate(self._objectives):
             if (
-                objective.kind is QuestObjectiveKind.KILL
+                objective.kind is ObjectiveKind.KILL
                 and objective.monster_id == monster_id
                 and self._progress[index] < objective.required_count
             ):
@@ -638,10 +662,19 @@ class FarmingSimulator:
         return bool(self._objectives) and all(self._completed)
 
     def _objective_distance(self) -> float | None:
+        """Return how far the active objective still is, or ``None`` without an objective.
+
+        An objective that names no position - a kill quota - is as far away as the destination
+        it makes the session travel to, so the remaining distance is reported for it too.
+        """
+
         objective = self._active_objective()
-        if objective is None or objective.position_x is None or objective.position_z is None:
+        if objective is None:
             return None
-        return self._distance(objective.position_x, objective.position_z)
+        if objective.position_x is not None and objective.position_z is not None:
+            return self._distance(objective.position_x, objective.position_z)
+        destination = self._travel_destination()
+        return None if destination is None else self._distance(destination.x, destination.z)
 
     # -- Monsters -----------------------------------------------------------------------
 

@@ -428,6 +428,16 @@ related:
   It is exported for training only and never dispatches input.
 - **Tactical action mask** — The deterministic legality vector for the seven tactical RL actions.
   Dead, locked-out, unreachable, out-of-leash, or position-invalid targets cannot be selected.
+- **Decision contract** — The single versioned agreement (`us079-v1`) between the simulator, the
+  telemetry exporter, the offline trainer and the live policy about what an observation column, an
+  action index, a goal name and a reward number mean. Every artifact and dataset carries its stamp,
+  and one produced under a different contract is rejected rather than adapted.
+- **Objective kind** — What the currently pursued objective asks for (`farm`, `go_to`, `kill`,
+  `interact`, `talk_to_npc`). The offline quest engine and the live quest goal sequence use this one
+  vocabulary, and its one-hot columns are part of the goal-conditioned observation.
+- **Goal-conditioned observation** — An observation that names *which* objective is being pursued -
+  its identity, kind, position in the quest sequence, measured progress and remaining route
+  distance - so the same world state under two different goals encodes to two different vectors.
 - **Hierarchical policy** — The US-073 two-tier boundary where a macro-event-driven strategic head
   selects a sub-goal and a tactical head selects a prevalidated action; deterministic controllers
   and safety guards remain outside it.

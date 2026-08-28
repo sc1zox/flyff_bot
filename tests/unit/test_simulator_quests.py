@@ -4,21 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from flyff_bot.features.simulator import FarmingSimulator, QuestObjective, QuestObjectiveKind
+from flyff_bot.features.simulator import FarmingSimulator, ObjectiveKind, QuestObjective
 
 
 def test_kill_go_to_interact_and_talk_objectives_progress_in_order(
     make_simulator: Callable[..., FarmingSimulator],
 ) -> None:
     objectives = (
-        QuestObjective(QuestObjectiveKind.KILL, monster_id=7, required_count=2),
-        QuestObjective(QuestObjectiveKind.GO_TO, position_x=20.0, position_z=10.0),
+        QuestObjective(ObjectiveKind.KILL, monster_id=7, required_count=2),
+        QuestObjective(ObjectiveKind.GO_TO, position_x=20.0, position_z=10.0),
         QuestObjective(
-            QuestObjectiveKind.INTERACT, identifier="chest", position_x=20.0, position_z=10.0
+            ObjectiveKind.INTERACT, identifier="chest", position_x=20.0, position_z=10.0
         ),
-        QuestObjective(
-            QuestObjectiveKind.TALK_TO_NPC, npc_id="npc", position_x=20.0, position_z=10.0
-        ),
+        QuestObjective(ObjectiveKind.TALK_TO_NPC, npc_id="npc", position_x=20.0, position_z=10.0),
     )
     simulation = make_simulator(objectives=objectives, seed=11)
     simulation.reset()

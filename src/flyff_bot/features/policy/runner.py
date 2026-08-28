@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from flyff_bot.features.automation.models import WorldState
+from flyff_bot.features.policy.contract import ContractIncompatibility, ContractVersionError
 from flyff_bot.features.policy.heuristic import HeuristicPolicy
 from flyff_bot.features.policy.hierarchical import HierarchicalObjective
 from flyff_bot.features.policy.hierarchical_masking import validate_policy_action
@@ -33,10 +34,29 @@ class PolicyFaultCode(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class PolicyFault:
-    """One learned-policy failure, ready to be shown as a localized diagnostic."""
+    """One learned-policy failure, ready to be shown as a localized diagnostic.
+
+    A contract incompatibility carries the exact fields that disagreed, so the operator is told
+    which artifact version the running application expected instead of a bare code (US-079).
+    """
 
     code: PolicyFaultCode
     detail: str | None = None
+    incompatibility: ContractIncompatibility | None = None
+    expected: str = ""
+    found: str = ""
+
+    @classmethod
+    def from_contract_error(cls, error: ContractVersionError) -> PolicyFault:
+        """Return the fault one rejected artifact produces."""
+
+        return cls(
+            PolicyFaultCode.MODEL_UNAVAILABLE,
+            error.incompatibility.value,
+            error.incompatibility,
+            error.expected,
+            error.found,
+        )
 
     @property
     def reason(self) -> str:

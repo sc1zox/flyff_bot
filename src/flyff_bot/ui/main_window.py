@@ -1006,7 +1006,7 @@ class MainWindow(QMainWindow):
         self._quest_panel.set_goal(update.quest_goal)
         self._dungeon_panel.set_snapshots(update.dungeons)
         self._readiness_panel.set_status(update.readiness)
-        self._combat_panel.set_policy_diagnostic(self._translator, update.policy_fault_reason)
+        self._combat_panel.set_policy_diagnostic(self._translator, update.policy_fault)
         self._event_log_panel.set_events(update.events)
         self._target_debug_panel.render_target(
             self._translator,

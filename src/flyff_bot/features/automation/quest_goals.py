@@ -12,12 +12,14 @@ from flyff_bot.features.automation.kill_goals import KillGoalConfig, MobKillQuot
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.vector_navigation import ZoneGoal
 from flyff_bot.features.navigation.world_extractor import VectorSpawnZone
+from flyff_bot.features.policy.action_payloads import ObjectiveKind
 from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjective,
     HierarchicalObjectiveKind,
 )
 from flyff_bot.features.quests.goals import QuestResolution, QuestTarget
 from flyff_bot.features.quests.objectives import (
+    INTERACTION_GOAL_KINDS,
     OBJECTIVE_GOAL_KINDS,
     TRAVEL_GOAL_KINDS,
     QuestGoal,
@@ -121,7 +123,19 @@ def hierarchical_objective_for(
         destination_reached,
         interaction_target_id,
         QUEST_INTERACTION_TYPE,
+        f"{identity.quest_id}:{identity.index}",
+        _encoded_objective_kind(goal),
     )
+
+
+def _encoded_objective_kind(goal: QuestGoal) -> ObjectiveKind:
+    """Return what this goal asks for, in the vocabulary the observation is conditioned on."""
+
+    if goal.kind in TRAVEL_GOAL_KINDS:
+        return ObjectiveKind.GO_TO
+    if goal.kind in INTERACTION_GOAL_KINDS:
+        return ObjectiveKind.TALK_TO_NPC
+    return ObjectiveKind.KILL
 
 
 def _objective_kind(goal: QuestGoal, has_destination: bool) -> HierarchicalObjectiveKind:

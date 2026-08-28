@@ -33,6 +33,7 @@ from flyff_bot.features.policy.action_payloads import (
     CorridorAction,
     InteractAction,
     NavigateAction,
+    ObjectiveKind,
     TacticalAction,
     TargetAction,
     WaitAction,
@@ -601,7 +602,9 @@ def test_the_live_and_training_observation_encoders_agree_for_one_state() -> Non
             navmesh,
             (CandidateObservation(0, 3, 0.9, 140.0, 9.0, -20.0, 45.0, 4.0),),
             OperationalState(0, 4.0, 1, "farming"),
-            ObjectiveState("quest-1", ((2, 0.0),), 250.0),
+            ObjectiveState(
+                "quest-1", ((2, 0.0),), 250.0, "quest-1:0", ObjectiveKind.FARM, 0, 1, 0.0, 2.0
+            ),
         )
     )
 

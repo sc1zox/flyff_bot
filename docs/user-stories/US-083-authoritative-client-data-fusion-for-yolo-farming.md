@@ -20,7 +20,7 @@ coherent, safe control loop in the client**.
 - Target client: Entropia Flyff PServer (`neuz.exe`).
 - This story follows [BUG-033](../bugs/BUG-033-unified-setup-does-not-ingest-or-autoload-client-data.md)
   and consumes, rather than duplicates, the canonical contracts and learning workflow of
-  [US-079](US-079-unified-goal-conditioned-decision-contract.md),
+  [US-079](completed/US-079-unified-goal-conditioned-decision-contract.md),
   [US-080](US-080-goal-driven-quest-execution-and-objective-bus.md), and
   [US-081](US-081-experience-database-and-train-evaluate-promote-loop.md). The repaired learning and
   simulator invariants are documented in

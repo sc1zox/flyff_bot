@@ -8,6 +8,7 @@ import numpy as np
 
 from flyff_bot.features.automation.models import Position, Viewport, VisibleMob, WorldState
 from flyff_bot.features.navigation.world_extractor import WorldCoordinate, WorldVectorMap
+from flyff_bot.features.policy.action_payloads import ObjectiveKind
 from flyff_bot.features.policy.hierarchical_onnx import HierarchicalOnnxPolicy
 from flyff_bot.features.policy.hierarchical_training import train_hierarchical_policy
 from flyff_bot.features.policy.hierarchical_training_simulator import TrainingObjective
@@ -22,7 +23,6 @@ from flyff_bot.features.simulator.models import (
     CalibrationBaseline,
     CalibrationTolerance,
     QuestObjective,
-    QuestObjectiveKind,
 )
 
 # This test is about the fallback boundary, not about dynamics drift, so its calibration
@@ -42,7 +42,7 @@ class _InvalidNetwork:
 def test_nan_hierarchical_output_halts_learned_automation(
     tmp_path: Path, world_map: WorldVectorMap
 ) -> None:
-    objective = TrainingObjective((QuestObjective(QuestObjectiveKind.KILL, monster_id=7),))
+    objective = TrainingObjective((QuestObjective(ObjectiveKind.KILL, monster_id=7),))
     train_hierarchical_policy(
         tmp_path,
         world_map=world_map,

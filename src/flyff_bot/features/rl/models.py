@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
 
+from flyff_bot.features.policy.action_payloads import OBJECTIVE_KIND_ORDER, ObjectiveKind
 from flyff_bot.features.rl.actions import ParameterizedAction, TacticalActionMask
 from flyff_bot.features.telemetry.models import CandidateFeatures
 
 # Every optional measurement is encoded as a value plus a paired missing indicator, so an
 # absent observation can never alias a measured zero (BUG-031). Signed quantities keep their
 # sign instead of being clamped at zero for the same reason.
-OBSERVATION_DIMENSION = 75
-RL_OBSERVATION_SCHEMA_VERSION = "bug031-v1"
+OBSERVATION_DIMENSION = 86
+RL_OBSERVATION_SCHEMA_VERSION = "us079-v1"
 CANDIDATE_SLOTS = 4
 CANDIDATE_FEATURE_COUNT = 11
 POSITION_SCALE_UNITS = 10000.0
@@ -25,6 +27,12 @@ SLOPE_SCALE_DEGREES = 90.0
 VELOCITY_SCALE_UNITS_PER_SECOND = 10.0
 MISSING_INDICATOR = 1.0
 PRESENT_INDICATOR = 0.0
+# An objective identity is a free-form string, so it is encoded as one bounded digest column.
+# The digest is a content hash rather than ``hash()``, which is salted per process and would
+# make the same objective encode differently in two runs.
+IDENTITY_DIGEST_BYTES = 8
+IDENTITY_DIGEST_MAXIMUM = float(2 ** (8 * IDENTITY_DIGEST_BYTES) - 1)
+UNIT_SCALE = 1.0
 FloatArray = NDArray[np.float64]
 
 
@@ -83,9 +91,33 @@ class OperationalState:
 
 @dataclass(frozen=True, slots=True)
 class ObjectiveState:
-    quest_id: str | None
-    objective_progress: tuple[tuple[int, float], ...]
-    objective_target_distance: float | None
+    """The goal one decision is conditioned on (US-079).
+
+    Two identical world states that are being observed under two different objectives must not
+    encode to the same vector: without the objective identity, its kind, its position in the
+    quest sequence and its measured progress, a policy cannot tell which goal it is serving.
+    ``objective_target_distance`` is the remaining route distance to that objective.
+    """
+
+    quest_id: str | None = None
+    objective_progress: tuple[tuple[int, float], ...] = ()
+    objective_target_distance: float | None = None
+    objective_id: str | None = None
+    objective_kind: ObjectiveKind | None = None
+    objective_index: int | None = None
+    objective_count: int = 1
+    measured_progress: float | None = None
+    required_progress: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.objective_count < 1:
+            raise ValueError("An objective sequence holds at least one objective.")
+        if self.objective_index is not None and not 0 <= self.objective_index < (
+            self.objective_count
+        ):
+            raise ValueError("An objective index lies inside its own sequence.")
+        if self.required_progress is not None and self.required_progress <= 0.0:
+            raise ValueError("A required objective progress is positive.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +240,7 @@ class ObservationSpace:
                 / max(sum(progress[0] for progress in observation.objective.objective_progress), 1),
             ]
         )
+        values.extend(_goal_columns(observation.objective))
         encoded = np.asarray(values, dtype=np.float64)
         if encoded.shape != (OBSERVATION_DIMENSION,) or not np.all(np.isfinite(encoded)):
             raise ValueError("An RL observation could not be normalized.")
@@ -277,6 +310,40 @@ class ObservationSpace:
                 action_blocked=bool(snapshot.get("action_blocked", False)),
             ),
         )
+
+
+def _goal_columns(objective: ObjectiveState) -> list[float]:
+    """Return the goal-conditioned block of one observation.
+
+    The block names *which* objective is being pursued, not only how far away it is, so the
+    same world state under two different goals encodes differently (US-079).
+    """
+
+    index_fraction = (
+        None
+        if objective.objective_index is None
+        else objective.objective_index / objective.objective_count
+    )
+    progress_fraction = (
+        None
+        if objective.measured_progress is None or objective.required_progress is None
+        else objective.measured_progress / objective.required_progress
+    )
+    return [
+        *_identity_pair(objective.objective_id),
+        *(float(objective.objective_kind is kind) for kind in OBJECTIVE_KIND_ORDER),
+        *_optional_pair(index_fraction, UNIT_SCALE),
+        *_optional_pair(progress_fraction, UNIT_SCALE),
+    ]
+
+
+def _identity_pair(identity: str | None) -> tuple[float, float]:
+    """Return a stable bounded digest of one identity paired with its missing indicator."""
+
+    if identity is None:
+        return 0.0, MISSING_INDICATOR
+    digest = hashlib.blake2b(identity.encode("utf-8"), digest_size=IDENTITY_DIGEST_BYTES).digest()
+    return int.from_bytes(digest, "big") / IDENTITY_DIGEST_MAXIMUM, PRESENT_INDICATOR
 
 
 def _clipped_vector(values: tuple[float, ...], maximum_abs: float) -> tuple[float, ...]:

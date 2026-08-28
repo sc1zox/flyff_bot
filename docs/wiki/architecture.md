@@ -2098,19 +2098,19 @@ also carries `LiveObservationState`, and `live_observation` builds the hierarchi
 measured position, heading, NavMesh polygon, terrain slope, and remaining route distance instead of
 zeroed placeholders. The hierarchical policy is bound to the session's active quest objective.
 
-**Observation encoding.** `ObservationSpace` is 75 columns (`bug031-v1`). Every optional value is
-encoded as a scaled measurement plus an explicit missing indicator, signed quantities keep their
-sign, and an unoccupied candidate slot reports all four of its optional columns as missing and the
-slot as unusable. This matches the `NaN`-plus-`__is_missing` convention of the supervised value
-models. Artifacts trained against the previous 56-column contract are rejected as
-`feature_schema_incompatible` rather than silently misread.
+**Observation encoding.** `ObservationSpace` was 75 columns (`bug031-v1`) at this point and is 86
+columns (`us079-v1`) since the goal block was added below. Every optional value is encoded as a
+scaled measurement plus an explicit missing indicator, signed quantities keep their sign, and an
+unoccupied candidate slot reports all four of its optional columns as missing and the slot as
+unusable. This matches the `NaN`-plus-`__is_missing` convention of the supervised value models.
+Artifacts trained against an older contract are rejected rather than silently misread.
 
 **Failing closed.** `PolicyRunner` no longer runs `HeuristicPolicy` in place of a learned policy
 that failed. It records a typed `PolicyFault` - `model_unavailable`, `no_valid_action`,
 `invalid_or_masked_action`, `latency_budget_exceeded`, or `policy_exception` - and returns no
 action. The orchestrator halts learned automation, reverting the mode to `HEURISTIC` and pausing an
-`ML_ACTIVE` session, and publishes `policy_fault_reason` to the dashboard where the combat panel
-renders the synchronized German and English diagnostic. An empty candidate set is not a fault: the
+`ML_ACTIVE` session, and publishes the `PolicyFault` to the dashboard where the combat panel renders
+the synchronized German and English diagnostic. An empty candidate set is not a fault: the
 deterministic search path continues untouched.
 
 Automated repository verification passed on 2026-08-25 (906 tests passed, 6 skipped, 88.2% coverage;
@@ -2168,7 +2168,7 @@ the foregrounded Windows walkthrough of one full quest against a live `neuz.exe`
 farm, return, turn in - remains unrun, so live teleporter coverage of real quest regions and live
 arrival timing are unverified.
 
-## One action contract for simulator, exporter, and live policy (US-079, partial)
+## One goal-conditioned, versioned decision contract (US-079)
 
 Before this change the name `TacticalAction` meant three unrelated things: a seven-member `IntEnum`
 in `features/rl/actions.py`, a four-member `IntEnum` in `features/simulator/engine.py`, and a union
@@ -2177,7 +2177,9 @@ was in truth the *strategic* vocabulary, and its index order matched the exporte
 hand-written `HIGH_LEVEL_ACTION_ORDER = ("target", "navigate", "interact", "wait")` only by
 coincidence: nothing prevented one from being reordered without the other.
 
-`features/policy/action_payloads.py` is now the single action contract module and holds all three
+### One vocabulary module
+
+`features/policy/action_payloads.py` is the single decision contract module and holds four
 vocabularies exactly once:
 
 - `StrategicGoalKind` - the macro sub-goal the high-level tier picks. `STRATEGIC_GOAL_ORDER` is its
@@ -2186,22 +2188,60 @@ vocabularies exactly once:
 - `TacticalActionKind` - the kind of tactical payload the mid-level tier picks.
 - `TacticalAction` - the stable discrete index a tactical payload encodes to, plus
   `TACTICAL_ACTION_COUNT` and `TacticalAction.for_kind`.
+- `ObjectiveKind` - what the pursued objective asks for (`farm`, `go_to`, `kill`, `interact`,
+  `talk_to_npc`). `OBJECTIVE_KIND_ORDER` is the one-hot column order of the goal block. The
+  simulator's former `QuestObjectiveKind` is deleted in favour of it, so an offline quest objective
+  and a live quest goal are stated in the same terms.
 - `TacticalActionPayload` - the payload union, previously defined a second time as
   `policy.models.TacticalAction`.
 
-`FarmingSimulator` steps on `STRATEGIC_GOAL_ORDER` indices and builds its action mask from a
-goal-keyed mapping rather than a positional four-tuple. `HIGH_LEVEL_ACTION_ORDER` is derived from
-`STRATEGIC_GOAL_ORDER` instead of being written out, and `HierarchicalOnnxPolicy` resolves an
-argmax column through `strategic_goal_at` rather than a string round-trip. `features/rl/actions.py`
-keeps only the encoding machinery: `ParameterizedAction`, `TacticalActionMask`, and
-`TacticalActionCatalog`. Indices are unchanged in value, so `bug031-v1` artifacts stay readable.
+`FarmingSimulator` steps on `STRATEGIC_GOAL_ORDER` indices, `HIGH_LEVEL_ACTION_ORDER` is derived
+from that order instead of being written out, and `HierarchicalOnnxPolicy` resolves an argmax column
+through `strategic_goal_at`. `features/rl/actions.py` keeps only the encoding machinery:
+`ParameterizedAction`, `TacticalActionMask`, and `TacticalActionCatalog`.
+
+### The goal-conditioned observation
+
+`ObjectiveState` no longer states only *where* the objective is. It names which objective is being
+pursued: its identity, its `ObjectiveKind`, its index inside the quest sequence, the sequence
+length, its measured progress against its requirement, and the remaining route distance. The encoder
+appends an eleven-column goal block - a stable BLAKE2b digest of the objective identity, the kind
+one-hot, the position in the sequence, and the progress fraction, each optional value paired with
+its own missing indicator - so the same world state pursued under two different goals encodes
+differently. The observation is `us079-v1` at 86 columns; `bug031-v1` artifacts at 75 columns are no
+longer readable and are rejected rather than padded.
+
+Both encoders fill that block from the same facts. `FarmingSimulator.observation` reports its active
+quest objective, and `live_observation` reports `HierarchicalObjective.encoded_identity` and
+`encoded_kind`, which `features/automation/quest_goals.py` states explicitly from the active
+`QuestGoal`. `tests/unit/test_decision_contract.py` builds one world twice - once as a seeded
+simulator episode, once as a live `WorldState` plus `PolicyContext` derived from the same map facts
+- and asserts both encode to one identical vector, including the candidate's measured relative
+elevation, which the simulator previously hard-coded to zero.
+
+### One versioned reward configuration
+
+`RewardConfig` refuses to change a weight while keeping the shared version string, so a version
+identifies its weights. `DEFAULT_REWARD_CONFIG` is the one instance `SimulatorConfig`, the telemetry
+transition exporter and the training evaluation all use, and its version is written into the trained
+artifact metadata, the exported Parquet dataset (as schema metadata and as a per-row column) and the
+export provenance document.
+
+### Contract stamping and rejection
+
+`features/policy/contract.py` owns `DECISION_CONTRACT_VERSION` (`us079-v1`) and the `ContractStamp`
+that names the observation schema and width, the strategic goal and objective kind orders, the
+tactical action count, and the reward configuration version. Every artifact and dataset carries the
+stamp; `read_hierarchical_metadata` and `read_transition_contract` verify it before anything else is
+read and raise `ContractVersionError` naming the exact field that disagrees plus both values. No
+compatibility shim exists, as [ADR-003](../decisions/ADR-003-clean-schema-over-backward-compatibility.md)
+authorizes. The orchestrator turns that error into a `PolicyFault` carrying the
+`ContractIncompatibility`, and the combat panel renders one complete localized sentence per
+incompatibility in German and English rather than pasting a raw code into a sentence.
 
 `tests/unit/test_action_contract.py` parses every source file and asserts each vocabulary class is
-declared in exactly one module, that no package re-exports a competing name, that the wire order
-covers every goal once, and that the exported head's column order names the goals the simulator was
-stepped with.
-
-This is the first acceptance criterion of [US-079](../user-stories/US-079-unified-goal-conditioned-decision-contract.md).
-Goal-conditioned observation columns, the simulator-versus-live encoder parity test, the single
-versioned reward configuration stamped into every artifact, and contract-version rejection
-diagnostics are still open. The 2026-08-28 gate passed at 965 passed, 5 skipped, 89.20% coverage.
+declared in exactly one module; `tests/unit/test_decision_contract.py` covers goal conditioning,
+encoder parity, the reward version stamp, per-field contract rejection and the localized
+diagnostics. This completes [US-079](../user-stories/completed/US-079-unified-goal-conditioned-decision-contract.md).
+Evidence is offline: the 2026-08-28 gate passed at 994 passed, 5 skipped, 89.26% coverage; no live
+`neuz.exe` shadow-mode session has been run against the new contract.

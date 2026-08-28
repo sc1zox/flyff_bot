@@ -123,6 +123,7 @@ from flyff_bot.features.player_stats.models import (
     PlayerStatsReadErrorCode,
     PlayerStatsSource,
 )
+from flyff_bot.features.policy.contract import ContractVersionError
 from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjective,
     HierarchicalObjectiveKind,
@@ -1046,6 +1047,8 @@ class FarmingOrchestrator:
 
                     learned = LearnedPolicy(model_directory)
                 learned.warm_up()
+            except ContractVersionError as error:
+                self._policy_load_fault = PolicyFault.from_contract_error(error)
             except (OSError, ValueError) as error:
                 self._policy_load_fault = PolicyFault(
                     PolicyFaultCode.MODEL_UNAVAILABLE, str(error) or type(error).__name__
@@ -2225,9 +2228,7 @@ class FarmingOrchestrator:
                     ),
                     dungeons=self._dungeon_snapshots,
                     readiness=self._readiness,
-                    policy_fault_reason=(
-                        None if self._policy_fault is None else self._policy_fault.reason
-                    ),
+                    policy_fault=self._policy_fault,
                 )
             )
         return tick

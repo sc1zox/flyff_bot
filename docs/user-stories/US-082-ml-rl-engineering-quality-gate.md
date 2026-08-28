@@ -46,7 +46,7 @@ defective behavior**.
 - [ADR-003](../decisions/ADR-003-clean-schema-over-backward-compatibility.md) authorizes deleting
   superseded modules and tests outright.
 - This story is verification and hygiene only. Behavioral repairs belong to
-  [US-079](US-079-unified-goal-conditioned-decision-contract.md),
+  [US-079](completed/US-079-unified-goal-conditioned-decision-contract.md),
   [US-080](US-080-goal-driven-quest-execution-and-objective-bus.md),
   [US-081](US-081-experience-database-and-train-evaluate-promote-loop.md), BUG-031 and BUG-032.
 

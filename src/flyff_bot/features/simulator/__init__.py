@@ -1,5 +1,6 @@
 """Offline farming, navigation, and quest dynamics simulation."""
 
+from flyff_bot.features.policy.action_payloads import ObjectiveKind
 from flyff_bot.features.simulator.calibration import CalibrationError, validate_calibration
 from flyff_bot.features.simulator.engine import (
     FarmingSimulator,
@@ -13,7 +14,6 @@ from flyff_bot.features.simulator.models import (
     CalibrationTolerance,
     MonsterLifecycle,
     QuestObjective,
-    QuestObjectiveKind,
     SimulationMetrics,
     SimulatorConfig,
     fit_calibration,
@@ -27,8 +27,8 @@ __all__ = [
     "FarmingSimulator",
     "IllegalSimulatorAction",
     "MonsterLifecycle",
+    "ObjectiveKind",
     "QuestObjective",
-    "QuestObjectiveKind",
     "SimulatedMonster",
     "SimulationMetrics",
     "SimulatorConfig",

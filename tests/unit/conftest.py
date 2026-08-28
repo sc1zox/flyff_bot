@@ -17,8 +17,8 @@ from flyff_bot.features.navigation.world_extractor import (
 )
 from flyff_bot.features.simulator import (
     FarmingSimulator,
+    ObjectiveKind,
     QuestObjective,
-    QuestObjectiveKind,
     SimulatorConfig,
 )
 
@@ -101,7 +101,7 @@ def make_simulator(
         seed: int | None = 42,
     ) -> FarmingSimulator:
         default_objective = QuestObjective(
-            QuestObjectiveKind.GO_TO, position_x=20.0, position_z=10.0, radius_units=1.0
+            ObjectiveKind.GO_TO, position_x=20.0, position_z=10.0, radius_units=1.0
         )
         return FarmingSimulator(
             world_map,
@@ -119,7 +119,7 @@ def simulator(make_simulator: Callable[..., FarmingSimulator]) -> FarmingSimulat
     return make_simulator(
         objectives=(
             QuestObjective(
-                QuestObjectiveKind.GO_TO,
+                ObjectiveKind.GO_TO,
                 position_x=10.0,
                 position_z=10.0,
                 radius_units=1.0,

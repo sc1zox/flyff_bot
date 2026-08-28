@@ -1074,3 +1074,17 @@ unchanged, so `bug031-v1` artifacts stay readable. Evidence is offline: an AST-b
 definition test plus wire-order and mapping tests, gate at 965 passed, 5 skipped, 89.20% coverage.
 The remaining US-079 criteria (goal-conditioned observation, encoder parity, single versioned
 reward configuration, contract-version rejection diagnostics) are explicitly still open.
+
+## [2026-08-28] synthesis | One goal-conditioned, versioned decision contract (US-079, complete)
+
+Synthesized the remaining US-079 acceptance criteria into `architecture.md`, replacing the partial
+section. `ObjectiveKind` joined `features/policy/action_payloads.py` as the fourth shared vocabulary
+and replaced the simulator's `QuestObjectiveKind`; the observation grew an eleven-column goal block
+and is now `us079-v1` at 86 columns; the simulator and live encoders are asserted to produce one
+identical vector for the same world state; `RewardConfig` cannot change a weight without declaring a
+new version and `DEFAULT_REWARD_CONFIG` is stamped into every artifact and dataset it scored; and
+`features/policy/contract.py` rejects a foreign artifact with a field-level diagnostic that is
+localized in German and English. Evidence is offline: goal-conditioning, parity, reward-stamp,
+per-field rejection and localization tests, with the gate at 994 passed, 5 skipped, 89.26% coverage.
+No live `neuz.exe` shadow-mode session against the new contract is claimed, and no new client access
+or input capability was added.

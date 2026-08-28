@@ -364,6 +364,12 @@ def live_observation(
             objective.quest_id,
             ((int(objective.required_progress), objective.progress),),
             live.objective_target_distance,
+            objective.encoded_identity,
+            objective.encoded_kind,
+            objective.objective_index,
+            objective.objective_count,
+            objective.progress,
+            objective.required_progress,
         ),
     )
 

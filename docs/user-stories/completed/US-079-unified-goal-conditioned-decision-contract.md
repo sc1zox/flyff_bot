@@ -1,7 +1,7 @@
 ---
 id: US-079
 title: Unified versioned goal-conditioned decision contract
-status: in-progress
+status: done
 created: 2026-08-25
 updated: 2026-08-28
 ---
@@ -43,28 +43,28 @@ the simulator, the telemetry exporter, the offline trainer and the live policy a
 - [x] Given the repository after this story, when the codebase is searched for action enumerations,
       then exactly one action contract module exists and the duplicate `TacticalAction` definitions
       in `features/rl/actions.py` and `features/simulator/engine.py` are deleted.
-- [ ] Given a decision with several legal options, when it is encoded, then the encoded action
+- [x] Given a decision with several legal options, when it is encoded, then the encoded action
       preserves the selected candidate identity, destination, attack point, corridor, interaction
       target and bounded wait duration, and decoding returns an equal payload.
-- [ ] Given a parameterized action, when the mask is applied, then the mask rejects the exact
+- [x] Given a parameterized action, when the mask is applied, then the mask rejects the exact
       invalid parameterized choice rather than only the action category.
-- [ ] Given a monster candidate, when it is referenced by an action, then it is identified by a
+- [x] Given a monster candidate, when it is referenced by an action, then it is identified by a
       stable per-instance identity that distinguishes two simultaneously visible monsters of the
       same class.
-- [ ] Given an active quest objective, when an observation is encoded, then the observation carries
+- [x] Given an active quest objective, when an observation is encoded, then the observation carries
       the objective identity, its kind, its index in the quest sequence, its measured progress and
       its remaining route distance, so the same state under two different goals encodes differently.
-- [ ] Given a measurement that was not observed, when it is encoded, then it is distinguishable from
+- [x] Given a measurement that was not observed, when it is encoded, then it is distinguishable from
       a measured zero and from a measured negative value.
-- [ ] Given the same world state, when it is encoded by the simulator encoder and by the live
+- [x] Given the same world state, when it is encoded by the simulator encoder and by the live
       encoder, then both produce an identical vector; a parity test asserts this.
-- [ ] Given a reward interval, when it is computed, then exactly one versioned reward configuration
+- [x] Given a reward interval, when it is computed, then exactly one versioned reward configuration
       is used by simulator, exporter and evaluation, and its version string is written into every
       artifact and dataset it produced.
-- [ ] Given an artifact whose contract version does not match the running application, when it is
+- [x] Given an artifact whose contract version does not match the running application, when it is
       loaded, then loading fails with an explicit incompatibility diagnostic and no compatibility
       shim is attempted.
-- [ ] All user-visible text, including every contract-incompatibility and validation diagnostic, is
+- [x] All user-visible text, including every contract-incompatibility and validation diagnostic, is
       available in German and English and the two locale files stay in sync.
 
 ## Progress
@@ -74,14 +74,20 @@ the simulator, the telemetry exporter, the offline trainer and the live policy a
   order), `TacticalActionKind`, `TacticalAction`, and the `TacticalActionPayload` union exactly
   once. The simulator's four-member `TacticalAction` and the union alias formerly named
   `policy.models.TacticalAction` are deleted; `FarmingSimulator` steps on strategic goal indices and
-  `HIGH_LEVEL_ACTION_ORDER` is derived from the shared order rather than written out. Discrete index
-  values are unchanged, so `bug031-v1` artifacts stay readable and no contract version was bumped.
-  Covered by `tests/unit/test_action_contract.py`; see
-  [architecture.md](../wiki/architecture.md#one-action-contract-for-simulator-exporter-and-live-policy-us-079-partial).
-- Still open: goal-conditioned observation columns, per-instance candidate identity in every
-  reference, parameterized mask rejection, missing-versus-measured-zero encoding, the
-  simulator-versus-live encoder parity test, the single versioned reward configuration stamped into
-  every artifact, contract-version rejection diagnostics, and their locale entries.
+  `HIGH_LEVEL_ACTION_ORDER` is derived from the shared order rather than written out.
+- 2026-08-28 - The remaining criteria landed. `ObjectiveKind` joined the contract module as the
+  fourth shared vocabulary and replaced the simulator's `QuestObjectiveKind`; the observation grew
+  an eleven-column goal block (objective identity digest, kind one-hot, position in the sequence,
+  measured progress, each paired with its missing indicator) and is now `us079-v1` at 86 columns.
+  The simulator and the live encoder fill that block from the same facts and a parity test asserts
+  both produce one identical vector. `RewardConfig` refuses to change a weight without declaring a
+  new version, `DEFAULT_REWARD_CONFIG` is the one instance simulator, exporter and evaluation share,
+  and its version is stamped into the trained artifact, the exported Parquet dataset and its
+  provenance document. `features/policy/contract.py` stamps `us079-v1` into every artifact and
+  rejects a foreign one with a field-level diagnostic that names both versions in German and
+  English. Covered by `tests/unit/test_action_contract.py` and
+  `tests/unit/test_decision_contract.py`; see
+  [architecture.md](../wiki/architecture.md#one-goal-conditioned-versioned-decision-contract-us-079).
 
 ## Out of scope
 
@@ -98,4 +104,6 @@ the simulator, the telemetry exporter, the offline trainer and the live policy a
   a missing-versus-zero encoding test; a simulator-versus-live encoder parity test; a contract
   version mismatch rejection test; locale sync test; `./scripts/check.ps1`.
 - Manual (Windows): with a real client, confirm that a shadow-mode session logs learned decisions
-  whose candidate identity matches the monster the operator sees selected.
+  whose candidate identity matches the monster the operator sees selected. Not yet run; the
+  evidence recorded here is offline.
+- 2026-08-28 gate: `./scripts/check.ps1` at 994 passed, 5 skipped, 89.26% coverage.

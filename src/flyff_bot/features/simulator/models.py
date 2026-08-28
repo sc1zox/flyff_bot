@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 
-from flyff_bot.features.rl.rewards import RewardConfig
+from flyff_bot.features.policy.action_payloads import ObjectiveKind
+from flyff_bot.features.rl.rewards import DEFAULT_REWARD_CONFIG, RewardConfig
 from flyff_bot.features.telemetry.models import KillCycle
 
 SIMULATOR_SCHEMA_VERSION = "us072-v2"
@@ -34,15 +35,6 @@ def sample_log_normal(random_source: random.Random, mean_seconds: float, sigma: 
     return max(MINIMUM_SAMPLED_SECONDS, value)
 
 
-class QuestObjectiveKind(StrEnum):
-    """The objective types modeled by the offline quest engine."""
-
-    GO_TO = "go_to"
-    KILL = "kill"
-    INTERACT = "interact"
-    TALK_TO_NPC = "talk_to_npc"
-
-
 class MonsterLifecycle(StrEnum):
     """The observable lifecycle of one simulated monster."""
 
@@ -57,7 +49,7 @@ class MonsterLifecycle(StrEnum):
 class QuestObjective:
     """One client-level goal tracked without inventing quest script behavior."""
 
-    kind: QuestObjectiveKind
+    kind: ObjectiveKind
     identifier: str | None = None
     monster_id: int | None = None
     npc_id: str | None = None
@@ -69,14 +61,16 @@ class QuestObjective:
     def __post_init__(self) -> None:
         if self.required_count < 1:
             raise ValueError("A quest objective requires at least one completion.")
-        if self.kind is QuestObjectiveKind.KILL and self.monster_id is None:
+        if self.kind is ObjectiveKind.FARM:
+            raise ValueError("Open-ended farming is not a quest objective.")
+        if self.kind is ObjectiveKind.KILL and self.monster_id is None:
             raise ValueError("A kill objective needs a monster ID.")
-        if self.kind in (QuestObjectiveKind.INTERACT, QuestObjectiveKind.TALK_TO_NPC):
+        if self.kind in (ObjectiveKind.INTERACT, ObjectiveKind.TALK_TO_NPC):
             if not self.identifier and not self.npc_id:
                 raise ValueError("An interaction objective needs an object or NPC identifier.")
             if self.position_x is None or self.position_z is None:
                 raise ValueError("An interaction objective needs a world position.")
-        if self.kind is QuestObjectiveKind.GO_TO and (
+        if self.kind is ObjectiveKind.GO_TO and (
             self.position_x is None or self.position_z is None
         ):
             raise ValueError("A movement objective needs a world position.")
@@ -99,7 +93,7 @@ class SimulatorConfig:
     maximum_episode_seconds: float = 3600.0
     schema_version: str = SIMULATOR_SCHEMA_VERSION
     visibility_radius_units: float = DEFAULT_VISIBILITY_RADIUS_UNITS
-    reward: RewardConfig = field(default_factory=RewardConfig)
+    reward: RewardConfig = DEFAULT_REWARD_CONFIG
 
     def __post_init__(self) -> None:
         positive_fields = (
