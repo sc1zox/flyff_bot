@@ -39,9 +39,9 @@ updated: 2026-08-26
 
 ## Expected behavior
 
-The repository safety contract, [ADR-006](../decisions/ADR-006-read-only-process-memory-access.md),
-[US-053](../user-stories/completed/US-053-pure-gps-navigation-and-client-profile-configuration.md),
-and [US-065](../user-stories/completed/US-065-client-teleporter-extraction-and-automated-zone-dispatch.md)
+The repository safety contract, [ADR-006](../../decisions/ADR-006-read-only-process-memory-access.md),
+[US-053](../../user-stories/completed/US-053-pure-gps-navigation-and-client-profile-configuration.md),
+and [US-065](../../user-stories/completed/US-065-client-teleporter-extraction-and-automated-zone-dispatch.md)
 require foreground awareness for the live client boundary.
 
 Before opening a handle or performing any fixed memory read, every live reader must verify that the
