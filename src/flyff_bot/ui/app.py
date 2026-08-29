@@ -401,6 +401,8 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         emergency=window.get_emergency_config(),
                         tactical_parameters=window.tactical_parameters,
                         auto_align_camera=window.auto_align_toggle.isChecked(),
+                        policy_mode=window.policy_mode,
+                        policy_model_directory=window.policy_model_directory,
                     ),
                     dashboard_feed=feed,
                     pathing=pathing,

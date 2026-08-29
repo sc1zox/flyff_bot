@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flyff_bot.constants import DEFAULT_POLICY_MODEL_DIRECTORY
 from flyff_bot.features.automation.controllers import (
     DEFAULT_COMBAT_CLASS_PROFILE,
     MELEE_ENGAGEMENT_DISTANCE_UNITS,
@@ -69,7 +70,7 @@ class CombatSettingsPanel(QGroupBox):
         )
 
         self._policy_model_label = QLabel()
-        self.policy_model_directory_edit = QLineEdit()
+        self.policy_model_directory_edit = QLineEdit(DEFAULT_POLICY_MODEL_DIRECTORY)
         self.policy_model_browse_button = QPushButton()
         self.policy_diagnostic_label = QLabel()
         self.policy_diagnostic_label.setWordWrap(True)

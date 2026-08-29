@@ -172,6 +172,7 @@ def test_unified_extraction_runs_stages_and_collects_missing_profile(
     assert result.world_names == ("TestWorld",)
     assert paths.quest_database.is_file()
     assert paths.dungeon_database.is_file()
+    assert paths.player_stats_profiles.is_file()
     assert SetupExtractionWarning.MEMORY_PROFILE_NOT_FOUND in {
         diagnostic.warning for diagnostic in result.diagnostics
     }

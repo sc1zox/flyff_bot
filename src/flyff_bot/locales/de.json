@@ -94,7 +94,7 @@
   "help.navmesh_map": "Ein gespeichertes NavMesh für Telemetrie-Polygon-IDs laden",
   "help.output_model": "Pfad des exportierten ONNX-Modells (Standard: {default})",
   "help.policy_mode": "Taktikmodus der Richtlinie: HEURISTIC, ML_SHADOW oder ML_ACTIVE",
-  "help.policy_model_dir": "Verzeichnis mit den zu ladenden trainierten Richtlinien-Artefakten",
+  "help.policy_model_dir": "Verzeichnis mit den zu ladenden trainierten Richtlinien-Artefakten (Standard: {default})",
   "help.process": "Client-Prozess (Standard: {default})",
   "help.quest_database": "Pfad der erzeugten Quest-Datenbank (Standard: {default}).",
   "help.quest_language": "Sprachordner des Clients, aus dem Quest-Texte gelesen werden (Standard: {default}).",

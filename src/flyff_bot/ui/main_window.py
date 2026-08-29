@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -69,7 +68,7 @@ from flyff_bot.features.navigation.teleporter_models import (
     TeleporterDestination,
 )
 from flyff_bot.features.perception.catalog_join import MobCatalogJoin, load_mob_catalog_join
-from flyff_bot.features.policy.models import PolicyRuntimeMode
+from flyff_bot.features.policy.models import DEFAULT_POLICY_RUNTIME_MODE, PolicyRuntimeMode
 from flyff_bot.features.quests.goals import QuestNpc
 from flyff_bot.features.quests.persistence import (
     QuestDatabaseError,
@@ -495,6 +494,16 @@ class MainWindow(QMainWindow):
     @property
     def policy_mode_selector(self) -> QComboBox:
         return self._combat_panel.policy_mode_selector
+
+    @property
+    def policy_mode(self) -> PolicyRuntimeMode:
+        data = self._combat_panel.policy_mode_selector.currentData()
+        return data if isinstance(data, PolicyRuntimeMode) else DEFAULT_POLICY_RUNTIME_MODE
+
+    @property
+    def policy_model_directory(self) -> str | None:
+        text = self._combat_panel.policy_model_directory_edit.text().strip()
+        return text or None
 
     @property
     def engagement_distance_spin(self) -> QDoubleSpinBox:
@@ -980,12 +989,13 @@ class MainWindow(QMainWindow):
 
     def _build_setup_menu(self) -> None:
         menu_bar = self.menuBar()
-        setup_menu = QMenu(menu_bar)
+        setup_menu = menu_bar.addMenu("")
         action = setup_menu.addAction("")
         action.triggered.connect(self.show_setup_wizard)
+        self._setup_menu = setup_menu
         self._setup_action = action
+        self._setup_menu.setTitle(self._translator.text(Message.UI_SETUP_TITLE))
         self._setup_action.setText(self._translator.text(Message.UI_SETUP_TITLE))
-        menu_bar.addMenu(setup_menu)
 
     @Slot()
     def show_setup_wizard(self) -> None:
@@ -1107,6 +1117,8 @@ class MainWindow(QMainWindow):
 
     def _retranslate(self) -> None:
         self.setWindowTitle(self._translator.text(Message.UI_TITLE))
+        self._setup_menu.setTitle(self._translator.text(Message.UI_SETUP_TITLE))
+        self._setup_action.setText(self._translator.text(Message.UI_SETUP_TITLE))
         self._status_presenter.set_translator(self._translator)
         self._status_card.retranslate(self._translator)
         self._controls_card.retranslate(self._translator)

@@ -20,6 +20,7 @@ def test_main_window_opens_manual_setup_wizard(tmp_path: Path) -> None:
     window = MainWindow(Translator(Language.ENGLISH))
 
     assert window.menuBar().actions()
+    assert window._setup_menu.title() == "Initial Setup"
     window.show_setup_wizard()
 
     wizard = window._setup_wizard

@@ -1,0 +1,106 @@
+{
+  "contract": {
+    "contract_version": "us083-v2",
+    "objective_kind_order": [
+      "farm",
+      "go_to",
+      "kill",
+      "interact",
+      "talk_to_npc"
+    ],
+    "observation_schema_version": "us083-v1",
+    "observation_width": 105,
+    "reward_config_version": "us071-v1",
+    "strategic_goal_order": [
+      "target",
+      "navigate",
+      "interact",
+      "wait"
+    ],
+    "tactical_action_count": 7,
+    "tactical_parameter_schema_version": "us084-v1"
+  },
+  "metrics": {
+    "baseline_kills_per_minute": 0.0,
+    "baseline_objectives_per_minute": 0.0,
+    "calibration_kills_per_minute_error": 0.0002500625156288634,
+    "calibration_travel_time_error": 0.003651762898572011,
+    "learned_kills_per_minute": 20.91269841269841,
+    "learned_objectives_per_minute": 20.91269841269841
+  },
+  "models": {
+    "approach_distance": {
+      "file": "approach-distance.onnx",
+      "input_name": "approach_distance_features",
+      "output_name": "normalized_approach_distance",
+      "sample_count": 96,
+      "sha256": "d30ce07c8628fb77eb6403803a90a1a6d0c5ec1051e912265931c7c5e068b22e",
+      "target": "normalized_prevalidated_option"
+    },
+    "high_level": {
+      "action_order": [
+        "target",
+        "navigate",
+        "interact",
+        "wait"
+      ],
+      "file": "high-level.onnx",
+      "input_name": "strategic_features",
+      "output_name": "strategic_logits",
+      "sha256": "88955f74a08ad25ebc40913c7081bdb48da62c0bc806bd6bbd58b87a9f389bba",
+      "trained_actions": [
+        "target",
+        "navigate",
+        "interact",
+        "wait"
+      ]
+    },
+    "mid_level": {
+      "action_order": [
+        "target",
+        "navigate",
+        "attack_point",
+        "corridor",
+        "interact",
+        "wait"
+      ],
+      "file": "mid-level.onnx",
+      "input_name": "tactical_features",
+      "output_name": "tactical_logits",
+      "sha256": "443594411ac2941326d069ec1c63f637d7f24bc0794d376b7db2224378388756",
+      "trained_actions": [
+        "target",
+        "navigate",
+        "attack_point",
+        "wait"
+      ]
+    }
+  },
+  "onnx_opset": 17,
+  "schema_version": 5,
+  "training": {
+    "algorithm": "masked_q_learning_with_linear_onnx_heads",
+    "calibration_episodes": 4,
+    "calibration_seeds": [
+      273073,
+      273077
+    ],
+    "episode_count": 8,
+    "evaluation_episodes": 4,
+    "evaluation_seeds": [
+      173073,
+      173077
+    ],
+    "q_discount_factor": 0.95,
+    "q_learning_rate": 0.35,
+    "q_learning_rollouts_per_episode": 32,
+    "reward_config_json": "{\"failed_action_weight\": 0.25, \"idle_weight\": 0.02, \"kill_weight\": 1.0, \"objective_complete_weight\": 2.0, \"quest_step_weight\": 0.5, \"recovery_weight\": 0.05, \"stuck_weight\": 0.05, \"travel_weight\": 0.01, \"version\": \"us071-v1\"}",
+    "reward_config_version": "us071-v1",
+    "ridge_penalty": 0.01,
+    "training_seeds": [
+      73073,
+      73329
+    ]
+  },
+  "world_name": "WdMadrigal"
+}

@@ -94,7 +94,7 @@
   "help.navmesh_map": "Load a baked NavMesh artifact for telemetry polygon IDs",
   "help.output_model": "Exported ONNX model path (default: {default})",
   "help.policy_mode": "Tactical policy mode: HEURISTIC, ML_SHADOW, or ML_ACTIVE",
-  "help.policy_model_dir": "Directory holding the trained policy artifacts to load",
+  "help.policy_model_dir": "Directory holding the trained policy artifacts to load (default: {default})",
   "help.process": "Client process (default: {default})",
   "help.quest_database": "Path of the generated quest database (default: {default}).",
   "help.quest_language": "Client language folder to read quest text from (default: {default}).",

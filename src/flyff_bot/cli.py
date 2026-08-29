@@ -25,6 +25,7 @@ from flyff_bot.constants import (
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
     DEFAULT_MOVER_LABEL_MAPPING_PATH,
+    DEFAULT_POLICY_MODEL_DIRECTORY,
     DEFAULT_PROCESS_NAME,
     DEFAULT_QUEST_DATABASE_PATH,
     DEFAULT_SOURCE_MANIFEST_PATH,
@@ -396,7 +397,8 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--policy-model-dir",
-        help=translator.text(Message.HELP_POLICY_MODEL_DIR),
+        default=DEFAULT_POLICY_MODEL_DIRECTORY,
+        help=translator.text(Message.HELP_POLICY_MODEL_DIR, default=DEFAULT_POLICY_MODEL_DIRECTORY),
     )
     parser.add_argument("--goal-item", help=translator.text(Message.HELP_GOAL_ITEM))
     parser.add_argument("--goal-count", type=int, help=translator.text(Message.HELP_GOAL_COUNT))

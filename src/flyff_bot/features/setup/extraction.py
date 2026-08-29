@@ -335,6 +335,9 @@ class UnifiedClientExtractor:
             diagnostics.append(
                 SetupDiagnostic(WarningCode.MEMORY_PROFILE_NOT_FOUND, fingerprint.sha256)
             )
+            if not self._output_paths.player_stats_profiles.is_file():
+                self._output_paths.player_stats_profiles.parent.mkdir(parents=True, exist_ok=True)
+                self._output_paths.player_stats_profiles.write_text("[]\n", encoding="utf-8")
             return
         install_matching_profile(profiles, fingerprint, self._output_paths.player_stats_profiles)
         result.memory_profile = SetupMemoryProfile(

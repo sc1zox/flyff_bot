@@ -23,6 +23,7 @@ DEFAULT_TELEMETRY_AREA_ID = "unknown"
 # Offline farming value models trained from recorded telemetry (US-066). The version segment
 # is part of the path so a new artifact set never overwrites the one a session already loaded.
 DEFAULT_FARMING_VALUE_MODEL_PATH = "models/farming_value/v1"
+DEFAULT_POLICY_MODEL_DIRECTORY = "models/policy"
 # Extracted client world geometry (US-045). The client tree is the operator's own game
 # installation and is never part of this repository, so the default only states where an
 # unmodified Entropia install keeps its regions relative to the working directory.
