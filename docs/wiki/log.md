@@ -1221,3 +1221,21 @@ cooldown-window vtables, and `LiveDungeonCooldownReader` maps the one lockout on
 active and reports `UNKNOWN` otherwise. `ClientBinaryProfiler.profile()` now completes end to end for
 this digest. Evidence is offline: synthetic-PE decoder and discovery tests, live-reader lockout tests;
 `./scripts/check.ps1` green (1285 passed, 4 skipped).
+
+## [2026-08-29] synthesis | CWndStatus gauge vital path closed; generated position offset is a false positive (US-094, BUG-039)
+
+Added source [2026-08-29 CWndStatus and player-position static analysis](../sources/2026-08-29-entropia-cwndstatus-and-player-position-static-analysis.md)
+and recorded in [architecture.md](architecture.md), [ADR-010](../decisions/ADR-010-client-derived-vital-maxima-are-not-runtime-resolvable.md),
+and BUG-038 that the `CWndStatus` gauge fill floats
+(`CWndStatus + {0x2168,0x2194,0x21C0,0x21EC,0x2218} + 0x28`, a clamped 0..100 float, not 0..1) are
+real inline `CWndGauge` members but have no fingerprint-stable anchor to the window instance
+(`CWndStatus::OnDraw` is virtual with zero direct callers; the constructor wrapper has zero direct
+callers), so no bounded read to the vital percentage exists on `8079c88f…dada5`. US-094 closes the
+ADR-010 follow-up as not implementable within ADR-006; vitals stay on `PlayerVitalsReader`. The same
+analysis found `ClientBinaryProfiler._discover_player` emits `position_offset = 184` from a spurious
+`48 05` byte match where the verified player coordinate is `CMover + 0x188` (14 corroborating
+`movups`/`movss` sites); the setup wizard's `persist_profile_bundle` call would install that wrong
+offset into the `.gitignore`d `data/navigation/client_profiles.json` without a correctness check
+(BUG-039). Profiler hardening, a committed home for the fingerprinted position/world-id profiles,
+and bin32 verification remain BUG-039 follow-up. Evidence is offline static analysis; no code
+changed.

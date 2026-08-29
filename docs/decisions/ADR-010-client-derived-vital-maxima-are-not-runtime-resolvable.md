@@ -91,8 +91,11 @@ therefore cannot obtain a vital maximum for this build.
 - No back-compatibility shim is added for the old direct-offset player-stats document; per
   [ADR-003](ADR-003-clean-schema-over-backward-compatibility.md) the one current schema stands and
   the stale committed document is replaced.
-- The dungeon-container decoder and a memory path for the vital percentages (the `CWndStatus`
-  gauge floats) remain follow-up work tracked in [BUG-038](../bugs/BUG-038-player-stats-profiler-fails-closed-on-wrapped-vital-ratio-helpers.md).
+- The dungeon-container decoder was resolved via [ADR-011](ADR-011-dungeon-cooldowns-are-not-fingerprint-bindable-only-the-account-lockout-is.md).
+  A memory path for the vital percentages (the `CWndStatus` gauge floats) was investigated under
+  [US-094](../user-stories/completed/US-094-cwndstatus-gauge-vital-memory-path.md) and closed as
+  not implementable within [ADR-006](ADR-006-read-only-process-memory-access.md) — see the update
+  below.
 
 ## Verification
 
@@ -103,3 +106,27 @@ failure, and a `current_<vital>` profile loading and decoding.
 `tests/unit/test_production_readiness.py` and the orchestrator readiness tests cover a
 percentage-free profile keeping the session armable with the HUD vitals fallback engaged.
 `./scripts/check.ps1` is green.
+
+## Update 2026-08-29: the CWndStatus gauge path is closed, not deferred
+
+[US-094](../user-stories/completed/US-094-cwndstatus-gauge-vital-memory-path.md) analysed the
+`CWndStatus` render path in `8079c88f…dada5`
+([source](../sources/2026-08-29-entropia-cwndstatus-and-player-position-static-analysis.md)):
+
+- The five gauges are inline `CWndGauge` members at
+  `CWndStatus + {0x2168, 0x2194, 0x21C0, 0x21EC, 0x2218}` (44-byte stride); HP/MP/FP are gauges
+  0/1/2. `CWndGauge::SetFillRatio` (`sub_AE8E0`) clamps to `100.0f` and stores the value at
+  `gauge + 0x28`. The stored float is a **0..100** percentage (the earlier "0..1 float" note in
+  BUG-038 was wrong), written each render tick from the client's own `MulDiv(current, 100, max)`,
+  so it already incorporates the runtime-resolved maximum.
+- **No fingerprint-stable anchor to the `CWndStatus` instance exists.** `CWndStatus::OnDraw` is a
+  vtable method with zero direct callers; the constructor wrapper has zero direct callers
+  (class-factory dispatch); no writable global or statically initialised pointer holds the
+  object. Reaching it needs an unbounded walk of the window manager's child collection, outside
+  [ADR-006](ADR-006-read-only-process-memory-access.md).
+
+Decision point 5 stands unchanged and is now evidence-backed: vital percentages for this build
+come from `PlayerVitalsReader`. The "candidate bounded read" framing in BUG-038's remaining-
+follow-up note is withdrawn — there is no bounded read to that value on this build. A future
+client that exposes a stable `CWndStatus*` global (or a fixed vital ratio) can revisit this
+without a schema change.

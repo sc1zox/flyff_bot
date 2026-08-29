@@ -14,7 +14,7 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-*No open active defects.* All reported bugs have been verified and moved to `fixed/`. Any new defects discovered during production execution begin in this backlog with a testable reproduction.
+- [ ] [**BUG-039: Generated position offset is a byte-match false positive; position and world-id registries are empty**](BUG-039-generated-position-offset-false-positive-and-empty-position-world-id-registries.md)
 
 ---
 

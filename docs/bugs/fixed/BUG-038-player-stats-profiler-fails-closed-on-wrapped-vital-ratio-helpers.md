@@ -128,13 +128,24 @@ player-stats, camera, dungeon).
 
 ## Remaining follow-up
 
-**Memory path for the vital percentages (`CWndStatus` gauge floats).** Still open, accepted in
-[ADR-010](../decisions/ADR-010-client-derived-vital-maxima-are-not-runtime-resolvable.md).
-Vital percentages keep coming from the visual HUD reader (`PlayerVitalsReader`). The candidate
-bounded read for a later implementation is the five gauge fill ratios on `CWndStatus`:
-`CWndStatus + {0x2168, 0x2194, 0x21C0, 0x21EC, 0x2218} + 0x28` (each a 0..1 float). Recorded
-for the eventual `RatioPlayerStatSource` / dedicated gauge source; not yet wired and not a
-blocker for this defect.
+**Memory path for the vital percentages (`CWndStatus` gauge floats).** Resolved —
+closed as not implementable within
+[ADR-006](../decisions/ADR-006-read-only-process-memory-access.md) by
+[US-094](../user-stories/completed/US-094-cwndstatus-gauge-vital-memory-path.md), with the
+[ADR-010 update](../decisions/ADR-010-client-derived-vital-maxima-are-not-runtime-resolvable.md)
+and [static-analysis source](../sources/2026-08-29-entropia-cwndstatus-and-player-position-static-analysis.md).
+The five gauges are real inline `CWndGauge` members at
+`CWndStatus + {0x2168, 0x2194, 0x21C0, 0x21EC, 0x2218} + 0x28`, but that float is a **0..100**
+value (not 0..1 as first recorded) and there is **no fingerprint-stable anchor to the
+`CWndStatus` instance** — so it is not a bounded read. Vital percentages keep coming from
+`PlayerVitalsReader`.
+
+**Generated position offset.** During the same analysis the `position` half of the generated
+bundle for `8079c88f…` was found to be a byte-match false positive (`184` where the verified
+offset is `0x188`), installed verbatim by the setup wizard's `persist_profile_bundle` call. The
+"position … statically evidenced" and "completes end to end" statements above overstate the
+position result; they hold for camera / dungeon / player-stats. Tracked in
+[BUG-039](../BUG-039-generated-position-offset-false-positive-and-empty-position-world-id-registries.md).
 
 ## Regression verification
 
