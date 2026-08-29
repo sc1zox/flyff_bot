@@ -28,6 +28,7 @@ from flyff_bot.features.player_stats.profiles import (
     PlayerStatFieldProfile,
     PlayerStatType,
     RatioPlayerStatSource,
+    XorPairPlayerStatSource,
 )
 
 REQUIRED_RTTI_NAMES = (
@@ -45,6 +46,8 @@ VITAL_RATIO_PERCENT_SCALE = 100.0
 _MAX_STRUCT_ACCESSOR_OFFSET = 0x100000
 _WRAPPER_SCAN_BYTES = 64
 _ACCESSOR_SCAN_BYTES = 48
+# The obfuscated-HP decoder loads both 64-bit keys within the first ~0x70 bytes.
+_XOR_DECODER_SCAN_BYTES = 160
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,12 +142,27 @@ def analyze_ratio_function(code: bytes) -> RatioEvidence:
 class WrappedRatioEvidence:
     """What the wrapped ``max()`` / ``current()`` vital helper shape statically proves.
 
-    Either side is ``None`` when that getter computes its value through further calls instead
-    of a single fixed-offset load, so no bounded struct member can be named for it.
+    An ``*_offset`` is ``None`` when that getter computes its value through further calls
+    instead of a single fixed-offset load, so no bounded struct member can be named for it.
     """
 
+    current_getter_rva: int
+    max_getter_rva: int
     current_offset: int | None
     max_offset: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class XorPairEvidence:
+    """The struct offset and two 64-bit keys of an XOR-obfuscated player statistic."""
+
+    offset: int
+    key_a: int
+    key_b: int
+
+
+def _relative_call_sites(body: bytes) -> list[int]:
+    return [index for index in range(len(body) - 4) if body[index] == 0xE8]
 
 
 def analyze_wrapped_vital_ratio(image: PeImage, wrapper_rva: int) -> WrappedRatioEvidence:
@@ -171,6 +189,8 @@ def analyze_wrapped_vital_ratio(image: PeImage, wrapper_rva: int) -> WrappedRati
     max_rva = relative_call_target(body, getter_calls[0], wrapper_rva)
     current_rva = relative_call_target(body, getter_calls[1], wrapper_rva)
     return WrappedRatioEvidence(
+        current_rva,
+        max_rva,
         _fixed_accessor_offset(image, current_rva),
         _fixed_accessor_offset(image, max_rva),
     )
@@ -198,36 +218,87 @@ def _fixed_accessor_offset(image: PeImage, accessor_rva: int) -> int | None:
     return None
 
 
-def _resolve_vital_ratio_source(image: PeImage, helper_rva: int) -> RatioPlayerStatSource | None:
-    """Return a proven ``current * scale / maximum`` source for one vital, or ``None``.
+def analyze_hp_xor_pair(image: PeImage, current_getter_rva: int) -> XorPairEvidence | None:
+    """Decode the ``[player+disp] ^ key_a`` / ``^ key_b`` obfuscated-HP shape.
 
-    ``None`` means this client build computes the vital through a path with no bounded
-    numerator/denominator pair (ADR-010); the vital is then left to the visual HUD reader
-    rather than guessed.
+    From the HP current getter, follow one callee that adds a fixed displacement to the
+    player pointer and hands it to a decoder holding two sequential 64-bit XOR keys.
     """
 
     try:
-        evidence = analyze_ratio_function(image.read_rva(helper_rva, 96))
-        return RatioPlayerStatSource(
-            evidence.numerator_offset,
-            evidence.denominator_offset,
-            evidence.primitive,
-            evidence.scale,
-        )
+        outer = image.read_rva(current_getter_rva, 96)
     except ClientProfilingError:
-        pass
+        return None
+    for call_at in _relative_call_sites(outer):
+        adder_rva = relative_call_target(outer, call_at, current_getter_rva)
+        evidence = _xor_pair_from_adder(image, adder_rva)
+        if evidence is not None:
+            return evidence
+    return None
+
+
+def _xor_pair_from_adder(image: PeImage, adder_rva: int) -> XorPairEvidence | None:
     try:
-        wrapped = analyze_wrapped_vital_ratio(image, helper_rva)
+        body = image.read_rva(adder_rva, 64)
     except ClientProfilingError:
         return None
-    if wrapped.current_offset is None or wrapped.max_offset is None:
+    add_at = body.find(b"\x48\x05")  # add rax, imm32
+    if add_at < 0 or add_at + 6 > len(body):
         return None
-    return RatioPlayerStatSource(
-        wrapped.current_offset,
-        wrapped.max_offset,
-        PlayerStatType.I32,
-        VITAL_RATIO_PERCENT_SCALE,
-    )
+    offset = int(struct.unpack_from("<i", body, add_at + 2)[0])
+    if not 0 < offset < _MAX_STRUCT_ACCESSOR_OFFSET:
+        return None
+    call_at = body.find(b"\xe8", add_at + 6)
+    if call_at < 0 or call_at + 5 > len(body):
+        return None
+    keys = _sequential_imm64_keys(image, relative_call_target(body, call_at, adder_rva))
+    if len(keys) != 2:
+        return None
+    return XorPairEvidence(offset, keys[0], keys[1])
+
+
+def _sequential_imm64_keys(image: PeImage, decoder_rva: int) -> tuple[int, ...]:
+    try:
+        body = image.read_rva(decoder_rva, _XOR_DECODER_SCAN_BYTES)
+    except ClientProfilingError:
+        return ()
+    if b"\x48\x33" not in body:  # no ``xor r64, r64`` -> not an XOR decoder
+        return ()
+    keys: list[int] = []
+    cursor = 0
+    while cursor + 10 <= len(body):
+        if body[cursor] == 0x48 and 0xB8 <= body[cursor + 1] <= 0xBF:  # movabs r64, imm64
+            keys.append(int(struct.unpack_from("<Q", body, cursor + 2)[0]))
+            cursor += 10
+            continue
+        cursor += 1
+    return tuple(keys)
+
+
+# ``mov [rsp+8], rcx; mov rax, [rsp+8]`` -> a getter that loads one fixed ``this`` member.
+_MEMBER_LOAD_PROLOGUE = b"\x48\x89\x4c\x24\x08\x48\x8b\x44\x24\x08"
+
+
+def _member_load_evidence(image: PeImage, rva: int) -> tuple[int, PlayerStatType] | None:
+    try:
+        body = image.read_rva(rva, 32)
+    except ClientProfilingError:
+        return None
+    if not body.startswith(_MEMBER_LOAD_PROLOGUE):
+        return None
+    cursor = len(_MEMBER_LOAD_PROLOGUE)
+    if body[cursor : cursor + 3] == b"\x48\x8b\x80":  # mov rax, [rax+d32]
+        primitive, disp_at = PlayerStatType.U64, cursor + 3
+    elif body[cursor : cursor + 2] == b"\x8b\x80":  # mov eax, [rax+d32]
+        primitive, disp_at = PlayerStatType.I32, cursor + 2
+    else:
+        return None
+    if disp_at + 4 > len(body):
+        return None
+    offset = int(struct.unpack_from("<i", body, disp_at)[0])
+    if not 0 < offset < _MAX_STRUCT_ACCESSOR_OFFSET:
+        return None
+    return offset, primitive
 
 
 def analyze_dungeon_span_function(
@@ -359,19 +430,13 @@ def _discover_player_stats(
         )
     fields: list[PlayerStatFieldProfile] = []
     for name, helper_rva in zip(("hp", "mp", "fp"), helper_rvas, strict=True):
-        source = _resolve_vital_ratio_source(image, helper_rva)
-        if source is not None:
-            fields.append(PlayerStatFieldProfile(name, source, 0.0, 100.0))
-    # A complete profile must also contain direct level and experience evidence. The target
-    # build's helpers calculate these through additional data-center calls, so absence is a
-    # hard failure rather than an adjacent-offset guess.
-    direct_helpers = _direct_stat_helpers(image, window, status_call_rva, after=cursor)
-    if len(direct_helpers) != 2:
-        raise ClientProfilingError(
-            ClientProfilingErrorCode.INCOMPLETE_PLAYER_STATS,
-            "Level and experience are not both exposed as direct bounded fields.",
-        )
-    experience_offset, level_offset = direct_helpers
+        field = _resolve_vital_field(image, name, helper_rva)
+        if field is not None:
+            fields.append(field)
+    # Level and experience are proven through the experience-gauge wrapper's fixed member
+    # getters; this build calculates the maxima through data-center calls, so a missing
+    # member read is a hard failure rather than an adjacent-offset guess.
+    level_offset, experience_offset = _discover_level_experience(image, window, status_call_rva)
     fields.extend(
         (
             PlayerStatFieldProfile(
@@ -433,34 +498,113 @@ def _discover_monster_kills(image: PeImage) -> int | None:
     return None
 
 
-def _direct_stat_helpers(
-    image: PeImage,
-    status_window: bytes,
-    status_rva: int,
-    *,
-    after: int,
-) -> tuple[int, ...]:
-    offsets: list[int] = []
-    cursor = after
-    while len(offsets) < 2:
-        call_offset = status_window.find(b"\xe8", cursor)
-        if call_offset < 0:
-            break
-        helper_rva = relative_call_target(status_window, call_offset, status_rva)
-        try:
-            helper = image.read_rva(helper_rva, 16)
-        except ClientProfilingError:
-            cursor = call_offset + 5
+def _resolve_vital_field(
+    image: PeImage, name: str, helper_rva: int
+) -> PlayerStatFieldProfile | None:
+    """Return one vital field, or ``None`` when this build proves no bounded source for it.
+
+    A proven ``current * scale / maximum`` ratio is emitted under ``name``; when only the
+    current value has a bounded source (the maximum is computed at runtime, ADR-010) it is
+    emitted under ``current_<name>`` and the percentage is left to the visual HUD reader.
+    """
+
+    try:
+        evidence = analyze_ratio_function(image.read_rva(helper_rva, 96))
+        return PlayerStatFieldProfile(
+            name,
+            RatioPlayerStatSource(
+                evidence.numerator_offset,
+                evidence.denominator_offset,
+                evidence.primitive,
+                evidence.scale,
+            ),
+            0.0,
+            100.0,
+        )
+    except ClientProfilingError:
+        pass
+    try:
+        wrapped = analyze_wrapped_vital_ratio(image, helper_rva)
+    except ClientProfilingError:
+        return None
+    if wrapped.current_offset is not None and wrapped.max_offset is not None:
+        return PlayerStatFieldProfile(
+            name,
+            RatioPlayerStatSource(
+                wrapped.current_offset,
+                wrapped.max_offset,
+                PlayerStatType.I32,
+                VITAL_RATIO_PERCENT_SCALE,
+            ),
+            0.0,
+            100.0,
+        )
+    if name == "hp":
+        xor = analyze_hp_xor_pair(image, wrapped.current_getter_rva)
+        if xor is not None:
+            return PlayerStatFieldProfile(
+                "current_hp",
+                XorPairPlayerStatSource(xor.offset, xor.key_a, xor.key_b, PlayerStatType.I64),
+                0.0,
+                float(2**31 - 1),
+            )
+    if wrapped.current_offset is not None:
+        return PlayerStatFieldProfile(
+            f"current_{name}",
+            DirectPlayerStatSource(wrapped.current_offset, PlayerStatType.I32),
+            0.0,
+            float(2**31 - 1),
+        )
+    return None
+
+
+# ``cvtsi2ss xmm0, eax`` follows every integer gauge percent; ``mov edx, 100`` precedes only
+# the three vital wrappers, so the experience gauge wrapper is the one without it.
+_CVTSI2SS_XMM0_EAX = b"\xf3\x0f\x2a\xc0"
+_MOV_EDX_100 = b"\xba\x64\x00\x00\x00"
+
+
+def _discover_level_experience(
+    image: PeImage, status_window: bytes, status_call_rva: int
+) -> tuple[int, int]:
+    """Return ``(level_offset, experience_offset)`` from the experience-gauge wrapper."""
+
+    exp_wrapper_rva: int | None = None
+    search = 0
+    while (marker := status_window.find(_CVTSI2SS_XMM0_EAX, search)) >= 0:
+        search = marker + 1
+        call_at = marker - 5
+        if call_at < 0 or status_window[call_at] != 0xE8:
             continue
-        direct_offset: int | None = None
-        if helper.startswith(b"\x8b\x81") and helper[6] == 0xC3:
-            direct_offset = struct.unpack_from("<i", helper, 2)[0]
-        elif helper.startswith(b"\x48\x8b\x81") and helper[7] == 0xC3:
-            direct_offset = struct.unpack_from("<i", helper, 3)[0]
-        if direct_offset is not None and direct_offset >= 0:
-            offsets.append(direct_offset)
-        cursor = call_offset + 5
-    return tuple(offsets)
+        if status_window[max(0, call_at - 10) : call_at - 5] == _MOV_EDX_100:
+            continue  # an hp/mp/fp vital wrapper
+        exp_wrapper_rva = relative_call_target(status_window, call_at, status_call_rva)
+        break
+    if exp_wrapper_rva is None:
+        raise ClientProfilingError(
+            ClientProfilingErrorCode.INCOMPLETE_PLAYER_STATS,
+            "The status routine does not expose an experience gauge wrapper.",
+        )
+    members: dict[PlayerStatType, int] = {}
+    try:
+        body = image.read_rva(exp_wrapper_rva, 128)
+    except ClientProfilingError as error:
+        raise ClientProfilingError(
+            ClientProfilingErrorCode.INCOMPLETE_PLAYER_STATS,
+            "The experience gauge wrapper is unreadable.",
+        ) from error
+    for call_at in _relative_call_sites(body):
+        evidence = _member_load_evidence(
+            image, relative_call_target(body, call_at, exp_wrapper_rva)
+        )
+        if evidence is not None:
+            members.setdefault(evidence[1], evidence[0])
+    if PlayerStatType.I32 not in members or PlayerStatType.U64 not in members:
+        raise ClientProfilingError(
+            ClientProfilingErrorCode.INCOMPLETE_PLAYER_STATS,
+            "Level and experience are not both exposed as fixed member reads.",
+        )
+    return members[PlayerStatType.I32], members[PlayerStatType.U64]
 
 
 def _discover_camera(image: PeImage, digest: str) -> ClientCameraProfile:

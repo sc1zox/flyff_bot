@@ -22,6 +22,7 @@ from flyff_bot.features.dungeons.profiles import (
 from flyff_bot.features.navigation.live_camera import load_client_camera_profiles
 from flyff_bot.features.navigation.live_position import load_client_position_profiles
 from flyff_bot.features.player_stats.profiles import (
+    ClientPlayerStatsProfile,
     DirectPlayerStatSource,
     RatioPlayerStatSource,
     XorPairPlayerStatSource,
@@ -134,7 +135,12 @@ def _position_document(bundle: GeneratedClientProfileBundle) -> dict[str, object
 
 
 def _player_stats_document(bundle: GeneratedClientProfileBundle) -> dict[str, object]:
-    profile = bundle.player_stats
+    return player_stats_profile_document(bundle.player_stats)
+
+
+def player_stats_profile_document(profile: ClientPlayerStatsProfile) -> dict[str, object]:
+    """Serialize one generated player-stats profile to its canonical JSON document."""
+
     fields: list[dict[str, object]] = []
     for field in profile.fields:
         source = field.source

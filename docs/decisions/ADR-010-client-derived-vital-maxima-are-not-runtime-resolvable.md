@@ -34,15 +34,21 @@ therefore cannot obtain a vital maximum for this build.
 ## Decision
 
 1. The profiler emits a player-stat field only when a bounded read that yields that field's
-   declared output is statically proven. A vital whose maximum is computed at runtime yields no
-   provable bounded ratio, so the profiler omits that vital rather than guessing an offset or an
-   adjacent value.
+   declared output is statically proven, never an offset or adjacent value it had to guess.
+   A vital whose maximum is computed at runtime yields no provable `current * 100 / maximum`
+   ratio, so no `hp`/`mp`/`fp` percentage field is emitted for it. When the *current* value
+   alone has a proven bounded source, it is emitted under the distinct name `current_<vital>`
+   (`current_hp`, `current_mp`, `current_fp`) so it is available to consumers that want the
+   raw number without ever being mistaken for a 0..100 percentage.
 2. A shortfall in the vital set is not fatal to profile generation. The generated bundle still
    carries every independently evidenced artifact (player pointer, position, camera, dungeon,
    monster-kills RVA, level, experience). `analyze_ratio_function` keeps its narrow contract and
-   a separate equally narrow decoder handles the wrapper shape; neither returns partial evidence.
-3. `ClientPlayerStatsProfile` permits `hp`, `mp` and `fp` to be absent. The 0..100 output bound
-   is enforced only for vital fields that actually declare a `RatioPlayerStatSource`.
+   separate, equally narrow decoders handle the wrapper, the XOR-pair and the fixed-member
+   shapes; none returns partial evidence.
+3. `ClientPlayerStatsProfile` permits `hp`, `mp` and `fp` to be absent, and permits a
+   `current_<vital>` field to carry a raw `DirectPlayerStatSource` or `XorPairPlayerStatSource`.
+   The 0..100 output bound is enforced only for a vital field that actually declares a
+   `RatioPlayerStatSource`.
 4. Player-stats source health is derived from the fields a profile declares, not from a fixed
    `{hp, mp, fp}` set. A profile that proves no vital percentages is healthy for what it does
    provide (monster kills, level, experience), and the `PLAYER_STATS` readiness gate does not
@@ -63,33 +69,37 @@ therefore cannot obtain a vital maximum for this build.
   walking variable-length equipment and buff structures keyed by attribute id, which is unbounded
   runtime traversal outside [ADR-006](ADR-006-read-only-process-memory-access.md) and US-076's
   fixed-bounded-read contract.
-- **Read only the current value from memory and treat "mp"/"fp" as raw values.** Rejected as a
-  memory design: the vitals consumer (`PlayerVitals`) is percentage-only, and a raw current with
-  no maximum is not a ratio. The HUD fallback already covers this case.
+- **Emit the current value under the name `mp`/`fp` and treat it as the vital.** Rejected: the
+  vitals consumer (`PlayerVitals`) is percentage-only and would reject a raw current, and any
+  code keying `"hp"`/`"mp"`/`"fp"` would silently read a raw number as a percentage. The raw
+  current is emitted under `current_<vital>` instead, and the percentage stays on the HUD.
 - **Keep `_discover_player_stats` all-or-nothing.** Rejected: one changed helper shape would keep
   discarding unrelated, fully evidenced position, camera and dungeon plans.
 
 ## Consequences
 
-- The generated bundle for `8079c88f…dada5` contains position, camera, dungeon, monster-kills,
-  level and experience, and no `hp`/`mp`/`fp` fields. `data/config/client_player_stats_profiles.json`
-  is regenerated to this shape.
-- The dashboard shows `PLAYER_STATS` healthy for kills, level and experience, with vital
-  percentages sourced from the HUD reader and no permanent setup gate.
+- The generated player-stats profile for `8079c88f…dada5` carries `current_hp` (XOR-pair at
+  `+0x1304`), `current_mp` (`+0x12FC`), `current_fp` (`+0x1300`), `level` (`+0x12C0`),
+  `experience` (`+0x12C8`) and `monster_kills_rva`, and no `hp`/`mp`/`fp` percentage fields.
+  `data/config/client_player_stats_profiles.json` is regenerated to this shape.
+- The perception pipeline reads vital percentages from the HUD reader whenever a client-memory
+  snapshot has no `hp`/`mp`/`fp` fields; the dashboard shows `PLAYER_STATS` healthy for what the
+  profile does provide, with no permanent setup gate.
 - A future client build that exposes a fixed vital ratio (or a proven write-back of the computed
-  maximum) can restore the full `RatioPlayerStatSource` without a schema change, because the
-  fields are already optional.
+  maximum) can restore a full `RatioPlayerStatSource` under `hp`/`mp`/`fp` without a schema
+  change, because those fields are already optional.
 - No back-compatibility shim is added for the old direct-offset player-stats document; per
   [ADR-003](ADR-003-clean-schema-over-backward-compatibility.md) the one current schema stands and
   the stale committed document is replaced.
+- The dungeon-container decoder and a memory path for the vital percentages (the `CWndStatus`
+  gauge floats) remain follow-up work tracked in [BUG-038](../bugs/BUG-038-player-stats-profiler-fails-closed-on-wrapped-vital-ratio-helpers.md).
 
 ## Verification
 
-`tests/unit/test_client_profiling.py` covers a synthetic PE carrying the wrapped vital-ratio shape
-(current-only MP/FP, computed HP/max) and asserts the bundle still generates with position,
-camera, dungeon, level, experience and monster-kills intact and no vital fields.
-`tests/unit/test_player_stats_reader.py` covers a profile with no vital fields loading and
-decoding, and the loader still rejecting a raw (non-ratio) `hp`/`mp`/`fp` field.
+`tests/unit/test_client_profiling.py` covers the wrapped vital-ratio decoder, the XOR-pair HP
+decoder, and the fixed-member level/experience discovery over synthetic PEs.
+`tests/unit/test_player_stats_reader.py` covers `XorPairPlayerStatSource` decoding and consistency
+failure, and a `current_<vital>` profile loading and decoding.
 `tests/unit/test_production_readiness.py` and the orchestrator readiness tests cover a
-vitals-free profile keeping the session armable with the HUD vitals fallback engaged.
+percentage-free profile keeping the session armable with the HUD vitals fallback engaged.
 `./scripts/check.ps1` is green.

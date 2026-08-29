@@ -300,3 +300,70 @@ def test_analyze_wrapped_vital_ratio_rejects_a_helper_without_a_guarded_getter_p
     with pytest.raises(ClientProfilingError) as error:
         analyze_wrapped_vital_ratio(_build_synthetic_pe(text_payload=text_payload), 0x1000)
     assert error.value.code is ClientProfilingErrorCode.INCOMPLETE_PLAYER_STATS
+
+
+def _member_load_getter(offset: int, *, wide: bool) -> bytes:
+    # mov [rsp+8],rcx; mov rax,[rsp+8]; mov (r|e)ax,[rax+disp32]; ret
+    load = (b"\x48\x8b\x80" if wide else b"\x8b\x80") + struct.pack("<i", offset)
+    return b"\x48\x89\x4c\x24\x08\x48\x8b\x44\x24\x08" + load + b"\xc3"
+
+
+def test_analyze_hp_xor_pair_recovers_the_offset_and_both_keys() -> None:
+    from flyff_bot.features.client_profiling.profiler import analyze_hp_xor_pair
+
+    getter_rva, adder_rva, decoder_rva = 0x1000, 0x1100, 0x1200
+    key_a, key_b = 0x5A3C9E17C4D2F8B1, 0x2D74B1C9A6E03F5D
+
+    getter = b"\x48\x8b\x4c\x24\x40" + _call_rel32(getter_rva + 5, adder_rva) + b"\xc3"
+    adder = (
+        b"\x48\x8b\x44\x24\x40"  # mov rax,[rsp+0x40]
+        + b"\x48\x05"
+        + struct.pack("<i", 0x1304)  # add rax, 0x1304
+        + _call_rel32(adder_rva + 11, decoder_rva)
+        + b"\xc3"
+    )
+    decoder = (
+        b"\x48\xb8"
+        + struct.pack("<Q", key_a)  # movabs rax, key_a
+        + b"\x48\x33\xc8"  # xor rcx, rax
+        + b"\x48\xb8"
+        + struct.pack("<Q", key_b)  # movabs rax, key_b
+        + b"\x48\x33\xc8\xc3"
+    )
+    text = bytearray(b"\x90" * 0x400)
+    text[0x000 : len(getter)] = getter
+    text[0x100 : 0x100 + len(adder)] = adder
+    text[0x200 : 0x200 + len(decoder)] = decoder
+
+    evidence = analyze_hp_xor_pair(_build_synthetic_pe(text_payload=bytes(text)), getter_rva)
+
+    assert evidence is not None
+    assert (evidence.offset, evidence.key_a, evidence.key_b) == (0x1304, key_a, key_b)
+
+
+def test_discover_level_experience_reads_the_exp_wrapper_member_getters() -> None:
+    from flyff_bot.features.client_profiling.profiler import _discover_level_experience
+
+    status_rva, exp_wrapper_rva, level_rva, exp_getter_rva = 0x1000, 0x1100, 0x1200, 0x1300
+    # status window: one gauge call followed by cvtsi2ss xmm0, eax, with no `mov edx, 100`.
+    status = (
+        b"\x48\x8b\x4c\x24\x38" + _call_rel32(status_rva + 5, exp_wrapper_rva) + b"\xf3\x0f\x2a\xc0"
+    ).ljust(0x40, b"\x90")
+    exp_wrapper = (
+        b"\x48\x8b\x4c\x24\x40"
+        + _call_rel32(exp_wrapper_rva + 5, level_rva)
+        + b"\x48\x8b\x4c\x24\x40"
+        + _call_rel32(exp_wrapper_rva + 15, exp_getter_rva)
+        + b"\xc3"
+    )
+    text = bytearray(b"\x90" * 0x340)
+    text[0x000 : len(status)] = status
+    text[0x100 : 0x100 + len(exp_wrapper)] = exp_wrapper
+    text[0x200 : 0x200 + 0x20] = _member_load_getter(0x12C0, wide=False)
+    text[0x300 : 0x300 + 0x20] = _member_load_getter(0x12C8, wide=True)
+
+    level_offset, experience_offset = _discover_level_experience(
+        _build_synthetic_pe(text_payload=bytes(text)), status, status_rva
+    )
+
+    assert (level_offset, experience_offset) == (0x12C0, 0x12C8)

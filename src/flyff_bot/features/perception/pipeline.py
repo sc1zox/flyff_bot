@@ -252,6 +252,11 @@ class PerceptionPipeline:
                             values["mp"],
                             values["fp"],
                         )
+                    else:
+                        # This client build computes vital maxima at runtime (ADR-010), so the
+                        # memory profile carries no 0..100 vital ratio; the HUD reader remains
+                        # authoritative for the percentages.
+                        player_vitals = self._vitals_reader.read(frame)
                     if "monster_kills" in values:
                         monster_kill_count = int(values["monster_kills"])
             elif self._player_stats_reader is None:

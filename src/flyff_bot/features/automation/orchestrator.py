@@ -741,13 +741,15 @@ class FarmingOrchestrator:
                     "no_sample",
                 )
             elif snapshot.source is PlayerStatsSource.CLIENT_MEMORY:
-                required_fields = {"hp", "mp", "fp"}
-                if required_fields.issubset(snapshot.field_values):
-                    health = ProviderHealth.HEALTHY
-                    diagnostic = "ok"
-                else:
+                # The profile decides which statistics this client build proves; a client-memory
+                # snapshot is healthy for whatever it delivered, and only a field the profile
+                # declared but could not read this poll counts as malformed (ADR-010).
+                if snapshot.unavailable_field_names:
                     health = ProviderHealth.MALFORMED
                     diagnostic = "required_fields_missing"
+                else:
+                    health = ProviderHealth.HEALTHY
+                    diagnostic = "ok"
                 sample = LiveProviderSample(
                     LiveStateSource.PLAYER_STATS,
                     health,
