@@ -580,6 +580,8 @@ class Message(StrEnum):
     UI_SETUP_REQUIRED_STATUS = "ui.setup_required_status"
     UI_SETUP_RESCAN_PROFILES = "ui.setup_rescan_profiles"
     UI_SETUP_RESCAN_PROFILES_TOOLTIP = "ui.setup_rescan_profiles_tooltip"
+    UI_SETUP_FORCE_REEXTRACT = "ui.setup_force_reextract"
+    UI_SETUP_FORCE_REEXTRACT_TOOLTIP = "ui.setup_force_reextract_tooltip"
     # Static-catalog, source-manifest and label-join diagnostics (US-083).
     CLIENT_CATALOG_EMPTY = "error.client_catalog_empty"
     CLIENT_CATALOG_TABLE_REJECTED = "error.client_catalog_table_rejected"

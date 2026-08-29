@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import struct
 from pathlib import Path
 
@@ -30,7 +31,8 @@ from flyff_bot.features.setup.extraction import (
     UnifiedClientExtractor,
     _validate_client_layout,
 )
-from flyff_bot.features.setup.models import SetupExtractionWarning
+from flyff_bot.features.setup.models import ClientSetupPaths, SetupExtractionWarning
+from flyff_bot.features.setup.profiles import fingerprint_executable
 
 DIGEST = "a" * 64
 
@@ -279,3 +281,101 @@ def test_run_memory_profile_only_retains_existing_dataset_counts(tmp_path: Path)
 
 def test_setup_wizard_validates_path_and_reports_invalid_selection() -> None:
     assert QApplication.instance() is not None or QApplication([]) is not None
+
+
+def _bundle_with_digest(digest: str) -> GeneratedClientProfileBundle:
+    fields = (
+        PlayerStatFieldProfile("hp", RatioPlayerStatSource(0, 4, PlayerStatType.U32), 0.0, 100.0),
+        PlayerStatFieldProfile("mp", RatioPlayerStatSource(8, 12, PlayerStatType.U32), 0.0, 100.0),
+        PlayerStatFieldProfile("fp", RatioPlayerStatSource(16, 20, PlayerStatType.U32), 0.0, 100.0),
+    )
+    return GeneratedClientProfileBundle(
+        ClientPositionProfile(digest, 0x1000, 8, 0x188),
+        ClientPlayerStatsProfile(digest, 0x1000, 8, fields),
+        ClientCameraProfile(digest, 0x2000, 8, 8, 0x14, 0x94, 0x3000),
+        ClientDungeonProfile(
+            digest,
+            0x4000,
+            8,
+            FixedDungeonArray(0x20, 32, 4),
+            DungeonFieldLayout(0, 8, 12, 16),
+        ),
+    )
+
+
+class _CountingProfiler:
+    """Profiler that records how often the expensive stage 5 pass is executed."""
+
+    def __init__(self, digest: str) -> None:
+        self._digest = digest
+        self.calls = 0
+
+    def profile(self, _path: Path) -> GeneratedClientProfileBundle:
+        self.calls += 1
+        return _bundle_with_digest(self._digest)
+
+
+def _cache_output_paths(output: Path) -> ClientSetupPaths:
+    paths = UnifiedClientExtractor.default_output_paths()
+    paths.world_map_directory = output / "worlds"
+    paths.quest_database = output / "quests.json"
+    paths.quest_npc_positions = output / "npc.json"
+    paths.dungeon_database = output / "dungeons.json"
+    paths.position_profiles = output / "position-profiles.json"
+    paths.player_stats_profiles = output / "player-profiles.json"
+    paths.camera_profiles = output / "camera-profiles.json"
+    paths.dungeon_profiles = output / "dungeon-profiles.json"
+    paths.client_catalog = output / "catalog.json"
+    paths.source_manifest = output / "source_manifest.json"
+    return paths
+
+
+def test_cached_run_reuses_existing_artifacts_without_re_extracting(tmp_path: Path) -> None:
+    client_root = _client_root(tmp_path)
+    system = client_root / "Data" / "System2"
+    write_keyed_archive(system, "data1", {"propMover.txt": b"MI_TEST\t1\n"})
+    output = tmp_path / "output"
+    paths = _cache_output_paths(output)
+    digest = fingerprint_executable(client_root / "neuz.exe").sha256
+    profiler = _CountingProfiler(digest)
+
+    first = UnifiedClientExtractor(client_root, paths, profiler=profiler).run()
+    assert first.mover_count == 1
+    assert first.world_names == ("TestWorld",)
+    assert first.memory_profile is not None
+    assert profiler.calls == 1
+
+    # Removing the client's static sources proves a cached run never re-parses them.
+    shutil.rmtree(client_root / "Data" / "World")
+    shutil.rmtree(system)
+
+    cached = UnifiedClientExtractor(client_root, paths, profiler=profiler).run()
+
+    assert cached.mover_count == 1
+    assert cached.world_names == ("TestWorld",)
+    assert cached.quest_count == first.quest_count
+    assert cached.dungeon_count == first.dungeon_count
+    assert cached.memory_profile is not None
+    assert cached.memory_profile.sha256 == digest
+    # Stage 5 was served from the fingerprint-matched cache, not re-run.
+    assert profiler.calls == 1
+
+
+def test_force_run_re_extracts_every_dataset_and_overwrites_caches(tmp_path: Path) -> None:
+    client_root = _client_root(tmp_path)
+    system = client_root / "Data" / "System2"
+    write_keyed_archive(system, "data1", {"propMover.txt": b"MI_TEST\t1\n"})
+    output = tmp_path / "output"
+    paths = _cache_output_paths(output)
+    digest = fingerprint_executable(client_root / "neuz.exe").sha256
+    profiler = _CountingProfiler(digest)
+
+    UnifiedClientExtractor(client_root, paths, profiler=profiler).run()
+    assert profiler.calls == 1
+
+    forced = UnifiedClientExtractor(client_root, paths, profiler=profiler).run(force=True)
+
+    assert forced.mover_count == 1
+    assert forced.world_names == ("TestWorld",)
+    # Force ignores the cache and re-runs stage 5 against the selected client.
+    assert profiler.calls == 2

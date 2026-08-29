@@ -257,6 +257,44 @@ def test_first_run_detection_names_the_catalog_and_its_manifest(tmp_path: Path) 
     assert UnifiedClientExtractor.is_first_run_required(**arguments)
 
 
+def test_a_fresh_install_with_no_extracted_data_autostarts_the_wizard(tmp_path: Path) -> None:
+    window = _window(tmp_path, _install(tmp_path, complete=False))
+    try:
+        window.reload_client_data()
+
+        assert window.is_setup_autostart_required()
+    finally:
+        _dispose(window)
+
+
+def test_a_partial_install_opens_the_dashboard_without_autostarting_the_wizard(
+    tmp_path: Path,
+) -> None:
+    paths = _install(tmp_path, complete=False)
+    # A single extracted artifact is enough to skip the forced popup on launch (US-088).
+    paths["quest_database_path"].write_text("{}", encoding="utf-8")
+    window = _window(tmp_path, paths)
+    try:
+        window.reload_client_data()
+
+        assert not window.is_setup_autostart_required()
+        # The install is still incomplete, so arming stays blocked and explained.
+        assert window.is_setup_required()
+        assert not window.start_button.isEnabled()
+    finally:
+        _dispose(window)
+
+
+def test_a_complete_install_does_not_autostart_the_wizard(tmp_path: Path) -> None:
+    window = _window(tmp_path, _install(tmp_path, complete=True))
+    try:
+        window.reload_client_data()
+
+        assert not window.is_setup_autostart_required()
+    finally:
+        _dispose(window)
+
+
 # --------------------------------------------------------------------------------------
 # Acceptance criterion 2: resilient readiness when no memory profile fits this build.
 # --------------------------------------------------------------------------------------

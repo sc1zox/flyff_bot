@@ -512,9 +512,10 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
 
     apply_theme(window)
     window.show()
-    # A fresh or incomplete install cannot farm anything, so the wizard is offered before the
-    # operator can arm a session rather than after it fails (US-085).
-    if window.is_setup_required():
+    # Only a fresh install with no extracted data opens the wizard automatically; a partial
+    # or complete install opens the dashboard directly, with the wizard still reachable from
+    # the menu and the Start button reporting any remaining gap (US-088).
+    if window.is_setup_autostart_required():
         window.show_setup_wizard()
 
     if owns_app:

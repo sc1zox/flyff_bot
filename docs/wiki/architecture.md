@@ -95,6 +95,7 @@ related:
   - ../user-stories/completed/US-089-automated-client-binary-reverse-engineering-and-memory-profiling.md
   - ../bugs/fixed/BUG-036-dungeon-extraction-missing-script-and-misleading-ui-status.md
   - ../user-stories/completed/US-078-initial-setup-wizard-and-unified-client-data-extraction.md
+  - ../user-stories/completed/US-088-cached-setup-extraction-and-force-refresh.md
   - ../bugs/fixed/BUG-029-tesseract-ocr-tsv-argument-ordering-causes-empty-stdout-and-unreadable-target-names.md
   - ../bugs/fixed/BUG-032-simulator-dynamics-and-paired-evaluation-invalidate-policy-metrics.md
   - ../decisions/ADR-007-offline-tactical-simulation-boundary.md
@@ -2457,6 +2458,25 @@ optional `_position`. A guard test parses every production module and fails on a
 `scripts/check.ps1` passed with 1176 tests passed, 5 skipped, and 89.60% coverage; `uv sync --locked`,
 Ruff, `ruff format --check`, and mypy (316 files) were clean. Live-client walkthroughs (wizard on a
 clean install, farming, and the END / focus-loss release) remain operator validation on Windows.
+
+## Setup wizard autostart restriction and cached extraction (US-088, completed)
+
+**Autostart only on a bare install.** US-085's `run_desktop` opened the wizard whenever
+`is_setup_required()` held, which fired on every start while any single secondary artifact was
+absent. `has_any_extracted_dataset` (`features/setup/models.py`) and its wrapper
+`UnifiedClientExtractor.has_extracted_data(...)` report whether *any* extracted artifact is present;
+`MainWindow.is_setup_autostart_required()` negates it and `run_desktop` uses that for the automatic
+popup. `is_setup_required()` is unchanged and still gates the Start button and autopilot arming, so
+a partially extracted install opens the dashboard directly with arming disabled and its reason
+shown, and the Initial Setup menu action still reopens the wizard on demand.
+
+**Cached stages.** `UnifiedClientExtractor.run(force=False)` skips a stage whose output artifact
+already exists and loads its counts from the cached file through the `_load_cached_*` helpers shared
+with `run_memory_profile_only`. Stage 5 (memory profile) only counts as cached when a persisted
+`client_player_stats_profiles.json` entry matches the selected `neuz.exe` SHA-256; a different build
+re-runs profiling. `SetupWizard` gained a "Force re-extraction" / "Vollständig neu extrahieren"
+checkbox wired through `_SetupWorker.start(force=...)` to `run(force=...)`, which re-runs every
+stage and overwrites the caches; the profile-only rescan path is untouched.
 
 ## Unattended autopilot, session resilience, and goal arbitration (US-086, completed)
 

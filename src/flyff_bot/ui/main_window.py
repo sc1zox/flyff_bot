@@ -1050,6 +1050,27 @@ class MainWindow(QMainWindow):
             source_manifest=self._source_manifest_path,
         )
 
+    def is_setup_autostart_required(self) -> bool:
+        """Return whether the wizard should open automatically on this launch.
+
+        Only a fresh install with no extracted client data at all triggers the automatic
+        popup. Once any dataset exists the dashboard opens directly; the wizard stays
+        reachable from the menu and the Start button still reports any remaining gap
+        (US-088).
+        """
+
+        return not UnifiedClientExtractor.has_extracted_data(
+            world_map_directory=self._world_map_dir,
+            quest_database=self._quest_database_path,
+            dungeon_database=self._dungeon_database_path,
+            position_profiles=self._position_profiles_path,
+            player_stats_profiles=self._player_profiles_path,
+            camera_profiles=self._camera_profiles_path,
+            dungeon_profiles=self._dungeon_profiles_path,
+            client_catalog=self._client_catalog_path,
+            source_manifest=self._source_manifest_path,
+        )
+
     def refresh_setup_state(self) -> None:
         """Keep arming disabled, and say why, while mandatory artifacts are still missing.
 

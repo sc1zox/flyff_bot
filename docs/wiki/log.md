@@ -1279,3 +1279,14 @@ Evidence is offline: rewritten and new unit tests for projected-obstacle replan,
 escalation, start-polygon protection, emergency-stop teardown, and recovery-event telemetry. The
 US-093 slice is green; a pre-existing `main` rebase-integration breakage in `test_ui.py` /
 `client_profiling` / `dungeons` (unrelated to navigation) is tracked separately.
+
+## [2026-08-29] synthesis | Setup wizard autostart restriction and cached extraction (US-088)
+
+Added the `## Setup wizard autostart restriction and cached extraction (US-088, completed)` section
+after the US-085 production-readiness section and linked the completed story in the frontmatter.
+`has_any_extracted_dataset` / `UnifiedClientExtractor.has_extracted_data(...)` back a new
+`MainWindow.is_setup_autostart_required()`, which `run_desktop` uses for the automatic wizard popup
+so only a bare install triggers it; `is_setup_required()` still gates arming. `run(force=False)`
+now reuses an existing per-stage artifact (memory profile keyed to the `neuz.exe` SHA-256) via the
+`_load_cached_*` helpers, and the wizard's new "Force re-extraction" / "Vollständig neu extrahieren"
+checkbox threads `force=True` through `_SetupWorker` to re-extract and overwrite the caches.

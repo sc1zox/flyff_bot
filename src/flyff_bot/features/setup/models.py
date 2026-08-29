@@ -142,3 +142,27 @@ def missing_required_datasets(paths: SetupRequiredDatasets) -> tuple[str, ...]:
         if not path.is_file():
             missing.append(dataset_name)
     return tuple(missing)
+
+
+def has_any_extracted_dataset(paths: SetupRequiredDatasets) -> bool:
+    """Return whether at least one extracted client artifact is already on disk.
+
+    A partially populated install still counts as extracted: the wizard is only forced
+    open automatically on a fresh install where nothing has been extracted yet (US-088).
+    """
+
+    if any(path.is_file() for path in paths.worlds):
+        return True
+    return any(
+        path.is_file()
+        for path in (
+            paths.quests,
+            paths.dungeons,
+            paths.position_profiles,
+            paths.player_stats_profiles,
+            paths.camera_profiles,
+            paths.dungeon_profiles,
+            paths.client_catalog,
+            paths.source_manifest,
+        )
+    )

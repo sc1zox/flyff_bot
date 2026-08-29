@@ -48,6 +48,7 @@ from flyff_bot.features.navigation.world_extractor import (
     load_monster_names,
     save_world_map,
 )
+from flyff_bot.features.player_stats.profiles import load_client_player_stats_profiles
 from flyff_bot.features.quests.extraction import (
     QuestExtractionDiagnostic,
     _npc_positions,
@@ -65,6 +66,7 @@ from flyff_bot.features.setup.models import (
     SetupMemoryProfile,
     SetupProgress,
     SetupRequiredDatasets,
+    has_any_extracted_dataset,
     missing_required_datasets,
 )
 from flyff_bot.features.setup.models import SetupExtractionWarning as WarningCode
@@ -203,7 +205,47 @@ class UnifiedClientExtractor:
         )
         return bool(missing_required_datasets(datasets))
 
-    def run(self) -> SetupExtractionResult:
+    @staticmethod
+    def has_extracted_data(
+        *,
+        world_map_directory: Path = Path(DEFAULT_WORLD_MAP_DIRECTORY),
+        quest_database: Path = Path(DEFAULT_QUEST_DATABASE_PATH),
+        dungeon_database: Path = Path(DEFAULT_DUNGEON_DATABASE_PATH),
+        position_profiles: Path = Path(DEFAULT_CLIENT_POSITION_PROFILES_PATH),
+        player_stats_profiles: Path = Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+        camera_profiles: Path = Path(DEFAULT_CLIENT_CAMERA_PROFILES_PATH),
+        dungeon_profiles: Path = Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
+        client_catalog: Path = Path(DEFAULT_CLIENT_CATALOG_PATH),
+        source_manifest: Path = Path(DEFAULT_SOURCE_MANIFEST_PATH),
+    ) -> bool:
+        """Return whether any extracted client artifact is already present on disk.
+
+        The setup wizard is only forced open automatically when this is false, i.e. on a
+        fresh install; a partial extraction opens the dashboard directly and leaves the
+        wizard reachable on demand (US-088).
+        """
+
+        datasets = UnifiedClientExtractor.required_datasets(
+            world_map_directory=world_map_directory,
+            quest_database=quest_database,
+            dungeon_database=dungeon_database,
+            position_profiles=position_profiles,
+            player_stats_profiles=player_stats_profiles,
+            camera_profiles=camera_profiles,
+            dungeon_profiles=dungeon_profiles,
+            client_catalog=client_catalog,
+            source_manifest=source_manifest,
+        )
+        return has_any_extracted_dataset(datasets)
+
+    def run(self, *, force: bool = False) -> SetupExtractionResult:
+        """Run every stage, reusing an existing artifact unless ``force`` is set (US-088).
+
+        Without ``force`` a stage whose output already exists is not re-parsed; its counts
+        are loaded from the cached artifact instead. ``force`` re-extracts every dataset and
+        overwrites the caches.
+        """
+
         UnifiedClientExtractor.validate_client_directory(self._client_root)
         diagnostics: list[SetupDiagnostic] = []
         reported: list[SetupDiagnostic] = []
@@ -211,27 +253,85 @@ class UnifiedClientExtractor:
         stage_index = 0
         self._report(stage_index, "Mover and static item tables")
         if not self._cancel_event.is_set():
-            self._run_mover_stage(result, diagnostics)
+            if not force and self._mover_cache_present():
+                self._load_cached_catalog_counts(result)
+            else:
+                self._run_mover_stage(result, diagnostics)
         stage_index += 1
         self._report(stage_index, "Quests and NPC locations")
         if not self._cancel_event.is_set():
-            self._run_quest_stage(result, diagnostics)
+            if not force and self._output_paths.quest_database.is_file():
+                self._load_cached_quest_count(result)
+            else:
+                self._run_quest_stage(result, diagnostics)
         stage_index += 1
         self._report(stage_index, "Dungeons")
         if not self._cancel_event.is_set():
-            self._run_dungeon_stage(result, diagnostics)
+            if not force and self._output_paths.dungeon_database.is_file():
+                self._load_cached_dungeon_count(result)
+            else:
+                self._run_dungeon_stage(result, diagnostics)
         stage_index += 1
         self._report(stage_index, "World regions and terrain")
         if not self._cancel_event.is_set():
-            self._run_world_stage(result, diagnostics)
+            if not force and self._world_cache_present():
+                self._load_cached_world_names(result)
+            else:
+                self._run_world_stage(result, diagnostics)
         stage_index += 1
         self._report(stage_index, "Client fingerprint and memory profile")
-        if not self._cancel_event.is_set() and self._run_memory_profile_stage(result, diagnostics):
-            self._report(_STAGE_COUNT, "Extraction complete")
+        if not self._cancel_event.is_set():
+            cached_profile = None if force else self._cached_memory_profile()
+            if cached_profile is not None:
+                result.memory_profile = cached_profile
+                self._report(_STAGE_COUNT, "Extraction complete")
+            elif self._run_memory_profile_stage(result, diagnostics):
+                self._report(_STAGE_COUNT, "Extraction complete")
         if not self._cancel_event.is_set():
             reported.extend(diagnostics)
             result.diagnostics = tuple(reported)
         return result
+
+    def _mover_cache_present(self) -> bool:
+        return (
+            self._output_paths.client_catalog.is_file()
+            and self._output_paths.source_manifest.is_file()
+        )
+
+    def _world_cache_present(self) -> bool:
+        directory = self._output_paths.world_map_directory
+        return directory.is_dir() and any(directory.glob("*.json"))
+
+    def _cached_memory_profile(self) -> SetupMemoryProfile | None:
+        """Return the persisted profile for the selected executable, or ``None``.
+
+        The cache only counts when a stored profile matches this exact ``neuz.exe``
+        fingerprint; a different client build still runs the profiling stage.
+        """
+
+        paths = self._output_paths
+        profile_files = (
+            paths.position_profiles,
+            paths.player_stats_profiles,
+            paths.camera_profiles,
+            paths.dungeon_profiles,
+        )
+        if not all(path.is_file() for path in profile_files):
+            return None
+        try:
+            executable, _ = _validate_client_layout(self._client_root)
+            digest = fingerprint_executable(executable).sha256
+            profiles = load_client_player_stats_profiles(paths.player_stats_profiles)
+        except OSError, ValueError:
+            return None
+        profile = profiles.get(digest)
+        if profile is None:
+            return None
+        return SetupMemoryProfile(
+            sha256=profile.sha256,
+            pointer_size_bytes=profile.pointer_size_bytes,
+            field_count=len(profile.fields),
+        )
 
     def _run_mover_stage(
         self,
@@ -389,41 +489,57 @@ class UnifiedClientExtractor:
         return result
 
     def _populate_existing_dataset_counts(self, result: SetupExtractionResult) -> None:
-        if self._output_paths.client_catalog.is_file():
+        self._load_cached_catalog_counts(result)
+        self._load_cached_quest_count(result)
+        self._load_cached_dungeon_count(result)
+        self._load_cached_world_names(result)
+
+    def _load_cached_catalog_counts(self, result: SetupExtractionResult) -> None:
+        if not self._output_paths.client_catalog.is_file():
+            return
+        try:
+            catalog = load_client_catalog(self._output_paths.client_catalog)
+        except OSError, ValueError:
+            return
+        result.mover_count = len(catalog.movers)
+        result.drop_count = len(catalog.drops)
+        result.item_count = len(catalog.items)
+        result.skill_count = len(catalog.skills)
+        result.npc_count = len(catalog.npcs)
+
+    def _load_cached_quest_count(self, result: SetupExtractionResult) -> None:
+        if not self._output_paths.quest_database.is_file():
+            return
+        try:
+            database = load_quest_database(self._output_paths.quest_database)
+        except OSError, ValueError:
+            return
+        result.quest_count = len(database.quests)
+
+    def _load_cached_dungeon_count(self, result: SetupExtractionResult) -> None:
+        if not self._output_paths.dungeon_database.is_file():
+            return
+        try:
+            definitions = load_dungeon_database(self._output_paths.dungeon_database)
+        except OSError, ValueError:
+            return
+        result.dungeon_count = len(definitions)
+
+    def _load_cached_world_names(self, result: SetupExtractionResult) -> None:
+        if not self._output_paths.world_map_directory.is_dir():
+            return
+        names: list[str] = []
+        for path in self._output_paths.world_map_directory.glob("*.json"):
             try:
-                catalog = load_client_catalog(self._output_paths.client_catalog)
-                result.mover_count = len(catalog.movers)
-                result.drop_count = len(catalog.drops)
-                result.item_count = len(catalog.items)
-                result.skill_count = len(catalog.skills)
-                result.npc_count = len(catalog.npcs)
+                document = json.loads(path.read_text(encoding="utf-8"))
             except OSError, ValueError:
-                pass
-        if self._output_paths.quest_database.is_file():
-            try:
-                database = load_quest_database(self._output_paths.quest_database)
-                result.quest_count = len(database.quests)
-            except OSError, ValueError:
-                pass
-        if self._output_paths.dungeon_database.is_file():
-            try:
-                definitions = load_dungeon_database(self._output_paths.dungeon_database)
-                result.dungeon_count = len(definitions)
-            except OSError, ValueError:
-                pass
-        if self._output_paths.world_map_directory.is_dir():
-            world_files = tuple(self._output_paths.world_map_directory.glob("*.json"))
-            names: list[str] = []
-            for path in world_files:
-                try:
-                    document = json.loads(path.read_text(encoding="utf-8"))
-                    if isinstance(document, dict) and isinstance(document.get("world_name"), str):
-                        names.append(document["world_name"])
-                    else:
-                        names.append(path.stem)
-                except OSError, ValueError:
-                    names.append(path.stem)
-            result.world_names = tuple(names)
+                names.append(path.stem)
+                continue
+            if isinstance(document, dict) and isinstance(document.get("world_name"), str):
+                names.append(document["world_name"])
+            else:
+                names.append(path.stem)
+        result.world_names = tuple(names)
 
     def _report(self, completed_stages: int, detail: str) -> None:
         if self._progress is None:

@@ -1,7 +1,7 @@
 ---
 id: US-088
 title: Setup wizard autostart restriction, cached extraction, and UI re-extraction
-status: draft
+status: completed
 created: 2026-08-29
 updated: 2026-08-29
 ---
@@ -25,12 +25,29 @@ As a **bot operator launching the application**, I want **the Setup Wizard to on
 
 ## Acceptance criteria
 
-- [ ] Given extracted client data already exists on disk, when the application starts, then the main dashboard window opens directly without automatically popping up the Setup Wizard dialog.
-- [ ] Given no extracted client data exists on disk (fresh installation), when the application starts, then the Setup Wizard is automatically displayed to guide initial extraction.
-- [ ] Given the application dashboard is open, when the operator selects the Setup action from the menu or UI, then the Setup Wizard dialog opens on demand.
-- [ ] Given the Setup Wizard is executed without the force re-extraction option, when existing valid extracted artifacts are present, then `UnifiedClientExtractor` reuses the cached artifacts and completes without re-parsing unaffected datasets.
-- [ ] Given the Setup Wizard is open, when the operator checks the "Vollständig neu extrahieren" / "Force re-extraction" option and starts extraction, then all client datasets are freshly extracted and overwrite existing caches.
-- [ ] All user-visible text (labels, buttons, tooltips, and status messages) is available in German and English and synchronized between `de.json` and `en.json`.
+- [x] Given extracted client data already exists on disk, when the application starts, then the main dashboard window opens directly without automatically popping up the Setup Wizard dialog.
+- [x] Given no extracted client data exists on disk (fresh installation), when the application starts, then the Setup Wizard is automatically displayed to guide initial extraction.
+- [x] Given the application dashboard is open, when the operator selects the Setup action from the menu or UI, then the Setup Wizard dialog opens on demand.
+- [x] Given the Setup Wizard is executed without the force re-extraction option, when existing valid extracted artifacts are present, then `UnifiedClientExtractor` reuses the cached artifacts and completes without re-parsing unaffected datasets.
+- [x] Given the Setup Wizard is open, when the operator checks the "Vollständig neu extrahieren" / "Force re-extraction" option and starts extraction, then all client datasets are freshly extracted and overwrite existing caches.
+- [x] All user-visible text (labels, buttons, tooltips, and status messages) is available in German and English and synchronized between `de.json` and `en.json`.
+
+## Implementation notes
+
+- `UnifiedClientExtractor.has_extracted_data(...)` (backed by `has_any_extracted_dataset` in
+  `features/setup/models.py`) reports whether *any* extracted artifact is present.
+  `MainWindow.is_setup_autostart_required()` negates it, and `run_desktop` uses that instead of
+  `is_setup_required()` to decide the automatic popup. `is_setup_required()` is unchanged and
+  still gates the Start button / autopilot arming, so a partial install opens the dashboard with
+  arming disabled and the wizard reachable from the menu.
+- `UnifiedClientExtractor.run(force=False)` skips a stage whose output artifact already exists,
+  loading its counts from the cached file via the `_load_cached_*` helpers (shared with
+  `run_memory_profile_only`). The stage 5 cache only counts when a persisted player-stats
+  profile matches the selected `neuz.exe` SHA-256; a different build re-runs profiling.
+  `force=True` re-runs every stage and overwrites the caches.
+- `SetupWizard` gained a "Force re-extraction" / "Vollständig neu extrahieren" checkbox
+  (`ui.setup_force_reextract` / `_tooltip`) wired through `_SetupWorker.start(force=...)` to
+  `run(force=...)`. The rescan (`run_memory_profile_only`) path is unaffected.
 
 ## Out of scope
 

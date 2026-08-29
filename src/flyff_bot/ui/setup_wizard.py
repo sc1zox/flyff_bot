@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFileDialog,
     QGridLayout,
@@ -61,12 +62,12 @@ class _SetupWorker(QObject):
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self, *, profile_only: bool = False) -> bool:
+    def start(self, *, profile_only: bool = False, force: bool = False) -> bool:
         if self.is_running:
             return False
         self._thread = threading.Thread(
             target=self._run,
-            args=(profile_only,),
+            args=(profile_only, force),
             name=_EXTRACTION_THREAD_NAME,
             daemon=True,
         )
@@ -81,7 +82,7 @@ class _SetupWorker(QObject):
         if self._thread is not None:
             self._thread.join(timeout_seconds)
 
-    def _run(self, profile_only: bool) -> None:
+    def _run(self, profile_only: bool, force: bool) -> None:
         try:
             self._extractor = UnifiedClientExtractor(
                 self._client_root,
@@ -90,7 +91,9 @@ class _SetupWorker(QObject):
                 progress=self._emit_progress,
             )
             result = (
-                self._extractor.run_memory_profile_only() if profile_only else self._extractor.run()
+                self._extractor.run_memory_profile_only()
+                if profile_only
+                else self._extractor.run(force=force)
             )
         except (OSError, ValueError) as error:
             self.failed.emit(str(error))
@@ -142,6 +145,7 @@ class SetupWizard(QDialog):
 
         self._path_edit = QLineEdit()
         self._browse_button = QPushButton()
+        self._force_checkbox = QCheckBox()
         self._start_button = QPushButton()
         self._rescan_button = QPushButton()
         self._cancel_button = QPushButton()
@@ -167,6 +171,7 @@ class SetupWizard(QDialog):
         form.addWidget(self._path_label, 0, 0)
         form.addLayout(path_actions, 0, 1)
         layout.addLayout(form)
+        layout.addWidget(self._force_checkbox)
         layout.addWidget(self._progress_bar)
         layout.addWidget(self._status_label)
         layout.addWidget(self._summary_view)
@@ -182,6 +187,10 @@ class SetupWizard(QDialog):
     @property
     def start_button(self) -> QPushButton:
         return self._start_button
+
+    @property
+    def force_checkbox(self) -> QCheckBox:
+        return self._force_checkbox
 
     @property
     def cancel_button(self) -> QPushButton:
@@ -238,7 +247,7 @@ class SetupWizard(QDialog):
             self._status_label.setText(self._translator.text(Message.UI_SETUP_INVALID_DIRECTORY))
             return
         self._set_running_state(True)
-        if not self._worker.start():
+        if not self._worker.start(force=self._force_checkbox.isChecked()):
             self._set_running_state(False)
 
     @Slot()
@@ -287,6 +296,7 @@ class SetupWizard(QDialog):
         self._rescan_button.setEnabled(not running)
         self._browse_button.setEnabled(not running)
         self._path_edit.setEnabled(not running)
+        self._force_checkbox.setEnabled(not running)
         self._cancel_button.setEnabled(running)
 
     def _summary_text(self, result: SetupExtractionResult) -> str:
@@ -321,6 +331,10 @@ class SetupWizard(QDialog):
         self.setWindowTitle(self._translator.text(Message.UI_SETUP_TITLE))
         self._path_label.setText(self._translator.text(Message.UI_SETUP_CLIENT_PATH))
         self._browse_button.setText(self._translator.text(Message.UI_SETUP_BROWSE))
+        self._force_checkbox.setText(self._translator.text(Message.UI_SETUP_FORCE_REEXTRACT))
+        self._force_checkbox.setToolTip(
+            self._translator.text(Message.UI_SETUP_FORCE_REEXTRACT_TOOLTIP)
+        )
         self._start_button.setText(self._translator.text(Message.UI_SETUP_START))
         self._rescan_button.setText(self._translator.text(Message.UI_SETUP_RESCAN_PROFILES))
         self._rescan_button.setToolTip(
