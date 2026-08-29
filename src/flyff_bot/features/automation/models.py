@@ -15,9 +15,6 @@ from flyff_bot.features.client_data.label_mapping import (
     LabelJoinRejection,
 )
 from flyff_bot.features.player_stats.models import ClientPlayerStatsSnapshot
-from flyff_bot.features.vision.models import MonsterStatsMetrics as MonsterStatsMetrics
-from flyff_bot.features.vision.models import MonsterStatsSource as MonsterStatsSource
-from flyff_bot.features.vision.models import MonsterStatsStatus as MonsterStatsStatus
 from flyff_bot.features.vision.models import PlayerVitals as PlayerVitals
 from flyff_bot.features.vision.models import TargetNameStatus as TargetNameStatus
 from flyff_bot.features.vision.models import TargetVerificationMetrics as TargetVerificationMetrics
@@ -143,7 +140,6 @@ class WorldState:
     player_vitals: PlayerVitals = field(default_factory=PlayerVitals)
     player_stats_snapshot: ClientPlayerStatsSnapshot | None = None
     monster_kill_count: int = 0
-    monster_stats: MonsterStatsMetrics = field(default_factory=MonsterStatsMetrics)
     #: The authoritative mover each detection was joined to, keyed by candidate identity.
     mob_catalog_joins: tuple[JoinedMoverCandidate, ...] = ()
     #: Why a detected class stayed unjoined, stated once per class rather than per box.

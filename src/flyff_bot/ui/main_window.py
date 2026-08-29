@@ -29,8 +29,11 @@ from PySide6.QtWidgets import (
 )
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_CAMERA_PROFILES_PATH,
     DEFAULT_CLIENT_CATALOG_PATH,
+    DEFAULT_CLIENT_DUNGEON_PROFILES_PATH,
     DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH,
+    DEFAULT_CLIENT_POSITION_PROFILES_PATH,
     DEFAULT_CLIENT_WORLD_ROOT,
     DEFAULT_DUNGEON_DATABASE_PATH,
     DEFAULT_MOVER_LABEL_MAPPING_PATH,
@@ -48,10 +51,7 @@ from flyff_bot.features.automation.controllers import (
 )
 from flyff_bot.features.automation.emergency_recovery import EmergencyRecoveryConfig
 from flyff_bot.features.automation.kill_goals import KillGoalConfig
-from flyff_bot.features.automation.models import (
-    MonsterStatsMetrics,
-    WorldState,
-)
+from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
@@ -94,10 +94,7 @@ from flyff_bot.ui.event_log_panel import EventLogPanel
 from flyff_bot.ui.main_window_parts.combat_settings import CombatSettingsPanel
 from flyff_bot.ui.main_window_parts.dashboard import DashboardSummary, StatusHeaderCard
 from flyff_bot.ui.main_window_parts.dashboard_presenter import DashboardPresenter
-from flyff_bot.ui.main_window_parts.diagnostics import (
-    MonsterStatsDebugPanel,
-    TargetDebugPanel,
-)
+from flyff_bot.ui.main_window_parts.diagnostics import TargetDebugPanel
 from flyff_bot.ui.main_window_parts.navigation import NavigationSection
 from flyff_bot.ui.main_window_parts.navigation_controller import NavigationController
 from flyff_bot.ui.main_window_parts.overlay_presenter import OverlayPresenter
@@ -165,6 +162,8 @@ class MainWindow(QMainWindow):
     # Emits the freshly loaded mover catalog join (or ``None``) so the live perception
     # pipeline can adopt a new extraction without an application restart (US-085).
     client_data_reloaded = Signal(object)
+    # Emitted only after all four exact-fingerprint registries validate and replace together.
+    memory_profiles_updated = Signal(object)
     # One control arms a self-directed session; no zone, monster, or quest selection is
     # required beyond what the session arbitrates for itself (US-086).
     autopilot_arm_requested = Signal()
@@ -309,14 +308,6 @@ class MainWindow(QMainWindow):
         self._target_state_val = self._target_debug_panel.state_value
         self._target_reason_val = self._target_debug_panel.reason_value
         self._target_break_val = self._target_debug_panel.break_value
-
-        self._monster_stats_panel = MonsterStatsDebugPanel()
-        self._monster_anchor_val = self._monster_stats_panel.anchor_value
-        self._monster_roi_val = self._monster_stats_panel.roi_value
-        self._monster_source_val = self._monster_stats_panel.source_value
-        self._monster_kills_val = self._monster_stats_panel.kills_value
-        self._monster_text_val = self._monster_stats_panel.text_value
-        self._monster_status_val = self._monster_stats_panel.status_value
 
         self._event_log_panel = EventLogPanel(self._translator)
 
@@ -639,10 +630,6 @@ class MainWindow(QMainWindow):
         return self._target_debug_panel
 
     @property
-    def monster_stats_panel(self) -> QGroupBox:
-        return self._monster_stats_panel
-
-    @property
     def status_card(self) -> QGroupBox:
         return self._status_card
 
@@ -673,30 +660,6 @@ class MainWindow(QMainWindow):
     @property
     def target_reason_value(self) -> QLabel:
         return self._target_reason_val
-
-    @property
-    def monster_anchor_value(self) -> QLabel:
-        return self._monster_anchor_val
-
-    @property
-    def monster_roi_value(self) -> QLabel:
-        return self._monster_roi_val
-
-    @property
-    def monster_kills_value(self) -> QLabel:
-        return self._monster_kills_val
-
-    @property
-    def monster_text_value(self) -> QLabel:
-        return self._monster_text_val
-
-    @property
-    def monster_status_value(self) -> QLabel:
-        return self._monster_status_val
-
-    @property
-    def monster_source_value(self) -> QLabel:
-        return self._monster_source_val
 
     @property
     def recovery_timeout_spin(self) -> QDoubleSpinBox:
@@ -766,7 +729,6 @@ class MainWindow(QMainWindow):
             diagnostics_controls,
             self._event_log_panel,
             self._target_debug_panel,
-            self._monster_stats_panel,
         )
         self._add_scroll_tab(
             DashboardTab.ML_POLICY,
@@ -989,13 +951,9 @@ class MainWindow(QMainWindow):
 
     def _build_setup_menu(self) -> None:
         menu_bar = self.menuBar()
-        setup_menu = menu_bar.addMenu("")
-        action = setup_menu.addAction("")
+        action = menu_bar.addAction(self._translator.text(Message.UI_SETUP_TITLE))
         action.triggered.connect(self.show_setup_wizard)
-        self._setup_menu = setup_menu
         self._setup_action = action
-        self._setup_menu.setTitle(self._translator.text(Message.UI_SETUP_TITLE))
-        self._setup_action.setText(self._translator.text(Message.UI_SETUP_TITLE))
 
     @Slot()
     def show_setup_wizard(self) -> None:
@@ -1008,6 +966,7 @@ class MainWindow(QMainWindow):
                 parent=self,
             )
             self._setup_wizard.setup_completed.connect(self._on_setup_completed)
+            self._setup_wizard.memory_profiles_updated.connect(self.memory_profiles_updated.emit)
         self._setup_wizard.show()
         self._setup_wizard.raise_()
         self._setup_wizard.activateWindow()
@@ -1103,6 +1062,9 @@ class MainWindow(QMainWindow):
         quest_database: Path | None = None,
         dungeon_database: Path | None = None,
         player_profiles: Path | None = None,
+        position_profiles: Path | None = None,
+        camera_profiles: Path | None = None,
+        dungeon_profiles: Path | None = None,
         client_catalog: Path | None = None,
         source_manifest: Path | None = None,
     ) -> bool:
@@ -1110,14 +1072,17 @@ class MainWindow(QMainWindow):
             world_map_directory=world_map_directory or Path(DEFAULT_WORLD_MAP_DIRECTORY),
             quest_database=quest_database or Path(DEFAULT_QUEST_DATABASE_PATH),
             dungeon_database=dungeon_database or Path(DEFAULT_DUNGEON_DATABASE_PATH),
-            player_profiles=player_profiles or Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+            position_profiles=position_profiles or Path(DEFAULT_CLIENT_POSITION_PROFILES_PATH),
+            player_stats_profiles=player_profiles
+            or Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+            camera_profiles=camera_profiles or Path(DEFAULT_CLIENT_CAMERA_PROFILES_PATH),
+            dungeon_profiles=dungeon_profiles or Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
             client_catalog=client_catalog or Path(DEFAULT_CLIENT_CATALOG_PATH),
             source_manifest=source_manifest or Path(DEFAULT_SOURCE_MANIFEST_PATH),
         )
 
     def _retranslate(self) -> None:
         self.setWindowTitle(self._translator.text(Message.UI_TITLE))
-        self._setup_menu.setTitle(self._translator.text(Message.UI_SETUP_TITLE))
         self._setup_action.setText(self._translator.text(Message.UI_SETUP_TITLE))
         self._status_presenter.set_translator(self._translator)
         self._status_card.retranslate(self._translator)
@@ -1147,13 +1112,6 @@ class MainWindow(QMainWindow):
         self._autopilot_panel.set_translator(self._translator)
         self._ml_policy_panel.set_translator(self._translator)
         self._target_debug_panel.retranslate(self._translator)
-        self._monster_stats_panel.retranslate(self._translator)
-        self._monster_stats_panel.render_metrics(
-            self._translator,
-            self._latest_update.state.monster_stats
-            if self._latest_update is not None
-            else MonsterStatsMetrics(),
-        )
         self._event_log_panel.set_translator(self._translator)
         self._vitals_panel.retranslate(self._translator)
         self._navigation.set_translator(self._translator)
@@ -1292,7 +1250,6 @@ class MainWindow(QMainWindow):
             update.state.selected_target,
             update.engagement_break,
         )
-        self._monster_stats_panel.render_metrics(self._translator, update.state.monster_stats)
         if update.frame is not None:
             self._render_overlay_frame(update.frame, update.state)
 

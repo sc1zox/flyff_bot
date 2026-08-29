@@ -7,7 +7,6 @@ from enum import StrEnum
 
 from flyff_bot.features.automation.models import (
     ActionKind,
-    MonsterStatsStatus,
     Position,
     TargetState,
     VisibleMob,
@@ -394,11 +393,7 @@ class CombatController:
                 return CombatDecision(CombatMode.IDLE)
             self._mode = CombatMode.TARGETING
             self._targeting_started_at_seconds = state.observed_at_seconds
-            self._previous_kill_count = (
-                state.monster_kill_count
-                if state.monster_stats.status is MonsterStatsStatus.OK
-                else None
-            )
+            self._previous_kill_count = state.monster_kill_count
             self._engaged_position = _mob_center(candidate)
             self._engaged_class_name = candidate.class_name
             self._next_target_click_at_seconds = (
@@ -681,8 +676,6 @@ class CombatController:
         successful readings still confirm instead of being discarded as an unclean delta.
         """
 
-        if state.monster_stats.status is not MonsterStatsStatus.OK:
-            return False
         previous = self._previous_kill_count
         self._previous_kill_count = state.monster_kill_count
         return (

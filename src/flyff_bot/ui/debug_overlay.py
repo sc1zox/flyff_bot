@@ -13,7 +13,6 @@ from flyff_bot.features.automation.models import (
     VisibleMob,
 )
 from flyff_bot.features.vision.models import CapturedFrame, PixelFormat
-from flyff_bot.features.vision.monster_stats import MonsterStatsConfig
 from flyff_bot.i18n import Message, Translator
 from flyff_bot.ui.placement_overlay import compute_placement_guides, draw_placement_guides
 
@@ -106,7 +105,6 @@ def render_debug_overlay(
     target: SelectedTarget,
     translator: Translator,
     vitals: PlayerVitals | None = None,
-    monster_stats_config: MonsterStatsConfig | None = None,
     show_placements: bool = False,
 ) -> QPixmap:
     """Return a copied pixmap with client-space mob and target annotations."""
@@ -162,7 +160,7 @@ def render_debug_overlay(
     if show_placements:
         draw_placement_guides(
             painter,
-            compute_placement_guides(frame.client_size, translator, monster_stats_config),
+            compute_placement_guides(frame.client_size, translator),
         )
     painter.end()
     return QPixmap.fromImage(image)

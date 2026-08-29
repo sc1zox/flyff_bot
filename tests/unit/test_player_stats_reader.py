@@ -20,8 +20,10 @@ from flyff_bot.features.player_stats.models import (
 )
 from flyff_bot.features.player_stats.profiles import (
     ClientPlayerStatsProfile,
+    DirectPlayerStatSource,
     PlayerStatFieldProfile,
     PlayerStatType,
+    RatioPlayerStatSource,
     load_client_player_stats_profiles,
 )
 from flyff_bot.features.player_stats.reader import LivePlayerStatsReader
@@ -34,11 +36,11 @@ PLAYER_ADDRESS = 0x220000000
 PLAYER_POINTER_RVA = 0xB7C908
 
 _FIELDS = (
-    PlayerStatFieldProfile("hp", 0, PlayerStatType.F32, 0.0, 100.0),
-    PlayerStatFieldProfile("mp", 4, PlayerStatType.F32, 0.0, 100.0),
+    PlayerStatFieldProfile("hp", RatioPlayerStatSource(0, 4, PlayerStatType.F32), 0.0, 100.0),
+    PlayerStatFieldProfile("mp", RatioPlayerStatSource(8, 12, PlayerStatType.F32), 0.0, 100.0),
 )
 
-_VALID_PAYLOAD = struct.pack("<2f", 70.0, 70.0)
+_VALID_PAYLOAD = struct.pack("<4f", 70.0, 100.0, 70.0, 100.0)
 
 
 def _executable_digest() -> str:
@@ -92,7 +94,13 @@ class FakeStatsMemoryApi:
             if self.null_pointer:
                 return b"\0" * self.pointer_size
             return PLAYER_ADDRESS.to_bytes(self.pointer_size, "little")
-        payload = struct.pack("<2f", 70.0, math.nan) if self.nonfinite_payload else _VALID_PAYLOAD
+        if size == 4 and address == MODULE_BASE + 0xBB66E0:
+            return struct.pack("<I", 123)
+        payload = (
+            struct.pack("<4f", 70.0, 100.0, 70.0, math.nan)
+            if self.nonfinite_payload
+            else _VALID_PAYLOAD
+        )
         if self.short_payload:
             return payload[:-1]
         return payload
@@ -113,8 +121,8 @@ def test_profile_rejects_overlapping_and_out_of_order_ranges() -> None:
             player_pointer_rva=1,
             pointer_size_bytes=4,
             fields=(
-                PlayerStatFieldProfile("hp", 4, PlayerStatType.F32),
-                PlayerStatFieldProfile("mp", 4, PlayerStatType.F32),
+                PlayerStatFieldProfile("alignment", DirectPlayerStatSource(4, PlayerStatType.F32)),
+                PlayerStatFieldProfile("delta", DirectPlayerStatSource(4, PlayerStatType.F32)),
             ),
         )
 
@@ -129,8 +137,7 @@ def test_profile_loader_rejects_duplicates_before_a_handle_opens(tmp_path: Path)
             "fields": [
                 {
                     "name": "hp",
-                    "offset": 0,
-                    "type": "f32",
+                    "source": {"kind": "direct", "offset": 0, "primitive": "f32"},
                     "minimum": 0,
                     "maximum": 100,
                 }
@@ -143,8 +150,7 @@ def test_profile_loader_rejects_duplicates_before_a_handle_opens(tmp_path: Path)
             "fields": [
                 {
                     "name": "mp",
-                    "offset": 0,
-                    "type": "f32",
+                    "source": {"kind": "direct", "offset": 0, "primitive": "f32"},
                     "minimum": 0,
                     "maximum": 100,
                 }
@@ -268,8 +274,12 @@ def test_profile_bounds_accept_negative_signed_values() -> None:
         player_pointer_rva=PLAYER_POINTER_RVA,
         pointer_size_bytes=8,
         fields=(
-            PlayerStatFieldProfile("alignment", 0, PlayerStatType.I32, -100.0, 100.0),
-            PlayerStatFieldProfile("delta", 4, PlayerStatType.I32, -10.0, 10.0),
+            PlayerStatFieldProfile(
+                "alignment", DirectPlayerStatSource(0, PlayerStatType.I32), -100.0, 100.0
+            ),
+            PlayerStatFieldProfile(
+                "delta", DirectPlayerStatSource(4, PlayerStatType.I32), -10.0, 10.0
+            ),
         ),
     )
 
@@ -283,8 +293,8 @@ def test_polling_is_throttled_and_recovery_emits_one_transition(
     profile: ClientPlayerStatsProfile,
 ) -> None:
     valid_fields = (
-        PlayerStatFieldProfile("hp", 0, PlayerStatType.F32, 0.0, 100.0),
-        PlayerStatFieldProfile("mp", 4, PlayerStatType.F32, 0.0, 100.0),
+        PlayerStatFieldProfile("hp", RatioPlayerStatSource(0, 4, PlayerStatType.F32), 0.0, 100.0),
+        PlayerStatFieldProfile("mp", RatioPlayerStatSource(8, 12, PlayerStatType.F32), 0.0, 100.0),
     )
     valid_profile = ClientPlayerStatsProfile(
         sha256=profile.sha256,
@@ -366,8 +376,8 @@ def test_malformed_profile_is_typed_without_opening_a_handle(tmp_path: Path) -> 
 
 def test_snapshot_is_immutable(profile: ClientPlayerStatsProfile) -> None:
     valid_fields = (
-        PlayerStatFieldProfile("hp", 0, PlayerStatType.F32, 0.0, 100.0),
-        PlayerStatFieldProfile("mp", 4, PlayerStatType.F32, 0.0, 100.0),
+        PlayerStatFieldProfile("hp", RatioPlayerStatSource(0, 4, PlayerStatType.F32), 0.0, 100.0),
+        PlayerStatFieldProfile("mp", RatioPlayerStatSource(8, 12, PlayerStatType.F32), 0.0, 100.0),
     )
     valid_profile = ClientPlayerStatsProfile(
         sha256=profile.sha256,
@@ -396,3 +406,27 @@ def test_snapshot_is_immutable(profile: ClientPlayerStatsProfile) -> None:
 def test_supported_executable_digest_is_bound_to_the_profile() -> None:
     executable = b"entropia stats build"
     assert hashlib.sha256(executable).hexdigest() == hashlib.sha256(executable).hexdigest()
+
+
+def test_reader_reads_monster_kills_when_configured(profile: ClientPlayerStatsProfile) -> None:
+    valid_fields = (
+        PlayerStatFieldProfile("hp", RatioPlayerStatSource(0, 4, PlayerStatType.F32), 0.0, 100.0),
+        PlayerStatFieldProfile("mp", RatioPlayerStatSource(8, 12, PlayerStatType.F32), 0.0, 100.0),
+    )
+    profile_with_kills = ClientPlayerStatsProfile(
+        sha256=profile.sha256,
+        player_pointer_rva=PLAYER_POINTER_RVA,
+        pointer_size_bytes=8,
+        fields=valid_fields,
+        monster_kills_rva=0xBB66E0,
+    )
+    api = FakeStatsMemoryApi()
+    api.nonfinite_payload = False
+    reader = LivePlayerStatsReader(
+        WINDOW_HANDLE,
+        profiles={profile_with_kills.sha256: profile_with_kills},
+        api=api,
+    )
+    snapshot = reader.poll(0.0)
+    assert snapshot.source is PlayerStatsSource.CLIENT_MEMORY
+    assert snapshot.field_values == {"hp": 70.0, "mp": 70.0, "monster_kills": 123.0}

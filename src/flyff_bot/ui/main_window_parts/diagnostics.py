@@ -4,9 +4,6 @@ from PySide6.QtWidgets import QGridLayout, QGroupBox, QLabel
 
 from flyff_bot.features.automation.controllers import EngagementBreakReason
 from flyff_bot.features.automation.models import (
-    MonsterStatsMetrics,
-    MonsterStatsSource,
-    MonsterStatsStatus,
     SelectedTarget,
     TargetNameStatus,
     TargetState,
@@ -24,26 +21,6 @@ def _target_state_message(state: TargetState) -> Message:
         TargetState.WRONG: Message.UI_TARGET_WRONG,
         TargetState.NONE: Message.UI_TARGET_NONE,
     }[state]
-
-
-def _monster_stats_status_message(status: MonsterStatsStatus) -> Message:
-    return {
-        MonsterStatsStatus.IDLE: Message.UI_MONSTER_STATS_DEBUG_STATUS_IDLE,
-        MonsterStatsStatus.OK: Message.UI_MONSTER_STATS_DEBUG_STATUS_OK,
-        MonsterStatsStatus.ROI_UNAVAILABLE: Message.UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE,
-        MonsterStatsStatus.ENGINE_UNAVAILABLE: (
-            Message.UI_MONSTER_STATS_DEBUG_STATUS_ENGINE_UNAVAILABLE
-        ),
-        MonsterStatsStatus.OCR_FAILED: Message.UI_MONSTER_STATS_DEBUG_STATUS_OCR_FAILED,
-        MonsterStatsStatus.NO_MATCH: Message.UI_MONSTER_STATS_DEBUG_STATUS_NO_MATCH,
-    }[status]
-
-
-def _monster_stats_source_message(source: MonsterStatsSource) -> Message:
-    return {
-        MonsterStatsSource.ANCHORED: Message.UI_MONSTER_STATS_DEBUG_SOURCE_ANCHORED,
-        MonsterStatsSource.FIXED_REGION: Message.UI_MONSTER_STATS_DEBUG_SOURCE_FIXED_REGION,
-    }[source]
 
 
 def _engagement_break_message(reason: EngagementBreakReason | None) -> Message:
@@ -170,95 +147,3 @@ class TargetDebugPanel(QGroupBox):
         self.state_value.setText(translator.text(_target_state_message(target.state)))
         self.reason_value.setText(translator.text(_target_failure_reason_message(target)))
         self.break_value.setText(translator.text(_engagement_break_message(break_reason)))
-
-
-class MonsterStatsDebugPanel(QGroupBox):
-    """Diagnostics for OCR-backed monster statistics."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.setObjectName("CardPanel")
-        keys = ("anchor", "roi", "source", "kills", "text", "status")
-        self._labels = {key: QLabel() for key in keys}
-        self._values = {key: QLabel() for key in keys}
-        for value in self._values.values():
-            value.setObjectName("StatChip")
-
-        layout = QGridLayout(self)
-        for row, key in enumerate(keys):
-            layout.addWidget(self._labels[key], row, 0)
-            layout.addWidget(self._values[key], row, 1)
-
-    @property
-    def anchor_value(self) -> QLabel:
-        return self._values["anchor"]
-
-    @property
-    def roi_value(self) -> QLabel:
-        return self._values["roi"]
-
-    @property
-    def source_value(self) -> QLabel:
-        return self._values["source"]
-
-    @property
-    def kills_value(self) -> QLabel:
-        return self._values["kills"]
-
-    @property
-    def text_value(self) -> QLabel:
-        return self._values["text"]
-
-    @property
-    def status_value(self) -> QLabel:
-        return self._values["status"]
-
-    def retranslate(self, translator: Translator) -> None:
-        titles = {
-            "anchor": Message.UI_MONSTER_STATS_DEBUG_ANCHOR,
-            "roi": Message.UI_MONSTER_STATS_DEBUG_ROI,
-            "source": Message.UI_MONSTER_STATS_DEBUG_SOURCE,
-            "kills": Message.UI_MONSTER_STATS_DEBUG_KILLS,
-            "text": Message.UI_MONSTER_STATS_DEBUG_TEXT,
-            "status": Message.UI_MONSTER_STATS_DEBUG_STATUS,
-        }
-        self.setTitle(translator.text(Message.UI_MONSTER_STATS_DEBUG_TITLE))
-        for key, message in titles.items():
-            self._labels[key].setText(translator.text(message))
-        self.render_metrics(translator, MonsterStatsMetrics())
-
-    def render_metrics(self, translator: Translator, metrics: MonsterStatsMetrics) -> None:
-        if not metrics.anchor_configured:
-            anchor_text = translator.text(Message.UI_MONSTER_STATS_DEBUG_ANCHOR_FIXED_REGION)
-        else:
-            anchor_text = translator.text(
-                Message.UI_MONSTER_STATS_DEBUG_ANCHOR_VALUE,
-                status=_pass_fail_text(translator, metrics.anchor_passed),
-                score=f"{metrics.anchor_score:.2f}",
-                threshold=f"{metrics.anchor_threshold:.2f}",
-            )
-        self.anchor_value.setText(anchor_text)
-        if metrics.roi_width > 0 and metrics.roi_height > 0:
-            self.roi_value.setText(
-                translator.text(
-                    Message.UI_MONSTER_STATS_DEBUG_ROI_VALUE,
-                    width=metrics.roi_width,
-                    height=metrics.roi_height,
-                )
-            )
-        else:
-            self.roi_value.setText(
-                translator.text(Message.UI_MONSTER_STATS_DEBUG_STATUS_ROI_UNAVAILABLE)
-            )
-        self.source_value.setText(translator.text(_monster_stats_source_message(metrics.source)))
-        self.kills_value.setText(
-            str(metrics.parsed_count)
-            if metrics.parsed_count is not None
-            else translator.text(Message.UI_MONSTER_STATS_DEBUG_NO_COUNT)
-        )
-        self.text_value.setText(
-            metrics.raw_text
-            if metrics.raw_text
-            else translator.text(Message.UI_MONSTER_STATS_DEBUG_NO_TEXT)
-        )
-        self.status_value.setText(translator.text(_monster_stats_status_message(metrics.status)))

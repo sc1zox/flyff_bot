@@ -1,1 +1,31 @@
-[]
+[
+  {
+    "sha256": "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5",
+    "player_pointer_rva": 12044552,
+    "pointer_size_bytes": 8,
+    "monster_kills_rva": 12281568,
+    "fields": [
+      {
+        "name": "hp",
+        "offset": 424,
+        "type": "i32",
+        "minimum": 0.0,
+        "maximum": 2000000000.0
+      },
+      {
+        "name": "mp",
+        "offset": 432,
+        "type": "i32",
+        "minimum": 0.0,
+        "maximum": 2000000000.0
+      },
+      {
+        "name": "fp",
+        "offset": 436,
+        "type": "i32",
+        "minimum": 0.0,
+        "maximum": 2000000000.0
+      }
+    ]
+  }
+]

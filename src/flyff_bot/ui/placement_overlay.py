@@ -12,7 +12,6 @@ from PySide6.QtWidgets import QWidget
 
 from flyff_bot.features.input_control import ScreenRect
 from flyff_bot.features.vision.models import ClientSize
-from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import compute_target_header_bounds
 from flyff_bot.features.vision.vitals import compute_vitals_layout
 from flyff_bot.i18n import Message, Translator
@@ -20,7 +19,6 @@ from flyff_bot.i18n import Message, Translator
 GUIDE_PEN_WIDTH = 2
 GUIDE_FONT_POINT_SIZE = 10
 GEOMETRY_POLL_INTERVAL_MS = 250
-MONSTER_STATS_GUIDE_COLOR = QColor(255, 70, 70)
 PLACEMENTS_VITALS_COLOR = QColor(255, 215, 0)
 PLACEMENTS_HP_COLOR = QColor(255, 80, 80)
 PLACEMENTS_MP_COLOR = QColor(80, 140, 255)
@@ -57,27 +55,10 @@ class ClientGeometryProvider(Protocol):
 def compute_placement_guides(
     client_size: ClientSize,
     translator: Translator,
-    monster_stats_config: MonsterStatsConfig | None = None,
 ) -> tuple[PlacementGuide, ...]:
     """Return every placement guide for a client area in client-space pixels."""
 
     guides: list[PlacementGuide] = []
-    if monster_stats_config is not None:
-        left, top, right, bottom = compute_monster_stats_roi(
-            client_size.width, client_size.height, monster_stats_config
-        )
-        guides.append(
-            PlacementGuide(
-                left,
-                top,
-                right,
-                bottom,
-                MONSTER_STATS_GUIDE_COLOR,
-                GuideStyle.DASHED,
-                translator.text(Message.UI_MONSTER_STATS_GUIDE),
-            )
-        )
-
     layout = compute_vitals_layout()
     hud_left, hud_top, hud_right, hud_bottom = layout.hud
     guides.append(
@@ -166,8 +147,6 @@ class PlacementOverlayWindow(QWidget):
     def __init__(
         self,
         translator: Translator,
-        *,
-        monster_stats_config: MonsterStatsConfig | None = None,
     ) -> None:
         super().__init__(
             None,
@@ -180,7 +159,6 @@ class PlacementOverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._translator = translator
-        self._monster_stats_config = monster_stats_config or MonsterStatsConfig()
         self._provider: ClientGeometryProvider | None = None
         self._window_handle: int | None = None
         self._client_size: ClientSize | None = None
@@ -259,9 +237,7 @@ class PlacementOverlayWindow(QWidget):
         scale = self.width() / self._client_size.width
         draw_placement_guides(
             painter,
-            compute_placement_guides(
-                self._client_size, self._translator, self._monster_stats_config
-            ),
+            compute_placement_guides(self._client_size, self._translator),
             scale,
         )
         painter.end()

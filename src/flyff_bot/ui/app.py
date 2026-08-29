@@ -15,9 +15,9 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from flyff_bot.constants import (
+    DEFAULT_DUNGEON_DATABASE_PATH,
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
-    DEFAULT_MONSTER_STATS_PANEL_PATH,
     DEFAULT_PROCESS_NAME,
     DEFAULT_TARGET_ANCHOR_PATH,
 )
@@ -37,6 +37,8 @@ from flyff_bot.features.automation.powerup_controller import PowerUpConfig
 from flyff_bot.features.automation.quest_execution_models import QuestMenuPerceiver
 from flyff_bot.features.automation.vitals_controller import VitalsTriggerConfig
 from flyff_bot.features.diagnostics import DEFAULT_SESSION_LOG_DIRECTORY, SessionEventLogger
+from flyff_bot.features.dungeons.live_reader import LiveDungeonCooldownReader
+from flyff_bot.features.dungeons.persistence import load_dungeon_database
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
 from flyff_bot.features.navigation.live_camera import LiveCameraReader
 from flyff_bot.features.navigation.live_position import LivePositionReader
@@ -62,10 +64,6 @@ from flyff_bot.features.vision import (
     WindowsFrameSource,
     load_class_names,
     load_mob_anchor_templates,
-)
-from flyff_bot.features.vision.monster_stats import (
-    MonsterStatsReader,
-    load_header_anchor_template,
 )
 from flyff_bot.features.vision.ocr import TESSERACT_LANGUAGE_ENGLISH
 from flyff_bot.i18n import Message, Translator
@@ -351,17 +349,12 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
                     tactical_parameters=window.tactical_parameters,
                 )
+                player_stats_reader = LivePlayerStatsReader(window_handle)
                 pipeline = PerceptionPipeline(
                     frame_source,
                     detector,
                     target_verifier,
-                    player_stats_reader=LivePlayerStatsReader(window_handle),
-                    monster_stats_reader=MonsterStatsReader(
-                        TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
-                        header_anchor_template=load_header_anchor_template(
-                            Path(DEFAULT_MONSTER_STATS_PANEL_PATH)
-                        ),
-                    ),
+                    player_stats_reader=player_stats_reader,
                 )
                 apply_target_classes = target_class_applier(
                     detector,
@@ -369,9 +362,11 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     allowed_names,
                     default_anchor_path=default_anchor_path,
                 )
+                position_reader = LivePositionReader(window_handle)
+                camera_reader = LiveCameraReader(window_handle)
                 pathing = PathingController(
-                    position_reader=LivePositionReader(window_handle),
-                    camera_reader=LiveCameraReader(window_handle),
+                    position_reader=position_reader,
+                    camera_reader=camera_reader,
                     tactical_parameters=window.tactical_parameters,
                 )
                 # The pathing controller polls the camera and owns the baked mesh, so it is
@@ -383,6 +378,18 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 # A wizard run mid-session republishes the join, so a fresh extraction takes
                 # effect without restarting the application (US-085).
                 window.client_data_reloaded.connect(pipeline.attach_client_catalog)
+                try:
+                    dungeon_definitions = load_dungeon_database(Path(DEFAULT_DUNGEON_DATABASE_PATH))
+                except OSError, ValueError:
+                    dungeon_definitions = ()
+                dungeon_reader = (
+                    LiveDungeonCooldownReader(
+                        window_handle,
+                        {definition.dungeon_id: definition for definition in dungeon_definitions},
+                    )
+                    if dungeon_definitions
+                    else None
+                )
                 quest_menu_perceiver = QuestMenuPerceiver(
                     TesseractTextRecognizer(language=TESSERACT_LANGUAGE_ENGLISH),
                 )
@@ -420,7 +427,19 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     event_logger=SessionEventLogger(DEFAULT_SESSION_LOG_DIRECTORY),
                     foreground_window_info=controller.foreground_window_info,
                     teleporter_catalog=window.teleporter_catalog,
+                    dungeon_provider=dungeon_reader,
                 )
+
+                def reload_memory_profiles(_profile_update: object) -> None:
+                    position_reader.reload_profiles()
+                    camera_reader.reload_profiles()
+                    player_stats_reader.reload_profiles()
+                    pipeline.restore_player_stats_provider(player_stats_reader)
+                    if dungeon_reader is not None:
+                        dungeon_reader.reload_profiles()
+                    orchestrator.restore_player_stats_readiness()
+
+                window.memory_profiles_updated.connect(reload_memory_profiles)
                 window.attack_key_changed.connect(orchestrator.configure_attack_key)
                 window.combat_grace_changed.connect(orchestrator.configure_combat_grace)
                 window.combat_class_changed.connect(orchestrator.configure_combat_class)

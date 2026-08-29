@@ -15,6 +15,7 @@ PROFILE_STRENGTH_FIELD = "strength"
 PROFILE_STAMINA_FIELD = "stamina"
 PROFILE_DEXTERITY_FIELD = "dexterity"
 PROFILE_INTELLIGENCE_FIELD = "intelligence"
+PROFILE_MONSTER_KILLS_FIELD = "monster_kills"
 
 
 @dataclass(frozen=True, slots=True)

@@ -116,47 +116,6 @@ class TargetVerificationMetrics:
     name_passed: bool = False
 
 
-class MonsterStatsStatus(StrEnum):
-    """Health of one monster-kills HUD reading, as shown by the diagnostics panel."""
-
-    IDLE = "idle"
-    OK = "ok"
-    ROI_UNAVAILABLE = "roi_unavailable"
-    ENGINE_UNAVAILABLE = "engine_unavailable"
-    OCR_FAILED = "ocr_failed"
-    NO_MATCH = "no_match"
-
-
-class MonsterStatsSource(StrEnum):
-    """Which crop produced the region that was handed to OCR."""
-
-    FIXED_REGION = "fixed_region"
-    ANCHORED = "anchored"
-
-
-@dataclass(frozen=True, slots=True)
-class MonsterStatsMetrics:
-    """Raw diagnostic evidence behind one monster-kills HUD OCR attempt.
-
-    Every field is measured on the current frame regardless of whether the reading
-    succeeded, so the debug panel can show why a failing read failed. `parsed_count`
-    is `None` for every status other than `OK`; callers must keep their previous kill
-    count in that case rather than treating it as zero. `source` names which crop the
-    reading came from, because an anchor may be configured yet miss on this frame.
-    """
-
-    anchor_configured: bool = False
-    anchor_score: float = 0.0
-    anchor_threshold: float = 0.0
-    anchor_passed: bool = False
-    roi_width: int = 0
-    roi_height: int = 0
-    raw_text: str = ""
-    parsed_count: int | None = None
-    status: MonsterStatsStatus = MonsterStatsStatus.IDLE
-    source: MonsterStatsSource = MonsterStatsSource.FIXED_REGION
-
-
 @dataclass(frozen=True, slots=True)
 class PlayerVitals:
     """An observed snapshot of player vital percentages."""

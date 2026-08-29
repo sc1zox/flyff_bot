@@ -66,6 +66,31 @@ def test_client_stats_replace_vitals_ocr_when_complete() -> None:
     assert tick.state.player_vitals == PlayerVitals(61.5, 43.0, 82.25)
 
 
+def test_client_stats_sets_monster_kill_count() -> None:
+    stats = ClientPlayerStatsSnapshot(
+        PlayerStatsSource.CLIENT_MEMORY,
+        sampled_at_seconds=1.0,
+        client_sha256="a" * 64,
+        fields=(
+            PlayerStatField("hp", 100.0, False),
+            PlayerStatField("mp", 100.0, False),
+            PlayerStatField("fp", 100.0, False),
+            PlayerStatField("monster_kills", 42.0, False),
+        ),
+    )
+    pipeline = PerceptionPipeline(
+        _FrameSource(),
+        _Detector([]),
+        _TargetVerifier(TargetVerificationResult(TargetStatus.NO_TARGET, None, 0)),
+        player_stats_reader=_StatsReader(stats),
+        clock=lambda: OBSERVED_AT_SECONDS,
+    )
+
+    tick = pipeline.tick(WINDOW_HANDLE, _previous_state())
+
+    assert tick.state.monster_kill_count == 42
+
+
 def test_partial_client_stats_keep_previous_vitals_without_ocr_fallback() -> None:
     stats = ClientPlayerStatsSnapshot(
         PlayerStatsSource.CLIENT_MEMORY,

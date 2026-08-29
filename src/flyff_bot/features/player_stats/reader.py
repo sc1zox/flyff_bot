@@ -92,6 +92,7 @@ class LivePlayerStatsReader:
             window_handle if callable(window_handle) else lambda: window_handle
         )
         self._api = api
+        self._profiles_path = profiles_path
         self._profile_configuration_error: str | None = None
         self._profiles, self._profile_configuration_error = load_configured_profiles(
             profiles,
@@ -153,18 +154,27 @@ class LivePlayerStatsReader:
                     self._window_handle = window_handle
                 handle, module_base, profile = self._ensure_open(window_handle)
                 fields = self._read_fields(api, handle, module_base, profile)
+                snapshot_fields = [
+                    PlayerStatField(
+                        name=field.name,
+                        value=float(fields[field.name]),
+                        is_unknown=field.is_unknown,
+                    )
+                    for field in profile.fields
+                ]
+                if "monster_kills" in fields:
+                    snapshot_fields.append(
+                        PlayerStatField(
+                            name="monster_kills",
+                            value=fields["monster_kills"],
+                            is_unknown=False,
+                        )
+                    )
                 self._last_snapshot = ClientPlayerStatsSnapshot(
                     PlayerStatsSource.CLIENT_MEMORY,
                     sampled_at_seconds=at_seconds,
                     client_sha256=profile.sha256,
-                    fields=tuple(
-                        PlayerStatField(
-                            name=field.name,
-                            value=float(fields[field.name]),
-                            is_unknown=field.is_unknown,
-                        )
-                        for field in profile.fields
-                    ),
+                    fields=tuple(snapshot_fields),
                 )
                 self._last_error_code = None
                 self._last_valid_field_names = tuple(field.name for field in profile.fields)
@@ -187,6 +197,19 @@ class LivePlayerStatsReader:
             self._handle = None
             self._module_base = None
             self._profile = None
+
+    def reload_profiles(self, _profile_update: object | None = None) -> None:
+        """Close stale handles and reload generated profiles without embedded fallbacks."""
+
+        with self._lock:
+            self.close()
+            self._profiles, self._profile_configuration_error = load_configured_profiles(
+                None,
+                self._profiles_path,
+            )
+            self._polled_at_seconds = None
+            self._last_snapshot = _no_profile_snapshot()
+            self._last_error_code = None
 
     def _api_or_raise(self) -> PlayerStatsProcessMemoryApi:
         if self._api is None:
@@ -265,11 +288,16 @@ class LivePlayerStatsReader:
             player_address + profile.read_start_offset,
             profile.read_size_bytes,
         )
-        return {
+        fields = {
             name: float(value)
             for name, value in profile.decode(payload).items()
             if isinstance(value, float)
         }
+        if profile.monster_kills_rva is not None and profile.monster_kills_rva > 0:
+            kills_bytes = api.read(handle, module_base + profile.monster_kills_rva, 4)
+            if len(kills_bytes) == 4:
+                fields["monster_kills"] = float(struct.unpack("<I", kills_bytes)[0])
+        return fields
 
     def _fail(self, code: PlayerStatsReadErrorCode, detail: str) -> None:
         error = PlayerStatsReadError(code, detail)

@@ -219,3 +219,31 @@ def test_persist_profile_bundle_writes_canonical_json_profiles(tmp_path: Path) -
     assert stats_path.is_file()
     assert cam_path.is_file()
     assert dung_path.is_file()
+
+
+def test_discover_monster_kills_finds_counter_in_synthetic_pe() -> None:
+    from flyff_bot.features.client_profiling.profiler import _discover_monster_kills
+
+    string_rva = 0x2010
+    target_var_rva = 0x3020
+
+    instr1_rva = 0x1000
+    disp1 = target_var_rva - (instr1_rva + 7)
+    instr1 = b"\x44\x8b\x05" + struct.pack("<i", disp1)
+
+    instr2_rva = 0x1007
+    disp2 = string_rva - (instr2_rva + 7)
+    instr2 = b"\x48\x8d\x15" + struct.pack("<i", disp2)
+
+    text_payload = (instr1 + instr2).ljust(64, b"\x90")
+    rdata_payload = b"\x00" * 0x10 + b"Monster Kills: %d\x00"
+    data_payload = b"\x00" * 0x40
+
+    pe = _build_synthetic_pe(
+        text_payload=text_payload,
+        rdata_payload=rdata_payload,
+        data_payload=data_payload,
+    )
+
+    discovered = _discover_monster_kills(pe)
+    assert discovered == target_var_rva

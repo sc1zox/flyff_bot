@@ -33,16 +33,12 @@ from flyff_bot.features.player_stats.models import (
 from flyff_bot.features.vision.capture import FrameSource
 from flyff_bot.features.vision.detection import Detection, DetectionError, Detector
 from flyff_bot.features.vision.models import CapturedFrame
-from flyff_bot.features.vision.monster_stats import MonsterStatsFeed
 from flyff_bot.features.vision.target_verification import (
     TargetStatus,
     TargetVerificationResult,
 )
 from flyff_bot.features.vision.vitals import PlayerVitalsFeed, PlayerVitalsReader
 
-# The HUD kill counter changes at most once per kill, so sampling it twice a second is ample
-# while keeping the far more expensive OCR subprocess off the majority of perception ticks.
-DEFAULT_MONSTER_STATS_INTERVAL_SECONDS = 0.5
 # Named so the handlers below stay single-name `except` clauses. The pinned formatter
 # rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
 # what the group of failures means.
@@ -56,13 +52,14 @@ class PerceptionFailure(StrEnum):
     DETECTION = "detection"
     TARGET_VERIFICATION = "target_verification"
     VITALS_READING = "vitals_reading"
-    MONSTER_STATS = "monster_stats"
 
 
 class PlayerStatsProvider(Protocol):
     """A provider of exact-profile client-memory statistics."""
 
     def poll(self, at_seconds: float) -> ClientPlayerStatsSnapshot: ...
+
+    def close(self) -> None: ...
 
 
 class TargetVerificationFeed(Protocol):
@@ -111,11 +108,7 @@ class PerceptionPipeline:
         clock: Callable[[], float] = monotonic,
         vitals_reader: PlayerVitalsFeed | None = None,
         player_stats_reader: PlayerStatsProvider | None = None,
-        monster_stats_reader: MonsterStatsFeed | None = None,
-        monster_stats_interval_seconds: float = DEFAULT_MONSTER_STATS_INTERVAL_SECONDS,
     ) -> None:
-        if monster_stats_interval_seconds < 0.0:
-            raise ValueError("Monster stats read interval must not be negative.")
         self._frame_source = frame_source
         self._detector = detector
         self._target_verifier = target_verifier
@@ -125,9 +118,6 @@ class PerceptionPipeline:
         # from what is on screen instead of blocking the session (US-085).
         self._vitals_reader = vitals_reader or PlayerVitalsReader()
         self._player_stats_reader = player_stats_reader
-        self._monster_stats_reader = monster_stats_reader
-        self._monster_stats_interval_seconds = monster_stats_interval_seconds
-        self._next_monster_stats_read_at_seconds = 0.0
         self._mob_world_estimator: MobWorldPositionEstimator | None = None
         self._catalog_join: MobCatalogJoin | None = None
         self._adopted_world_id: int | None = None
@@ -192,6 +182,13 @@ class PerceptionPipeline:
         self._player_stats_reader = None
         return True
 
+    def restore_player_stats_provider(self, reader: PlayerStatsProvider) -> None:
+        """Re-adopt a reloaded exact-profile reader after an unsupported-build demotion."""
+
+        if self._player_stats_reader is not None and self._player_stats_reader is not reader:
+            self._player_stats_reader.close()
+        self._player_stats_reader = reader
+
     def tick(
         self,
         window_handle: int,
@@ -211,7 +208,6 @@ class PerceptionPipeline:
         selected_target = previous_state.selected_target
         player_vitals = previous_state.player_vitals
         monster_kill_count = previous_state.monster_kill_count
-        monster_stats = previous_state.monster_stats
         catalog_joins = previous_state.mob_catalog_joins
         catalog_rejections = previous_state.mob_catalog_rejections
         observation_interval = ObservationInterval()
@@ -256,27 +252,12 @@ class PerceptionPipeline:
                             values["mp"],
                             values["fp"],
                         )
+                    if "monster_kills" in values:
+                        monster_kill_count = int(values["monster_kills"])
             elif self._player_stats_reader is None:
                 player_vitals = self._vitals_reader.read(frame)
         except FRAME_READ_ERRORS:
             failures.add(PerceptionFailure.VITALS_READING)
-        # Each reading spawns an OCR subprocess, which is far slower than one perception tick,
-        # so the HUD counter is sampled on its own interval instead of on every frame.
-        if (
-            self._monster_stats_reader is not None
-            and observed_at_seconds >= self._next_monster_stats_read_at_seconds
-        ):
-            self._next_monster_stats_read_at_seconds = (
-                observed_at_seconds + self._monster_stats_interval_seconds
-            )
-            try:
-                monster_stats = self._monster_stats_reader.read(frame)
-                # A failed reading keeps the previous count rather than reporting zero, which
-                # would look like the counter had been reset.
-                if monster_stats.parsed_count is not None:
-                    monster_kill_count = monster_stats.parsed_count
-            except Exception:  # OCR failures are non-fatal
-                failures.add(PerceptionFailure.MONSTER_STATS)
 
         state = WorldState(
             observed_at_seconds=observed_at_seconds,
@@ -291,7 +272,6 @@ class PerceptionPipeline:
             player_vitals=player_vitals,
             player_stats_snapshot=player_stats_snapshot,
             monster_kill_count=monster_kill_count,
-            monster_stats=monster_stats,
             mob_catalog_joins=catalog_joins,
             mob_catalog_rejections=catalog_rejections,
             observation_interval=observation_interval,
