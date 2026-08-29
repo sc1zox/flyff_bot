@@ -14,6 +14,7 @@ from flyff_bot.features.input_control.keymap import (
     VIRTUAL_KEY_LEFT,
     VIRTUAL_KEY_RIGHT,
     VIRTUAL_KEY_S,
+    VIRTUAL_KEY_SPACE,
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.navigation.attack_point_planner import (
@@ -74,8 +75,18 @@ DEFAULT_NAVMESH_ENGAGEMENT_DISTANCE_UNITS = 3.0
 DEFAULT_QUEST_INTERACTION_DISTANCE_UNITS = 3.0
 EVASION_DIAGONAL_DURATION_SECONDS = 0.25
 EVASION_BACKSTEP_DURATION_SECONDS = 0.25
+# Flyff clears low ledges, roots, and fence posts by jumping. The jump is part of the evasion
+# sequence rather than a separate recovery because most stalls in a spawn zone are exactly
+# that kind of obstacle (US-091).
+EVASION_JUMP_DURATION_SECONDS = 0.15
 REPEATED_STALL_RADIUS_UNITS = 3.0
 TEMPORARY_BLOCK_DURATION_SECONDS = 30.0
+# Escape sampling for a character wedged in a canyon or inside collision geometry: rings of
+# candidate nodes are projected onto the mesh until one is both reachable and closer to the
+# camp than the trap (US-091).
+ESCAPE_SAMPLE_COUNT = 12
+ESCAPE_SAMPLE_RADII_UNITS = (6.0, 12.0, 24.0)
+ESCAPE_MINIMUM_PROGRESS_UNITS = 1.0
 FULL_TURN_DEGREES = 360.0
 HALF_TURN_DEGREES = 180.0
 
@@ -191,6 +202,7 @@ class PathingController:
         self._pending_decision: PathingDecision | None = None
         self._evasion_steps: list[PathingDecision] = []
         self._last_live_stall: WorldPosition | None = None
+        self._evasion_strafes_right = True
         self._tangent_block: WorldPosition | None = None
         self._temporary_blocks: list[tuple[WorldPosition, float]] = []
         self._vector_zone: VectorSpawnZone | None = None
@@ -429,8 +441,19 @@ class PathingController:
         return not self.is_gps_available
 
     def attach_vector_navigator(self, navigator: VectorZoneNavigator | None) -> None:
-        """Adopt or drop the extracted-map navigator and force a replan on the next step."""
+        """Adopt or drop the extracted-map navigator and force a replan on the next step.
 
+        Adoption is also where the session settles on one baked collision mesh: the loaded
+        mesh wins, and a mesh the operator loaded next to the world map is adopted when this
+        controller was built without one. Patrol routes and combat approaches then read the
+        same polygons (US-091).
+        """
+
+        if navigator is not None:
+            if self._navmesh is None:
+                self._navmesh = navigator.navmesh
+                self._attack_point_planner = None
+            navigator.attach_navmesh(self._navmesh)
         self._vector_navigator = navigator
         self._vector_zone = None
         self._world_waypoints = ()
@@ -606,6 +629,7 @@ class PathingController:
             target,
             EngagementRadii(distance_units, distance_units),
             heading_degrees=self.heading_degrees,
+            obstacles=self.temporary_world_blocks,
         )
         if plan is None:
             return None
@@ -636,6 +660,7 @@ class PathingController:
                     max(configured_distance, MELEE_ATTACK_MAXIMUM_DISTANCE_UNITS),
                 ),
                 heading_degrees=self.heading_degrees,
+                obstacles=self.temporary_world_blocks,
             )
             route = plan.waypoints if plan is not None else None
             self._planned_attack_target = target
@@ -933,23 +958,34 @@ class PathingController:
 
         previous = self._last_live_stall
         if previous is not None and previous.distance_to(position) <= REPEATED_STALL_RADIUS_UNITS:
-            self._temporary_blocks.append((position, at_seconds + TEMPORARY_BLOCK_DURATION_SECONDS))
+            # The same spot blocked twice: the previous pivot direction is the one that did
+            # not work, so the next attempt leaves in the opposite direction.
+            self._evasion_strafes_right = not self._evasion_strafes_right
+        # The obstacle is recorded on the first stall rather than on the second: a global
+        # replan that still routes through it would only walk back into the same collision.
+        self._temporary_blocks.append((position, at_seconds + TEMPORARY_BLOCK_DURATION_SECONDS))
         self._last_live_stall = position
         self._tangent_block = position
         self._world_waypoints = ()
         self._waypoint_index = 0
         self._planned_at_seconds = None
         self._mode = PathingMode.EVADING
+        pivot_key = VIRTUAL_KEY_D if self._evasion_strafes_right else VIRTUAL_KEY_A
         self._evasion_steps = [
-            PathingDecision(
-                PathingMode.EVADING,
-                key_press_duration_seconds=EVASION_DIAGONAL_DURATION_SECONDS,
-                virtual_keys=(VIRTUAL_KEY_W, VIRTUAL_KEY_A),
-            ),
             PathingDecision(
                 PathingMode.EVADING,
                 virtual_key=VIRTUAL_KEY_S,
                 key_press_duration_seconds=EVASION_BACKSTEP_DURATION_SECONDS,
+            ),
+            PathingDecision(
+                PathingMode.EVADING,
+                virtual_key=VIRTUAL_KEY_SPACE,
+                key_press_duration_seconds=EVASION_JUMP_DURATION_SECONDS,
+            ),
+            PathingDecision(
+                PathingMode.EVADING,
+                key_press_duration_seconds=EVASION_DIAGONAL_DURATION_SECONDS,
+                virtual_keys=(VIRTUAL_KEY_W, pivot_key),
             ),
         ]
         self._stalls.reset()
@@ -1117,13 +1153,62 @@ class PathingController:
         self._tangent_block = None
         self._vector_zone = plan.zone
         if plan.is_empty:
+            # Every leg of the camp route was refused, which is what standing inside a canyon
+            # or a collision pocket looks like from the router. Walking to the nearest
+            # reachable mesh node first is what turns that dead end back into a route
+            # (US-091).
+            if self._plan_escape_route(at_seconds, target):
+                return True
             self._block_navigation()
             return True
-        self._world_waypoints = tuple(item.position for item in plan.world_waypoints)
+        self._world_waypoints = plan.world_waypoints
         self._waypoint_index = 0
         self._planned_at_seconds = at_seconds
         self._mode = PathingMode.TRAVELING
         return True
+
+    def _plan_escape_route(self, at_seconds: float, destination: WorldPosition) -> bool:
+        """Route to the nearest walkable mesh node that makes progress towards the camp.
+
+        The escape is deliberately not "the closest walkable surface": inside a canyon that
+        is the wall the character is already pressed against. Only a reachable node that
+        also shortens the distance to the camp ends the trap instead of restarting it.
+        """
+
+        mesh = self._navmesh
+        live = self._live_position
+        if mesh is None or live is None or not mesh.polygons:
+            return False
+        trapped_gap = math.hypot(destination.x - live.x, destination.z - live.z)
+        for radius in ESCAPE_SAMPLE_RADII_UNITS:
+            best: tuple[float, float, float, tuple[WorldPosition, ...]] | None = None
+            for index in range(ESCAPE_SAMPLE_COUNT):
+                radians = math.radians(FULL_TURN_DEGREES * index / ESCAPE_SAMPLE_COUNT)
+                sample = WorldPosition(
+                    live.x + math.sin(radians) * radius,
+                    live.y,
+                    live.z + math.cos(radians) * radius,
+                )
+                node = mesh.nearest_walkable_position(sample)
+                if node is None:
+                    continue
+                gap = math.hypot(destination.x - node.x, destination.z - node.z)
+                if gap > trapped_gap - ESCAPE_MINIMUM_PROGRESS_UNITS:
+                    continue
+                route = mesh.find_path(live, node)
+                if not route:
+                    continue
+                # Ties are broken on the coordinates so one mesh always produces one escape.
+                ranked = (gap, node.x, node.z, route)
+                if best is None or ranked[:3] < best[:3]:
+                    best = ranked
+            if best is not None:
+                self._world_waypoints = best[3]
+                self._waypoint_index = 0
+                self._planned_at_seconds = at_seconds
+                self._mode = PathingMode.TRAVELING
+                return True
+        return False
 
 
 def _pathing_config_with_parameters(

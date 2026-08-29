@@ -50,6 +50,7 @@ from flyff_bot.features.automation.emergency_recovery import (
     EmergencyRecoveryMonitor,
 )
 from flyff_bot.features.automation.kill_goals import (
+    UNLIMITED_KILL_QUOTA,
     KillGoalConfig,
     KillGoalTracker,
     MobKillQuota,
@@ -96,6 +97,7 @@ from flyff_bot.features.automation.respawn import (
     RespawnMenuPerceiver,
 )
 from flyff_bot.features.automation.search_execution import SearchInputAdapter, SearchInputDispatcher
+from flyff_bot.features.automation.self_defense import SelfDefenseConfig, SelfDefenseGuard
 from flyff_bot.features.automation.supervisor import Reconciliation, Supervisor
 from flyff_bot.features.automation.target_reconciliation import (
     TargetAgreement,
@@ -236,7 +238,6 @@ DEFAULT_TICK_INTERVAL_SECONDS = 0.1
 DEFAULT_SEARCH_RETRY_SECONDS = 0.5
 DEFAULT_REPOSITION_IDLE_TIMEOUT_SECONDS = 0.0
 DEFAULT_REPOSITION_ROTATION_STEPS = 4
-DEFAULT_REPOSITION_ROAM_STEPS = 2
 REPOSITION_SWEEP_CYCLES = 1
 # One full patrol lap of a camp without a confirmed kill is what exhausts it: the next
 # selected spawn zone is worth walking to rather than sweeping the empty one again.
@@ -258,12 +259,15 @@ TACTICAL_APPROACH_DISTANCE_MULTIPLIERS = (0.75, 1.0, 1.25)
 
 
 def _default_reposition_config() -> SearchConfig:
-    """Return the bounded rotate-and-roam sweep used to clear a blocked approach."""
+    """Return the bounded camera sweep used to look around a blocked approach.
+
+    Clearing the blockage itself is the pathing controller's evasion sequence; this sweep
+    only re-acquires a target once the character has moved (US-091).
+    """
 
     return SearchConfig(
         idle_timeout_seconds=DEFAULT_REPOSITION_IDLE_TIMEOUT_SECONDS,
         rotation_steps=DEFAULT_REPOSITION_ROTATION_STEPS,
-        roam_steps=DEFAULT_REPOSITION_ROAM_STEPS,
     )
 
 
@@ -402,6 +406,7 @@ class FarmingConfig:
     policy_mode: PolicyRuntimeMode = DEFAULT_POLICY_RUNTIME_MODE
     policy_model_directory: str | None = None
     quest_travel: GoalTravelConfig = field(default_factory=GoalTravelConfig)
+    self_defense: SelfDefenseConfig = field(default_factory=SelfDefenseConfig)
     quest_goal_timeouts: QuestGoalTimeouts = field(default_factory=QuestGoalTimeouts)
     quest_goal_failure_policy: QuestGoalFailurePolicy = DEFAULT_QUEST_GOAL_FAILURE_POLICY
     autopilot: AutopilotConfig = field(default_factory=AutopilotConfig)
@@ -526,6 +531,7 @@ class FarmingOrchestrator:
         self._alignment_failure: CameraAlignmentStatus | None = None
         self._mode_after_alignment = FarmingMode.SEARCHING
         self._kill_goals = kill_goals or KillGoalTracker()
+        self._self_defense = SelfDefenseGuard(self._config.self_defense)
         self._quest_queue = quest_queue
         self._on_target_classes_changed = on_target_classes_changed
         self._client_close_requested = False
@@ -1015,6 +1021,10 @@ class FarmingOrchestrator:
         self._search.reset()
         self._reposition.reset()
         self._vitals.reset()
+        # A halted session has no engagement to defend, and its health baseline is stale by
+        # the time it resumes, so the widened whitelist closes with everything else.
+        self._self_defense.reset()
+        self._apply_active_target_classes()
         self._powerups.halt()
         self._emergency.halt()
         self._approach_stalls.reset()
@@ -1208,13 +1218,29 @@ class FarmingOrchestrator:
         return False
 
     def _apply_active_target_classes(self) -> None:
-        allowed = self._kill_goals.active_class_names
+        quota_classes = self._kill_goals.active_class_names
+        # Something that is already hitting the character has to be answerable even when the
+        # zone selection excludes its class, so the whitelist is lifted for the bounded
+        # self-defence window and restored the moment it closes (US-091 AC2).
+        allowed = frozenset() if self._self_defense.is_active else quota_classes
         self.configure_target_classes(allowed)
         # The classes that still owe a quota are worth more than the ones that do not, and
         # ranking is where that difference has to be visible (US-083 AC8).
-        self._combat.configure_quota_classes(allowed)
+        self._combat.configure_quota_classes(quota_classes)
         if self._on_target_classes_changed is not None:
             self._on_target_classes_changed(allowed)
+
+    def _update_self_defense(self) -> None:
+        """Open or close the self-defence window and re-apply the whitelist on a change."""
+
+        was_active = self._self_defense.is_active
+        is_active = self._self_defense.observe(
+            self._state.player_vitals.hp_percentage,
+            engaged=self._mode in ENGAGEMENT_MODES,
+            at_seconds=self._state.observed_at_seconds,
+        )
+        if is_active != was_active:
+            self._apply_active_target_classes()
 
     def configure_kill_verification(self, enabled: bool) -> None:
         """Toggle HUD monster-stats kill-count confirmation mid-session."""
@@ -1731,7 +1757,32 @@ class FarmingOrchestrator:
             )
         if self._pathing is not None:
             self._pathing.attach_vector_navigator(navigator)
+        if navigator is not None:
+            self._lock_goals_to_selected_zones(navigator)
+        if self._pathing is not None:
             self._publish(False)
+
+    def _lock_goals_to_selected_zones(self, navigator: VectorZoneNavigator) -> None:
+        """Make the operator's camp selection the session's only statement of what to farm.
+
+        Goal selection used to diverge: the navigator walked to the selected camps while the
+        quota tracker still carried whatever the dashboard preset listed, so a session sent
+        to one camp happily fought every other monster on the way. Activating a selection now
+        rewrites the quotas, and with them the candidate whitelist, the ranking bonus and the
+        policy action mask, from the navigator's zone-locked goals (US-091 AC1).
+        """
+
+        goals = navigator.goals
+        if not goals:
+            return
+        self.configure_kill_goals(
+            KillGoalConfig(
+                quotas=tuple(
+                    MobKillQuota(goal.monster_name, goal.kill_quota or UNLIMITED_KILL_QUOTA)
+                    for goal in goals
+                )
+            )
+        )
 
     def tick(self) -> FarmingTick:
         """Perform at most one perception, decision, and guarded-dispatch cycle."""
@@ -1816,6 +1867,7 @@ class FarmingOrchestrator:
             )
             if self._telemetry is not None:
                 self._telemetry.record_navigation_stall(stalled=self._pathing.is_stalled)
+        self._update_self_defense()
         readiness = self._evaluate_readiness(self._state.observed_at_seconds)
         if readiness.action_blocked:
             self._pause_for_readiness()
@@ -2302,6 +2354,9 @@ class FarmingOrchestrator:
                 return False
             combat = self._combat.step(self._state, requested_target=requested_target)
             if combat.mode is not CombatMode.IDLE:
+                # A verified detection ends the sweep on the spot; no further micro-rotation
+                # is dispatched between here and the approach (US-091 AC6).
+                self._search.reset()
                 pathing = self._pathing
                 should_approach = (
                     pathing is not None
@@ -3055,7 +3110,7 @@ def _dashboard_status(
     if mode is FarmingMode.SEARCHING:
         return {
             SearchMode.ROTATE: BotStatus.SEARCH_ROTATING,
-            SearchMode.ROAM_STEP: BotStatus.SEARCH_ROAMING,
+            SearchMode.SETTLE: BotStatus.SEARCH_SCANNING,
         }[search_mode or SearchMode.ROTATE]
     if mode in {FarmingMode.TARGETING, FarmingMode.COMBAT}:
         return BotStatus.COMBAT

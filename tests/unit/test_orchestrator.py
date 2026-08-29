@@ -13,10 +13,12 @@ import pytest
 
 from flyff_bot.features.automation.camera_alignment import CameraAligner, CameraAlignmentStatus
 from flyff_bot.features.automation.controllers import (
+    DEFAULT_SEARCH_ROTATION_DURATION_SECONDS,
     VIRTUAL_KEY_F1,
     CombatClassProfile,
     EngagementBreakReason,
 )
+from flyff_bot.features.automation.kill_goals import KillGoalConfig, MobKillQuota
 from flyff_bot.features.automation.models import (
     DesiredState,
     InventoryEntry,
@@ -38,6 +40,10 @@ from flyff_bot.features.automation.readiness import (
     LiveStateSource,
     ReadinessReason,
 )
+from flyff_bot.features.automation.self_defense import (
+    DEFAULT_SELF_DEFENSE_WINDOW_SECONDS,
+    SelfDefenseGuard,
+)
 from flyff_bot.features.automation.vitals_controller import (
     VitalsTriggerConfig,
     VitalTriggerRule,
@@ -46,9 +52,10 @@ from flyff_bot.features.automation.vitals_controller import (
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control import ForegroundWindowInfo, parse_virtual_key
 from flyff_bot.features.input_control.keymap import (
-    VIRTUAL_KEY_A,
+    VIRTUAL_KEY_D,
     VIRTUAL_KEY_RIGHT,
     VIRTUAL_KEY_S,
+    VIRTUAL_KEY_SPACE,
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.navigation.live_position import (
@@ -60,7 +67,11 @@ from flyff_bot.features.navigation.live_position import (
 from flyff_bot.features.navigation.pathing import (
     PathingController,
 )
-from flyff_bot.features.navigation.vector_navigation import VectorZoneNavigator
+from flyff_bot.features.navigation.vector_navigation import (
+    VectorNavigationRequest,
+    VectorZoneNavigator,
+    ZoneGoal,
+)
 from flyff_bot.features.navigation.world_extractor import (
     VectorSpawnZone,
     WorldVectorMap,
@@ -256,9 +267,9 @@ def test_runs_full_target_combat_and_reconciliation_cycle_without_looting() -> N
     assert orchestrator.tick().mode is FarmingMode.RECONCILING
     assert orchestrator.tick().mode is FarmingMode.SEARCHING
     assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
-    # Only attack keys: a confirmed fight restarts the search idle timeout (BUG-010),
-    # so camera recovery must not fire on the tick right after a kill.
-    assert [key for key, _duration in adapter.keys] == [0x20, 0x20]
+    # Two attack keys, then the resumed search: a reconciled session starts its next sweep
+    # without an idle delay (US-091 AC4), so the camera key follows the last swing directly.
+    assert [key for key, _duration in adapter.keys] == [0x20, 0x20, VIRTUAL_KEY_RIGHT]
 
 
 def test_readiness_blocks_every_action_and_recovers_without_replaying_pending_input() -> None:
@@ -549,19 +560,18 @@ def test_target_lost_without_damage_returns_to_search_without_looting() -> None:
     assert 0x46 not in [key for key, _duration in adapter.keys]
 
 
-def test_search_waits_for_the_configured_retry_interval_without_input() -> None:
+def test_search_sweeps_on_the_first_tick_without_an_idle_delay() -> None:
+    """US-091 AC4: the viewport already proved empty, so no idle timeout precedes the sweep."""
+
     adapter = _InputAdapter()
-    orchestrator = _orchestrator(
-        [_state(1.0), _state(1.1), _state(2.0)],
-        adapter,
-        config=FarmingConfig(search_retry_seconds=1.0),
-    )
+    orchestrator = _orchestrator([_state(1.0), _state(1.1)], adapter)
     orchestrator.start()
 
-    assert orchestrator.tick().mode is FarmingMode.SEARCHING
-    assert not orchestrator.tick().dispatched
-    assert not orchestrator.tick().dispatched
-    assert adapter.keys == []
+    first = orchestrator.tick()
+
+    assert first.mode is FarmingMode.SEARCHING
+    assert first.dispatched
+    assert adapter.keys == [(VIRTUAL_KEY_RIGHT, DEFAULT_SEARCH_ROTATION_DURATION_SECONDS)]
     assert adapter.clicks == []
 
 
@@ -581,29 +591,27 @@ def test_search_interrupts_navigation_immediately_when_a_mob_appears() -> None:
 
 
 def test_search_interrupts_during_settle_pause_when_mob_appears() -> None:
+    """US-091 AC6: a detection inside the perception window ends the sweep at once."""
+
     adapter = _InputAdapter()
     orchestrator = _orchestrator(
         [
-            _state(0.0),  # Idle timeout start
-            _state(5.0),  # Dispatches ROTATE pulse (5.0s -> 5.2s key + 0.3s pause)
-            _state(5.3, mobs=(MOB,)),  # Settle pause tick: mob spotted!
+            _state(0.0),  # Dispatches the first micro-rotation immediately.
+            _state(0.1, mobs=(MOB,)),  # Settle window tick: mob spotted!
         ],
         adapter,
     )
     orchestrator.start()
 
-    # Tick 1: starts search timer at t=0
-    assert orchestrator.tick().mode is FarmingMode.SEARCHING
-    # Tick 2: at t=5.0, dispatches search rotation key
-    tick2 = orchestrator.tick()
-    assert tick2.mode is FarmingMode.SEARCHING
-    assert tick2.dispatched
-    assert adapter.keys == [(VIRTUAL_KEY_RIGHT, 0.2)]
+    first = orchestrator.tick()
+    assert first.mode is FarmingMode.SEARCHING
+    assert first.dispatched
+    assert adapter.keys == [(VIRTUAL_KEY_RIGHT, DEFAULT_SEARCH_ROTATION_DURATION_SECONDS)]
 
-    # Tick 3: at t=5.3 (within settle pause), mob enters view -> immediately targets!
-    tick3 = orchestrator.tick()
-    assert tick3.mode is FarmingMode.TARGETING
-    assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
+    # The mob enters view inside the settle window -> no further rotation is dispatched.
+    second = orchestrator.tick()
+    assert second.mode is FarmingMode.TARGETING
+    assert [key for key, _duration in adapter.keys] == [VIRTUAL_KEY_RIGHT]
 
 
 def test_configured_attack_key_is_dispatched_for_target_engagement() -> None:
@@ -897,7 +905,7 @@ def test_locked_out_mob_lets_camera_search_recovery_take_over() -> None:
         orchestrator.tick()
 
     assert len(adapter.clicks) < 8
-    assert (VIRTUAL_KEY_RIGHT, 0.2) in adapter.keys
+    assert (VIRTUAL_KEY_RIGHT, DEFAULT_SEARCH_ROTATION_DURATION_SECONDS) in adapter.keys
 
 
 def _power_up_presses(adapter: _InputAdapter) -> int:
@@ -925,7 +933,7 @@ def test_power_up_hotkey_is_dispatched_after_its_configured_interval() -> None:
             keys_before_interval = list(adapter.keys)
         orchestrator.tick()
 
-    assert keys_before_interval == []
+    assert [key for key, _duration in keys_before_interval if key == POWER_UP_KEY] == []
     assert adapter.keys.count((POWER_UP_KEY, 0.05)) == 1
 
 
@@ -1178,8 +1186,8 @@ def test_blocked_approach_breaks_the_engagement_and_enters_repositioning() -> No
     assert any(update.status is BotStatus.REPOSITIONING for update in updates)
 
 
-def test_repositioning_rotates_the_camera_and_roams_before_returning_to_searching() -> None:
-    """US-039: the recovery is a bounded rotate-and-roam sweep, not an endless detour."""
+def test_repositioning_sweeps_the_camera_without_blind_roaming() -> None:
+    """US-091 AC7: the recovery looks around and evades; it never walks blind W/D/W/A."""
 
     adapter = _InputAdapter()
     states = _blocked_approach_states(30)
@@ -1191,7 +1199,7 @@ def test_repositioning_rotates_the_camera_and_roams_before_returning_to_searchin
     dispatched_keys = {virtual_key for virtual_key, _duration in adapter.keys}
 
     assert VIRTUAL_KEY_RIGHT in dispatched_keys
-    assert VIRTUAL_KEY_W in dispatched_keys
+    assert VIRTUAL_KEY_W not in dispatched_keys
     assert FarmingMode.SEARCHING in modes[repositioned:]
 
 
@@ -1318,10 +1326,14 @@ def test_live_combat_stall_uses_fast_evasion_before_the_blind_reposition_sweep()
         if update.engagement_break is EngagementBreakReason.OBSTACLE_STALL
     )
     assert stalled.state.observed_at_seconds <= 3.0
-    evasion_diagonal = adapter.key_chords.index(((VIRTUAL_KEY_W, VIRTUAL_KEY_A), 0.25))
+    # US-091 AC9: backstep, jump, then a directional pivot - the sweep only follows after.
     evasion_backstep = adapter.key_chords.index(((VIRTUAL_KEY_S,), 0.25))
-    reposition_rotation = adapter.key_chords.index(((VIRTUAL_KEY_RIGHT,), 0.2))
-    assert evasion_diagonal < evasion_backstep < reposition_rotation
+    evasion_jump = adapter.key_chords.index(((VIRTUAL_KEY_SPACE,), 0.15))
+    evasion_pivot = adapter.key_chords.index(((VIRTUAL_KEY_W, VIRTUAL_KEY_D), 0.25))
+    reposition_rotation = adapter.key_chords.index(
+        ((VIRTUAL_KEY_RIGHT,), DEFAULT_SEARCH_ROTATION_DURATION_SECONDS)
+    )
+    assert evasion_backstep < evasion_jump < evasion_pivot < reposition_rotation
 
 
 def test_mode_transitions_are_recorded_with_previous_and_new_mode(tmp_path: Path) -> None:
@@ -1436,8 +1448,12 @@ def test_obstacle_stall_repositioning_is_recorded(tmp_path: Path) -> None:
     for _ in states:
         orchestrator.tick()
 
+    # ``recent_events`` is newest first, so the oldest obstacle stall is the first strike -
+    # the one that buys a re-positioning sweep rather than ending the pursuit.
     obstacle_event = next(
-        event for event in logger.recent_events if event.kind is SessionEventKind.OBSTACLE_STALL
+        event
+        for event in reversed(logger.recent_events)
+        if event.kind is SessionEventKind.OBSTACLE_STALL
     )
     assert obstacle_event.new_mode == FarmingMode.REPOSITIONING.value
     assert obstacle_event.reason == EngagementBreakReason.OBSTACLE_STALL.value
@@ -1548,3 +1564,69 @@ def test_adopting_a_world_map_hands_perception_its_spawn_declarations(
     orchestrator.configure_vector_navigation(None)
 
     assert pipeline.spawn_zones == [world_map.zones, ()]
+
+
+def test_activating_a_camp_selection_locks_the_session_quotas_to_it(
+    multi_zone_world_map: WorldVectorMap,
+) -> None:
+    """US-091 AC1/AC2: the selected camps are the only monsters the session may engage."""
+
+    applied: list[frozenset[str]] = []
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline([_state(1.0)])),
+        _InputAdapter(),
+        WINDOW_HANDLE,
+        on_target_classes_changed=applied.append,
+    )
+    orchestrator.configure_kill_goals(
+        KillGoalConfig(quotas=(MobKillQuota("Flame"), MobKillQuota("Burumung")))
+    )
+    selected = multi_zone_world_map.zones[0]
+
+    orchestrator.configure_vector_navigation(
+        VectorNavigationRequest(
+            world_map=multi_zone_world_map,
+            anchor_zone=selected,
+            active_zones=(selected,),
+            goals=(ZoneGoal("Flame", 5),),
+        ).navigator()
+    )
+
+    assert orchestrator.kill_goals.active_class_names == frozenset({selected.monster_name})
+    assert applied[-1] == frozenset({selected.monster_name})
+
+
+def test_being_attacked_lifts_the_zone_lock_until_the_defence_window_closes() -> None:
+    """US-091 AC2: an off-zone attacker is answerable; the restriction returns afterwards."""
+
+    applied: list[frozenset[str]] = []
+    healthy = _state(1.0)
+    hurt = replace(_state(2.0), player_vitals=PlayerVitals(hp_percentage=80.0))
+    recovered = _state(2.0 + DEFAULT_SELF_DEFENSE_WINDOW_SECONDS + 1.0)
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline([healthy, hurt, recovered])),
+        _InputAdapter(),
+        WINDOW_HANDLE,
+        on_target_classes_changed=applied.append,
+    )
+    orchestrator.configure_kill_goals(KillGoalConfig(quotas=(MobKillQuota("Flame"),)))
+    orchestrator.start()
+
+    orchestrator.tick()
+    assert applied[-1] == frozenset({"Flame"})
+
+    orchestrator.tick()
+    assert applied[-1] == frozenset()
+
+    orchestrator.tick()
+    assert applied[-1] == frozenset({"Flame"})
+
+
+def test_damage_taken_inside_an_engagement_never_lifts_the_zone_lock() -> None:
+    """US-091 AC2: the fight the session chose is not evidence of being ambushed."""
+
+    guard = SelfDefenseGuard()
+
+    assert not guard.observe(100.0, engaged=False, at_seconds=0.0)
+    assert not guard.observe(60.0, engaged=True, at_seconds=1.0)
+    assert guard.observe(20.0, engaged=False, at_seconds=2.0)

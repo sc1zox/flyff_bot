@@ -43,6 +43,9 @@ from flyff_bot.constants import (
     ExitCode,
 )
 from flyff_bot.features.automation.controllers import (
+    DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_SEARCH_ROTATION_DURATION_SECONDS,
+    DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS,
     CombatConfig,
     KeyBinding,
     SearchConfig,
@@ -368,26 +371,28 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
     parser.add_argument(
         "--search-idle-timeout",
         type=float,
-        default=5.0,
-        help=translator.text(Message.HELP_SEARCH_IDLE_TIMEOUT, default=5.0),
+        default=DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS,
+        help=translator.text(
+            Message.HELP_SEARCH_IDLE_TIMEOUT, default=DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS
+        ),
     )
     parser.add_argument(
         "--search-rotation-duration",
         type=float,
-        default=0.2,
-        help=translator.text(Message.HELP_SEARCH_ROTATION_DURATION, default=0.2),
+        default=DEFAULT_SEARCH_ROTATION_DURATION_SECONDS,
+        help=translator.text(
+            Message.HELP_SEARCH_ROTATION_DURATION,
+            default=DEFAULT_SEARCH_ROTATION_DURATION_SECONDS,
+        ),
     )
     parser.add_argument(
         "--search-settle-pause",
         type=float,
-        default=0.3,
-        help=translator.text(Message.HELP_SEARCH_SETTLE_PAUSE, default=0.3),
-    )
-    parser.add_argument(
-        "--search-movement-duration",
-        type=float,
-        default=1.0,
-        help=translator.text(Message.HELP_SEARCH_MOVEMENT_DURATION, default=1.0),
+        default=DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS,
+        help=translator.text(
+            Message.HELP_SEARCH_SETTLE_PAUSE,
+            default=DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS,
+        ),
     )
     parser.add_argument(
         "--policy-mode",
@@ -873,7 +878,6 @@ def _farming_orchestrator(
                 idle_timeout_seconds=args.search_idle_timeout,
                 rotation_step_duration_seconds=args.search_rotation_duration,
                 rotation_settle_pause_seconds=args.search_settle_pause,
-                movement_step_duration_seconds=args.search_movement_duration,
             ),
             policy_mode=PolicyRuntimeMode(args.policy_mode),
             policy_model_directory=args.policy_model_dir,

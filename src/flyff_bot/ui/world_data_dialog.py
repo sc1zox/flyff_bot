@@ -522,6 +522,9 @@ class WorldDataDialog(QDialog):
             anchor_zone=anchor,
             active_zones=active_zones,
             goals=self._goals(world_map),
+            # The baked mesh loaded next to the world map is the one the session routes
+            # patrols and combat approaches over, so it travels with the activation (US-091).
+            navmesh=self._loaded_navmesh,
         )
 
     def _activation_text(

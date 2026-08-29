@@ -18,7 +18,7 @@ def status_message(status: BotStatus) -> Message:
         BotStatus.COMBAT: Message.UI_STATUS_COMBAT,
         BotStatus.RECONCILING: Message.UI_STATUS_RECONCILING,
         BotStatus.SEARCH_ROTATING: Message.UI_STATUS_SEARCH_ROTATING,
-        BotStatus.SEARCH_ROAMING: Message.UI_STATUS_SEARCH_ROAMING,
+        BotStatus.SEARCH_SCANNING: Message.UI_STATUS_SEARCH_SCANNING,
         BotStatus.REPOSITIONING: Message.UI_STATUS_REPOSITIONING,
         BotStatus.APPROACHING: Message.UI_STATUS_APPROACHING,
         BotStatus.ALIGNING: Message.UI_STATUS_ALIGNING,

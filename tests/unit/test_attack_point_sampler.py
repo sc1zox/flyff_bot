@@ -8,6 +8,7 @@ import pytest
 
 from flyff_bot.features.navigation.attack_point_planner import (
     MELEE_ENGAGEMENT_RADII,
+    OBSTACLE_CLEARANCE_UNITS,
     RANGED_ENGAGEMENT_RADII,
     AttackPointPlanner,
     EngagementRadii,
@@ -88,3 +89,66 @@ def test_melee_and_ranged_samples_remain_inside_their_annulus() -> None:
             (target.x, target.z),
         )
         assert radii.minimum_units <= distance <= radii.maximum_units
+
+
+def test_attack_points_inside_a_recorded_obstacle_are_refused() -> None:
+    """US-091 AC11: a place that already stopped the character is never an attack point."""
+
+    mesh = _flat_mesh()
+    planner = AttackPointPlanner(mesh)
+    target = WorldPosition(0.0, 0.0, 0.0)
+    obstacle = WorldPosition(0.0, 0.0, 3.0)
+
+    unrestricted = planner.plan(
+        WorldPosition(-10.0, 0.0, 0.0),
+        target,
+        MELEE_ENGAGEMENT_RADII,
+        heading_degrees=0.0,
+        timeout_seconds=1.0,
+    )
+    guarded = planner.plan(
+        WorldPosition(-10.0, 0.0, 0.0),
+        target,
+        MELEE_ENGAGEMENT_RADII,
+        heading_degrees=0.0,
+        obstacles=(obstacle,),
+        timeout_seconds=1.0,
+    )
+
+    assert unrestricted is not None
+    assert guarded is not None
+    assert guarded.candidates_considered < unrestricted.candidates_considered
+    selected = guarded.selected.position
+    assert math.hypot(selected.x - obstacle.x, selected.z - obstacle.z) > OBSTACLE_CLEARANCE_UNITS
+
+
+def test_an_attack_point_clear_of_an_obstacle_outranks_one_beside_it() -> None:
+    """US-091 AC11: closeness to a recorded obstacle is a ranking cost, not just a filter."""
+
+    mesh = _flat_mesh()
+    planner = AttackPointPlanner(mesh)
+    player = WorldPosition(0.0, 0.0, -10.0)
+    target = WorldPosition(0.0, 0.0, 0.0)
+    obstacle = WorldPosition(0.0, 0.0, -4.5)
+
+    unrestricted = planner.plan(
+        player, target, MELEE_ENGAGEMENT_RADII, heading_degrees=0.0, timeout_seconds=1.0
+    )
+    guarded = planner.plan(
+        player,
+        target,
+        MELEE_ENGAGEMENT_RADII,
+        heading_degrees=0.0,
+        obstacles=(obstacle,),
+        timeout_seconds=1.0,
+    )
+
+    assert unrestricted is not None
+    assert guarded is not None
+    assert _obstacle_gap(guarded.selected.position, obstacle) > _obstacle_gap(
+        unrestricted.selected.position, obstacle
+    )
+
+
+def _obstacle_gap(position: WorldPosition, obstacle: WorldPosition) -> float:
+    return math.hypot(position.x - obstacle.x, position.z - obstacle.z)

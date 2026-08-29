@@ -20,6 +20,12 @@ DEFAULT_TURN_WEIGHT = 0.02 / 180.0
 DEFAULT_FOLLOW_UP_WEIGHT = 0.01
 MINIMUM_CORRIDOR_WIDTH_UNITS = 1.0
 CORRIDOR_CLEARANCE_WEIGHT = 0.5
+# A recorded obstacle is a place that already stopped the character. Standing inside this
+# radius of one is refused outright, and standing within the influence radius is ranked worse
+# than the same point in the open, so an attack point is chosen safely clear of it (US-091).
+OBSTACLE_CLEARANCE_UNITS = 3.0
+OBSTACLE_INFLUENCE_UNITS = 6.0
+OBSTACLE_PENALTY_WEIGHT = 1.0
 TARGET_MOVE_REPLAN_DISTANCE_UNITS = 2.0
 ATTACK_POINT_PLANNING_BUDGET_SECONDS = 0.0008
 FULL_TURN_DEGREES = 360.0
@@ -113,6 +119,7 @@ class AttackPointPlanner:
         *,
         heading_degrees: float,
         follow_ups: Sequence[WorldPosition] = (),
+        obstacles: Sequence[WorldPosition] = (),
         routing_config: ExperienceRoutingConfig | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         timeout_seconds: float = ATTACK_POINT_PLANNING_BUDGET_SECONDS,
@@ -145,6 +152,9 @@ class AttackPointPlanner:
             if surface is None:
                 continue
             polygon, position = surface
+            obstacle_gap = _nearest_obstacle_distance(position, obstacles)
+            if obstacle_gap <= OBSTACLE_CLEARANCE_UNITS:
+                continue
             corridor = self._mesh.find_polygon_path(player, position)
             if not corridor:
                 continue
@@ -154,7 +164,7 @@ class AttackPointPlanner:
             clearance_penalty = CORRIDOR_CLEARANCE_WEIGHT * max(
                 0.0,
                 MINIMUM_CORRIDOR_WIDTH_UNITS - min(radius, MINIMUM_CORRIDOR_WIDTH_UNITS),
-            )
+            ) + OBSTACLE_PENALTY_WEIGHT * max(0.0, OBSTACLE_INFLUENCE_UNITS - obstacle_gap)
             bearing = (
                 math.degrees(math.atan2(target.x - position.x, target.z - position.z))
                 % FULL_TURN_DEGREES
@@ -229,6 +239,16 @@ def should_replan_attack_target(previous: WorldPosition, current: WorldPosition)
     return math.dist((previous.x, previous.y, previous.z), (current.x, current.y, current.z)) > (
         TARGET_MOVE_REPLAN_DISTANCE_UNITS
     )
+
+
+def _nearest_obstacle_distance(
+    position: WorldPosition, obstacles: Sequence[WorldPosition]
+) -> float:
+    """Return the ground distance to the closest recorded obstacle, or infinity."""
+
+    if not obstacles:
+        return math.inf
+    return min(math.hypot(position.x - item.x, position.z - item.z) for item in obstacles)
 
 
 def _finite_position(position: WorldPosition) -> bool:

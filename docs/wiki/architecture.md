@@ -31,6 +31,7 @@ related:
   - ../user-stories/completed/US-079-unified-goal-conditioned-decision-contract.md
   - ../user-stories/completed/US-084-ml-modifiable-tactical-parameters-and-tuning.md
   - ../user-stories/completed/US-085-production-readiness-and-autonomous-farming-polish.md
+  - ../user-stories/completed/US-091-unified-goal-navigation-fluid-scanning-and-intelligent-unstuck.md
   - ../user-stories/completed/US-086-unattended-autopilot-session-resilience-and-goal-arbitration.md
   - ../user-stories/completed/US-009-reactive-loot-controller.md
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
@@ -2581,3 +2582,59 @@ the current decision actually used.
 `features/automation/orchestrator.py` to `features/policy/models.py`. The mode is a property of the
 policy contract, and a presentation layer must be able to name the mode a decision was taken in
 without importing the session that executed it.
+
+## Unified goal navigation, micro-sweep scanning, and mesh evasion (US-091, completed)
+
+**The camp selection is the whole statement of what to farm.** Goal selection used to diverge:
+`VectorZoneNavigator` walked to the operator's selected spawn zones while `KillGoalTracker` still
+carried whatever the dashboard preset listed, so a session sent to one camp fought every other
+monster on the way there. `zone_locked_goals` (`features/navigation/vector_navigation.py`) now
+derives exactly one `ZoneGoal` per selected camp, in selection order, keeping a quota only where the
+preset named that camp's monster. `VectorNavigationRequest.navigator()` applies it at construction
+and `FarmingOrchestrator._lock_goals_to_selected_zones` rewrites the session's quotas from the
+navigator's goals on activation. Because the quota tracker is what feeds the combat whitelist, the
+candidate-economics quota bonus and the policy action mask, one write locks all four.
+
+**Self-defence is the single exception.** `features/automation/self_defense.py` holds a
+`SelfDefenseGuard` that opens a bounded window when health drops while no engagement is in progress.
+While it is open the whitelist is lifted to "any class"; when it closes the zone lock returns.
+Damage taken inside an engagement is the fight the session chose and never opens it, and a halted or
+paused session closes it, because its health baseline is stale by the time the session resumes.
+
+**Searching is a camera sweep and nothing else.** `SearchController` lost `SearchMode.ROAM_STEP`
+along with `roam_steps` and `movement_step_duration_seconds`: blind `[W, D, W, A]` roaming walked the
+character into collision geometry it could not see. What remains alternates `SearchMode.ROTATE`
+bursts with `SearchMode.SETTLE` windows - the only ticks in which a detection runs on an unsmeared
+frame - and `idle_timeout_seconds` defaults to `0.0`, because a viewport that just proved empty
+learns nothing from being stared at. The burst length is the tactical parameter
+`search_turn_duration_seconds`, whose default dropped to `0.12 s` and whose upper bound narrowed to
+`0.5 s` so a tuned or learned profile cannot leave the micro-sweep regime (ADR-009). A verified
+detection calls `SearchController.reset()` before the approach begins, so no further rotation is
+dispatched between acquisition and combat. Ground movement while no mob is visible is the NavMesh
+patrol route, not the sweep. The dashboard status `search_roaming` became `search_scanning`
+(`ui.status_search_scanning`, synchronized in `de.json` and `en.json`), and `--search-movement-duration`
+was removed from the CLI.
+
+**One mesh for patrol and for combat.** `VectorZoneNavigator` now takes a `BakedNavMesh` and routes
+each patrol-ring leg with `BakedNavMesh.find_path`, so zone travel and combat approaches read the
+same walkable polygons instead of two routers disagreeing about what is solid.
+`PathingController.attach_vector_navigator` is where the session settles on one mesh: the controller's
+loaded mesh wins, and a mesh the operator loaded next to the world map (carried on
+`VectorNavigationRequest.navmesh` by the World Data Dialog) is adopted when the controller was built
+without one. `TerrainRoutePlanner` remains only as the fallback for a world whose mesh has not been
+baked yet; removing it, and moving `SimulatorEngine` off `VectorRoutePlanner`, is deliberately left
+as the follow-up pruning task rather than folded into this story.
+
+**Evasion is proactive, and a trap has an exit.** A live stall queues backstep (`S`), jump (`Space`)
+and a directional pivot (`W` plus `A`/`D`), and records the blocked node in `_temporary_blocks`
+immediately rather than only on a repeated stall - a global replan that still routed through it would
+only walk back into the same collision. A second stall at the same spot flips the pivot direction,
+because the previous one is the direction that did not work. When every leg of the camp route is
+refused - what standing in a canyon or a collision pocket looks like to the router -
+`PathingController._plan_escape_route` samples rings of candidate nodes, projects them with
+`nearest_walkable_position`, and takes the nearest one that is both reachable and closer to the camp
+than the trap. "Closest walkable surface" alone would be the wall the character is already pressed
+against. `AttackPointPlanner.plan` accepts those recorded obstacles: a candidate inside
+`OBSTACLE_CLEARANCE_UNITS` is refused outright and one inside `OBSTACLE_INFLUENCE_UNITS` is ranked
+worse than the same point in the open, so a learned attack-point action lands clear of known
+collisions.

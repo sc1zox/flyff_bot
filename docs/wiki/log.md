@@ -1239,3 +1239,22 @@ offset into the `.gitignore`d `data/navigation/client_profiles.json` without a c
 (BUG-039). Profiler hardening, a committed home for the fingerprinted position/world-id profiles,
 and bin32 verification remain BUG-039 follow-up. Evidence is offline static analysis; no code
 changed.
+
+## [2026-08-29] synthesis | Unified goal navigation, micro-sweep scanning, mesh evasion (US-091)
+
+Recorded in [architecture.md](architecture.md) and [glossary.md](glossary.md) that the operator's
+spawn-camp selection is now the session's single statement of what to farm: `zone_locked_goals`
+derives one goal per selected camp in selection order and activation rewrites the quota tracker from
+it, which locks the combat whitelist, the candidate-value bonus and the policy action mask in one
+write. The only exception is a bounded self-defence window opened by damage taken outside an
+engagement. Searching became a camera sweep alone - blind `[W, D, W, A]` roaming, `roam_steps` and
+`--search-movement-duration` were removed, the idle timeout dropped to zero, and rotation bursts
+alternate with settle windows whose length the narrowed `search_turn_duration_seconds` bound keeps
+inside the micro-sweep regime. `VectorZoneNavigator` routes patrol legs over the same `BakedNavMesh`
+combat approaches use, a live stall now answers with backstep, jump and pivot plus immediate obstacle
+registration, a fully blocked camp route replans as an escape to the nearest reachable mesh node, and
+attack-point ranking refuses and penalizes points near recorded obstacles. `TerrainRoutePlanner`
+remains only as the no-mesh fallback; removing it and moving `SimulatorEngine` off
+`VectorRoutePlanner` is left as the follow-up pruning task. Evidence is offline: new unit tests for
+the sweep, the zone lock, the self-defence guard, mesh patrol legs, escape routing, mesh sharing and
+obstacle-aware attack points; the full gate passes with 1313 tests.

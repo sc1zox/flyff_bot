@@ -5,11 +5,13 @@ from __future__ import annotations
 import pytest
 
 from flyff_bot.features.navigation.live_position import WorldPosition
+from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshBaker
 from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationRequest,
     VectorZoneNavigator,
     ZoneGoal,
     zone_goals_from_selection,
+    zone_locked_goals,
 )
 from flyff_bot.features.navigation.world_extractor import (
     LAND_BLOCK_VERTICES_PER_SIDE,
@@ -18,6 +20,7 @@ from flyff_bot.features.navigation.world_extractor import (
     WorldDimensions,
     WorldVectorMap,
 )
+from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
 
 DIMENSIONS = WorldDimensions(blocks_x=2, blocks_z=2, meters_per_unit=4.0)
 
@@ -118,3 +121,98 @@ def test_zone_goals_validate_names_quotas_and_lengths() -> None:
         ZoneGoal("Flame", 0)
     with pytest.raises(ValueError):
         zone_goals_from_selection(("Flame", "Rapra"), (1,))
+
+
+def _triangle(
+    first: tuple[float, float, float],
+    second: tuple[float, float, float],
+    third: tuple[float, float, float],
+) -> WorldTriangle:
+    return WorldTriangle(WorldVertex(*first), WorldVertex(*second), WorldVertex(*third), "fixture")
+
+
+def _camp_mesh() -> BakedNavMesh:
+    """Bake one flat walkable slab covering the Flame camp and its approach."""
+
+    return NavMeshBaker().bake(
+        (
+            _triangle((60.0, 100.0, 60.0), (140.0, 100.0, 60.0), (140.0, 100.0, 140.0)),
+            _triangle((60.0, 100.0, 60.0), (140.0, 100.0, 140.0), (60.0, 100.0, 140.0)),
+        )
+    )
+
+
+def test_patrol_legs_are_routed_over_the_baked_collision_mesh() -> None:
+    """US-091 AC8: camp patrol and combat approaches read the same walkable polygons."""
+
+    mesh = _camp_mesh()
+    navigator = VectorZoneNavigator(WORLD_MAP, goals=(ZoneGoal("Flame"),), navmesh=mesh)
+
+    plan = navigator.plan_live_route(WorldPosition(100.0, 100.0, 100.0))
+
+    assert navigator.navmesh is mesh
+    assert plan.world_waypoints
+    assert all(mesh.contained_surface(waypoint) is not None for waypoint in plan.world_waypoints)
+
+
+def test_a_patrol_leg_through_a_recorded_obstacle_is_refused() -> None:
+    """US-091 AC9: a node that already stalled the character is routed around, not through."""
+
+    navigator = VectorZoneNavigator(WORLD_MAP, goals=(ZoneGoal("Flame"),), navmesh=_camp_mesh())
+    origin = WorldPosition(100.0, 100.0, 100.0)
+
+    open_plan = navigator.plan_live_route(origin)
+    blocked_plan = navigator.plan_live_route(
+        origin, temporary_blocks=tuple(open_plan.world_waypoints)
+    )
+
+    assert open_plan.world_waypoints
+    assert blocked_plan.is_empty
+    assert blocked_plan.blocked
+
+
+def test_an_attached_mesh_replaces_the_heightfield_fallback() -> None:
+    """US-091: activation hands the navigator the mesh the pathing controller already owns."""
+
+    navigator = VectorZoneNavigator(WORLD_MAP, goals=(ZoneGoal("Flame"),))
+    assert navigator.navmesh is None
+
+    mesh = _camp_mesh()
+    navigator.attach_navmesh(mesh)
+
+    assert navigator.navmesh is mesh
+    assert navigator.plan_live_route(WorldPosition(100.0, 100.0, 100.0)).world_waypoints
+
+
+def test_activation_locks_the_goals_to_the_selected_camps() -> None:
+    """US-091 AC1/AC3: the camp selection is the whole statement of what to farm."""
+
+    request = VectorNavigationRequest(
+        world_map=WORLD_MAP,
+        anchor_zone=RAPRA_NEAR,
+        active_zones=(RAPRA_NEAR,),
+        goals=(ZoneGoal("Flame", 5), ZoneGoal("Rapra", 3)),
+    )
+
+    navigator = request.navigator()
+
+    assert navigator.goals == (ZoneGoal("Rapra", 3),)
+    assert navigator.active_goal == ZoneGoal("Rapra", 3)
+
+
+def test_zone_locked_goals_follow_the_selection_order_and_keep_matching_quotas() -> None:
+    """US-091 AC3: multiple camps are worked through in the order the operator listed them."""
+
+    locked = zone_locked_goals(
+        (ZoneGoal("Rapra", 3), ZoneGoal("Mushpang", 9)), (FLAME_NEAR, RAPRA_NEAR)
+    )
+
+    assert locked == (ZoneGoal("Flame"), ZoneGoal("Rapra", 3))
+
+
+def test_an_empty_camp_selection_leaves_the_configured_goals_untouched() -> None:
+    """A session without any selected camp still farms whatever the preset stated."""
+
+    goals = (ZoneGoal("Flame", 2),)
+
+    assert zone_locked_goals(goals, ()) == goals

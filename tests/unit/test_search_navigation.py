@@ -7,14 +7,13 @@ import pytest
 from flyff_bot.features.automation.controllers import (
     SearchConfig,
     SearchController,
+    SearchInputKind,
     SearchMode,
 )
 from flyff_bot.features.automation.search_execution import SearchInputDispatcher
 from flyff_bot.features.input_control.keymap import (
-    VIRTUAL_KEY_D,
     VIRTUAL_KEY_LEFT,
     VIRTUAL_KEY_RIGHT,
-    VIRTUAL_KEY_W,
 )
 
 
@@ -38,57 +37,49 @@ class _Adapter:
         self.clicks.append((handle, x_coordinate, y_coordinate))
 
 
-def test_search_progresses_from_idle_rotation_to_roaming_and_cycles() -> None:
+def test_a_sweep_alternates_micro_rotations_with_settle_windows_and_cycles() -> None:
+    """US-091: every rotation burst is followed by a still frame perception can trust."""
+
     search = SearchController(
         SearchConfig(
-            idle_timeout_seconds=1.0,
+            idle_timeout_seconds=0.0,
             rotation_steps=2,
             rotation_step_duration_seconds=0.2,
             rotation_settle_pause_seconds=0.3,
-            roam_steps=2,
-            movement_step_duration_seconds=1.0,
         )
     )
 
-    # Idle period
-    assert search.step(0.0).input_kind is None
-    assert search.step(0.9).input_kind is None
+    # Micro-rotation 1 (0.2s burst + 0.3s settle pause = next action at 0.5s).
+    first = search.step(0.0)
+    assert first.mode is SearchMode.ROTATE
+    assert first.virtual_key == VIRTUAL_KEY_RIGHT
+    assert first.key_press_duration_seconds == 0.2
 
-    # Step 1: ROTATE pulse 1 (0.2s duration + 0.3s settle pause = next action at 1.5s)
-    step1 = search.step(1.0)
-    assert step1.mode is SearchMode.ROTATE
-    assert step1.virtual_key == VIRTUAL_KEY_RIGHT
-    assert step1.key_press_duration_seconds == 0.2
+    settle = search.step(0.2)
+    assert settle.mode is SearchMode.SETTLE
+    assert settle.input_kind is None
 
-    # Settle pause during ROTATE
-    settle1 = search.step(1.2)
-    assert settle1.mode is SearchMode.ROTATE
-    assert settle1.input_kind is None
+    second = search.step(0.5)
+    assert second.mode is SearchMode.ROTATE
+    assert second.virtual_key == VIRTUAL_KEY_RIGHT
+    assert search.completed_cycles == 0
 
-    # Step 2: ROTATE pulse 2 (next action at 1.5 + 0.2 + 0.3 = 2.0s)
-    step2 = search.step(1.5)
-    assert step2.mode is SearchMode.ROTATE
-    assert step2.virtual_key == VIRTUAL_KEY_RIGHT
+    # The sweep never roams: the step after a full lap is the next micro-rotation.
+    third = search.step(1.0)
+    assert third.mode is SearchMode.ROTATE
+    assert third.virtual_key == VIRTUAL_KEY_RIGHT
+    assert search.completed_cycles == 1
 
-    # Settle pause during ROTATE
-    assert search.step(1.8).input_kind is None
 
-    # Step 3: ROAM_STEP 1 (next action at 2.0 + 1.0 = 3.0s)
-    step3 = search.step(2.0)
-    assert step3.mode is SearchMode.ROAM_STEP
-    assert step3.virtual_key == VIRTUAL_KEY_W
-    assert step3.key_press_duration_seconds == 1.0
+def test_a_sweep_begins_without_any_idle_delay() -> None:
+    """US-091: the viewport already proved empty, so waiting observes nothing new."""
 
-    # Step 4: ROAM_STEP 2 (next action at 3.0 + 1.0 = 4.0s)
-    step4 = search.step(3.0)
-    assert step4.mode is SearchMode.ROAM_STEP
-    assert step4.virtual_key == VIRTUAL_KEY_D
+    search = SearchController()
 
-    # Step 5: Completed roaming cycle resets back to ROTATE for continuous sweeping
-    step5 = search.step(4.0)
-    assert step5.mode is SearchMode.ROTATE
-    assert step5.virtual_key == VIRTUAL_KEY_RIGHT
-    assert step5.key_press_duration_seconds == 0.2
+    decision = search.step(0.0)
+
+    assert decision.mode is SearchMode.ROTATE
+    assert decision.input_kind is SearchInputKind.KEY
 
 
 def test_search_uses_configured_rotation_virtual_key() -> None:
@@ -110,11 +101,9 @@ def test_search_config_validation() -> None:
     with pytest.raises(ValueError, match="rotation step duration"):
         SearchConfig(rotation_step_duration_seconds=0.0)
     with pytest.raises(ValueError, match="settle pause"):
-        SearchConfig(rotation_settle_pause_seconds=-0.1)
-    with pytest.raises(ValueError, match="stage step counts"):
+        SearchConfig(rotation_settle_pause_seconds=0.0)
+    with pytest.raises(ValueError, match="sweep step count"):
         SearchConfig(rotation_steps=0)
-    with pytest.raises(ValueError, match="stage step counts"):
-        SearchConfig(roam_steps=0)
     with pytest.raises(ValueError, match="rotation key"):
         SearchConfig(rotation_virtual_key=0x41)
 

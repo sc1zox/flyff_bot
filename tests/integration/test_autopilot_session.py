@@ -34,6 +34,7 @@ from flyff_bot.features.automation.orchestrator import (
 )
 from flyff_bot.features.automation.respawn import RespawnMenuPerceiver, RespawnObservation
 from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
+from flyff_bot.features.input_control.keymap import VIRTUAL_KEY_RIGHT
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
 from flyff_bot.features.vision.models import CapturedFrame
 from flyff_bot.ui.session_worker import SessionWorker
@@ -190,6 +191,16 @@ def _kinds(logger: SessionEventLogger) -> list[SessionEventKind]:
     return [event.kind for event in logger.recent_events]
 
 
+def _non_search_keys(adapter: _InputAdapter) -> list[tuple[int, float]]:
+    """Return every dispatched key except the perception-preserving camera sweep.
+
+    Searching sweeps on its very first tick (US-091 AC4), so the sweep key is present in
+    every session and says nothing about the behaviour under test.
+    """
+
+    return [entry for entry in adapter.keys if entry[0] != VIRTUAL_KEY_RIGHT]
+
+
 def _mode(orchestrator: FarmingOrchestrator) -> FarmingMode:
     """Read the mode through a widening call, so a later assertion is not narrowed away."""
 
@@ -280,8 +291,9 @@ def test_a_death_dispatches_the_observed_revive_option_and_resumes_on_respawn() 
     orchestrator.tick()
 
     assert _mode(orchestrator) is FarmingMode.DEAD
-    # No vitals key is dispatched at zero HP; the death state replaces the potion loop.
-    assert adapter.keys == []
+    # No vitals key is dispatched at zero HP; the death state replaces the potion loop. The
+    # camera sweep of the first searching tick is the only key the session ever sent.
+    assert _non_search_keys(adapter) == []
 
     orchestrator.tick()
     assert adapter.clicks == [(WINDOW_HANDLE, RESPAWN_POSITION.x, RESPAWN_POSITION.y)]
@@ -305,7 +317,7 @@ def test_a_death_without_autopilot_waits_for_the_operator() -> None:
 
     assert orchestrator.mode is FarmingMode.DEAD
     assert adapter.clicks == []
-    assert adapter.keys == []
+    assert _non_search_keys(adapter) == []
 
 
 def test_more_deaths_than_the_budget_pause_autopilot_instead_of_respawning_again() -> None:
@@ -432,4 +444,4 @@ def test_the_time_budget_finishes_the_session_with_a_reportable_summary() -> Non
     snapshot = orchestrator.autopilot_snapshot
     assert snapshot.completion_reason is AutopilotCompletionReason.TIME_BUDGET
     assert not snapshot.armed
-    assert adapter.keys == []
+    assert _non_search_keys(adapter) == []

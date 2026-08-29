@@ -25,8 +25,9 @@ from flyff_bot.features.automation.orchestrator import (
     FarmingOrchestrator,
 )
 from flyff_bot.features.input_control.keymap import (
-    VIRTUAL_KEY_A,
+    VIRTUAL_KEY_D,
     VIRTUAL_KEY_S,
+    VIRTUAL_KEY_SPACE,
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.navigation.live_camera import (
@@ -42,6 +43,7 @@ from flyff_bot.features.navigation.live_position import (
     PositionSource,
     WorldPosition,
 )
+from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshBaker
 from flyff_bot.features.navigation.pathing import (
     PathingConfig,
     PathingController,
@@ -61,6 +63,7 @@ from flyff_bot.features.navigation.world_extractor import (
     WorldDimensions,
     WorldVectorMap,
 )
+from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
 
 PATHING_CONFIG = PathingConfig(
@@ -291,7 +294,7 @@ def test_a_single_selected_zone_has_nowhere_to_advance_to() -> None:
     assert navigator.active_zone is FLAME_ZONE
 
 
-def test_live_stall_triggers_evasion_backstep() -> None:
+def test_live_stall_triggers_backstep_jump_and_pivot_evasion() -> None:
     stalled_at = WorldPosition(100.0, 100.0, 100.0)
     reader = _LiveReader([stalled_at])
     navigator = VectorZoneNavigator(
@@ -308,11 +311,16 @@ def test_live_stall_triggers_evasion_backstep() -> None:
         controller.integrate_movement(VIRTUAL_KEY_W, 0.5)
         controller.observe(_state(at_seconds))
 
-    diagonal = controller.step(2.0)
-    backstep = controller.step(2.1)
+    backstep = controller.step(2.0)
+    jump = controller.step(2.1)
+    pivot = controller.step(2.2)
 
-    assert diagonal.virtual_keys == (VIRTUAL_KEY_W, VIRTUAL_KEY_A)
+    # US-091 AC9: back out, jump the obstacle, then leave sideways past it.
     assert backstep.virtual_key == VIRTUAL_KEY_S
+    assert jump.virtual_key == VIRTUAL_KEY_SPACE
+    assert pivot.virtual_keys == (VIRTUAL_KEY_W, VIRTUAL_KEY_D)
+    # The blocked spot is excluded from the next global replan straight away.
+    assert controller.temporary_world_blocks == (stalled_at,)
 
 
 def test_long_range_teleport_anchor_dispatch() -> None:
@@ -525,11 +533,7 @@ def test_an_exhausted_camp_hands_the_session_to_the_next_selected_zone() -> None
         position_reader=cast("LivePositionReader", walker),
     )
     walker.controller = controller
-    search = SearchConfig(
-        idle_timeout_seconds=0.0,
-        rotation_steps=1,
-        roam_steps=1,
-    )
+    search = SearchConfig(idle_timeout_seconds=0.0, rotation_steps=1)
     states = [_state(float(tick)) for tick in range(12)]
     orchestrator = FarmingOrchestrator(
         cast("PerceptionPipeline", _Pipeline(states)),
@@ -546,3 +550,95 @@ def test_an_exhausted_camp_hands_the_session_to_the_next_selected_zone() -> None
             break
 
     assert navigator.active_zone is RAPRA_ZONE
+
+
+def _mesh_triangle(
+    first: tuple[float, float, float],
+    second: tuple[float, float, float],
+    third: tuple[float, float, float],
+) -> WorldTriangle:
+    return WorldTriangle(WorldVertex(*first), WorldVertex(*second), WorldVertex(*third), "fixture")
+
+
+def _canyon_mesh() -> BakedNavMesh:
+    """Bake one walkable slab that stops well short of the camp the session is bound to."""
+
+    return NavMeshBaker().bake(
+        (
+            _mesh_triangle((0.0, 100.0, 0.0), (60.0, 100.0, 0.0), (60.0, 100.0, 60.0)),
+            _mesh_triangle((0.0, 100.0, 0.0), (60.0, 100.0, 60.0), (0.0, 100.0, 60.0)),
+        )
+    )
+
+
+def test_a_trapped_character_routes_to_the_nearest_reachable_mesh_node() -> None:
+    """US-091 AC10: a blocked camp route becomes an escape onto walkable ground."""
+
+    mesh = _canyon_mesh()
+    trapped_at = WorldPosition(-40.0, 100.0, 30.0)
+    navigator = VectorZoneNavigator(
+        TERRAIN_WORLD_MAP, goals=(ZoneGoal("Flame"),), preferred_zones=(FLAME_ZONE,)
+    )
+    controller = PathingController(
+        config=PATHING_CONFIG,
+        vector_navigator=navigator,
+        navmesh=mesh,
+        position_reader=cast("LivePositionReader", _LiveReader([trapped_at])),
+    )
+
+    decision = controller.step(0.0)
+
+    assert decision.mode is PathingMode.TRAVELING
+    escape = controller.world_waypoints[-1]
+    assert mesh.contained_surface(escape) is not None
+    # The escape has to make progress towards the camp, not merely leave the pocket.
+    assert math.hypot(FLAME_ZONE.center_x - escape.x, FLAME_ZONE.center_z - escape.z) < math.hypot(
+        FLAME_ZONE.center_x - trapped_at.x, FLAME_ZONE.center_z - trapped_at.z
+    )
+
+
+def test_an_adopted_navigator_shares_the_controller_mesh() -> None:
+    """US-091: patrol routing and combat approaches never disagree about what is walkable."""
+
+    mesh = _canyon_mesh()
+    navigator = VectorZoneNavigator(TERRAIN_WORLD_MAP, goals=(ZoneGoal("Flame"),))
+    controller = PathingController(config=PATHING_CONFIG, navmesh=mesh)
+
+    controller.attach_vector_navigator(navigator)
+
+    assert navigator.navmesh is mesh
+
+
+def test_a_controller_without_a_mesh_adopts_the_one_loaded_with_the_world_map() -> None:
+    """US-091: the mesh the operator loaded next to the map becomes the session's mesh."""
+
+    mesh = _canyon_mesh()
+    navigator = VectorZoneNavigator(TERRAIN_WORLD_MAP, goals=(ZoneGoal("Flame"),), navmesh=mesh)
+    controller = PathingController(config=PATHING_CONFIG)
+
+    controller.attach_vector_navigator(navigator)
+
+    assert controller.navmesh is mesh
+
+
+def test_the_emergency_stop_releases_a_queued_evasion_sequence() -> None:
+    """US-091 AC12: the killswitch drops evasion input and the obstacle memory with it."""
+
+    stalled_at = WorldPosition(100.0, 100.0, 100.0)
+    controller = PathingController(
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        position_reader=cast("LivePositionReader", _LiveReader([stalled_at])),
+    )
+    controller.observe(_state(0.0))
+    for at_seconds in (0.5, 1.0, 1.5, 2.0):
+        controller.integrate_movement(VIRTUAL_KEY_W, 0.5)
+        controller.observe(_state(at_seconds))
+
+    assert controller.has_pending_evasion
+
+    controller.emergency_stop()
+
+    assert not controller.has_pending_evasion
+    assert controller.temporary_world_blocks == ()
+    assert controller.world_waypoints == ()

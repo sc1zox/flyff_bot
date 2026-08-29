@@ -7,10 +7,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
 from flyff_bot.features.navigation.live_position import WorldPosition
+from flyff_bot.features.navigation.navmesh import BakedNavMesh
 from flyff_bot.features.navigation.terrain_routing import (
     TerrainRouteConfig,
     TerrainRoutePlanner,
-    TerrainWaypoint,
 )
 from flyff_bot.features.navigation.world_extractor import (
     VectorSpawnZone,
@@ -25,6 +25,9 @@ ZONE_PATROL_INSET_FRACTION = 0.6
 # A zone smaller than this in world units is swept from its anchor alone; ringing it would
 # only produce waypoints inside each other's arrival radius.
 MINIMUM_PATROL_RING_EXTENT_UNITS = 8.0
+# A patrol leg is refused when its route passes this close to a node that already stalled the
+# character, so the replan walks around the obstacle instead of back into it.
+TEMPORARY_BLOCK_CLEARANCE_UNITS = 3.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +54,7 @@ class VectorNavigationPlan:
     # True when every remaining leg was obstructed, so the caller blocks rather than steering
     # into terrain the planner could not route around.
     blocked: bool = False
-    world_waypoints: tuple[TerrainWaypoint, ...] = ()
+    world_waypoints: tuple[WorldPosition, ...] = ()
 
     @property
     def is_empty(self) -> bool:
@@ -103,9 +106,11 @@ class VectorZoneNavigator:
         goals: Iterable[ZoneGoal] = (),
         preferred_zone: VectorSpawnZone | None = None,
         preferred_zones: Iterable[VectorSpawnZone] = (),
+        navmesh: BakedNavMesh | None = None,
         terrain_config: TerrainRouteConfig | None = None,
     ) -> None:
         self._map = world_map
+        self._navmesh = navmesh
         self._terrain_planner = TerrainRoutePlanner(world_map, terrain_config)
         self._terrain_samples = world_map.terrain.samples()
         self._goals: tuple[ZoneGoal, ...] = tuple(goals)
@@ -122,6 +127,23 @@ class VectorZoneNavigator:
         """Return the extracted map this navigator routes over."""
 
         return self._map
+
+    @property
+    def navmesh(self) -> BakedNavMesh | None:
+        """Return the baked collision mesh patrol legs are routed over, when one is loaded."""
+
+        return self._navmesh
+
+    def attach_navmesh(self, navmesh: BakedNavMesh | None) -> None:
+        """Adopt the same baked mesh combat approaches route over.
+
+        Zone travel and combat approaches used to be planned by two different routers, so a
+        patrol could walk a line the approach planner considered solid. Both read one mesh
+        now; the extracted heightfield only remains the fallback for a world whose mesh has
+        not been baked yet (US-091).
+        """
+
+        self._navmesh = navmesh
 
     @property
     def terrain_samples(self) -> tuple[tuple[float, float, float], ...]:
@@ -286,7 +308,7 @@ class VectorZoneNavigator:
             return VectorNavigationPlan()
         origin = WorldCoordinate(position.x, position.z)
         stations = self._stations(selection.zone, origin)
-        waypoints: list[TerrainWaypoint] = []
+        waypoints: list[WorldPosition] = []
         current = position
         blocked = False
         for station in stations:
@@ -296,18 +318,16 @@ class VectorZoneNavigator:
                 selection.zone.center_y if height is None else height,
                 station.z,
             )
-            leg = self._terrain_planner.plan(
-                current, destination, temporary_blocks=temporary_blocks
-            )
-            if leg.blocked or leg.is_empty:
-                blocked = blocked or leg.blocked
+            leg = self._plan_leg(current, destination, temporary_blocks)
+            if leg is None:
+                blocked = True
                 continue
-            if waypoints and leg.waypoints and waypoints[-1].position == leg.waypoints[0].position:
-                waypoints.extend(leg.waypoints[1:])
+            if waypoints and waypoints[-1] == leg[0]:
+                waypoints.extend(leg[1:])
             else:
-                waypoints.extend(leg.waypoints)
-            current = destination
-        points = tuple(WorldCoordinate(item.position.x, item.position.z) for item in waypoints)
+                waypoints.extend(leg)
+            current = leg[-1]
+        points = tuple(WorldCoordinate(item.x, item.z) for item in waypoints)
         return VectorNavigationPlan(
             points=points,
             goal=selection.goal,
@@ -315,6 +335,25 @@ class VectorZoneNavigator:
             blocked=blocked and not points,
             world_waypoints=tuple(waypoints),
         )
+
+    def _plan_leg(
+        self,
+        start: WorldPosition,
+        destination: WorldPosition,
+        temporary_blocks: tuple[WorldPosition, ...],
+    ) -> tuple[WorldPosition, ...] | None:
+        """Return one walkable leg of the patrol, or ``None`` when it is impassable."""
+
+        mesh = self._navmesh
+        if mesh is not None and mesh.polygons:
+            route = mesh.find_path(start, destination)
+            if not route or _crosses_block(route, temporary_blocks):
+                return None
+            return route
+        leg = self._terrain_planner.plan(start, destination, temporary_blocks=temporary_blocks)
+        if leg.blocked or leg.is_empty:
+            return None
+        return tuple(item.position for item in leg.waypoints)
 
     def zone_contains_world(self, position: WorldPosition) -> bool:
         """Return whether a live world position lies in the selected spawn rectangle."""
@@ -340,6 +379,16 @@ class VectorZoneNavigator:
             key=lambda index: math.hypot(ring[index].x - origin.x, ring[index].z - origin.z),
         )
         return ring[nearest_index:] + ring[:nearest_index]
+
+
+def _crosses_block(route: tuple[WorldPosition, ...], blocks: tuple[WorldPosition, ...]) -> bool:
+    """Return whether a planned leg runs through a node that already stalled the character."""
+
+    return any(
+        math.hypot(point.x - block.x, point.z - block.z) <= TEMPORARY_BLOCK_CLEARANCE_UNITS
+        for point in route
+        for block in blocks
+    )
 
 
 def _patrol_ring(zone: VectorSpawnZone) -> tuple[WorldCoordinate, ...]:
@@ -373,16 +422,51 @@ class VectorNavigationRequest:
     anchor_zone: VectorSpawnZone | None = None
     active_zones: tuple[VectorSpawnZone, ...] = ()
     goals: tuple[ZoneGoal, ...] = ()
+    navmesh: BakedNavMesh | None = None
+
+    @property
+    def selected_zones(self) -> tuple[VectorSpawnZone, ...]:
+        """Return the operator's camp selection, anchor first."""
+
+        zones = list(self.active_zones)
+        if self.anchor_zone is not None and self.anchor_zone not in zones:
+            zones.insert(0, self.anchor_zone)
+        return tuple(zones)
 
     def navigator(self) -> VectorZoneNavigator:
         """Return a navigator that plans entirely in client world units."""
 
         return VectorZoneNavigator(
             self.world_map,
-            goals=self.goals,
+            goals=zone_locked_goals(self.goals, self.selected_zones),
             preferred_zone=self.anchor_zone,
             preferred_zones=self.active_zones,
+            navmesh=self.navmesh,
         )
+
+
+def zone_monster_name(zone: VectorSpawnZone) -> str:
+    """Return the monster class a spawn zone declares, falling back to its mover id."""
+
+    return zone.monster_name or str(zone.monster_id)
+
+
+def zone_locked_goals(
+    goals: Sequence[ZoneGoal], zones: Sequence[VectorSpawnZone]
+) -> tuple[ZoneGoal, ...]:
+    """Return one goal per selected camp, in the order the camps were selected.
+
+    The camp selection is the operator's whole statement of what to farm, so a preset that
+    also lists other monsters must not add a goal no selected camp can satisfy, and a
+    selected camp must not be left without one. A camp whose monster carries a quota keeps
+    that quota; every other camp is farmed without an upper bound (US-091).
+    """
+
+    names = tuple(dict.fromkeys(zone_monster_name(zone) for zone in zones))
+    if not names:
+        return tuple(goals)
+    quotas = {goal.monster_name: goal.kill_quota for goal in goals}
+    return tuple(ZoneGoal(name, quotas.get(name)) for name in names)
 
 
 def zone_goals_from_selection(

@@ -13,16 +13,16 @@ from flyff_bot.features.automation.models import (
     WorldState,
 )
 from flyff_bot.features.input_control.keymap import (
-    VIRTUAL_KEY_A,
-    VIRTUAL_KEY_D,
     VIRTUAL_KEY_LEFT,
     VIRTUAL_KEY_RIGHT,
-    VIRTUAL_KEY_W,
+    VIRTUAL_KEY_SPACE,
 )
 from flyff_bot.features.policy.candidate_economics import rank_candidates
-from flyff_bot.features.tactical_parameters import TacticalParameterSpace
+from flyff_bot.features.tactical_parameters import (
+    DEFAULT_SEARCH_TURN_DURATION_SECONDS,
+    TacticalParameterSpace,
+)
 
-VIRTUAL_KEY_SPACE = 0x20
 VIRTUAL_KEY_DIGIT_MINIMUM = 0x30
 VIRTUAL_KEY_DIGIT_MAXIMUM = 0x39
 VIRTUAL_KEY_ALPHA_MINIMUM = 0x41
@@ -51,12 +51,16 @@ DEFAULT_UNREACHABLE_LOCKOUT_SECONDS = 30.0
 DEFAULT_APPROACH_FAILURE_MEMORY_SECONDS = 30.0
 # The first failure buys a re-positioning attempt; the second one ends the pursuit.
 UNREACHABLE_APPROACH_STRIKES = 2
-DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS = 5.0
-DEFAULT_SEARCH_ROTATION_DURATION_SECONDS = 0.2
-DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS = 0.3
-DEFAULT_SEARCH_MOVEMENT_DURATION_SECONDS = 1.0
-DEFAULT_SEARCH_ROTATION_STEPS = 8
-DEFAULT_SEARCH_ROAM_STEPS = 4
+# Searching starts the moment the viewport holds no eligible mob: an idle wait would only
+# stare at the picture that already proved empty (US-091).
+DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS = 0.0
+# One micro-sweep turns the camera by a short burst instead of a large jerk, and then holds
+# it still for a settle pause. Rotation smears the frame, so detection is only trustworthy
+# inside that pause; the two together are what keep a full sweep both quick and legible to
+# YOLO (US-091).
+DEFAULT_SEARCH_ROTATION_DURATION_SECONDS = DEFAULT_SEARCH_TURN_DURATION_SECONDS
+DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS = 0.15
+DEFAULT_SEARCH_ROTATION_STEPS = 12
 DEFAULT_SEARCH_ROTATION_VIRTUAL_KEY = VIRTUAL_KEY_RIGHT
 
 
@@ -111,10 +115,10 @@ UNREACHABLE_BREAK_REASONS = frozenset(
 
 
 class SearchMode(StrEnum):
-    """The ordered recovery stages used while no eligible mob is visible."""
+    """The two alternating phases of one perception-preserving camera sweep."""
 
     ROTATE = "rotate"
-    ROAM_STEP = "roam_step"
+    SETTLE = "settle"
 
 
 class SearchInputKind(StrEnum):
@@ -126,14 +130,12 @@ class SearchInputKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class SearchConfig:
-    """Explicit timing and bounded stage sizes for spawn searching."""
+    """Explicit timing and bounded sweep size for perception-preserving searching."""
 
     idle_timeout_seconds: float = DEFAULT_SEARCH_IDLE_TIMEOUT_SECONDS
     rotation_step_duration_seconds: float = DEFAULT_SEARCH_ROTATION_DURATION_SECONDS
     rotation_settle_pause_seconds: float = DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS
-    movement_step_duration_seconds: float = DEFAULT_SEARCH_MOVEMENT_DURATION_SECONDS
     rotation_steps: int = DEFAULT_SEARCH_ROTATION_STEPS
-    roam_steps: int = DEFAULT_SEARCH_ROAM_STEPS
     rotation_virtual_key: int = DEFAULT_SEARCH_ROTATION_VIRTUAL_KEY
 
     def __post_init__(self) -> None:
@@ -141,12 +143,10 @@ class SearchConfig:
             raise ValueError("Search idle timeout must not be negative.")
         if self.rotation_step_duration_seconds <= 0.0:
             raise ValueError("Search rotation step duration must be positive.")
-        if self.rotation_settle_pause_seconds < 0.0:
-            raise ValueError("Search rotation settle pause must not be negative.")
-        if self.movement_step_duration_seconds <= 0.0:
-            raise ValueError("Search movement step duration must be positive.")
-        if self.rotation_steps <= 0 or self.roam_steps <= 0:
-            raise ValueError("Search stage step counts must be positive.")
+        if self.rotation_settle_pause_seconds <= 0.0:
+            raise ValueError("Search rotation settle pause must be positive.")
+        if self.rotation_steps <= 0:
+            raise ValueError("Search sweep step count must be positive.")
         if self.rotation_virtual_key not in {VIRTUAL_KEY_LEFT, VIRTUAL_KEY_RIGHT}:
             raise ValueError("Search rotation key must be a valid left or right arrow key.")
 
@@ -741,7 +741,12 @@ class NavigationController:
 
 
 class SearchController:
-    """Emit timed rotation and roaming actions until a target is found."""
+    """Sweep the camera in perception-preserving micro-rotations until a target appears.
+
+    The sweep is the only thing searching does. Blind keyboard roaming was removed because
+    it walked the character into collision geometry it could not see; ground movement while
+    no mob is visible belongs to NavMesh patrol routing instead (US-091).
+    """
 
     def __init__(
         self,
@@ -759,18 +764,17 @@ class SearchController:
         self._started_at_seconds: float | None = None
         self._next_action_at_seconds = 0.0
         self._rotation_index = 0
-        self._roam_index = 0
         self._completed_cycles = 0
 
     @property
     def mode(self) -> SearchMode:
-        """Return the currently active recovery stage."""
+        """Return whether the sweep is turning or holding still for perception."""
 
         return self._mode
 
     @property
     def completed_cycles(self) -> int:
-        """Return how many full rotate-then-roam sweeps finished since the last reset.
+        """Return how many full camera sweeps finished since the last reset.
 
         A session that only wants to look around once - re-positioning after a blocked
         approach (US-039) - reads this to bound an otherwise endless recovery.
@@ -779,13 +783,12 @@ class SearchController:
         return self._completed_cycles
 
     def reset(self) -> None:
-        """Start the next no-mob interval with a fresh idle timeout."""
+        """Start the next no-mob interval from the first micro-rotation."""
 
         self._mode = SearchMode.ROTATE
         self._started_at_seconds = None
         self._next_action_at_seconds = 0.0
         self._rotation_index = 0
-        self._roam_index = 0
         self._completed_cycles = 0
 
     def update_tactical_parameters(self, parameters: TacticalParameterSpace) -> None:
@@ -803,45 +806,23 @@ class SearchController:
             self._started_at_seconds = observed_at_seconds
             self._next_action_at_seconds = observed_at_seconds + self._config.idle_timeout_seconds
         if observed_at_seconds < self._next_action_at_seconds:
-            return SearchDecision(self._mode)
-
-        if self._mode is SearchMode.ROTATE:
-            if self._rotation_index >= self._config.rotation_steps:
-                self._mode = SearchMode.ROAM_STEP
-                return self.step(observed_at_seconds)
-            virtual_key = self._config.rotation_virtual_key
-            self._rotation_index += 1
-            self._next_action_at_seconds = (
-                observed_at_seconds
-                + self._config.rotation_step_duration_seconds
-                + self._config.rotation_settle_pause_seconds
-            )
-            return SearchDecision(
-                SearchMode.ROTATE,
-                SearchInputKind.KEY,
-                virtual_key,
-                self._config.rotation_step_duration_seconds,
-            )
-
-        if self._mode is SearchMode.ROAM_STEP:
-            if self._roam_index >= self._config.roam_steps:
-                self._mode = SearchMode.ROTATE
-                self._rotation_index = 0
-                self._roam_index = 0
-                self._completed_cycles += 1
-                return self.step(observed_at_seconds)
-            virtual_key = (VIRTUAL_KEY_W, VIRTUAL_KEY_D, VIRTUAL_KEY_W, VIRTUAL_KEY_A)[
-                self._roam_index % 4
-            ]
-            self._roam_index += 1
-            self._next_action_at_seconds = (
-                observed_at_seconds + self._config.movement_step_duration_seconds
-            )
-            return SearchDecision(
-                SearchMode.ROAM_STEP,
-                SearchInputKind.KEY,
-                virtual_key,
-                self._config.movement_step_duration_seconds,
-            )
-
-        return SearchDecision(self._mode)
+            # The camera stands still here, which is the only window in which a detection
+            # runs on an unsmeared frame.
+            self._mode = SearchMode.SETTLE
+            return SearchDecision(SearchMode.SETTLE)
+        if self._rotation_index >= self._config.rotation_steps:
+            self._rotation_index = 0
+            self._completed_cycles += 1
+        self._rotation_index += 1
+        self._next_action_at_seconds = (
+            observed_at_seconds
+            + self._config.rotation_step_duration_seconds
+            + self._config.rotation_settle_pause_seconds
+        )
+        self._mode = SearchMode.ROTATE
+        return SearchDecision(
+            SearchMode.ROTATE,
+            SearchInputKind.KEY,
+            self._config.rotation_virtual_key,
+            self._config.rotation_step_duration_seconds,
+        )

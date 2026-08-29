@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-28
+updated: 2026-08-29
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -474,3 +474,15 @@ related:
 - **Objective leash** — The targeting leash re-anchored on the active objective's resolved spawn
   zone rather than on the start-of-session position, so a change of objective changes which mobs are
   in range within one decision cycle.
+- **Zone-locked goal** — One farming goal per operator-selected spawn camp, in selection order. The
+  camp selection is the session's whole statement of what to farm, so the quota tracker, the combat
+  whitelist, the candidate-value bonus and the policy action mask are all derived from it.
+- **Self-defence window** — The bounded interval, opened by health lost outside an engagement, in
+  which a zone-locked session may fight back against a monster class no selected camp spawns.
+- **Micro-sweep** — One camera-search cycle: a short rotation burst followed by a settle window in
+  which the frame stands still. Detection is only trusted inside the settle window, because rotation
+  smears the picture the sweep exists to inspect.
+- **Evasion sequence** — The proactive reaction to a live stall: backstep, jump, directional pivot,
+  and immediate registration of the blocked node as a temporary obstacle.
+- **Escape route** — The route out of a canyon or collision pocket: the nearest walkable NavMesh node
+  that is both reachable from the trap and closer to the camp than the trap itself.

@@ -19,6 +19,10 @@ from types import MappingProxyType
 TACTICAL_PARAMETER_SCHEMA_VERSION = "us084-v1"
 TACTICAL_PROFILE_FILENAME = "tactical-profile.json"
 DEFAULT_TACTICAL_PROFILE_NAME = "default"
+# One camera burst of a perception-preserving micro-sweep, and the longest burst any tuned
+# profile may ask for before rotation blur starts costing detections (US-091).
+DEFAULT_SEARCH_TURN_DURATION_SECONDS = 0.12
+MAXIMUM_SEARCH_TURN_DURATION_SECONDS = 0.5
 
 
 @unique
@@ -83,7 +87,14 @@ _DEFINITIONS = (
     TacticalParameterDefinition(TacticalParameterName.CLICK_DEBOUNCE_SECONDS, 0.0, 5.0, 0.2),
     TacticalParameterDefinition(TacticalParameterName.CAMERA_PITCH_DEGREES, 10.0, 80.0, 45.0),
     TacticalParameterDefinition(TacticalParameterName.CAMERA_ZOOM_LEVEL, 1.0, 20.0, 20.0),
-    TacticalParameterDefinition(TacticalParameterName.SEARCH_TURN_DURATION_SECONDS, 0.05, 2.0, 0.2),
+    # The upper bound is what keeps a tuned or learned profile inside the micro-sweep regime:
+    # a longer burst smears the frame the sweep exists to inspect (US-091).
+    TacticalParameterDefinition(
+        TacticalParameterName.SEARCH_TURN_DURATION_SECONDS,
+        0.05,
+        MAXIMUM_SEARCH_TURN_DURATION_SECONDS,
+        DEFAULT_SEARCH_TURN_DURATION_SECONDS,
+    ),
     TacticalParameterDefinition(
         TacticalParameterName.TARGET_VERIFICATION_THRESHOLD, 0.3, 1.0, 0.75
     ),
@@ -144,7 +155,7 @@ class TacticalParameterSpace:
     click_debounce_seconds: float = 0.2
     camera_pitch_degrees: float = 45.0
     camera_zoom_level: float = 20.0
-    search_turn_duration_seconds: float = 0.2
+    search_turn_duration_seconds: float = DEFAULT_SEARCH_TURN_DURATION_SECONDS
     target_verification_threshold: float = 0.75
     hp_potion_threshold_percent: float = 70.0
     mp_threshold_percent: float = 30.0
