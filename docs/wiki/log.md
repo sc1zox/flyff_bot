@@ -1206,3 +1206,18 @@ the extracted database apart from the live poll, so its status line distinguishe
 an extracted database declaring no dungeons, and a loaded database without a connected client, rather
 than always asking the operator to run extraction. Evidence is offline: synthetic keyed-archive
 extraction fixtures, a ranking-table parser test, and panel state tests; the full gate passes.
+
+## [2026-08-29] synthesis | Dungeon cooldowns bind only the account lockout timestamp (BUG-038, ADR-011)
+
+Recorded in [architecture.md](architecture.md) and
+[ADR-011](../decisions/ADR-011-dungeon-cooldowns-are-not-fingerprint-bindable-only-the-account-lockout-is.md)
+that Ghidra decompilation of the shipped Entropia client `8079c88f…dada5` shows its per-dungeon
+cooldown rows living only in transient `std::vector` members owned by the `CWndDungeonCooldownList` /
+`CWndDungeonCooldownQuick` windows, with no fingerprint anchor, so the previously committed
+`fixed_array` dungeon profile was fabricated. The one persistent bounded read the dungeon UI performs
+is the account-wide daily lockout `__time64_t` at `player + 0x2678`; `DungeonContainerKind` gains
+`global_lockout_timestamp` / `GlobalDungeonLockout`, `_discover_dungeon` proves that offset from the
+cooldown-window vtables, and `LiveDungeonCooldownReader` maps the one lockout onto every dungeon while
+active and reports `UNKNOWN` otherwise. `ClientBinaryProfiler.profile()` now completes end to end for
+this digest. Evidence is offline: synthetic-PE decoder and discovery tests, live-reader lockout tests;
+`./scripts/check.ps1` green (1285 passed, 4 skipped).

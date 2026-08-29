@@ -22,6 +22,7 @@ from flyff_bot.features.dungeons.profiles import (
     BeginEndDungeonSpan,
     ClientDungeonProfile,
     FixedDungeonArray,
+    GlobalDungeonLockout,
     load_client_dungeon_profiles,
 )
 from flyff_bot.features.navigation.live_position import (
@@ -35,6 +36,10 @@ SECONDS_PER_DAY = 86_400.0
 UINT32_SIZE_BYTES = 4
 UINT32_FORMAT = "<I"
 FLOAT32_FORMAT = "<f"
+INT64_FORMAT = "<q"
+INT64_SIZE_BYTES = 8
+# The account lockout is a ``__time64_t``; a value beyond this is a bad read, not a lockout.
+MAXIMUM_LOCKOUT_HORIZON_SECONDS = 2.0 * SECONDS_PER_DAY
 
 
 class DungeonReadStatus(StrEnum):
@@ -228,6 +233,16 @@ class LiveDungeonCooldownReader:
         profile: ClientDungeonProfile,
     ) -> tuple[bytes, int]:
         container = profile.container
+        if isinstance(container, GlobalDungeonLockout):
+            payload = api.read(
+                handle,
+                manager_address + container.lockout_timestamp_offset,
+                INT64_SIZE_BYTES,
+            )
+            if len(payload) != INT64_SIZE_BYTES:
+                raise ValueError("The dungeon lockout timestamp read was incomplete.")
+            return payload, 1
+
         if isinstance(container, FixedDungeonArray):
             read_size = container.record_size_bytes * container.record_count
             payload = api.read(handle, manager_address + container.records_offset, read_size)
@@ -321,8 +336,12 @@ class LiveDungeonCooldownReader:
         payload: bytes,
         record_count: int,
     ) -> dict[int, DungeonRuntimeState]:
+        if isinstance(profile.container, GlobalDungeonLockout):
+            return self._decode_lockout(payload)
         states: dict[int, DungeonRuntimeState] = {}
         fields = profile.fields
+        if fields is None:  # pragma: no cover - guarded by ClientDungeonProfile
+            raise ValueError("A contiguous dungeon container needs a record field layout.")
         record_size = profile.container.record_size_bytes
         for index in range(record_count):
             start = index * record_size
@@ -356,6 +375,28 @@ class LiveDungeonCooldownReader:
                 daily_entry_limit=daily_limit,
             )
         return states
+
+    def _decode_lockout(self, payload: bytes) -> dict[int, DungeonRuntimeState]:
+        """Map the one account-wide lockout ``__time64_t`` onto every known dungeon.
+
+        Per-dungeon cooldowns are not memory-readable for this build (ADR-011); while the
+        daily lockout is active every dungeon shares its end time, otherwise the reader
+        reports nothing (``DungeonStatus.UNKNOWN``) rather than an invented ``READY``.
+        """
+
+        lockout_unix_seconds = int(struct.unpack_from(INT64_FORMAT, payload, 0)[0])
+        now_unix_seconds = time.time()
+        remaining = lockout_unix_seconds - now_unix_seconds
+        if remaining <= 0.0 or remaining > MAXIMUM_LOCKOUT_HORIZON_SECONDS:
+            return {}
+        ends_at_monotonic = time.monotonic() + remaining
+        return {
+            dungeon_id: DungeonRuntimeState(
+                dungeon_id=dungeon_id,
+                cooldown_ends_at_monotonic_seconds=ends_at_monotonic,
+            )
+            for dungeon_id in self._definitions
+        }
 
     def _snapshot(
         self,

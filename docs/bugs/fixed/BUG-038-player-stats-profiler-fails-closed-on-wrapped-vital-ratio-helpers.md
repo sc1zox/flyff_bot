@@ -1,7 +1,7 @@
 ---
 id: BUG-038
 title: Player-stats profiler fails closed on the shipped neuz.exe wrapped vital-ratio helpers
-status: in-progress
+status: resolved
 severity: high
 created: 2026-08-29
 updated: 2026-08-29
@@ -92,37 +92,63 @@ resolves the player-stats half of this defect:
 
 `./scripts/check.ps1` green: 1279 passed, 4 skipped, coverage 88.5%.
 
+## Dungeon-container decoder (resolved via ADR-011)
+
+Ghidra 12.1 decompilation of the shipped `8079c88f…dada5` client established that the
+committed `fixed_array` dungeon profile (`record_size_bytes` 48, `record_count` 32, fields
+`0/16/24/28`) was fabricated — it matched nothing in the binary and a live read against it
+would have mis-parsed 1536 bytes of unrelated player-object memory. Per-dungeon cooldown rows
+exist only in transient `std::vector` members owned by the `CWndDungeonCooldownList` /
+`CWndDungeonCooldownQuick` windows, with no fingerprint anchor.
+
+The one persistent bounded read the dungeon UI performs is the account-wide daily lockout
+`__time64_t` at `player + 0x2678` (`now < *(player + 0x2678)` -> "Locked until 03:00 AM UTC+2").
+The fix binds exactly that
+([ADR-011](../decisions/ADR-011-dungeon-cooldowns-are-not-fingerprint-bindable-only-the-account-lockout-is.md)):
+
+- `DungeonContainerKind.GLOBAL_LOCKOUT_TIMESTAMP` / `GlobalDungeonLockout(offset)`;
+  `ClientDungeonProfile.fields` is now optional (`None` for the lockout kind). The two
+  contiguous container kinds and their decoders are retained for a future build.
+- `_discover_dungeon` scans the two cooldown-window vtables for
+  `mov rcx,[rip+player]; call <helper>` where the helper is the fixed shape
+  `mov rax,[rsp+x]; mov r64,[rax+disp32]; lea rcx,[rsp+y]; call` — one bounded 8-byte `this`
+  member handed to a time constructor — and requires a unique `(player_global_rva, offset)`.
+  The unverified `analyze_dungeon_span_function` / `_four_record_field_offsets` speculative
+  begin/end decoder is deleted.
+- `LiveDungeonCooldownReader` reads one fixed pointer plus one bounded 8-byte value; while the
+  lockout is active it maps that end time onto every known dungeon (`ON_COOLDOWN`, shared
+  remaining), and reports `UNKNOWN` for all of them when it is zero or past rather than an
+  invented `READY`.
+- `data/config/client_dungeon_profiles.json` is replaced with the
+  `global_lockout_timestamp` entry (`runtime_state_pointer_rva 12042024`,
+  `lockout_timestamp_offset 9848`).
+
+`ClientBinaryProfiler.profile()` now runs end-to-end for `8079c88f…dada5` (position,
+player-stats, camera, dungeon).
+
 ## Remaining follow-up
 
-Both items are accepted as open in
+**Memory path for the vital percentages (`CWndStatus` gauge floats).** Still open, accepted in
 [ADR-010](../decisions/ADR-010-client-derived-vital-maxima-are-not-runtime-resolvable.md).
-
-1. **Dungeon-container decoder for this build.** `_discover_dungeon` still raises
-   `ClientProfilingError(ClientProfilingErrorCode.INCOMPLETE_DUNGEON, …)` for `8079c88f…dada5`,
-   so `ClientBinaryProfiler.profile()` does not yet run end-to-end — only `_discover_player_stats`
-   is proven for this client (it runs before `_discover_dungeon` in `profile()`). The
-   shipped `data/config/client_dungeon_profiles.json` already carries a valid hand-verified
-   fixed-value profile for this digest (`kind` `fixed_array`, `record_count` 32,
-   `record_size_bytes` 48; `dungeon_id` / `cooldown_end_timestamp` / `entries_used` /
-   `daily_entry_limit` at `+0` / `+16` / `+24` / `+28`), so the live dungeon reader is
-   configured; the profiler simply cannot regenerate it yet.
-2. **Memory path for the vital percentages (`CWndStatus` gauge floats).** Vital percentages
-   keep coming from the visual HUD reader (`PlayerVitalsReader`), accepted per ADR-010. The
-   candidate bounded read for a later implementation is the five gauge fill ratios on
-   `CWndStatus`: `CWndStatus + {0x2168, 0x2194, 0x21C0, 0x21EC, 0x2218} + 0x28` (each a 0..1
-   float). Recorded here for the eventual `RatioPlayerStatSource` / dedicated gauge source; not
-   yet wired.
+Vital percentages keep coming from the visual HUD reader (`PlayerVitalsReader`). The candidate
+bounded read for a later implementation is the five gauge fill ratios on `CWndStatus`:
+`CWndStatus + {0x2168, 0x2194, 0x21C0, 0x21EC, 0x2218} + 0x28` (each a 0..1 float). Recorded
+for the eventual `RatioPlayerStatSource` / dedicated gauge source; not yet wired and not a
+blocker for this defect.
 
 ## Regression verification
 
 - [x] A failing automated test or deterministic manual check exists
       (`tests/unit/test_client_profiling.py`: synthetic PEs for the wrapped vital-ratio decoder,
-      the XOR-pair HP decoder and fixed-member level/experience discovery;
-      `tests/unit/test_player_stats_reader.py`: `XorPairPlayerStatSource` and a
-      `current_<vital>` profile load and decode).
-- [x] The check passes after the fix (`b665490`, `./scripts/check.ps1` green).
-- [x] Related documentation is current (ADR-010 updated in `b665490`; this file; US-089 and
-      US-092 unaffected).
+      the XOR-pair HP decoder, fixed-member level/experience discovery, `analyze_dungeon_lockout_helper`
+      accept/reject cases, and `_discover_dungeon` proving `GlobalDungeonLockout` from a synthetic
+      cooldown-window vtable; `tests/unit/test_player_stats_reader.py`: `XorPairPlayerStatSource` and a
+      `current_<vital>` profile load and decode; `tests/unit/test_live_dungeon_reader.py`: the account
+      lockout mapped onto every dungeon while active and `UNKNOWN` for a cleared timestamp).
+- [x] The check passes after the fix (`./scripts/check.ps1` green: 1285 passed, 4 skipped,
+      coverage 88.7%).
+- [x] Related documentation is current (ADR-010 for the vital half; ADR-011 for the dungeon half;
+      `docs/wiki/architecture.md` dungeon section; this file; US-089 and US-092 unaffected).
 
-Not yet closed: `ClientBinaryProfiler.profile()` cannot regenerate the full bundle until
-follow-up 1 (the dungeon-container decoder) lands, so `status` stays `in-progress`.
+`ClientBinaryProfiler.profile()` now regenerates the full bundle (position, player-stats, camera,
+dungeon) for `8079c88f…dada5`.

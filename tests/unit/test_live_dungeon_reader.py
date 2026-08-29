@@ -18,6 +18,7 @@ from flyff_bot.features.dungeons.profiles import (
     ClientDungeonProfile,
     DungeonFieldLayout,
     FixedDungeonArray,
+    GlobalDungeonLockout,
 )
 from flyff_bot.features.navigation.live_position import (
     PROCESS_QUERY_LIMITED_INFORMATION,
@@ -45,6 +46,7 @@ class FakeDungeonMemoryApi:
         self.fail_open = False
         self.short_pointer = False
         self.null_pointer = False
+        self.lockout_unix: int | None = None
 
     def process_id_for_window(self, window_handle: int) -> int:
         assert window_handle == WINDOW_HANDLE
@@ -78,6 +80,8 @@ class FakeDungeonMemoryApi:
                 return b"\x00" * size
             payload = ARRAY_ADDRESS.to_bytes(size, "little")
             return payload[:-1] if self.short_pointer else payload
+        if self.lockout_unix is not None:
+            return struct.pack("<q", self.lockout_unix)[:size]
         now = time.monotonic()
         records = bytearray(size)
         struct.pack_into("<I", records, 0, 101)
@@ -153,10 +157,64 @@ def test_reader_reads_one_fixed_array_and_calculates_all_statuses(tmp_path: Path
     assert all(snapshot.diagnostic_code is None for snapshot in snapshots)
     assert api.reads == [
         (MODULE_BASE + POINTER_RVA, 8),
-        (ARRAY_ADDRESS, profile.container.record_size_bytes * profile.maximum_record_count),
+        (ARRAY_ADDRESS, RECORD_SIZE * profile.maximum_record_count),
     ]
     assert reader.is_open
     assert api.closed == []
+
+
+LOCKOUT_OFFSET = 0x2678
+
+
+def _lockout_reader(
+    api: FakeDungeonMemoryApi,
+) -> LiveDungeonCooldownReader:
+    digest = hashlib.sha256(api.executable.read_bytes()).hexdigest()
+    profile = ClientDungeonProfile(
+        digest,
+        runtime_state_pointer_rva=POINTER_RVA,
+        pointer_size_bytes=8,
+        container=GlobalDungeonLockout(LOCKOUT_OFFSET),
+    )
+    return LiveDungeonCooldownReader(
+        WINDOW_HANDLE, _definitions(), api=api, profiles={digest: profile}
+    )
+
+
+def test_global_lockout_maps_one_timestamp_onto_every_dungeon(tmp_path: Path) -> None:
+    executable = tmp_path / "neuz.exe"
+    executable.write_bytes(b"lockout build")
+    api = FakeDungeonMemoryApi(executable)
+    api.lockout_unix = int(time.time()) + 3600
+    reader = _lockout_reader(api)
+
+    snapshots = reader.poll()
+
+    assert {snapshot.status for snapshot in snapshots} == {DungeonStatus.ON_COOLDOWN}
+    remaining = {round(snapshot.remaining_cooldown_seconds, -1) for snapshot in snapshots}
+    assert remaining == {3600}
+    assert api.reads == [
+        (MODULE_BASE + POINTER_RVA, 8),
+        (ARRAY_ADDRESS + LOCKOUT_OFFSET, 8),
+    ]
+
+
+def test_cleared_global_lockout_reports_unknown_rather_than_inventing_ready(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "neuz.exe"
+    executable.write_bytes(b"lockout build")
+    api = FakeDungeonMemoryApi(executable)
+    api.lockout_unix = 0
+    reader = _lockout_reader(api)
+
+    snapshots = reader.poll()
+
+    assert {snapshot.status for snapshot in snapshots} == {DungeonStatus.UNKNOWN}
+    assert api.reads == [
+        (MODULE_BASE + POINTER_RVA, 8),
+        (ARRAY_ADDRESS + LOCKOUT_OFFSET, 8),
+    ]
 
 
 def test_empty_profile_configuration_reports_unconfigured_without_memory_access(

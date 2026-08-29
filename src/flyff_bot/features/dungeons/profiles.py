@@ -10,13 +10,24 @@ from typing import cast
 
 MAXIMUM_DUNGEON_RECORD_BYTES = 1024
 MAXIMUM_DUNGEON_RECORD_COUNT = 4096
+# A ``__time64_t`` player member; larger than this is a decode mistake, not a field.
+MAXIMUM_PLAYER_MEMBER_OFFSET = 0x100000
+LOCKOUT_TIMESTAMP_SIZE_BYTES = 8
 
 
 class DungeonContainerKind(StrEnum):
-    """The two contiguous container layouts permitted for live dungeon reads."""
+    """The container layouts a fingerprinted build can expose for live dungeon reads.
+
+    ``FIXED_ARRAY`` and ``BEGIN_END_SPAN`` are contiguous per-dungeon record containers.
+    ``GLOBAL_LOCKOUT_TIMESTAMP`` is the degraded shape for a build whose per-dungeon
+    cooldowns live only in transient UI-owned vectors (no fingerprint anchor): the one
+    bounded read is the account-wide daily lockout timestamp the dungeon UI itself
+    consults (see ADR-011).
+    """
 
     FIXED_ARRAY = "fixed_array"
     BEGIN_END_SPAN = "begin_end_span"
+    GLOBAL_LOCKOUT_TIMESTAMP = "global_lockout_timestamp"
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +70,27 @@ class BeginEndDungeonSpan:
             raise ValueError("Dungeon span begin/end pointers must use distinct offsets.")
 
 
-DungeonContainerProfile = FixedDungeonArray | BeginEndDungeonSpan
+@dataclass(frozen=True, slots=True)
+class GlobalDungeonLockout:
+    """A single ``__time64_t`` account-wide daily dungeon lockout-end member.
+
+    The offset is measured from the runtime-state (player) object. A live read is one
+    fixed pointer read plus one bounded 8-byte read; the value is Unix seconds (UTC),
+    zero when no lockout is active. Per-dungeon cooldowns are not available for such a
+    build and every known dungeon shares this one lockout (ADR-011).
+    """
+
+    lockout_timestamp_offset: int
+    kind: DungeonContainerKind = DungeonContainerKind.GLOBAL_LOCKOUT_TIMESTAMP
+
+    def __post_init__(self) -> None:
+        if not 0 < self.lockout_timestamp_offset < MAXIMUM_PLAYER_MEMBER_OFFSET:
+            raise ValueError("A dungeon lockout timestamp needs a small positive member offset.")
+        if self.lockout_timestamp_offset % LOCKOUT_TIMESTAMP_SIZE_BYTES:
+            raise ValueError("A dungeon lockout timestamp member must be 8-byte aligned.")
+
+
+DungeonContainerProfile = FixedDungeonArray | BeginEndDungeonSpan | GlobalDungeonLockout
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,13 +115,17 @@ class DungeonFieldLayout:
 
 @dataclass(frozen=True, slots=True)
 class ClientDungeonProfile:
-    """A complete exact-fingerprint plan for one bounded contiguous container."""
+    """An exact-fingerprint plan for one bounded dungeon read.
+
+    ``fields`` describes the per-record layout for a contiguous container and is ``None``
+    for a :class:`GlobalDungeonLockout` profile, which has no per-dungeon records.
+    """
 
     sha256: str
     runtime_state_pointer_rva: int
     pointer_size_bytes: int
     container: DungeonContainerProfile
-    fields: DungeonFieldLayout
+    fields: DungeonFieldLayout | None = None
 
     def __post_init__(self) -> None:
         if len(self.sha256) != 64 or any(
@@ -99,6 +134,12 @@ class ClientDungeonProfile:
             raise ValueError("A client dungeon profile needs a lowercase SHA-256 digest.")
         if self.runtime_state_pointer_rva <= 0 or self.pointer_size_bytes not in {4, 8}:
             raise ValueError("A dungeon pointer RVA and size must describe a valid pointer.")
+        if isinstance(self.container, GlobalDungeonLockout):
+            if self.fields is not None:
+                raise ValueError("A global-lockout dungeon profile carries no record fields.")
+            return
+        if self.fields is None:
+            raise ValueError("A contiguous dungeon container needs a record field layout.")
         record_size = self.container.record_size_bytes
         field_ends = (
             self.fields.dungeon_id_offset + 4,
@@ -113,6 +154,8 @@ class ClientDungeonProfile:
     def maximum_record_count(self) -> int:
         if isinstance(self.container, FixedDungeonArray):
             return self.container.record_count
+        if isinstance(self.container, GlobalDungeonLockout):
+            return 1
         return self.container.maximum_record_count
 
 
@@ -134,7 +177,6 @@ def load_client_dungeon_profiles(path: Path) -> dict[str, ClientDungeonProfile]:
             "runtime_state_pointer_rva",
             "pointer_size_bytes",
             "container",
-            "fields",
         }
         if missing := required.difference(item):
             raise ValueError(
@@ -148,13 +190,25 @@ def load_client_dungeon_profiles(path: Path) -> dict[str, ClientDungeonProfile]:
             isinstance(value, int) and not isinstance(value, bool) for value in pointer_values
         ):
             raise ValueError(f"Dungeon profile entry {index} has an invalid pointer declaration.")
+        container = _load_container(index, item["container"])
+        raw_fields = item.get("fields")
+        if isinstance(container, GlobalDungeonLockout):
+            if raw_fields is not None:
+                raise ValueError(
+                    f"Dungeon profile entry {index} declares record fields for a global lockout."
+                )
+            fields = None
+        else:
+            if raw_fields is None:
+                raise ValueError(f"Dungeon profile entry {index} is missing fields.")
+            fields = _load_fields(index, raw_fields)
         try:
             profile = ClientDungeonProfile(
                 sha256.lower(),
                 item["runtime_state_pointer_rva"],
                 item["pointer_size_bytes"],
-                _load_container(index, item["container"]),
-                _load_fields(index, item["fields"]),
+                container,
+                fields,
             )
         except (TypeError, ValueError) as error:
             raise ValueError(f"Dungeon profile entry {index} is invalid: {error}") from error
@@ -175,6 +229,9 @@ def _load_container(index: int, payload: object) -> DungeonContainerProfile:
         keys = ("records_offset", "record_size_bytes", "record_count")
         values = _integer_values(index, payload, keys)
         return FixedDungeonArray(values[0], values[1], values[2])
+    if kind is DungeonContainerKind.GLOBAL_LOCKOUT_TIMESTAMP:
+        (offset,) = _integer_values(index, payload, ("lockout_timestamp_offset",))
+        return GlobalDungeonLockout(offset)
     span_keys = (
         "container_offset",
         "begin_pointer_offset",

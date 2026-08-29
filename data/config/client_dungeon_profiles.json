@@ -4,16 +4,8 @@
     "runtime_state_pointer_rva": 12042024,
     "pointer_size_bytes": 8,
     "container": {
-      "kind": "fixed_array",
-      "records_offset": 0,
-      "record_size_bytes": 48,
-      "record_count": 32
-    },
-    "fields": {
-      "dungeon_id_offset": 0,
-      "cooldown_end_timestamp_offset": 16,
-      "entries_used_offset": 24,
-      "daily_entry_limit_offset": 28
+      "kind": "global_lockout_timestamp",
+      "lockout_timestamp_offset": 9848
     }
   }
 ]

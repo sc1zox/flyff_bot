@@ -16,9 +16,8 @@ from flyff_bot.features.client_profiling.pe import PeImage
 from flyff_bot.features.client_profiling.rtti import resolve_primary_vtable
 from flyff_bot.features.client_profiling.x64 import relative_call_target, resolve_rip_relative
 from flyff_bot.features.dungeons.profiles import (
-    BeginEndDungeonSpan,
     ClientDungeonProfile,
-    DungeonFieldLayout,
+    GlobalDungeonLockout,
 )
 from flyff_bot.features.navigation.live_camera import ClientCameraProfile
 from flyff_bot.features.navigation.live_position import ClientPositionProfile
@@ -59,14 +58,11 @@ class RatioEvidence:
 
 
 @dataclass(frozen=True, slots=True)
-class DungeonSpanEvidence:
-    manager_pointer_rva: int
-    container_offset: int
-    begin_pointer_offset: int
-    end_pointer_offset: int
-    record_size_bytes: int
-    maximum_record_count: int
-    fields: DungeonFieldLayout
+class DungeonLockoutEvidence:
+    """The player global and member offset of the account-wide dungeon lockout time."""
+
+    runtime_state_pointer_rva: int
+    lockout_timestamp_offset: int
 
 
 class ClientBinaryProfiler:
@@ -301,51 +297,44 @@ def _member_load_evidence(image: PeImage, rva: int) -> tuple[int, PlayerStatType
     return offset, primitive
 
 
-def analyze_dungeon_span_function(
-    code: bytes,
-    function_rva: int,
-) -> DungeonSpanEvidence:
-    """Decode one explicit begin/end span accessor and all four record fields.
+# The lockout helper's fixed prologue: ``mov [rsp+8], rcx`` / ``sub rsp, imm8`` /
+# ``mov rax, [rsp+imm8]`` (load ``this``) then one 64-bit member load handed straight to a
+# constructor call. ADR-011: this build exposes no per-dungeon container, so the account-wide
+# lockout timestamp the dungeon UI itself reads is the only bounded dungeon datum.
+_LOCKOUT_HELPER_PROLOGUE = b"\x48\x89\x4c\x24\x08"
+_LOCKOUT_SUB_RSP = b"\x48\x83\xec"
+_LOCKOUT_LOAD_THIS = b"\x48\x8b\x44\x24"
+_LOCKOUT_MEMBER_LOADS = (b"\x48\x8b\x90", b"\x48\x8b\x80")  # mov r/e dx|ax, [rax+disp32]
+_LOCKOUT_LEA_RCX_STACK = b"\x48\x8d\x4c\x24"
+_LOCKOUT_TIMESTAMP_ALIGN = 8
 
-    The accepted shape is intentionally narrow. Linked maps, trees, and missing fields are
-    rejected rather than traversed speculatively at runtime.
+
+def analyze_dungeon_lockout_helper(image: PeImage, helper_rva: int) -> int | None:
+    """Return the ``__time64_t`` member offset a dungeon lockout helper reads, else ``None``.
+
+    The accepted shape is ``mov rax,[rsp+x]; mov r64,[rax+disp32]; lea rcx,[rsp+y]; call`` —
+    a single bounded 64-bit ``this`` member handed straight to a time constructor. Anything
+    that indexes, chases a pointer, or reads a 32-bit field is rejected.
     """
 
-    # mov rax,[rip+disp32]
-    global_offset = code.find(b"\x48\x8b\x05")
-    if global_offset < 0 or global_offset + 7 > len(code):
-        raise _incomplete_dungeon("The dungeon manager global is missing.")
-    displacement = struct.unpack_from("<i", code, global_offset + 3)[0]
-    manager_rva = resolve_rip_relative(function_rva + global_offset, 7, displacement)
-    # mov rcx,[rax+container]; mov rdx,[rax+container+ptr]
-    header_offset = code.find(b"\x48\x8b\x88", global_offset + 7)
-    end_offset = code.find(b"\x48\x8b\x90", header_offset + 7)
-    if header_offset < 0 or end_offset < 0:
-        raise _incomplete_dungeon("The dungeon update does not expose a contiguous span header.")
-    begin_member = struct.unpack_from("<i", code, header_offset + 3)[0]
-    end_member = struct.unpack_from("<i", code, end_offset + 3)[0]
-    if end_member <= begin_member:
-        raise _incomplete_dungeon("The dungeon span begin/end offsets are unordered.")
-    container_offset = begin_member
-    begin_pointer_offset = 0
-    end_pointer_offset = end_member - begin_member
-
-    stride_marker = code.find(b"\x48\x6b", end_offset + 7)
-    bound_marker = code.find(b"\x81\xf9", end_offset + 7)
-    if stride_marker < 0 or stride_marker + 4 > len(code) or bound_marker < 0:
-        raise _incomplete_dungeon("The dungeon span stride or hard record bound is missing.")
-    record_size = code[stride_marker + 3]
-    maximum_count = struct.unpack_from("<I", code, bound_marker + 2)[0]
-    field_offsets = _four_record_field_offsets(code, max(stride_marker, bound_marker))
-    return DungeonSpanEvidence(
-        manager_rva,
-        container_offset,
-        begin_pointer_offset,
-        end_pointer_offset,
-        record_size,
-        maximum_count,
-        DungeonFieldLayout(*field_offsets),
-    )
+    try:
+        body = image.read_rva(helper_rva, 32)
+    except ClientProfilingError:
+        return None
+    if not body.startswith(_LOCKOUT_HELPER_PROLOGUE):
+        return None
+    if body[5:8] != _LOCKOUT_SUB_RSP or body[9:13] != _LOCKOUT_LOAD_THIS:
+        return None
+    cursor = 14
+    if body[cursor : cursor + 3] not in _LOCKOUT_MEMBER_LOADS:
+        return None
+    offset = int(struct.unpack_from("<i", body, cursor + 3)[0])
+    cursor += 7
+    if body[cursor : cursor + 4] != _LOCKOUT_LEA_RCX_STACK or body[cursor + 5] != 0xE8:
+        return None
+    if not 0 < offset < _MAX_STRUCT_ACCESSOR_OFFSET or offset % _LOCKOUT_TIMESTAMP_ALIGN:
+        return None
+    return offset
 
 
 def _discover_player(image: PeImage) -> tuple[int, int, int]:
@@ -699,56 +688,78 @@ def _camera_member_offsets(code: bytes, code_rva: int, camera_rva: int) -> set[i
     return {offset for offset in offsets if 0 < offset <= 0x1000}
 
 
+_DUNGEON_LOCKOUT_RTTI_NAMES = (
+    ".?AVCWndDungeonCooldownList@@",
+    ".?AVCWndDungeonCooldownQuick@@",
+)
+_DUNGEON_VTABLE_ENTRY_COUNT = 24
+_DUNGEON_RENDER_SCAN_BYTES = 0x2000
+# mov rcx,[rip+disp32]; call rel32  -> a helper invoked with a single pointer global as this.
+_MOV_RCX_RIP = b"\x48\x8b\x0d"
+
+
 def _discover_dungeon(image: PeImage, digest: str) -> ClientDungeonProfile:
-    dungeon_rtti = resolve_primary_vtable(image, ".?AVCWndDungeonCooldownList@@")
-    vtable_entries = struct.unpack("<8Q", image.read_rva(dungeon_rtti.primary_vtable_rva, 64))
-    evidence: list[DungeonSpanEvidence] = []
-    for entry in vtable_entries:
-        function_rva = entry - image.image_base
+    """Prove the account-wide dungeon lockout timestamp the cooldown UI reads (ADR-011).
+
+    Per-dungeon cooldowns on this client family live only in transient UI-owned vectors with
+    no fingerprint anchor, so the profiler binds the one bounded read the dungeon windows
+    themselves perform: ``now < *(player + lockout_offset)``.
+    """
+
+    candidates: set[DungeonLockoutEvidence] = set()
+    for decorated_name in _DUNGEON_LOCKOUT_RTTI_NAMES:
         try:
-            code = image.read_rva(function_rva, 512)
-            evidence.append(analyze_dungeon_span_function(code, function_rva))
+            rtti = resolve_primary_vtable(image, decorated_name)
         except ClientProfilingError:
             continue
-    unique = set(evidence)
-    if len(unique) != 1:
-        raise _incomplete_dungeon(
-            "The dungeon VTable does not expose one complete bounded contiguous container."
+        entries = struct.unpack(
+            f"<{_DUNGEON_VTABLE_ENTRY_COUNT}Q",
+            image.read_rva(rtti.primary_vtable_rva, _DUNGEON_VTABLE_ENTRY_COUNT * 8),
         )
-    item = next(iter(unique))
+        for entry in entries:
+            candidates.update(_lockout_evidence_in(image, entry - image.image_base))
+    if len(candidates) != 1:
+        raise _incomplete_dungeon(
+            "The dungeon cooldown windows do not expose one proven account lockout member."
+        )
+    item = next(iter(candidates))
     return ClientDungeonProfile(
         digest,
-        item.manager_pointer_rva,
+        item.runtime_state_pointer_rva,
         8,
-        BeginEndDungeonSpan(
-            item.container_offset,
-            item.begin_pointer_offset,
-            item.end_pointer_offset,
-            item.record_size_bytes,
-            item.maximum_record_count,
-        ),
-        item.fields,
+        GlobalDungeonLockout(item.lockout_timestamp_offset),
     )
 
 
-def _four_record_field_offsets(code: bytes, start: int) -> tuple[int, int, int, int]:
-    candidates: list[int] = []
-    cursor = start
-    prefixes = (b"\x44\x8b\x81", b"\x8b\x81", b"\xf3\x0f\x10\x81")
-    while cursor < len(code) and len(candidates) < 4:
-        matches = [(code.find(prefix, cursor), prefix) for prefix in prefixes]
-        matches = [(offset, prefix) for offset, prefix in matches if offset >= 0]
-        if not matches:
+def _lockout_evidence_in(image: PeImage, function_rva: int) -> set[DungeonLockoutEvidence]:
+    """Yield ``(player_global_rva, offset)`` for every proven lockout call in one function."""
+
+    section = image.section_for_rva(function_rva, 1)
+    if section is None or not section.executable:
+        return set()
+    try:
+        start = image.rva_to_offset(function_rva)
+    except ClientProfilingError:
+        return set()
+    end = min(start + _DUNGEON_RENDER_SCAN_BYTES, section.raw_offset + section.raw_size)
+    body = image.data[start:end]
+    found: set[DungeonLockoutEvidence] = set()
+    cursor = 0
+    while True:
+        cursor = body.find(_MOV_RCX_RIP, cursor)
+        if cursor < 0 or cursor + 12 > len(body):
             break
-        offset, prefix = min(matches, key=lambda match: match[0])
-        displacement_offset = offset + len(prefix)
-        if displacement_offset + 4 > len(code):
-            break
-        candidates.append(struct.unpack_from("<i", code, displacement_offset)[0])
-        cursor = displacement_offset + 4
-    if len(candidates) != 4 or min(candidates) < 0:
-        raise _incomplete_dungeon("The dungeon record does not expose four ordered fields.")
-    return tuple(candidates)  # type: ignore[return-value]
+        if body[cursor + 7] == 0xE8:
+            displacement = struct.unpack_from("<i", body, cursor + 3)[0]
+            global_rva = resolve_rip_relative(function_rva + cursor, 7, displacement)
+            section = image.section_for_rva(global_rva, 8)
+            if section is not None and section.writable:
+                helper_rva = relative_call_target(body, cursor + 7, function_rva)
+                offset = analyze_dungeon_lockout_helper(image, helper_rva)
+                if offset is not None:
+                    found.add(DungeonLockoutEvidence(global_rva, offset))
+        cursor += 1
+    return found
 
 
 def _incomplete_dungeon(detail: str) -> ClientProfilingError:

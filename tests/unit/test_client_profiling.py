@@ -25,6 +25,7 @@ from flyff_bot.features.dungeons.profiles import (
     ClientDungeonProfile,
     DungeonFieldLayout,
     FixedDungeonArray,
+    GlobalDungeonLockout,
 )
 from flyff_bot.features.navigation.live_camera import ClientCameraProfile
 from flyff_bot.features.navigation.live_position import ClientPositionProfile
@@ -219,6 +220,132 @@ def test_persist_profile_bundle_writes_canonical_json_profiles(tmp_path: Path) -
     assert stats_path.is_file()
     assert cam_path.is_file()
     assert dung_path.is_file()
+
+
+def _lockout_helper_bytes(member_offset: int, *, member_load: bytes = b"\x48\x8b\x90") -> bytes:
+    # mov [rsp+8],rcx ; sub rsp,0x48 ; mov rax,[rsp+0x50] ; mov r64,[rax+off32] ;
+    # lea rcx,[rsp+0x28] ; call rel32 ; ret
+    return (
+        b"\x48\x89\x4c\x24\x08"
+        + b"\x48\x83\xec\x48"
+        + b"\x48\x8b\x44\x24\x50"
+        + member_load
+        + struct.pack("<i", member_offset)
+        + b"\x48\x8d\x4c\x24\x28"
+        + b"\xe8\x00\x00\x00\x00"
+        + b"\xc3"
+    )
+
+
+def test_analyze_dungeon_lockout_helper_extracts_aligned_time_member() -> None:
+    from flyff_bot.features.client_profiling.profiler import analyze_dungeon_lockout_helper
+
+    pe = _build_synthetic_pe(text_payload=_lockout_helper_bytes(0x2678).ljust(64, b"\xcc"))
+    assert analyze_dungeon_lockout_helper(pe, 0x1000) == 0x2678
+
+
+def test_analyze_dungeon_lockout_helper_rejects_wrong_shapes() -> None:
+    from flyff_bot.features.client_profiling.profiler import analyze_dungeon_lockout_helper
+
+    unaligned = _build_synthetic_pe(text_payload=_lockout_helper_bytes(0x2674).ljust(64, b"\xcc"))
+    assert analyze_dungeon_lockout_helper(unaligned, 0x1000) is None
+
+    thirty_two_bit = _build_synthetic_pe(
+        text_payload=_lockout_helper_bytes(0x2678, member_load=b"\x8b\x90\x00").ljust(64, b"\xcc")
+    )
+    assert analyze_dungeon_lockout_helper(thirty_two_bit, 0x1000) is None
+
+    not_a_helper = _build_synthetic_pe(text_payload=b"\x90" * 64)
+    assert analyze_dungeon_lockout_helper(not_a_helper, 0x1000) is None
+
+
+def _pe_with_dungeon_cooldown_vtable(
+    *, render_body: bytes, helper_body: bytes, helper_rva: int
+) -> PeImage:
+    """One ``CWndDungeonCooldownList`` RTTI + primary vtable whose slot 0 is ``render_body``."""
+
+    render_rva = 0x1000
+    text = bytearray(0x4000)
+    text[render_rva - 0x1000 : render_rva - 0x1000 + len(render_body)] = render_body
+    text[helper_rva - 0x1000 : helper_rva - 0x1000 + len(helper_body)] = helper_body
+
+    name = b".?AVCWndDungeonCooldownList@@\x00"
+    type_descriptor = b"\x00" * TYPE_DESCRIPTOR_HEADER_BYTES + name
+    data = bytearray(0x400)
+    type_rva = 0x9000
+    data[0:0] = b""
+    data[: len(type_descriptor)] = type_descriptor
+
+    col_rva = 0x6000
+    col_struct = struct.pack("<IIIIII", 1, 0, 0, type_rva, 0, col_rva)
+    col_ptr = struct.pack("<Q", IMAGE_BASE + col_rva)
+    vtable = struct.pack("<Q", IMAGE_BASE + render_rva) + b"\x00" * (8 * 23)
+    rdata = bytearray(0x400)
+    rdata[: len(col_struct)] = col_struct
+    rdata[len(col_struct) : len(col_struct) + len(col_ptr) + len(vtable)] = col_ptr + vtable
+
+    sections = (
+        PeSection(".text", 0x1000, len(text), 0x400, len(text), 0x60000020),
+        PeSection(".rdata", 0x6000, len(rdata), 0x400 + len(text), len(rdata), 0x40000040),
+        PeSection(
+            ".data", 0x9000, len(data), 0x400 + len(text) + len(rdata), len(data), 0xC0000040
+        ),
+    )
+    blob = bytearray(0x400) + text + rdata + data
+    return PeImage(bytes(blob), IMAGE_BASE, tuple(sections), ())
+
+
+def test_discover_dungeon_proves_global_lockout_from_cooldown_window() -> None:
+    from flyff_bot.features.client_profiling.profiler import _discover_dungeon
+
+    helper_rva = 0x2000
+    player_global_rva = 0x9200  # inside the writable .data section
+    render_rva = 0x1000
+    mov_rcx = b"\x48\x8b\x0d" + struct.pack("<i", player_global_rva - (render_rva + 7))
+    call_helper = b"\xe8" + struct.pack("<i", helper_rva - (render_rva + 7 + 5))
+    render_body = mov_rcx + call_helper + b"\xc3"
+
+    pe = _pe_with_dungeon_cooldown_vtable(
+        render_body=render_body,
+        helper_body=_lockout_helper_bytes(0x2678),
+        helper_rva=helper_rva,
+    )
+    profile = _discover_dungeon(pe, "d" * 64)
+    assert profile.runtime_state_pointer_rva == player_global_rva
+    assert profile.container == GlobalDungeonLockout(0x2678)
+    assert profile.fields is None
+
+
+def test_persist_profile_bundle_writes_global_lockout_dungeon_document(tmp_path: Path) -> None:
+    digest = "e" * 64
+    bundle = GeneratedClientProfileBundle(
+        ClientPositionProfile(digest, 0x1000, 8, 0x188),
+        ClientPlayerStatsProfile(
+            digest,
+            0x1000,
+            8,
+            (
+                PlayerStatFieldProfile(
+                    "level", DirectPlayerStatSource(0x20, PlayerStatType.I32), 1.0, 1000.0
+                ),
+            ),
+        ),
+        ClientCameraProfile(digest, 0x2000, 8, 8, 0x14, 0x94, 0x3000),
+        ClientDungeonProfile(digest, 0x4000, 8, GlobalDungeonLockout(0x2678)),
+    )
+    dung_path = tmp_path / "dung.json"
+    persist_profile_bundle(
+        bundle,
+        position_path=tmp_path / "pos.json",
+        player_stats_path=tmp_path / "stats.json",
+        camera_path=tmp_path / "cam.json",
+        dungeon_path=dung_path,
+    )
+    from flyff_bot.features.dungeons.profiles import load_client_dungeon_profiles
+
+    reloaded = load_client_dungeon_profiles(dung_path)[digest]
+    assert reloaded.container == GlobalDungeonLockout(0x2678)
+    assert reloaded.fields is None
 
 
 def test_discover_monster_kills_finds_counter_in_synthetic_pe() -> None:

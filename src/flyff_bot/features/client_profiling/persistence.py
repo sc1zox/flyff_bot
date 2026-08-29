@@ -17,6 +17,7 @@ from flyff_bot.features.client_profiling.models import (
 from flyff_bot.features.dungeons.profiles import (
     BeginEndDungeonSpan,
     FixedDungeonArray,
+    GlobalDungeonLockout,
     load_client_dungeon_profiles,
 )
 from flyff_bot.features.navigation.live_camera import load_client_camera_profiles
@@ -204,17 +205,26 @@ def _camera_document(bundle: GeneratedClientProfileBundle) -> dict[str, object]:
 def _dungeon_document(bundle: GeneratedClientProfileBundle) -> dict[str, object]:
     profile = bundle.dungeon
     container = profile.container
+    document: dict[str, object] = {
+        "sha256": profile.sha256,
+        "runtime_state_pointer_rva": profile.runtime_state_pointer_rva,
+        "pointer_size_bytes": profile.pointer_size_bytes,
+    }
+    if isinstance(container, GlobalDungeonLockout):
+        document["container"] = {
+            "kind": container.kind.value,
+            "lockout_timestamp_offset": container.lockout_timestamp_offset,
+        }
+        return document
     if isinstance(container, FixedDungeonArray):
-        container_document: dict[str, object] = {
+        document["container"] = {
             "kind": container.kind.value,
             "records_offset": container.records_offset,
             "record_size_bytes": container.record_size_bytes,
             "record_count": container.record_count,
         }
-    else:
-        if not isinstance(container, BeginEndDungeonSpan):
-            raise TypeError("Unsupported generated dungeon container.")
-        container_document = {
+    elif isinstance(container, BeginEndDungeonSpan):
+        document["container"] = {
             "kind": container.kind.value,
             "container_offset": container.container_offset,
             "begin_pointer_offset": container.begin_pointer_offset,
@@ -222,16 +232,14 @@ def _dungeon_document(bundle: GeneratedClientProfileBundle) -> dict[str, object]
             "record_size_bytes": container.record_size_bytes,
             "maximum_record_count": container.maximum_record_count,
         }
-    fields = profile.fields
-    return {
-        "sha256": profile.sha256,
-        "runtime_state_pointer_rva": profile.runtime_state_pointer_rva,
-        "pointer_size_bytes": profile.pointer_size_bytes,
-        "container": container_document,
-        "fields": {
-            "dungeon_id_offset": fields.dungeon_id_offset,
-            "cooldown_end_timestamp_offset": fields.cooldown_end_timestamp_offset,
-            "entries_used_offset": fields.entries_used_offset,
-            "daily_entry_limit_offset": fields.daily_entry_limit_offset,
-        },
+    else:
+        raise TypeError("Unsupported generated dungeon container.")
+    if profile.fields is None:
+        raise TypeError("A contiguous dungeon container must carry a record field layout.")
+    document["fields"] = {
+        "dungeon_id_offset": profile.fields.dungeon_id_offset,
+        "cooldown_end_timestamp_offset": profile.fields.cooldown_end_timestamp_offset,
+        "entries_used_offset": profile.fields.entries_used_offset,
+        "daily_entry_limit_offset": profile.fields.daily_entry_limit_offset,
     }
+    return document

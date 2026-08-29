@@ -14,7 +14,7 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-- [ ] [**BUG-038: Player-stats profiler fails closed on the shipped neuz.exe wrapped vital-ratio helpers**](BUG-038-player-stats-profiler-fails-closed-on-wrapped-vital-ratio-helpers.md) — `in-progress`: player-stats discovery fixed in `b665490`; the dungeon-container decoder for `8079c88f…dada5` and a `CWndStatus` gauge-float memory path for the vital percentages remain follow-up work.
+*No open active defects.* All reported bugs have been verified and moved to `fixed/`. Any new defects discovered during production execution begin in this backlog with a testable reproduction.
 
 ---
 
@@ -55,3 +55,4 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-033: Unified setup does not ingest or autoload the client data it reports**](fixed/BUG-033-unified-setup-does-not-ingest-or-autoload-client-data.md)
 - [x] [**BUG-034: Live readers ignore foreground contract**](fixed/BUG-034-live-readers-ignore-foreground-contract.md)
 - [x] [**BUG-035: Setup wizard rejects the real Entropia client folder**](fixed/BUG-035-setup-wizard-rejects-the-real-entropia-client-folder.md)
+- [x] [**BUG-038: Player-stats profiler fails closed on the shipped neuz.exe wrapped vital-ratio helpers**](fixed/BUG-038-player-stats-profiler-fails-closed-on-wrapped-vital-ratio-helpers.md)

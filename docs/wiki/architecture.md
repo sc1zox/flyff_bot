@@ -22,6 +22,7 @@ related:
   - ../decisions/ADR-006-read-only-process-memory-access.md
   - ../decisions/ADR-008-closed-learning-loop-invariants.md
   - ../decisions/ADR-009-bounded-tactical-parameter-space.md
+  - ../decisions/ADR-011-dungeon-cooldowns-are-not-fingerprint-bindable-only-the-account-lockout-is.md
   - ../user-stories/completed/US-002-vision-frame-capture.md
   - ../user-stories/completed/US-003-mob-detection-yolo.md
   - ../user-stories/completed/US-004-target-mob-verification.md
@@ -1949,17 +1950,28 @@ dungeons this way.
 
 Live cooldowns use the existing documented read-only process boundary and require the client window to
 be foregrounded before attachment or any fixed read. A SHA-256 fingerprint in
-`data/config/client_dungeon_profiles.json` selects an exact module RVA, pointer width, bounded array
-shape, and field offsets. `LiveDungeonCooldownReader` opens, fingerprints, resolves the module base,
-and validates that profile once in `_ensure_open()`, then retains only the read-only handle and those
-verified values across bounded polls; malformed reads close it for recovery on a later foregrounded
-poll. Each successful poll performs one fixed pointer read plus one fixed range read and emits
-immutable snapshots with `READY`, `ON_COOLDOWN`, `ENTRY_LIMIT_REACHED`, or `UNKNOWN`. Missing/malformed
-profiles, background windows, unavailable processes, and failed reads produce typed
-`UNCONFIGURED_PROFILE`, `WINDOW_NOT_FOREGROUND`, `PROCESS_UNAVAILABLE`, or `HANDLE_LOST` diagnostics
-instead of inferred addresses. The shipped profile file is deliberately empty because no
-verified Entropia cooldown offsets have been observed yet; Windows live validation therefore remains
-outstanding.
+`data/config/client_dungeon_profiles.json` selects an exact module RVA, pointer width, and container
+shape. `LiveDungeonCooldownReader` opens, fingerprints, resolves the module base, and validates that
+profile once in `_ensure_open()`, then retains only the read-only handle and those verified values
+across bounded polls; malformed reads close it for recovery on a later foregrounded poll. Each
+successful poll performs one fixed pointer read plus one bounded read and emits immutable snapshots
+with `READY`, `ON_COOLDOWN`, `ENTRY_LIMIT_REACHED`, or `UNKNOWN`. Missing/malformed profiles,
+background windows, unavailable processes, and failed reads produce typed `UNCONFIGURED_PROFILE`,
+`WINDOW_NOT_FOREGROUND`, `PROCESS_UNAVAILABLE`, or `HANDLE_LOST` diagnostics instead of inferred
+addresses.
+
+`DungeonContainerKind` supports two contiguous per-record containers (`fixed_array`,
+`begin_end_span`) plus `global_lockout_timestamp`. The shipped Entropia build
+`8079c88f…dada5` keeps per-dungeon cooldown rows only in transient `std::vector` members owned by the
+cooldown windows, with no fingerprint anchor, so its profile binds the one persistent bounded read
+the dungeon UI itself performs: the account-wide daily lockout `__time64_t` at `player + 0x2678`
+(`now < *(player + 0x2678)` -> "Locked until 03:00 AM"). `GlobalDungeonLockout` profiles carry no
+record fields; while the lockout is in the future the reader maps that one end time onto every known
+dungeon, and reports `UNKNOWN` for all of them when it is zero or past rather than an invented
+`READY` ([ADR-011](../decisions/ADR-011-dungeon-cooldowns-are-not-fingerprint-bindable-only-the-account-lockout-is.md)).
+The automated profiler proves this offset by scanning the `CWndDungeonCooldownList` /
+`CWndDungeonCooldownQuick` vtables for the fixed `mov rcx,[rip+player]; call <time-member helper>`
+shape; `ClientBinaryProfiler.profile()` therefore now completes end to end for this digest.
 
 The dashboard's Dungeons & Cooldowns tab renders extracted names, level ranges, localized status,
 entry counts, and zero-padded `HH:MM:SS` timers from dashboard snapshots. `MainWindow` binds the
