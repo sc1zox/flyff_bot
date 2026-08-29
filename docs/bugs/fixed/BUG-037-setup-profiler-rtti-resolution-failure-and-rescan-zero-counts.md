@@ -1,7 +1,7 @@
 ---
 id: BUG-037
 title: Setup profiler RTTI resolution failure and rescan zero counts display
-status: reported
+status: resolved
 severity: high
 created: 2026-08-29
 updated: 2026-08-29
@@ -42,6 +42,13 @@ updated: 2026-08-29
 
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated test or deterministic manual check exists.
+- [x] The check passes after the fix.
+- [x] Related documentation is current.
+
+## Fix
+
+1. In `src/flyff_bot/features/client_profiling/rtti.py`, `resolve_primary_vtable()` now scans all PE sections for RTTI `TypeDescriptor` headers, correctly resolving classes whose type descriptor symbols reside in `.data` while their `_RTTICompleteObjectLocator` and VTables reside in `.rdata`. `_valid_vtable()` checks the primary virtual function pointer entry for executable section bounds, supporting single-method virtual classes like `CPlayerDataCenter`.
+2. In `src/flyff_bot/features/client_profiling/profiler.py`, `_discover_camera()` adds buffer-bounds checking on `window` slices during view and projection marker analysis.
+3. In `src/flyff_bot/features/setup/extraction.py`, `run_memory_profile_only()` calls `_populate_existing_dataset_counts()` to inspect and populate counts for previously extracted and persisted datasets (client catalog, quest database, dungeon database, world maps) so the setup wizard preserves actual dataset numbers.
+4. Comprehensive unit tests added in `tests/unit/test_client_profiling.py` and `tests/unit/test_setup_extraction.py`.

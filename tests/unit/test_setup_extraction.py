@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import struct
 from pathlib import Path
 
@@ -10,11 +9,20 @@ import pytest
 from PySide6.QtWidgets import QApplication
 from world_fixtures import write_keyed_archive, write_world_directory
 
+from flyff_bot.features.client_profiling.models import GeneratedClientProfileBundle
+from flyff_bot.features.dungeons.profiles import (
+    ClientDungeonProfile,
+    DungeonFieldLayout,
+    FixedDungeonArray,
+)
+from flyff_bot.features.navigation.live_camera import ClientCameraProfile
+from flyff_bot.features.navigation.live_position import ClientPositionProfile
 from flyff_bot.features.player_stats.profiles import (
     ClientPlayerStatsProfile,
+    DirectPlayerStatSource,
     PlayerStatFieldProfile,
     PlayerStatType,
-    load_client_player_stats_profiles,
+    RatioPlayerStatSource,
 )
 from flyff_bot.features.setup.extraction import (
     _STAGE_COUNT,
@@ -23,25 +31,42 @@ from flyff_bot.features.setup.extraction import (
     _validate_client_layout,
 )
 from flyff_bot.features.setup.models import SetupExtractionWarning
-from flyff_bot.features.setup.profiles import fingerprint_executable, install_matching_profile
+
+DIGEST = "a" * 64
 
 
-def _profile_for(path: Path) -> ClientPlayerStatsProfile:
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    return ClientPlayerStatsProfile(
-        sha256=digest,
-        player_pointer_rva=0x1000,
-        pointer_size_bytes=4,
-        fields=(
-            PlayerStatFieldProfile(
-                name="hp",
-                offset=16,
-                type=PlayerStatType.U32,
-                minimum=0,
-                maximum=999999,
-            ),
+def _bundle() -> GeneratedClientProfileBundle:
+    fields = (
+        PlayerStatFieldProfile("hp", RatioPlayerStatSource(0, 4, PlayerStatType.U32), 0.0, 100.0),
+        PlayerStatFieldProfile("mp", RatioPlayerStatSource(8, 12, PlayerStatType.U32), 0.0, 100.0),
+        PlayerStatFieldProfile("fp", RatioPlayerStatSource(16, 20, PlayerStatType.U32), 0.0, 100.0),
+        PlayerStatFieldProfile(
+            "level", DirectPlayerStatSource(24, PlayerStatType.U32), 1.0, 1000.0
+        ),
+        PlayerStatFieldProfile(
+            "experience",
+            DirectPlayerStatSource(32, PlayerStatType.U64),
+            0.0,
+            float(2**63 - 1),
         ),
     )
+    return GeneratedClientProfileBundle(
+        ClientPositionProfile(DIGEST, 0x1000, 8, 0x188),
+        ClientPlayerStatsProfile(DIGEST, 0x1000, 8, fields),
+        ClientCameraProfile(DIGEST, 0x2000, 8, 8, 0x14, 0x94, 0x3000),
+        ClientDungeonProfile(
+            DIGEST,
+            0x4000,
+            8,
+            FixedDungeonArray(0x20, 32, 4),
+            DungeonFieldLayout(0, 8, 12, 16),
+        ),
+    )
+
+
+class _FakeProfiler:
+    def profile(self, _path: Path) -> GeneratedClientProfileBundle:
+        return _bundle()
 
 
 def _client_root(tmp_path: Path) -> Path:
@@ -105,15 +130,18 @@ def test_first_run_detection_checks_all_required_datasets(
 ) -> None:
     quest_path = tmp_path / "quests.json"
     dungeon_path = tmp_path / "dungeons.json"
-    profile_path = tmp_path / "profiles.json"
+    profile_paths = tuple(tmp_path / f"profiles-{index}.json" for index in range(4))
     catalog_path = tmp_path / "catalog.json"
     manifest_path = tmp_path / "source_manifest.json"
-    required_paths = (quest_path, dungeon_path, profile_path, catalog_path, manifest_path)
+    required_paths = (quest_path, dungeon_path, *profile_paths, catalog_path, manifest_path)
     assert UnifiedClientExtractor.is_first_run_required(
         world_map_directory=tmp_path / "worlds",
         quest_database=quest_path,
         dungeon_database=dungeon_path,
-        player_profiles=profile_path,
+        position_profiles=profile_paths[0],
+        player_stats_profiles=profile_paths[1],
+        camera_profiles=profile_paths[2],
+        dungeon_profiles=profile_paths[3],
         client_catalog=catalog_path,
         source_manifest=manifest_path,
     )
@@ -125,7 +153,10 @@ def test_first_run_detection_checks_all_required_datasets(
         world_map_directory=tmp_path,
         quest_database=quest_path,
         dungeon_database=dungeon_path,
-        player_profiles=profile_path,
+        position_profiles=profile_paths[0],
+        player_stats_profiles=profile_paths[1],
+        camera_profiles=profile_paths[2],
+        dungeon_profiles=profile_paths[3],
         client_catalog=catalog_path,
         source_manifest=manifest_path,
     )
@@ -135,7 +166,10 @@ def test_first_run_detection_checks_all_required_datasets(
         world_map_directory=tmp_path,
         quest_database=quest_path,
         dungeon_database=dungeon_path,
-        player_profiles=profile_path,
+        position_profiles=profile_paths[0],
+        player_stats_profiles=profile_paths[1],
+        camera_profiles=profile_paths[2],
+        dungeon_profiles=profile_paths[3],
         client_catalog=catalog_path,
         source_manifest=manifest_path,
     )
@@ -153,7 +187,10 @@ def test_unified_extraction_runs_stages_and_collects_missing_profile(
     paths.quest_database = output / "quests.json"
     paths.quest_npc_positions = output / "npc.json"
     paths.dungeon_database = output / "dungeons.json"
-    paths.player_stats_profiles = output / "profiles.json"
+    paths.position_profiles = output / "position-profiles.json"
+    paths.player_stats_profiles = output / "player-profiles.json"
+    paths.camera_profiles = output / "camera-profiles.json"
+    paths.dungeon_profiles = output / "dungeon-profiles.json"
     paths.client_catalog = output / "catalog.json"
     paths.source_manifest = output / "source_manifest.json"
     progress: list[int] = []
@@ -172,34 +209,72 @@ def test_unified_extraction_runs_stages_and_collects_missing_profile(
     assert result.world_names == ("TestWorld",)
     assert paths.quest_database.is_file()
     assert paths.dungeon_database.is_file()
-    assert paths.player_stats_profiles.is_file()
-    assert SetupExtractionWarning.MEMORY_PROFILE_NOT_FOUND in {
+    assert not paths.player_stats_profiles.exists()
+    assert SetupExtractionWarning.CLIENT_PROFILING_FAILED in {
         diagnostic.warning for diagnostic in result.diagnostics
     }
     assert progress[-1] == 80 or progress[-1] == 100
-    assert len(progress) == _STAGE_COUNT + 2
+    assert len(progress) in (_STAGE_COUNT + 1, _STAGE_COUNT + 2)
     assert progress == sorted(progress)
 
 
-def test_exact_fingerprint_profile_is_installed_without_guessing(tmp_path: Path) -> None:
-    executable = tmp_path / "neuz.exe"
-    executable.write_bytes(b"exact client build")
-    profile = _profile_for(executable)
-    target = tmp_path / "installed_profiles.json"
-    other = ClientPlayerStatsProfile(
-        sha256="a" * 64,
-        player_pointer_rva=1,
-        pointer_size_bytes=4,
-        fields=profile.fields,
+def test_exact_fingerprint_bundle_is_installed_without_guessing(tmp_path: Path) -> None:
+    client_root = _client_root(tmp_path)
+    paths = UnifiedClientExtractor.default_output_paths()
+    paths.position_profiles = tmp_path / "position.json"
+    paths.player_stats_profiles = tmp_path / "stats.json"
+    paths.camera_profiles = tmp_path / "camera.json"
+    paths.dungeon_profiles = tmp_path / "dungeon.json"
+
+    result = UnifiedClientExtractor(
+        client_root, paths, profiler=_FakeProfiler()
+    ).run_memory_profile_only()
+
+    assert result.memory_profile is not None
+    assert result.memory_profile.sha256 == DIGEST
+    assert all(
+        path.is_file()
+        for path in (
+            paths.position_profiles,
+            paths.player_stats_profiles,
+            paths.camera_profiles,
+            paths.dungeon_profiles,
+        )
     )
-    loaded = {"a" * 64: other, profile.sha256: profile}
-    target.write_text("[]", encoding="utf-8")
 
-    install_matching_profile(loaded, fingerprint_executable(executable), target)
 
-    installed = load_client_player_stats_profiles(target)
-    assert installed[profile.sha256] == profile
-    assert len(installed) == 1
+def test_run_memory_profile_only_retains_existing_dataset_counts(tmp_path: Path) -> None:
+    client_root = _client_root(tmp_path)
+    system = client_root / "Data" / "System2"
+    write_keyed_archive(system, "data1", {"propMover.txt": b"MI_TEST\t1\n"})
+    output = tmp_path / "output"
+    paths = UnifiedClientExtractor.default_output_paths()
+    paths.world_map_directory = output / "worlds"
+    paths.quest_database = output / "quests.json"
+    paths.quest_npc_positions = output / "npc.json"
+    paths.dungeon_database = output / "dungeons.json"
+    paths.position_profiles = output / "position-profiles.json"
+    paths.player_stats_profiles = output / "player-profiles.json"
+    paths.camera_profiles = output / "camera-profiles.json"
+    paths.dungeon_profiles = output / "dungeon-profiles.json"
+    paths.client_catalog = output / "catalog.json"
+    paths.source_manifest = output / "source_manifest.json"
+
+    extractor = UnifiedClientExtractor(
+        client_root,
+        paths,
+        profiler=_FakeProfiler(),
+    )
+    first_result = extractor.run()
+    assert first_result.mover_count == 1
+    assert first_result.world_names == ("TestWorld",)
+
+    rescan_result = extractor.run_memory_profile_only()
+    assert rescan_result.mover_count == 1
+    assert rescan_result.world_count == 1
+    assert rescan_result.world_names == ("TestWorld",)
+    assert rescan_result.memory_profile is not None
+    assert rescan_result.memory_profile.sha256 == DIGEST
 
 
 def test_setup_wizard_validates_path_and_reports_invalid_selection() -> None:

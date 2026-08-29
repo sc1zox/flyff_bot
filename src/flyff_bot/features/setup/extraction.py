@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Protocol
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_CAMERA_PROFILES_PATH,
     DEFAULT_CLIENT_CATALOG_PATH,
+    DEFAULT_CLIENT_DUNGEON_PROFILES_PATH,
     DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH,
+    DEFAULT_CLIENT_POSITION_PROFILES_PATH,
     DEFAULT_DUNGEON_DATABASE_PATH,
     DEFAULT_QUEST_DATABASE_PATH,
     DEFAULT_QUEST_NPC_POSITIONS_PATH,
@@ -20,15 +25,22 @@ from flyff_bot.features.client_data.extraction import (
     extract_client_catalog,
 )
 from flyff_bot.features.client_data.persistence import (
+    load_client_catalog,
     save_client_catalog,
     save_source_manifest,
 )
 from flyff_bot.features.client_data.sources import build_source_manifest
+from flyff_bot.features.client_profiling import ClientBinaryProfiler, ClientProfilingError
+from flyff_bot.features.client_profiling.models import GeneratedClientProfileBundle
+from flyff_bot.features.client_profiling.persistence import persist_profile_bundle
 from flyff_bot.features.dungeons.extraction import (
     DungeonExtractionDiagnostic,
     extract_dungeon_definitions,
 )
-from flyff_bot.features.dungeons.persistence import save_dungeon_database
+from flyff_bot.features.dungeons.persistence import (
+    load_dungeon_database,
+    save_dungeon_database,
+)
 from flyff_bot.features.navigation.world_extractor import (
     ExtractionDiagnostic,
     discover_world_directories,
@@ -42,6 +54,7 @@ from flyff_bot.features.quests.extraction import (
     extract_quest_database,
 )
 from flyff_bot.features.quests.persistence import (
+    load_quest_database,
     save_quest_database,
     save_quest_npc_positions,
 )
@@ -55,11 +68,7 @@ from flyff_bot.features.setup.models import (
     missing_required_datasets,
 )
 from flyff_bot.features.setup.models import SetupExtractionWarning as WarningCode
-from flyff_bot.features.setup.profiles import (
-    fingerprint_executable,
-    install_matching_profile,
-    load_proven_profiles,
-)
+from flyff_bot.features.setup.profiles import fingerprint_executable
 
 EXECUTABLE_NAME = "neuz.exe"
 DATA_DIRECTORY_NAME = "Data"
@@ -77,6 +86,12 @@ DEFAULT_MEMORY_PROFILE_LANGUAGE = "English"
 _STAGE_COUNT = 5
 
 
+class ClientProfiler(Protocol):
+    """Offline application boundary used by setup and synthetic integration tests."""
+
+    def profile(self, executable: Path) -> GeneratedClientProfileBundle: ...
+
+
 class InvalidClientDirectory(ValueError):
     """Raised before extraction when the selected folder is not a client install."""
 
@@ -90,13 +105,13 @@ class UnifiedClientExtractor:
         output_paths: ClientSetupPaths,
         *,
         monster_names_path: Path | None = None,
-        profile_source_path: Path | None = None,
+        profiler: ClientProfiler | None = None,
         progress: Callable[[SetupProgress], None] | None = None,
     ) -> None:
         self._client_root = client_root
         self._output_paths = output_paths
         self._monster_names_path = monster_names_path
-        self._profile_source_path = profile_source_path
+        self._profiler = profiler or ClientBinaryProfiler()
         self._progress = progress
         self._cancel_event = threading.Event()
 
@@ -109,7 +124,10 @@ class UnifiedClientExtractor:
             quest_database=Path(DEFAULT_QUEST_DATABASE_PATH),
             quest_npc_positions=Path(DEFAULT_QUEST_NPC_POSITIONS_PATH),
             dungeon_database=Path(DEFAULT_DUNGEON_DATABASE_PATH),
+            position_profiles=Path(DEFAULT_CLIENT_POSITION_PROFILES_PATH),
             player_stats_profiles=Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+            camera_profiles=Path(DEFAULT_CLIENT_CAMERA_PROFILES_PATH),
+            dungeon_profiles=Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
             client_catalog=Path(DEFAULT_CLIENT_CATALOG_PATH),
             source_manifest=Path(DEFAULT_SOURCE_MANIFEST_PATH),
         )
@@ -133,7 +151,10 @@ class UnifiedClientExtractor:
         world_map_directory: Path = Path(DEFAULT_WORLD_MAP_DIRECTORY),
         quest_database: Path = Path(DEFAULT_QUEST_DATABASE_PATH),
         dungeon_database: Path = Path(DEFAULT_DUNGEON_DATABASE_PATH),
-        player_profiles: Path = Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+        position_profiles: Path = Path(DEFAULT_CLIENT_POSITION_PROFILES_PATH),
+        player_stats_profiles: Path = Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+        camera_profiles: Path = Path(DEFAULT_CLIENT_CAMERA_PROFILES_PATH),
+        dungeon_profiles: Path = Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
         client_catalog: Path = Path(DEFAULT_CLIENT_CATALOG_PATH),
         source_manifest: Path = Path(DEFAULT_SOURCE_MANIFEST_PATH),
     ) -> SetupRequiredDatasets:
@@ -142,7 +163,10 @@ class UnifiedClientExtractor:
             worlds=worlds,
             quests=quest_database,
             dungeons=dungeon_database,
-            player_profiles=player_profiles,
+            position_profiles=position_profiles,
+            player_stats_profiles=player_stats_profiles,
+            camera_profiles=camera_profiles,
+            dungeon_profiles=dungeon_profiles,
             client_catalog=client_catalog,
             source_manifest=source_manifest,
         )
@@ -153,7 +177,10 @@ class UnifiedClientExtractor:
         world_map_directory: Path = Path(DEFAULT_WORLD_MAP_DIRECTORY),
         quest_database: Path = Path(DEFAULT_QUEST_DATABASE_PATH),
         dungeon_database: Path = Path(DEFAULT_DUNGEON_DATABASE_PATH),
-        player_profiles: Path = Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+        position_profiles: Path = Path(DEFAULT_CLIENT_POSITION_PROFILES_PATH),
+        player_stats_profiles: Path = Path(DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH),
+        camera_profiles: Path = Path(DEFAULT_CLIENT_CAMERA_PROFILES_PATH),
+        dungeon_profiles: Path = Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
         client_catalog: Path = Path(DEFAULT_CLIENT_CATALOG_PATH),
         source_manifest: Path = Path(DEFAULT_SOURCE_MANIFEST_PATH),
     ) -> bool:
@@ -167,7 +194,10 @@ class UnifiedClientExtractor:
             world_map_directory=world_map_directory,
             quest_database=quest_database,
             dungeon_database=dungeon_database,
-            player_profiles=player_profiles,
+            position_profiles=position_profiles,
+            player_stats_profiles=player_stats_profiles,
+            camera_profiles=camera_profiles,
+            dungeon_profiles=dungeon_profiles,
             client_catalog=client_catalog,
             source_manifest=source_manifest,
         )
@@ -196,9 +226,8 @@ class UnifiedClientExtractor:
             self._run_world_stage(result, diagnostics)
         stage_index += 1
         self._report(stage_index, "Client fingerprint and memory profile")
-        if not self._cancel_event.is_set():
-            self._run_memory_profile_stage(result, diagnostics)
-            self._report(_STAGE_COUNT - 1, "Extraction complete")
+        if not self._cancel_event.is_set() and self._run_memory_profile_stage(result, diagnostics):
+            self._report(_STAGE_COUNT, "Extraction complete")
         if not self._cancel_event.is_set():
             reported.extend(diagnostics)
             result.diagnostics = tuple(reported)
@@ -320,32 +349,81 @@ class UnifiedClientExtractor:
         self,
         result: SetupExtractionResult,
         diagnostics: list[SetupDiagnostic],
-    ) -> None:
+    ) -> bool:
         executable, _ = _validate_client_layout(self._client_root)
-        fingerprint = fingerprint_executable(executable)
-        if fingerprint.architecture == "unknown":
-            diagnostics.append(
-                SetupDiagnostic(WarningCode.BINARY_ARCHITECTURE_UNKNOWN, executable.name)
+        try:
+            bundle = self._profiler.profile(executable)
+            persist_profile_bundle(
+                bundle,
+                position_path=self._output_paths.position_profiles,
+                player_stats_path=self._output_paths.player_stats_profiles,
+                camera_path=self._output_paths.camera_profiles,
+                dungeon_path=self._output_paths.dungeon_profiles,
             )
-        profiles, source_path, profile_error = load_proven_profiles(self._profile_source_path)
-        if profile_error is not None:
-            diagnostics.append(SetupDiagnostic(WarningCode.INVALID_MEMORY_PROFILE, profile_error))
-        profile = profiles.get(fingerprint.sha256)
-        if profile is None:
+        except ClientProfilingError as error:
             diagnostics.append(
-                SetupDiagnostic(WarningCode.MEMORY_PROFILE_NOT_FOUND, fingerprint.sha256)
+                SetupDiagnostic(
+                    WarningCode.CLIENT_PROFILING_FAILED,
+                    f"{error.code.value}: {error.detail}",
+                )
             )
-            if not self._output_paths.player_stats_profiles.is_file():
-                self._output_paths.player_stats_profiles.parent.mkdir(parents=True, exist_ok=True)
-                self._output_paths.player_stats_profiles.write_text("[]\n", encoding="utf-8")
-            return
-        install_matching_profile(profiles, fingerprint, self._output_paths.player_stats_profiles)
+            return False
         result.memory_profile = SetupMemoryProfile(
-            sha256=fingerprint.sha256,
-            pointer_size_bytes=profile.pointer_size_bytes,
-            field_count=len(profile.fields),
-            source_path=source_path,
+            sha256=bundle.sha256,
+            pointer_size_bytes=bundle.pointer_size_bytes,
+            field_count=len(bundle.player_stats.fields),
         )
+        return True
+
+    def run_memory_profile_only(self) -> SetupExtractionResult:
+        """Re-run only stage 5 against the selected client without touching static datasets."""
+
+        UnifiedClientExtractor.validate_client_directory(self._client_root)
+        result = SetupExtractionResult()
+        self._populate_existing_dataset_counts(result)
+        diagnostics: list[SetupDiagnostic] = []
+        self._report(0, "Client memory profiles")
+        if self._run_memory_profile_stage(result, diagnostics):
+            self._report(_STAGE_COUNT, "Memory profiles updated")
+        result.diagnostics = tuple(diagnostics)
+        return result
+
+    def _populate_existing_dataset_counts(self, result: SetupExtractionResult) -> None:
+        if self._output_paths.client_catalog.is_file():
+            try:
+                catalog = load_client_catalog(self._output_paths.client_catalog)
+                result.mover_count = len(catalog.movers)
+                result.drop_count = len(catalog.drops)
+                result.item_count = len(catalog.items)
+                result.skill_count = len(catalog.skills)
+                result.npc_count = len(catalog.npcs)
+            except OSError, ValueError:
+                pass
+        if self._output_paths.quest_database.is_file():
+            try:
+                database = load_quest_database(self._output_paths.quest_database)
+                result.quest_count = len(database.quests)
+            except OSError, ValueError:
+                pass
+        if self._output_paths.dungeon_database.is_file():
+            try:
+                definitions = load_dungeon_database(self._output_paths.dungeon_database)
+                result.dungeon_count = len(definitions)
+            except OSError, ValueError:
+                pass
+        if self._output_paths.world_map_directory.is_dir():
+            world_files = tuple(self._output_paths.world_map_directory.glob("*.json"))
+            names: list[str] = []
+            for path in world_files:
+                try:
+                    document = json.loads(path.read_text(encoding="utf-8"))
+                    if isinstance(document, dict) and isinstance(document.get("world_name"), str):
+                        names.append(document["world_name"])
+                    else:
+                        names.append(path.stem)
+                except OSError, ValueError:
+                    names.append(path.stem)
+            result.world_names = tuple(names)
 
     def _report(self, completed_stages: int, detail: str) -> None:
         if self._progress is None:
