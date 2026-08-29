@@ -1,7 +1,7 @@
 ---
 id: BUG-038
 title: Player-stats profiler fails closed on the shipped neuz.exe wrapped vital-ratio helpers
-status: reported
+status: in-progress
 severity: high
 created: 2026-08-29
 updated: 2026-08-29
@@ -67,10 +67,62 @@ bundle (including position, camera and dungeon) is discarded.
   unconfigured. Player vitals from client memory are unavailable for this build regardless.
 - Frequency: every profiler run against `8079c88f…dada5` (100%).
 
+## Fix progress
+
+`b665490` (`feat(client_profiling): complete player-stats discovery for neuz.exe 8079c88f`)
+resolves the player-stats half of this defect:
+
+- `_discover_player_stats` no longer fails closed on the wrapped helper shape. Three narrow
+  decoders were added, each verified against the shipped binary:
+  - `analyze_hp_xor_pair` follows the HP current getter through its adder (`add rax, disp32`)
+    into the XOR decoder and recovers offset `+0x1304` plus both 64-bit keys
+    (`0x5A3C9E17C4D2F8B1` / `0x2D74B1C9A6E03F5D`).
+  - `_discover_level_experience` locates the experience-gauge wrapper (the gauge call not
+    preceded by `mov edx, 100`) and reads its two fixed-member getters -> `level` i32 @
+    `+0x12C0`, `experience` u64 @ `+0x12C8`.
+  - `_member_load_evidence` decodes `mov rax,[rsp+8]; mov (r|e)ax,[rax+disp32]`.
+- When a vital maximum is computed at runtime the current value is emitted under a distinct
+  name (`current_hp` / `current_mp` / `current_fp`, MP @ `+0x12FC`, FP @ `+0x1300`) so a raw
+  current is never mistaken for a 0..100 percentage (ADR-010).
+- The perception pipeline reads vital percentages from the HUD reader whenever a client-memory
+  snapshot carries no `hp`/`mp`/`fp` ratio; orchestrator `PLAYER_STATS` readiness is now
+  profile-driven (healthy unless a declared field failed the poll).
+- `data/config/client_player_stats_profiles.json` is regenerated to the current schema
+  (`current_hp`/`mp`/`fp`, `level`, `experience`, `monster_kills_rva`) and loads again.
+
+`./scripts/check.ps1` green: 1279 passed, 4 skipped, coverage 88.5%.
+
+## Remaining follow-up
+
+Both items are accepted as open in
+[ADR-010](../decisions/ADR-010-client-derived-vital-maxima-are-not-runtime-resolvable.md).
+
+1. **Dungeon-container decoder for this build.** `_discover_dungeon` still raises
+   `ClientProfilingError(ClientProfilingErrorCode.INCOMPLETE_DUNGEON, …)` for `8079c88f…dada5`,
+   so `ClientBinaryProfiler.profile()` does not yet run end-to-end — only `_discover_player_stats`
+   is proven for this client (it runs before `_discover_dungeon` in `profile()`). The
+   shipped `data/config/client_dungeon_profiles.json` already carries a valid hand-verified
+   fixed-value profile for this digest (`kind` `fixed_array`, `record_count` 32,
+   `record_size_bytes` 48; `dungeon_id` / `cooldown_end_timestamp` / `entries_used` /
+   `daily_entry_limit` at `+0` / `+16` / `+24` / `+28`), so the live dungeon reader is
+   configured; the profiler simply cannot regenerate it yet.
+2. **Memory path for the vital percentages (`CWndStatus` gauge floats).** Vital percentages
+   keep coming from the visual HUD reader (`PlayerVitalsReader`), accepted per ADR-010. The
+   candidate bounded read for a later implementation is the five gauge fill ratios on
+   `CWndStatus`: `CWndStatus + {0x2168, 0x2194, 0x21C0, 0x21EC, 0x2218} + 0x28` (each a 0..1
+   float). Recorded here for the eventual `RatioPlayerStatSource` / dedicated gauge source; not
+   yet wired.
+
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists
-      (`tests/unit/test_client_profiling.py`: synthetic PE with the wrapped vital-ratio shape;
-      `tests/unit/test_player_stats_reader.py`: profile without vital fields loads).
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current (ADR-010; US-089 and US-092 notes).
+- [x] A failing automated test or deterministic manual check exists
+      (`tests/unit/test_client_profiling.py`: synthetic PEs for the wrapped vital-ratio decoder,
+      the XOR-pair HP decoder and fixed-member level/experience discovery;
+      `tests/unit/test_player_stats_reader.py`: `XorPairPlayerStatSource` and a
+      `current_<vital>` profile load and decode).
+- [x] The check passes after the fix (`b665490`, `./scripts/check.ps1` green).
+- [x] Related documentation is current (ADR-010 updated in `b665490`; this file; US-089 and
+      US-092 unaffected).
+
+Not yet closed: `ClientBinaryProfiler.profile()` cannot regenerate the full bundle until
+follow-up 1 (the dungeon-container decoder) lands, so `status` stays `in-progress`.

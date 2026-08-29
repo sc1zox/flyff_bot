@@ -14,7 +14,7 @@ bugs are moved to `docs/bugs/fixed/`.
 
 ## Active Defect Backlog
 
-*No open active defects.* All reported bugs have been verified and moved to `fixed/`. Any new defects discovered during production execution begin in this backlog with a testable reproduction.
+- [ ] [**BUG-038: Player-stats profiler fails closed on the shipped neuz.exe wrapped vital-ratio helpers**](BUG-038-player-stats-profiler-fails-closed-on-wrapped-vital-ratio-helpers.md) — `in-progress`: player-stats discovery fixed in `b665490`; the dungeon-container decoder for `8079c88f…dada5` and a `CWndStatus` gauge-float memory path for the vital percentages remain follow-up work.
 
 ---
 
