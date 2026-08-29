@@ -24,6 +24,14 @@ class TelemetryEventKind(StrEnum):
     KILL_CYCLE = "kill_cycle"
     STALL_EVENT = "stall_event"
     OBJECTIVE_PROGRESS = "objective_progress"
+    # Geometry-verified stall recovery introspection (US-093).
+    STALL_DETECTED = "stall_detected"
+    TEMPORARY_OBSTACLE_CREATED = "temporary_obstacle_created"
+    LOCAL_REPLAN_REQUESTED = "local_replan_requested"
+    LOCAL_REPLAN_SUCCEEDED = "local_replan_succeeded"
+    REPEATED_LOCAL_STALL = "repeated_local_stall"
+    ESCAPE_PLAN_SUCCEEDED = "escape_plan_succeeded"
+    ESCAPE_PLAN_FAILED = "escape_plan_failed"
 
 
 class NavigationOutcome(StrEnum):

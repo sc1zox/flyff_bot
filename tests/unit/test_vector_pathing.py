@@ -24,12 +24,7 @@ from flyff_bot.features.automation.orchestrator import (
     FarmingMode,
     FarmingOrchestrator,
 )
-from flyff_bot.features.input_control.keymap import (
-    VIRTUAL_KEY_D,
-    VIRTUAL_KEY_S,
-    VIRTUAL_KEY_SPACE,
-    VIRTUAL_KEY_W,
-)
+from flyff_bot.features.input_control.keymap import VIRTUAL_KEY_W
 from flyff_bot.features.navigation.live_camera import (
     CameraReading,
     CameraState,
@@ -50,6 +45,7 @@ from flyff_bot.features.navigation.pathing import (
     PathingDecision,
     PathingMode,
 )
+from flyff_bot.features.navigation.stall_recovery import RecoveryEventKind
 from flyff_bot.features.navigation.teleport import TeleportAnchor, TeleportConfig
 from flyff_bot.features.navigation.tracking import StallConfig
 from flyff_bot.features.navigation.vector_navigation import (
@@ -187,10 +183,32 @@ def _state(seconds: float, mobs: tuple[VisibleMob, ...] = ()) -> WorldState:
     )
 
 
+def _wide_mesh() -> BakedNavMesh:
+    """Bake one flat walkable slab spanning every fixture camp and its approaches.
+
+    US-093 removed the 2D heightfield fallback, so a navigator only routes when it has a
+    baked mesh; this slab keeps the pure routing tests exercising the real Funnel pipeline.
+    """
+
+    def corner(x: float, z: float) -> WorldVertex:
+        return WorldVertex(x, 100.0, z)
+
+    return NavMeshBaker().bake(
+        (
+            WorldTriangle(corner(-50.0, -50.0), corner(420.0, -50.0), corner(420.0, 300.0), "fx"),
+            WorldTriangle(corner(-50.0, -50.0), corner(420.0, 300.0), corner(-50.0, 300.0), "fx"),
+        )
+    )
+
+
+WIDE_MESH = _wide_mesh()
+
+
 def _navigator(goals: tuple[ZoneGoal, ...]) -> VectorZoneNavigator:
     return VectorZoneNavigator(
         TERRAIN_WORLD_MAP,
         goals=goals,
+        navmesh=WIDE_MESH,
     )
 
 
@@ -294,33 +312,38 @@ def test_a_single_selected_zone_has_nowhere_to_advance_to() -> None:
     assert navigator.active_zone is FLAME_ZONE
 
 
-def test_live_stall_triggers_backstep_jump_and_pivot_evasion() -> None:
+def test_live_stall_projects_an_obstacle_ahead_and_replans_via_steering() -> None:
+    """US-093 AC1/AC2/AC3/AC5: no blind macro; a projected obstacle and an immediate replan."""
+
     stalled_at = WorldPosition(100.0, 100.0, 100.0)
-    reader = _LiveReader([stalled_at])
-    navigator = VectorZoneNavigator(
-        TERRAIN_WORLD_MAP,
-        goals=(ZoneGoal("Flame"),),
-    )
     controller = PathingController(
         config=PATHING_CONFIG,
-        vector_navigator=navigator,
-        position_reader=cast("LivePositionReader", reader),
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        navmesh=WIDE_MESH,
+        position_reader=cast("LivePositionReader", _LiveReader([stalled_at])),
     )
     controller.observe(_state(0.0))
     for at_seconds in (0.5, 1.0, 1.5, 2.0):
         controller.integrate_movement(VIRTUAL_KEY_W, 0.5)
         controller.observe(_state(at_seconds))
 
-    backstep = controller.step(2.0)
-    jump = controller.step(2.1)
-    pivot = controller.step(2.2)
+    assert controller.is_recovering
+    decision = controller.step(2.0)
 
-    # US-091 AC9: back out, jump the obstacle, then leave sideways past it.
-    assert backstep.virtual_key == VIRTUAL_KEY_S
-    assert jump.virtual_key == VIRTUAL_KEY_SPACE
-    assert pivot.virtual_keys == (VIRTUAL_KEY_W, VIRTUAL_KEY_D)
-    # The blocked spot is excluded from the next global replan straight away.
-    assert controller.temporary_world_blocks == (stalled_at,)
+    # Recovery steers a replanned NavMesh route; it never queues a backstep, jump, or turn
+    # macro, and the controller stays logically in TRAVELING.
+    assert decision.mode is PathingMode.TRAVELING
+    assert VIRTUAL_KEY_W in (decision.virtual_key, *decision.virtual_keys)
+    # The obstacle is projected ahead of the character, never onto its own coordinate.
+    blocks = controller.temporary_world_blocks
+    assert len(blocks) == 1
+    assert blocks[0] != stalled_at
+    assert blocks[0].z > stalled_at.z
+    kinds = [event.kind for event in controller.drain_recovery_events()]
+    assert RecoveryEventKind.STALL_DETECTED in kinds
+    assert RecoveryEventKind.TEMPORARY_OBSTACLE_CREATED in kinds
+    assert RecoveryEventKind.LOCAL_REPLAN_REQUESTED in kinds
+    assert RecoveryEventKind.LOCAL_REPLAN_SUCCEEDED in kinds
 
 
 def test_long_range_teleport_anchor_dispatch() -> None:
@@ -524,6 +547,7 @@ def test_an_exhausted_camp_hands_the_session_to_the_next_selected_zone() -> None
         TERRAIN_WORLD_MAP,
         preferred_zones=(FLAME_ZONE, RAPRA_ZONE),
         goals=(ZoneGoal("Flame"), ZoneGoal("Rapra")),
+        navmesh=WIDE_MESH,
     )
     inside_flame_camp = WorldPosition(FLAME_ZONE.center_x, 100.0, FLAME_ZONE.center_z)
     walker = _WaypointWalker(inside_flame_camp)
@@ -571,8 +595,8 @@ def _canyon_mesh() -> BakedNavMesh:
     )
 
 
-def test_a_trapped_character_routes_to_the_nearest_reachable_mesh_node() -> None:
-    """US-091 AC10: a blocked camp route becomes an escape onto walkable ground."""
+def test_a_trapped_character_routes_to_a_verified_mesh_node_making_progress() -> None:
+    """US-093 AC7/AC8: an unroutable camp goal falls back to a verified walkable route."""
 
     mesh = _canyon_mesh()
     trapped_at = WorldPosition(-40.0, 100.0, 30.0)
@@ -589,12 +613,47 @@ def test_a_trapped_character_routes_to_the_nearest_reachable_mesh_node() -> None
     decision = controller.step(0.0)
 
     assert decision.mode is PathingMode.TRAVELING
-    escape = controller.world_waypoints[-1]
-    assert mesh.contained_surface(escape) is not None
-    # The escape has to make progress towards the camp, not merely leave the pocket.
-    assert math.hypot(FLAME_ZONE.center_x - escape.x, FLAME_ZONE.center_z - escape.z) < math.hypot(
+    node = controller.world_waypoints[-1]
+    assert mesh.contained_surface(node) is not None
+    # The route has to make progress towards the camp, not merely leave the pocket.
+    assert math.hypot(FLAME_ZONE.center_x - node.x, FLAME_ZONE.center_z - node.z) < math.hypot(
         FLAME_ZONE.center_x - trapped_at.x, FLAME_ZONE.center_z - trapped_at.z
     )
+
+
+def test_repeated_local_stalls_escalate_to_the_geometric_escape_planner() -> None:
+    """US-093 AC6/AC7: a second stall in the same spot hands the trap to the escape planner."""
+
+    stalled_at = WorldPosition(100.0, 100.0, 100.0)
+    controller = PathingController(
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        navmesh=WIDE_MESH,
+        position_reader=cast("LivePositionReader", _LiveReader([stalled_at])),
+    )
+    controller.observe(_state(0.0))
+    for at_seconds in (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5):
+        controller.integrate_movement(VIRTUAL_KEY_W, 0.5)
+        controller.observe(_state(at_seconds))
+
+    decision = controller.step(4.5)
+
+    assert decision.mode is PathingMode.TRAVELING
+    kinds = [event.kind for event in controller.drain_recovery_events()]
+    assert RecoveryEventKind.REPEATED_LOCAL_STALL in kinds
+    assert RecoveryEventKind.ESCAPE_PLAN_SUCCEEDED in kinds
+    assert WIDE_MESH.contained_surface(controller.world_waypoints[-1], tolerance=1.0) is not None
+
+
+def test_a_projected_obstacle_never_hard_blocks_the_start_polygon() -> None:
+    """US-093 AC4: A* still routes out of a polygon an obstacle circle covers."""
+
+    mesh = _wide_mesh()
+    start = WorldPosition(0.0, 100.0, 0.0)
+    goal = WorldPosition(200.0, 100.0, 150.0)
+    covering_start = ((start, 5.0),)
+
+    assert mesh.find_path(start, goal, obstacles=covering_start)
 
 
 def test_an_adopted_navigator_shares_the_controller_mesh() -> None:
@@ -621,13 +680,14 @@ def test_a_controller_without_a_mesh_adopts_the_one_loaded_with_the_world_map() 
     assert controller.navmesh is mesh
 
 
-def test_the_emergency_stop_releases_a_queued_evasion_sequence() -> None:
-    """US-091 AC12: the killswitch drops evasion input and the obstacle memory with it."""
+def test_the_emergency_stop_aborts_recovery_and_clears_the_obstacle_memory() -> None:
+    """US-093 AC11: the killswitch halts recovery and drops the projected obstacle memory."""
 
     stalled_at = WorldPosition(100.0, 100.0, 100.0)
     controller = PathingController(
         config=PATHING_CONFIG,
         vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        navmesh=WIDE_MESH,
         position_reader=cast("LivePositionReader", _LiveReader([stalled_at])),
     )
     controller.observe(_state(0.0))
@@ -635,10 +695,12 @@ def test_the_emergency_stop_releases_a_queued_evasion_sequence() -> None:
         controller.integrate_movement(VIRTUAL_KEY_W, 0.5)
         controller.observe(_state(at_seconds))
 
-    assert controller.has_pending_evasion
+    assert controller.is_recovering
+    assert controller.temporary_world_blocks
 
     controller.emergency_stop()
 
-    assert not controller.has_pending_evasion
+    assert not controller.is_recovering
     assert controller.temporary_world_blocks == ()
     assert controller.world_waypoints == ()
+    assert controller.drain_recovery_events() == ()

@@ -261,8 +261,8 @@ TACTICAL_APPROACH_DISTANCE_MULTIPLIERS = (0.75, 1.0, 1.25)
 def _default_reposition_config() -> SearchConfig:
     """Return the bounded camera sweep used to look around a blocked approach.
 
-    Clearing the blockage itself is the pathing controller's evasion sequence; this sweep
-    only re-acquires a target once the character has moved (US-091).
+    Clearing the blockage itself is the pathing controller's geometry-verified stall
+    recovery; this sweep only re-acquires a target once the character has moved (US-093).
     """
 
     return SearchConfig(
@@ -2550,6 +2550,7 @@ class FarmingOrchestrator:
                     self._set_mode(FarmingMode.SEARCHING, reason="quest_route_unavailable")
                     return False
             decision = pathing.step(self._state.observed_at_seconds) if pathing else None
+            self._forward_recovery_events()
             if decision is None or decision.mode is PathingMode.IDLE:
                 self._set_mode(FarmingMode.SEARCHING, reason="quest_route_unavailable")
                 return False
@@ -2575,14 +2576,13 @@ class FarmingOrchestrator:
         decision = pathing.step(self._state.observed_at_seconds)
         from flyff_bot.features.navigation.pathing import PathingMode
 
+        self._forward_recovery_events()
         if decision.mode is PathingMode.IDLE and pathing.navmesh_target is None:
             self._pending_target_click = None
             if self._telemetry is not None:
                 self._telemetry.finish_navigation(NavigationOutcome.ROUTE_UNAVAILABLE.value)
             self._set_mode(FarmingMode.SEARCHING, reason="route_unavailable")
             return False
-        if self._telemetry is not None and decision.mode is PathingMode.EVADING:
-            self._telemetry.record_navigation_evasion(decision.key_press_duration_seconds or 0.0)
         if not self._pathing_dispatcher.dispatch(decision):
             pathing.reject(decision)
             return False
@@ -2727,7 +2727,7 @@ class FarmingOrchestrator:
     def _advance_repositioning(self) -> bool:
         """Steer one re-positioning step, or hand back to searching once the sweep is done."""
 
-        if self._pathing is not None and self._pathing.has_pending_evasion:
+        if self._pathing is not None and self._pathing.is_recovering:
             return self._advance_pathing()
         decision = self._reposition.step(self._state.observed_at_seconds)
         if self._reposition.completed_cycles >= REPOSITION_SWEEP_CYCLES:
@@ -2903,6 +2903,7 @@ class FarmingOrchestrator:
         from flyff_bot.features.navigation.pathing import PathingMode
 
         decision = self._pathing.step(self._state.observed_at_seconds)
+        self._forward_recovery_events()
         if decision.mode is PathingMode.BLOCKED:
             self.pause(reason="gps_unavailable", manual=False)
             return False
@@ -2911,10 +2912,6 @@ class FarmingOrchestrator:
             waypoints = self._pathing.world_waypoints
             if decision.mode is PathingMode.TRAVELING and live_position is not None and waypoints:
                 self._telemetry.begin_navigation(live_position, waypoints)
-            if decision.mode is PathingMode.EVADING:
-                self._telemetry.record_navigation_evasion(
-                    decision.key_press_duration_seconds or 0.0
-                )
             if decision.mode is PathingMode.IDLE:
                 self._telemetry.finish_navigation(NavigationOutcome.REACHED_TARGET.value)
         if not self._pathing_dispatcher.dispatch(decision):
@@ -2923,6 +2920,26 @@ class FarmingOrchestrator:
         self._pathing.confirm(decision)
         self._search.reset()
         return True
+
+    def _forward_recovery_events(self) -> None:
+        """Drain geometry-verified stall-recovery milestones to telemetry (US-093)."""
+
+        pathing = self._pathing
+        if pathing is None:
+            return
+        events = pathing.drain_recovery_events()
+        telemetry = self._telemetry
+        if telemetry is None:
+            return
+        from flyff_bot.features.navigation.stall_recovery import RecoveryEventKind
+
+        for event in events:
+            telemetry.record_stall_recovery_event(event)
+            if event.kind in {
+                RecoveryEventKind.LOCAL_REPLAN_SUCCEEDED,
+                RecoveryEventKind.ESCAPE_PLAN_SUCCEEDED,
+            }:
+                telemetry.record_navigation_evasion()
 
     def _record_kill(self, class_name: str | None) -> None:
         if not self._kill_goals.record_kill(class_name):

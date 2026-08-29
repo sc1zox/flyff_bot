@@ -1258,3 +1258,24 @@ remains only as the no-mesh fallback; removing it and moving `SimulatorEngine` o
 `VectorRoutePlanner` is left as the follow-up pruning task. Evidence is offline: new unit tests for
 the sweep, the zone lock, the self-defence guard, mesh patrol legs, escape routing, mesh sharing and
 obstacle-aware attack points; the full gate passes with 1313 tests.
+
+## [2026-08-29] synthesis | Geometry-verified stall recovery and unified NavMesh routing (US-093)
+
+Replaced the blind stall-recovery macro with geometry. `PathingMode.EVADING`, `_evasion_steps`, and
+the `EVASION_*` constants are gone; a stall stays in `TRAVELING`. `features/navigation/stall_recovery.py`
+holds `StallObservation`, `TemporaryObstacleRegistry` (obstacle projected 1.2 m ahead of the
+character, snapped to the mesh, 1.5 m radius, 15/30/60 s hit-scaled TTL), `RepeatedLocalStallTracker`
+(2.0 m / 10 s), the internal `RecoveryContext`/`RecoveryPhase`, and `plan_escape_candidates`
+(concentric rings 0.75/1.5/2.5 m, slope/clearance/reachability/progress validation, deterministic
+scoring). `BakedNavMesh.find_path`/`find_polygon_path` gained an `obstacles` parameter that excludes
+intersecting polygons from A* while protecting the start polygon, plus `surface_slope_degrees`. The
+first stall triggers an immediate obstacle-aware replan; a second local stall escalates to the
+escape planner, whose waypoint resumes routing to the original goal on arrival. `terrain_routing.py`
+and `test_terrain_routing.py` are deleted: `VectorZoneNavigator` routes only over the baked mesh and
+a world with no baked mesh hard-blocks. Telemetry gained seven recovery event kinds and
+`record_stall_recovery_event`, drained each tick by the orchestrator;
+`NavigationEpisode.collision_evasions`/`evasion_seconds` are kept as generic recovery counters.
+Evidence is offline: rewritten and new unit tests for projected-obstacle replan, repeated-stall
+escalation, start-polygon protection, emergency-stop teardown, and recovery-event telemetry. The
+US-093 slice is green; a pre-existing `main` rebase-integration breakage in `test_ui.py` /
+`client_profiling` / `dungeons` (unrelated to navigation) is tracked separately.

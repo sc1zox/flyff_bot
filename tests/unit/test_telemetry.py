@@ -15,6 +15,7 @@ from flyff_bot.features.automation.readiness import (
 )
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import NavMeshBaker
+from flyff_bot.features.navigation.stall_recovery import RecoveryEvent, RecoveryEventKind
 from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
 from flyff_bot.features.tactical_parameters import (
     DEFAULT_TACTICAL_PARAMETERS,
@@ -235,6 +236,51 @@ def test_recorder_persists_only_live_terrain_route_trajectory_and_stalls(tmp_pat
     assert episode["stall_events"] == 1
     assert episode["stall_duration_seconds"] == 1.0
     assert episode["collision_evasions"] == 1
+
+
+def test_recorder_persists_geometry_verified_stall_recovery_events(tmp_path: Path) -> None:
+    timestamps = iter(range(1, 20))
+    recorder = TelemetryRecorder(
+        TelemetrySessionMetadata(area_id="area", session_id="recovery"),
+        lambda session_id, area_id: JsonlTelemetryWorker(session_id, area_id, root=tmp_path),
+        clock_ns=lambda: next(timestamps) * 1_000_000_000,
+        utc_now=lambda: datetime(2026, 8, 19, tzinfo=UTC),
+    )
+    recorder.start()
+    recorder.record_stall_recovery_event(
+        RecoveryEvent(RecoveryEventKind.STALL_DETECTED, WorldPosition(1.0, 2.0, 3.0), 4.0)
+    )
+    recorder.record_stall_recovery_event(
+        RecoveryEvent(
+            RecoveryEventKind.TEMPORARY_OBSTACLE_CREATED,
+            WorldPosition(1.0, 2.0, 4.2),
+            4.0,
+            obstacle_radius=1.5,
+            hit_count=1,
+        )
+    )
+    recorder.record_stall_recovery_event(
+        RecoveryEvent(RecoveryEventKind.ESCAPE_PLAN_SUCCEEDED, WorldPosition(3.0, 2.0, 3.0), 6.0)
+    )
+    recorder.close()
+
+    records = [
+        json.loads(line)
+        for line in _session_file(tmp_path, "area", "recovery")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    kinds = [record["event_kind"] for record in records]
+    assert "stall_detected" in kinds
+    assert "escape_plan_succeeded" in kinds
+    obstacle = next(
+        record["payload"]
+        for record in records
+        if record["event_kind"] == "temporary_obstacle_created"
+    )
+    assert obstacle["obstacle_radius"] == 1.5
+    assert obstacle["hit_count"] == 1
+    assert obstacle["position"] == {"x": 1.0, "y": 2.0, "z": 4.2}
 
 
 def test_target_selection_keeps_live_position_and_controller_lockout(tmp_path: Path) -> None:

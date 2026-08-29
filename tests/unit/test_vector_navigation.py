@@ -56,7 +56,7 @@ WORLD_MAP = WorldVectorMap(
 
 
 def _navigator(goals: tuple[ZoneGoal, ...]) -> VectorZoneNavigator:
-    return VectorZoneNavigator(WORLD_MAP, goals=goals)
+    return VectorZoneNavigator(WORLD_MAP, goals=goals, navmesh=WIDE_MESH)
 
 
 def test_a_navigator_without_goals_is_inactive_and_never_selects_a_zone() -> None:
@@ -140,6 +140,20 @@ def _camp_mesh() -> BakedNavMesh:
             _triangle((60.0, 100.0, 60.0), (140.0, 100.0, 140.0), (60.0, 100.0, 140.0)),
         )
     )
+
+
+def _wide_mesh() -> BakedNavMesh:
+    """Bake one flat slab spanning every fixture camp (US-093 removed the 2D fallback)."""
+
+    return NavMeshBaker().bake(
+        (
+            _triangle((40.0, 100.0, 40.0), (560.0, 100.0, 40.0), (560.0, 100.0, 560.0)),
+            _triangle((40.0, 100.0, 40.0), (560.0, 100.0, 560.0), (40.0, 100.0, 560.0)),
+        )
+    )
+
+
+WIDE_MESH = _wide_mesh()
 
 
 def test_patrol_legs_are_routed_over_the_baked_collision_mesh() -> None:

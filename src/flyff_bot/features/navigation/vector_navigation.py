@@ -8,10 +8,6 @@ from dataclasses import dataclass, field
 
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
-from flyff_bot.features.navigation.terrain_routing import (
-    TerrainRouteConfig,
-    TerrainRoutePlanner,
-)
 from flyff_bot.features.navigation.world_extractor import (
     VectorSpawnZone,
     WorldCoordinate,
@@ -107,11 +103,9 @@ class VectorZoneNavigator:
         preferred_zone: VectorSpawnZone | None = None,
         preferred_zones: Iterable[VectorSpawnZone] = (),
         navmesh: BakedNavMesh | None = None,
-        terrain_config: TerrainRouteConfig | None = None,
     ) -> None:
         self._map = world_map
         self._navmesh = navmesh
-        self._terrain_planner = TerrainRoutePlanner(world_map, terrain_config)
         self._terrain_samples = world_map.terrain.samples()
         self._goals: tuple[ZoneGoal, ...] = tuple(goals)
         self._progress = _GoalProgress()
@@ -137,10 +131,10 @@ class VectorZoneNavigator:
     def attach_navmesh(self, navmesh: BakedNavMesh | None) -> None:
         """Adopt the same baked mesh combat approaches route over.
 
-        Zone travel and combat approaches used to be planned by two different routers, so a
-        patrol could walk a line the approach planner considered solid. Both read one mesh
-        now; the extracted heightfield only remains the fallback for a world whose mesh has
-        not been baked yet (US-091).
+        Zone travel and combat approaches read one authoritative mesh: a patrol can no longer
+        walk a line the approach planner considers solid. A session whose world has no baked
+        mesh has no route at all and blocks rather than steering into unverified terrain
+        (US-093).
         """
 
         self._navmesh = navmesh
@@ -342,18 +336,20 @@ class VectorZoneNavigator:
         destination: WorldPosition,
         temporary_blocks: tuple[WorldPosition, ...],
     ) -> tuple[WorldPosition, ...] | None:
-        """Return one walkable leg of the patrol, or ``None`` when it is impassable."""
+        """Return one walkable leg of the patrol, or ``None`` when it is impassable.
+
+        Every leg is routed over the authoritative baked mesh; a world with no baked mesh has
+        no walkable route and every leg is refused (US-093).
+        """
 
         mesh = self._navmesh
-        if mesh is not None and mesh.polygons:
-            route = mesh.find_path(start, destination)
-            if not route or _crosses_block(route, temporary_blocks):
-                return None
-            return route
-        leg = self._terrain_planner.plan(start, destination, temporary_blocks=temporary_blocks)
-        if leg.blocked or leg.is_empty:
+        if mesh is None or not mesh.polygons:
             return None
-        return tuple(item.position for item in leg.waypoints)
+        obstacles = tuple((block, TEMPORARY_BLOCK_CLEARANCE_UNITS) for block in temporary_blocks)
+        route = mesh.find_path(start, destination, obstacles=obstacles)
+        if not route or _crosses_block(route, temporary_blocks):
+            return None
+        return route
 
     def zone_contains_world(self, position: WorldPosition) -> bool:
         """Return whether a live world position lies in the selected spawn rectangle."""
@@ -382,11 +378,15 @@ class VectorZoneNavigator:
 
 
 def _crosses_block(route: tuple[WorldPosition, ...], blocks: tuple[WorldPosition, ...]) -> bool:
-    """Return whether a planned leg runs through a node that already stalled the character."""
+    """Return whether a planned leg still runs through a recorded stall spot.
+
+    The leg's own start is skipped: the character is standing there and the whole point of
+    the replan is to route away from it, not to refuse the only way out (US-093).
+    """
 
     return any(
         math.hypot(point.x - block.x, point.z - block.z) <= TEMPORARY_BLOCK_CLEARANCE_UNITS
-        for point in route
+        for point in route[1:]
         for block in blocks
     )
 

@@ -14,7 +14,6 @@ from flyff_bot.features.input_control.keymap import (
     VIRTUAL_KEY_LEFT,
     VIRTUAL_KEY_RIGHT,
     VIRTUAL_KEY_S,
-    VIRTUAL_KEY_SPACE,
     VIRTUAL_KEY_W,
 )
 from flyff_bot.features.navigation.attack_point_planner import (
@@ -40,6 +39,18 @@ from flyff_bot.features.navigation.snapshots import (
     NavigationSnapshot,
     NavMeshMobSnapshot,
     VectorZoneSnapshot,
+)
+from flyff_bot.features.navigation.stall_recovery import (
+    REPEATED_LOCAL_STALL_HIT_COUNT,
+    RecoveryContext,
+    RecoveryEvent,
+    RecoveryEventKind,
+    RecoveryPhase,
+    RepeatedLocalStallTracker,
+    StallObservation,
+    TemporaryObstacleRegistry,
+    plan_escape_candidates,
+    select_escape,
 )
 from flyff_bot.features.navigation.targeting import enrich_visible_mobs, mob_world_position
 from flyff_bot.features.navigation.teleport import (
@@ -73,20 +84,6 @@ DEFAULT_NAVMESH_LEASH_RADIUS_UNITS = 100.0
 DEFAULT_NAVMESH_WAYPOINT_ARRIVAL_UNITS = 1.5
 DEFAULT_NAVMESH_ENGAGEMENT_DISTANCE_UNITS = 3.0
 DEFAULT_QUEST_INTERACTION_DISTANCE_UNITS = 3.0
-EVASION_DIAGONAL_DURATION_SECONDS = 0.25
-EVASION_BACKSTEP_DURATION_SECONDS = 0.25
-# Flyff clears low ledges, roots, and fence posts by jumping. The jump is part of the evasion
-# sequence rather than a separate recovery because most stalls in a spawn zone are exactly
-# that kind of obstacle (US-091).
-EVASION_JUMP_DURATION_SECONDS = 0.15
-REPEATED_STALL_RADIUS_UNITS = 3.0
-TEMPORARY_BLOCK_DURATION_SECONDS = 30.0
-# Escape sampling for a character wedged in a canyon or inside collision geometry: rings of
-# candidate nodes are projected onto the mesh until one is both reachable and closer to the
-# camp than the trap (US-091).
-ESCAPE_SAMPLE_COUNT = 12
-ESCAPE_SAMPLE_RADII_UNITS = (6.0, 12.0, 24.0)
-ESCAPE_MINIMUM_PROGRESS_UNITS = 1.0
 FULL_TURN_DEGREES = 360.0
 HALF_TURN_DEGREES = 180.0
 
@@ -110,7 +107,6 @@ class PathingMode(StrEnum):
     TRAVELING = "traveling"
     BLOCKED = "blocked"
     TELEPORTING = "teleporting"
-    EVADING = "evading"
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +176,12 @@ class PathingController:
         self._position_reader = position_reader
         self._camera_reader = camera_reader
         self._navmesh = navmesh
+        if vector_navigator is not None:
+            # Patrol routing, combat approaches, and stall-recovery escape routing must all
+            # read one authoritative mesh (US-093).
+            if self._navmesh is None:
+                self._navmesh = vector_navigator.navmesh
+            vector_navigator.attach_navmesh(self._navmesh)
         self._navmesh_anchor: WorldPosition | None = None
         self._objective_anchor: WorldPosition | None = None
         self._objective_leash_radius_units: float | None = None
@@ -200,11 +202,11 @@ class PathingController:
         self._teleport = TeleportController(teleport_config)
         self._teleporter_dispatcher = teleporter_dispatcher
         self._pending_decision: PathingDecision | None = None
-        self._evasion_steps: list[PathingDecision] = []
-        self._last_live_stall: WorldPosition | None = None
-        self._evasion_strafes_right = True
-        self._tangent_block: WorldPosition | None = None
-        self._temporary_blocks: list[tuple[WorldPosition, float]] = []
+        self._obstacles = TemporaryObstacleRegistry()
+        self._repeated_stalls = RepeatedLocalStallTracker()
+        self._recovery = RecoveryContext()
+        self._recovery_events: list[RecoveryEvent] = []
+        self._stall_previous_position: WorldPosition | None = None
         self._vector_zone: VectorSpawnZone | None = None
         self._mode = PathingMode.IDLE
         self._waypoint_index = 0
@@ -395,16 +397,16 @@ class PathingController:
         return navigator.world_map.terrain.gradient_at(WorldCoordinate(position.x, position.z))
 
     @property
-    def has_pending_evasion(self) -> bool:
-        """Return whether a live collision queued local strafe/backstep recovery."""
+    def is_recovering(self) -> bool:
+        """Return whether a stall is being worked through by a local replan or an escape."""
 
-        return bool(self._evasion_steps)
+        return self._recovery.is_recovering
 
     @property
     def temporary_world_blocks(self) -> tuple[WorldPosition, ...]:
-        """Return repeated-stall nodes currently excluded from global terrain replans."""
+        """Return active NavMesh-projected stall obstacles currently excluded from replans."""
 
-        return tuple(item[0] for item in self._temporary_blocks)
+        return self._obstacles.positions(self._live_sampled_at_seconds or 0.0)
 
     @property
     def is_stalled(self) -> bool:
@@ -474,7 +476,8 @@ class PathingController:
         self._waypoint_index = 0
         self._planned_at_seconds = None
         self._navmesh_target = None
-        self._evasion_steps.clear()
+        self._recovery.reset()
+        self._recovery_events.clear()
         self._pending_decision = None
         dispatcher.request(destination, at_seconds)
         return True
@@ -693,6 +696,7 @@ class PathingController:
         self._world_waypoints = ()
         self._waypoint_index = 0
         self._planned_at_seconds = None
+        self._recovery.reset()
         self._mode = PathingMode.IDLE
 
     def target_in_engagement_range(self) -> bool:
@@ -743,6 +747,8 @@ class PathingController:
         """Record live position delta and stall evidence for one tick."""
 
         at_seconds = state.observed_at_seconds
+        previous_position = self._live_position
+        self._stall_previous_position = previous_position
         self.track(state, frame)
         stalled = self._stalls.observe(
             frame,
@@ -755,21 +761,17 @@ class PathingController:
         if not self.is_gps_available:
             self._stalled = stalled
             return
-        if (
-            stalled
-            and self._mode not in {PathingMode.BLOCKED, PathingMode.EVADING}
-            and self._live_position is not None
-        ):
-            self._register_live_stall(self._live_position, at_seconds)
+        if stalled and self._mode is not PathingMode.BLOCKED and self._live_position is not None:
+            self._register_stall(previous_position, at_seconds)
         self._stalled = stalled
 
     def register_obstacle(self, at_seconds: float) -> bool:
-        """Record an externally detected obstacle at the current position."""
+        """Record an externally detected obstacle ahead of the current position."""
 
-        if self._mode in {PathingMode.BLOCKED, PathingMode.EVADING}:
+        if self._mode is PathingMode.BLOCKED:
             return False
         if self._live_position is not None:
-            self._register_live_stall(self._live_position, at_seconds)
+            self._register_stall(self._stall_previous_position, at_seconds)
             self._stalled = True
             return True
         return False
@@ -829,8 +831,6 @@ class PathingController:
             decision = self._pending_decision
             self._pending_decision = None
             return decision
-        if self._evasion_steps:
-            return self._evasion_steps.pop(0)
         if self._needs_route(at_seconds):
             self._plan(at_seconds)
         if self._pending_decision is not None:
@@ -856,6 +856,13 @@ class PathingController:
         )
         if keys:
             self.integrate_movement(keys, decision.key_press_duration_seconds)
+
+    def drain_recovery_events(self) -> tuple[RecoveryEvent, ...]:
+        """Return and clear the recovery milestones queued since the last drain."""
+
+        events = tuple(self._recovery_events)
+        self._recovery_events.clear()
+        return events
 
     def _tick_teleporter(self, at_seconds: float) -> bool:
         """Advance a pending guarded teleporter transition, if one is armed."""
@@ -895,13 +902,14 @@ class PathingController:
         self._mode = PathingMode.IDLE
         self._world_waypoints = ()
         self._pending_decision = None
-        self._evasion_steps.clear()
-        self._tangent_block = None
-        self._temporary_blocks.clear()
+        self._obstacles.clear()
+        self._repeated_stalls.clear()
+        self._recovery.reset()
+        self._recovery_events.clear()
+        self._stall_previous_position = None
         self._movement_commanded = False
         self._navmesh_target = None
         self._navigation_trajectory = []
-        self._last_live_stall = None
         self._stalls.reset()
         self._teleport.reset()
         if self._teleporter_dispatcher is not None:
@@ -949,46 +957,99 @@ class PathingController:
         self._waypoint_index = 0
         self._planned_at_seconds = None
         self._pending_decision = None
-        self._evasion_steps.clear()
+        self._recovery.reset()
         self._movement_commanded = False
         self._mode = PathingMode.BLOCKED
 
-    def _register_live_stall(self, position: WorldPosition, at_seconds: float) -> None:
-        """Queue bounded diagonal/backward evasion and temporary obstacle avoidance."""
+    def _register_stall(self, previous_position: WorldPosition | None, at_seconds: float) -> None:
+        """Capture a structured stall, project the obstacle, and start geometric recovery.
 
-        previous = self._last_live_stall
-        if previous is not None and previous.distance_to(position) <= REPEATED_STALL_RADIUS_UNITS:
-            # The same spot blocked twice: the previous pivot direction is the one that did
-            # not work, so the next attempt leaves in the opposite direction.
-            self._evasion_strafes_right = not self._evasion_strafes_right
-        # The obstacle is recorded on the first stall rather than on the second: a global
-        # replan that still routes through it would only walk back into the same collision.
-        self._temporary_blocks.append((position, at_seconds + TEMPORARY_BLOCK_DURATION_SECONDS))
-        self._last_live_stall = position
-        self._tangent_block = position
+        No blind macro is queued: the active route is invalidated, the obstruction is
+        projected onto the mesh ahead of the character, and recovery continues through the
+        standard ``_steer()`` pipeline while the controller stays in ``TRAVELING`` (US-093).
+        """
+
+        live = self._live_position
+        if live is None:
+            return
+        waypoint = self._current_route_waypoint()
+        observation = StallObservation(
+            previous_position=previous_position or live,
+            current_position=live,
+            intended_direction=self._intended_direction(live, waypoint),
+            intended_waypoint=waypoint,
+            current_polygon_id=(
+                None if self._navmesh is None else self._navmesh.polygon_or_region_id(live)
+            ),
+            timestamp=at_seconds,
+        )
+        self._recovery.last_observation = observation
+        self._recovery.stall_count += 1
+        if self._recovery.original_goal is None:
+            self._recovery.original_goal = self._navmesh_target or self._active_goal_position()
+        self._queue_recovery_event(RecoveryEventKind.STALL_DETECTED, live, at_seconds)
+        obstacle = self._obstacles.register(
+            observation, navmesh=self._navmesh, at_seconds=at_seconds
+        )
+        if obstacle is not None:
+            self._queue_recovery_event(
+                RecoveryEventKind.TEMPORARY_OBSTACLE_CREATED,
+                obstacle.position,
+                at_seconds,
+                obstacle_radius=obstacle.radius,
+                hit_count=obstacle.hit_count,
+            )
+        hits = self._repeated_stalls.record(live, at_seconds)
         self._world_waypoints = ()
         self._waypoint_index = 0
         self._planned_at_seconds = None
-        self._mode = PathingMode.EVADING
-        pivot_key = VIRTUAL_KEY_D if self._evasion_strafes_right else VIRTUAL_KEY_A
-        self._evasion_steps = [
-            PathingDecision(
-                PathingMode.EVADING,
-                virtual_key=VIRTUAL_KEY_S,
-                key_press_duration_seconds=EVASION_BACKSTEP_DURATION_SECONDS,
-            ),
-            PathingDecision(
-                PathingMode.EVADING,
-                virtual_key=VIRTUAL_KEY_SPACE,
-                key_press_duration_seconds=EVASION_JUMP_DURATION_SECONDS,
-            ),
-            PathingDecision(
-                PathingMode.EVADING,
-                key_press_duration_seconds=EVASION_DIAGONAL_DURATION_SECONDS,
-                virtual_keys=(VIRTUAL_KEY_W, pivot_key),
-            ),
-        ]
+        if self._mode is not PathingMode.TELEPORTING:
+            self._mode = PathingMode.TRAVELING
+        if hits >= REPEATED_LOCAL_STALL_HIT_COUNT:
+            self._recovery.phase = RecoveryPhase.ESCAPE
+            self._queue_recovery_event(
+                RecoveryEventKind.REPEATED_LOCAL_STALL, live, at_seconds, hit_count=hits
+            )
+        else:
+            self._recovery.phase = RecoveryPhase.LOCAL_REPLAN
+            self._queue_recovery_event(RecoveryEventKind.LOCAL_REPLAN_REQUESTED, live, at_seconds)
         self._stalls.reset()
+
+    def _queue_recovery_event(
+        self,
+        kind: RecoveryEventKind,
+        position: WorldPosition,
+        at_seconds: float,
+        *,
+        obstacle_radius: float | None = None,
+        hit_count: int | None = None,
+    ) -> None:
+        self._recovery_events.append(
+            RecoveryEvent(kind, position, at_seconds, obstacle_radius, hit_count)
+        )
+
+    def _current_route_waypoint(self) -> WorldPosition | None:
+        if self._world_waypoints and self._waypoint_index < len(self._world_waypoints):
+            return self._world_waypoints[self._waypoint_index]
+        return None
+
+    def _intended_direction(
+        self, live: WorldPosition, waypoint: WorldPosition | None
+    ) -> tuple[float, float]:
+        if waypoint is not None:
+            delta_x = waypoint.x - live.x
+            delta_z = waypoint.z - live.z
+            if math.hypot(delta_x, delta_z) > 0.0:
+                return (delta_x, delta_z)
+        heading = math.radians(self.heading_degrees)
+        return (math.sin(heading), math.cos(heading))
+
+    def _active_goal_position(self) -> WorldPosition | None:
+        navigator = self._vector_navigator
+        zone = None if navigator is None else navigator.active_zone
+        if zone is None:
+            return None
+        return WorldPosition(zone.center_x, zone.center_y, zone.center_z)
 
     def _poll_live_position(self, at_seconds: float) -> None:
         reader = self._position_reader
@@ -1036,11 +1097,24 @@ class PathingController:
             if dist > arrival_radius:
                 return self._steer(PathingMode.TRAVELING, target.x, target.z)
             self._waypoint_index += 1
-        if self._world_waypoints and self._navmesh_target is None and self._vector_zone is not None:
+        resumed_from_escape = self._recovery.escape_waypoint is not None
+        if (
+            self._world_waypoints
+            and self._navmesh_target is None
+            and self._vector_zone is not None
+            and not resumed_from_escape
+        ):
             self._completed_zone_sweeps += 1
         self._world_waypoints = ()
         self._waypoint_index = 0
         self._planned_at_seconds = None
+        if resumed_from_escape:
+            # The escape point was reached: resume routing to the original goal instead of
+            # idling, so the trap does not simply re-arm on the next tick (US-093).
+            self._recovery.reset()
+            self._plan(at_seconds)
+            if self._world_waypoints:
+                return self._follow_route(at_seconds)
         self._mode = PathingMode.IDLE
         return PathingDecision(PathingMode.IDLE)
 
@@ -1073,6 +1147,9 @@ class PathingController:
             return
         if self._plan_vector_route(at_seconds):
             return
+        # Nothing could be routed: abandon recovery so a stuck route can never latch the
+        # controller into a permanent recovering state (US-093).
+        self._recovery.reset()
         self._world_waypoints = ()
         self._waypoint_index = 0
         self._planned_at_seconds = at_seconds
@@ -1089,7 +1166,7 @@ class PathingController:
             return True
         previous_target = self._planned_attack_target
         if previous_target is not None and previous_target != target:
-            route = mesh.find_path(start, target)
+            route = mesh.find_path(start, target, obstacles=self._obstacles.circles(at_seconds))
             if not route:
                 self.cancel_target_approach()
                 return True
@@ -1142,21 +1219,23 @@ class PathingController:
             self._mode = PathingMode.TELEPORTING
             self._vector_zone = selection.zone
             return True
-        self._temporary_blocks = [item for item in self._temporary_blocks if item[1] > at_seconds]
-        plan = navigator.plan_live_route(
-            live,
-            temporary_blocks=(
-                tuple(item[0] for item in self._temporary_blocks)
-                + (() if self._tangent_block is None else (self._tangent_block,))
-            ),
-        )
-        self._tangent_block = None
+        if self._recovery.original_goal is None:
+            self._recovery.original_goal = target
+        if self._recovery.phase is RecoveryPhase.ESCAPE:
+            # Repeated local stalls at one spot: hand the trap straight to the geometric
+            # escape planner instead of re-planning through the same pocket (US-093).
+            if self._plan_escape_route(at_seconds, target):
+                return True
+            self._block_navigation()
+            return True
+        active_blocks = self._obstacles.positions(at_seconds)
+        plan = navigator.plan_live_route(live, temporary_blocks=active_blocks)
         self._vector_zone = plan.zone
         if plan.is_empty:
             # Every leg of the camp route was refused, which is what standing inside a canyon
             # or a collision pocket looks like from the router. Walking to the nearest
             # reachable mesh node first is what turns that dead end back into a route
-            # (US-091).
+            # (US-093).
             if self._plan_escape_route(at_seconds, target):
                 return True
             self._block_navigation()
@@ -1165,50 +1244,46 @@ class PathingController:
         self._waypoint_index = 0
         self._planned_at_seconds = at_seconds
         self._mode = PathingMode.TRAVELING
+        if self._recovery.phase is RecoveryPhase.LOCAL_REPLAN:
+            self._queue_recovery_event(RecoveryEventKind.LOCAL_REPLAN_SUCCEEDED, live, at_seconds)
+            self._recovery.phase = RecoveryPhase.NONE
         return True
 
     def _plan_escape_route(self, at_seconds: float, destination: WorldPosition) -> bool:
-        """Route to the nearest walkable mesh node that makes progress towards the camp.
+        """Route to a verified walkable NavMesh point that makes progress towards the goal.
 
-        The escape is deliberately not "the closest walkable surface": inside a canyon that
-        is the wall the character is already pressed against. Only a reachable node that
-        also shortens the distance to the camp ends the trap instead of restarting it.
+        Candidate points are sampled on concentric radial rings, projected onto the mesh,
+        and kept only when they clear the slope limit, stand clear of every recorded
+        obstacle, and shorten the distance to the goal; the best-scoring one becomes a
+        temporary waypoint routed through the standard steering pipeline (US-093).
         """
 
         mesh = self._navmesh
         live = self._live_position
         if mesh is None or live is None or not mesh.polygons:
             return False
-        trapped_gap = math.hypot(destination.x - live.x, destination.z - live.z)
-        for radius in ESCAPE_SAMPLE_RADII_UNITS:
-            best: tuple[float, float, float, tuple[WorldPosition, ...]] | None = None
-            for index in range(ESCAPE_SAMPLE_COUNT):
-                radians = math.radians(FULL_TURN_DEGREES * index / ESCAPE_SAMPLE_COUNT)
-                sample = WorldPosition(
-                    live.x + math.sin(radians) * radius,
-                    live.y,
-                    live.z + math.cos(radians) * radius,
-                )
-                node = mesh.nearest_walkable_position(sample)
-                if node is None:
-                    continue
-                gap = math.hypot(destination.x - node.x, destination.z - node.z)
-                if gap > trapped_gap - ESCAPE_MINIMUM_PROGRESS_UNITS:
-                    continue
-                route = mesh.find_path(live, node)
-                if not route:
-                    continue
-                # Ties are broken on the coordinates so one mesh always produces one escape.
-                ranked = (gap, node.x, node.z, route)
-                if best is None or ranked[:3] < best[:3]:
-                    best = ranked
-            if best is not None:
-                self._world_waypoints = best[3]
-                self._waypoint_index = 0
-                self._planned_at_seconds = at_seconds
-                self._mode = PathingMode.TRAVELING
-                return True
-        return False
+        candidates = plan_escape_candidates(
+            mesh=mesh,
+            live=live,
+            goal=destination,
+            obstacles=self._obstacles.circles(at_seconds),
+        )
+        chosen = select_escape(candidates)
+        if chosen is None:
+            self._queue_recovery_event(RecoveryEventKind.ESCAPE_PLAN_FAILED, live, at_seconds)
+            return False
+        self._world_waypoints = chosen.route
+        self._waypoint_index = 0
+        self._planned_at_seconds = at_seconds
+        self._mode = PathingMode.TRAVELING
+        self._recovery.phase = RecoveryPhase.ESCAPE
+        self._recovery.escape_waypoint = chosen.position
+        if self._recovery.original_goal is None:
+            self._recovery.original_goal = destination
+        self._queue_recovery_event(
+            RecoveryEventKind.ESCAPE_PLAN_SUCCEEDED, chosen.position, at_seconds
+        )
+        return True
 
 
 def _pathing_config_with_parameters(

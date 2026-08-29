@@ -32,6 +32,7 @@ related:
   - ../user-stories/completed/US-084-ml-modifiable-tactical-parameters-and-tuning.md
   - ../user-stories/completed/US-085-production-readiness-and-autonomous-farming-polish.md
   - ../user-stories/completed/US-091-unified-goal-navigation-fluid-scanning-and-intelligent-unstuck.md
+  - ../user-stories/completed/US-093-geometry-verified-stall-recovery-and-navmesh-routing-unification.md
   - ../user-stories/completed/US-086-unattended-autopilot-session-resilience-and-goal-arbitration.md
   - ../user-stories/completed/US-009-reactive-loot-controller.md
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
@@ -2638,3 +2639,60 @@ against. `AttackPointPlanner.plan` accepts those recorded obstacles: a candidate
 `OBSTACLE_CLEARANCE_UNITS` is refused outright and one inside `OBSTACLE_INFLUENCE_UNITS` is ranked
 worse than the same point in the open, so a learned attack-point action lands clear of known
 collisions.
+
+## Geometry-verified stall recovery and unified NavMesh routing (US-093, completed)
+
+**No blind macro survives.** US-091's stall recovery queued a fixed `S` backstep, `Space` jump, and
+`W`+`A`/`D` pivot and stored the character's *own* coordinate as the obstacle, so an A* replan from
+`start` either failed or collided with the start node. `PathingMode.EVADING`, `_evasion_steps`, and
+every `EVASION_*` constant are gone. A stall now stays in `PathingMode.TRAVELING`; recovery is a
+geometry problem, and every recovery move goes through the same `_steer()` the normal route uses.
+
+**A stall is a structured observation.** `PathingController._register_stall` builds a
+`StallObservation` (`features/navigation/stall_recovery.py`) carrying the previous and current live
+position, the intended movement direction (toward the active waypoint, else the camera heading), the
+intended waypoint, the current polygon id, and a timestamp. From it, `TemporaryObstacleRegistry`
+projects the obstruction `obstacle_probe_distance` (1.2 m) *ahead* along that direction, snaps it to
+the mesh with `nearest_walkable_position`, and stores it with a 1.5 m radius and a hit-scaled TTL
+(15 s / 30 s / 60 s for 1 / 2 / 3+ hits). A projection that collapses back onto the character is
+discarded, so the start coordinate is never blocked. `RepeatedLocalStallTracker` counts stalls
+inside a 2.0 m radius and a 10 s sliding window.
+
+**Obstacles are corridor-level exclusions.** `BakedNavMesh.find_path` / `find_polygon_path` take an
+`obstacles` tuple of `(centre, radius)` circles; `_polygon_ids_in_obstacles` marks a polygon blocked
+when the circle covers its interior (`_height_at_xz`) or comes within `radius` of an edge (2D segment
+distance), and `_a_star` skips those - except the start polygon, which is always removed from the
+blocked set so a character standing on an obstruction can still route out. `_plan_leg` in
+`VectorZoneNavigator` passes the active obstacles through and keeps a cheap coordinate check that
+skips the leg's own start point.
+
+**First stall replans, repeated stalls escape.** The first stall invalidates the route and sets
+`RecoveryContext.phase = LOCAL_REPLAN`; the next `step()` re-plans over the mesh with the active
+obstacles and resumes steering, emitting `LOCAL_REPLAN_REQUESTED` then `LOCAL_REPLAN_SUCCEEDED`. When
+`RepeatedLocalStallTracker` reaches two hits, the phase becomes `ESCAPE` and `_plan_escape_route`
+runs `plan_escape_candidates`: concentric rings at 0.75 / 1.5 / 2.5 m with 12 radial directions,
+each candidate projected onto the mesh, validated for containment, slope
+(`BakedNavMesh.surface_slope_degrees`), obstacle clearance, reachability, and goal progress, then
+scored deterministically on goal progress, travel distance, and clearance with a coordinate
+tie-break. The chosen point becomes a temporary waypoint routed through `_steer()`; on arrival
+`_follow_route` clears the escape state and replans to the original goal instead of idling. If
+nothing can be routed at all, `_plan` clears the recovery state so a stuck route can never latch the
+controller into a permanent recovering mode.
+
+**The legacy 2D router is gone.** `terrain_routing.py` (`TerrainRoutePlanner`, `TerrainRouteConfig`,
+`TerrainWaypoint`) and `test_terrain_routing.py` are deleted. `VectorZoneNavigator` routes every
+patrol leg over the `BakedNavMesh` alone and refuses every leg when no mesh is loaded, so a world
+with no baked NavMesh hard-blocks and `FarmingOrchestrator` pauses rather than steering over an
+unverified 2D heightfield. `PathingController.__init__` adopts the navigator's mesh at construction,
+matching `attach_vector_navigator`, so patrol, combat, and escape routing can never disagree.
+
+**Recovery is observable without a custom mode.** `TelemetryEventKind` gains `STALL_DETECTED`,
+`TEMPORARY_OBSTACLE_CREATED`, `LOCAL_REPLAN_REQUESTED`, `LOCAL_REPLAN_SUCCEEDED`,
+`REPEATED_LOCAL_STALL`, `ESCAPE_PLAN_SUCCEEDED`, and `ESCAPE_PLAN_FAILED`;
+`PathingController.drain_recovery_events()` hands a queue of `RecoveryEvent` values to
+`FarmingOrchestrator._forward_recovery_events`, which forwards each to
+`TelemetryRecorder.record_stall_recovery_event` and bumps the retained
+`NavigationEpisode.collision_evasions` / `evasion_seconds` counters on a successful replan or escape.
+`RecoveryContext` / `RecoveryPhase` stay internal to the controller. `emergency_stop()` clears the
+obstacle registry, the local-stall history, the recovery context, and the queued events alongside
+the existing key release.

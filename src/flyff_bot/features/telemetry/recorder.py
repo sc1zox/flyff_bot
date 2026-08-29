@@ -14,6 +14,7 @@ from flyff_bot.features.automation.target_reconciliation import TargetAgreement
 from flyff_bot.features.navigation.live_camera import CameraState
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh
+from flyff_bot.features.navigation.stall_recovery import RecoveryEvent
 from flyff_bot.features.player_stats.models import (
     PROFILE_DEXTERITY_FIELD,
     PROFILE_EXPERIENCE_FIELD,
@@ -402,11 +403,32 @@ class TelemetryRecorder:
             navigation.stall_started_at_ns = None
 
     def record_navigation_evasion(self, duration_seconds: float = 0.0) -> None:
-        """Count a confirmed bounded Q/S recovery action and its dispatched duration."""
+        """Count one confirmed recovery action and its dispatched duration."""
 
         if self._navigation is not None:
             self._navigation.collision_evasions += 1
             self._navigation.evasion_seconds += max(0.0, duration_seconds)
+
+    def record_stall_recovery_event(self, event: RecoveryEvent) -> None:
+        """Persist one geometry-verified stall-recovery milestone (US-093).
+
+        Recovery is tracked internally by ``RecoveryContext``; this only serializes the
+        discrete milestones so an offline replay can see when a stall was observed, an
+        obstacle projected, a local replan attempted, or an escape route planned.
+        """
+
+        if not self._started:
+            return
+        timestamp_ns = self._clock_ns()
+        payload: dict[str, object] = {
+            "position": primitive(_telemetry_position(event.position)),
+            "at_seconds": event.at_seconds,
+        }
+        if event.obstacle_radius is not None:
+            payload["obstacle_radius"] = event.obstacle_radius
+        if event.hit_count is not None:
+            payload["hit_count"] = event.hit_count
+        self._submit(TelemetryEventKind(event.kind.value), payload, timestamp_ns)
 
     def record_objective_progress(
         self, progress_delta: float, *, quest_id: str | None = None, completed: bool = False

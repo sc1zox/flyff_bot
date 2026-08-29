@@ -1,8 +1,10 @@
 """Deterministic multi-layer surface navigation over offline world triangles.
 
 This is an offline data/query layer.  It deliberately has no dependency on Win32 input,
-process memory, or a running client; live routing continues to use the US-052 terrain
-planner until a matching baked mesh is explicitly supplied by a later integration.
+process memory, or a running client.  Since US-093 it is the single authoritative router for
+the whole navigation stack: patrol sweeps, combat approaches, and stall-recovery escape
+routes all resolve through :meth:`BakedNavMesh.find_path`, and the legacy 2D heightfield
+planner has been removed.
 """
 
 from __future__ import annotations
@@ -235,10 +237,18 @@ class BakedNavMesh:
         goal: WorldPosition,
         *,
         routing_config: ExperienceRoutingConfig | None = None,
+        obstacles: tuple[tuple[WorldPosition, float], ...] = (),
     ) -> tuple[WorldPosition, ...]:
-        """Return collision-surface waypoints, or an empty tuple when endpoints disconnect."""
+        """Return collision-surface waypoints, or an empty tuple when endpoints disconnect.
 
-        polygon_path = self.find_polygon_path(start, goal, routing_config=routing_config)
+        ``obstacles`` is a tuple of ``(centre, radius)`` circles whose intersecting polygons
+        are excluded from the A* corridor, except the start polygon, which is never
+        hard-blocked so a character standing on an obstruction can still route out (US-093).
+        """
+
+        polygon_path = self.find_polygon_path(
+            start, goal, routing_config=routing_config, obstacles=obstacles
+        )
         if not polygon_path:
             return ()
         endpoints = self._endpoints(start, goal)
@@ -263,6 +273,7 @@ class BakedNavMesh:
         goal: WorldPosition,
         *,
         routing_config: ExperienceRoutingConfig | None = None,
+        obstacles: tuple[tuple[WorldPosition, float], ...] = (),
     ) -> tuple[int, ...]:
         """Return the stable polygon corridor used by weighted A*, for diagnostics/tests."""
 
@@ -274,6 +285,7 @@ class BakedNavMesh:
             return ()
         # A* operates on stable IDs; projected endpoints are intentionally unused here.
         del projected_start, projected_goal
+        blocked = _polygon_ids_in_obstacles(self._polygons, obstacles) - {start_polygon.polygon_id}
         return _a_star(
             self._adjacency,
             self._by_id,
@@ -281,7 +293,22 @@ class BakedNavMesh:
             goal_polygon.polygon_id,
             self._empirical_costs,
             routing_config,
+            blocked,
         )
+
+    def surface_slope_degrees(self, position: WorldPosition) -> float | None:
+        """Return the incline of the nearest walkable surface in degrees, or ``None``."""
+
+        nearest = self._nearest(position)
+        if nearest is None:
+            return None
+        polygon = nearest[0]
+        normal = _normal(polygon.triangle.first, polygon.triangle.second, polygon.triangle.third)
+        length = math.sqrt(sum(component * component for component in normal))
+        if length == 0.0:
+            return None
+        upward = min(1.0, abs(normal[1]) / length)
+        return math.degrees(math.acos(upward))
 
     def path_distance(self, start: WorldPosition, goal: WorldPosition) -> float | None:
         """Return the exact sum of the returned 3D path segments, or ``None`` if blocked."""
@@ -552,6 +579,47 @@ def _string_pull(
     return _remove_repeated(route)
 
 
+def _segment_distance_xz(point: WorldPosition, start: WorldVertex, end: WorldVertex) -> float:
+    """Return the X/Z distance from a point to a triangle edge segment."""
+
+    edge_x = end.x - start.x
+    edge_z = end.z - start.z
+    length_squared = edge_x * edge_x + edge_z * edge_z
+    if length_squared == 0.0:
+        return math.hypot(point.x - start.x, point.z - start.z)
+    projection = ((point.x - start.x) * edge_x + (point.z - start.z) * edge_z) / length_squared
+    clamped = max(0.0, min(1.0, projection))
+    nearest_x = start.x + clamped * edge_x
+    nearest_z = start.z + clamped * edge_z
+    return math.hypot(point.x - nearest_x, point.z - nearest_z)
+
+
+def _polygon_ids_in_obstacles(
+    polygons: tuple[NavMeshPolygon, ...],
+    obstacles: tuple[tuple[WorldPosition, float], ...],
+) -> frozenset[int]:
+    """Return the IDs of polygons whose triangle intersects any obstacle circle in X/Z."""
+
+    if not obstacles:
+        return frozenset()
+    blocked: set[int] = set()
+    for polygon in polygons:
+        triangle = polygon.triangle
+        edges = (
+            (triangle.first, triangle.second),
+            (triangle.second, triangle.third),
+            (triangle.third, triangle.first),
+        )
+        for centre, radius in obstacles:
+            covers_interior = _height_at_xz(triangle, centre.x, centre.z) is not None
+            if covers_interior or any(
+                _segment_distance_xz(centre, start, end) <= radius for start, end in edges
+            ):
+                blocked.add(polygon.polygon_id)
+                break
+    return frozenset(blocked)
+
+
 def _a_star(
     adjacency: dict[int, tuple[int, ...]],
     polygons: dict[int, NavMeshPolygon],
@@ -559,6 +627,7 @@ def _a_star(
     goal: int,
     empirical_costs: EmpiricalCostIndex | None,
     routing_config: ExperienceRoutingConfig | None,
+    blocked: frozenset[int] = frozenset(),
 ) -> tuple[int, ...]:
     queue: list[tuple[float, int, int]] = [(0.0, 0, start)]
     sequence = count(1)
@@ -573,6 +642,8 @@ def _a_star(
                 path.append(current)
             return tuple(reversed(path))
         for neighbour in adjacency[current]:
+            if neighbour in blocked:
+                continue
             distance = _distance(polygons[current].centroid, polygons[neighbour].centroid)
             candidate = cost[current] + (
                 empirical_costs.weighted_edge_cost(distance, current, neighbour, routing_config)

@@ -1283,8 +1283,8 @@ def test_a_blocked_approach_registers_the_obstacle_in_the_learned_map() -> None:
     assert pathing.obstacles
 
 
-def test_live_combat_stall_uses_fast_evasion_before_the_blind_reposition_sweep() -> None:
-    """BUG-017: live XYZ must drive the two-second stall recovery during auto-approach."""
+def test_live_combat_stall_recovers_without_blind_macros_then_repositions() -> None:
+    """US-093 AC1: a live-XYZ stall recovery never dispatches a backstep, jump, or pivot macro."""
 
     class _LiveReader:
         def __init__(self, position: WorldPosition) -> None:
@@ -1304,7 +1304,7 @@ def test_live_combat_stall_uses_fast_evasion_before_the_blind_reposition_sweep()
     feed = DashboardFeed()
     updates: list[DashboardUpdate] = []
     feed.update_available.connect(updates.append)
-    states = _blocked_approach_states(20)
+    states = _blocked_approach_states(40)
     pathing = PathingController(
         position_reader=cast("LivePositionReader", _LiveReader(WorldPosition(100.0, 20.0, 300.0)))
     )
@@ -1326,14 +1326,15 @@ def test_live_combat_stall_uses_fast_evasion_before_the_blind_reposition_sweep()
         if update.engagement_break is EngagementBreakReason.OBSTACLE_STALL
     )
     assert stalled.state.observed_at_seconds <= 3.0
-    # US-091 AC9: backstep, jump, then a directional pivot - the sweep only follows after.
-    evasion_backstep = adapter.key_chords.index(((VIRTUAL_KEY_S,), 0.25))
-    evasion_jump = adapter.key_chords.index(((VIRTUAL_KEY_SPACE,), 0.15))
-    evasion_pivot = adapter.key_chords.index(((VIRTUAL_KEY_W, VIRTUAL_KEY_D), 0.25))
-    reposition_rotation = adapter.key_chords.index(
-        ((VIRTUAL_KEY_RIGHT,), DEFAULT_SEARCH_ROTATION_DURATION_SECONDS)
-    )
-    assert evasion_backstep < evasion_jump < evasion_pivot < reposition_rotation
+    # US-093 AC1: no blind backstep, jump, or diagonal-pivot macro is ever dispatched.
+    assert not any(chord[0] == (VIRTUAL_KEY_S,) for chord in adapter.key_chords)
+    assert not any(chord[0] == (VIRTUAL_KEY_SPACE,) for chord in adapter.key_chords)
+    assert not any(chord[0] == (VIRTUAL_KEY_W, VIRTUAL_KEY_D) for chord in adapter.key_chords)
+    # Recovery still hands the character to the bounded camera reposition sweep.
+    assert (
+        (VIRTUAL_KEY_RIGHT,),
+        DEFAULT_SEARCH_ROTATION_DURATION_SECONDS,
+    ) in adapter.key_chords
 
 
 def test_mode_transitions_are_recorded_with_previous_and_new_mode(tmp_path: Path) -> None:

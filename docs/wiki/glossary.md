@@ -482,7 +482,22 @@ related:
 - **Micro-sweep** — One camera-search cycle: a short rotation burst followed by a settle window in
   which the frame stands still. Detection is only trusted inside the settle window, because rotation
   smears the picture the sweep exists to inspect.
-- **Evasion sequence** — The proactive reaction to a live stall: backstep, jump, directional pivot,
-  and immediate registration of the blocked node as a temporary obstacle.
-- **Escape route** — The route out of a canyon or collision pocket: the nearest walkable NavMesh node
-  that is both reachable from the trap and closer to the camp than the trap itself.
+- **Stall observation** — The typed record `PathingController` captures when commanded movement
+  produces no GPS displacement: previous and current position, the intended movement direction and
+  waypoint, the current NavMesh polygon id, and a timestamp. It is the input to every recovery step
+  (US-093), replacing the blind evasion macro.
+- **Temporary obstacle** — A NavMesh-projected obstruction the stall recovery records. It sits
+  `obstacle_probe_distance` (1.2 m) *ahead* of the character along the intended direction, snapped to
+  the walkable surface so it never covers the start coordinate; it carries a 1.5 m radius and a
+  hit-scaled time-to-live (15 / 30 / 60 s for 1 / 2 / 3+ hits) and is excluded from `BakedNavMesh`
+  A* corridors until it expires.
+- **Repeated local stall** — Two or more stalls inside a 2.0 m radius within a 10 s sliding window.
+  Reaching the threshold escalates recovery from a local replan to the geometric escape planner.
+- **Escape route** — The recovery route for a trap or an unroutable goal: `plan_escape_candidates`
+  samples concentric rings (0.75 / 1.5 / 2.5 m, 12 directions), projects each onto the mesh,
+  validates containment, slope, obstacle clearance, reachability, and goal progress, and scores the
+  survivors on goal progress, travel distance, and clearance. The winning point is a temporary
+  waypoint steered through the normal pipeline; on arrival, routing to the original goal resumes.
+- **Recovery context** — The controller-internal `RecoveryContext` / `RecoveryPhase`
+  (`NONE` / `LOCAL_REPLAN` / `ESCAPE`) that tracks stall-recovery progress without ever surfacing as
+  a `PathingMode`. Its milestones are drained each tick as `RecoveryEvent` values for telemetry.
