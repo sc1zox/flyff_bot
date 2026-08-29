@@ -18,7 +18,12 @@ from flyff_bot.features.dungeons.models import (
     DungeonStateSnapshot,
     DungeonStatus,
 )
-from flyff_bot.features.dungeons.profiles import ClientDungeonProfile, load_client_dungeon_profiles
+from flyff_bot.features.dungeons.profiles import (
+    BeginEndDungeonSpan,
+    ClientDungeonProfile,
+    FixedDungeonArray,
+    load_client_dungeon_profiles,
+)
 from flyff_bot.features.navigation.live_position import (
     EXPECTED_PROCESS_NAME,
     ProcessMemoryApi,
@@ -139,6 +144,18 @@ class LiveDungeonCooldownReader:
         self._last_snapshot = None
         self._polled_at_seconds = None
 
+    def reload_profiles(self, _profile_update: object | None = None) -> None:
+        """Drop every cached address and reload the configured registry fail-closed."""
+
+        self.close()
+        try:
+            self._profiles = load_client_dungeon_profiles(self._profiles_path)
+            self._profile_configuration_error = None
+        except ValueError as error:
+            self._profiles = {}
+            self._profile_configuration_error = str(error)
+        self._last_diagnostic = DungeonReadDiagnostic(DungeonReadStatus.UNCONFIGURED_PROFILE)
+
     def _close_handle(self) -> None:
         # A handle only ever exists once the platform API resolved, so an absent API here
         # means there is nothing left to release.
@@ -190,23 +207,61 @@ class LiveDungeonCooldownReader:
                     DungeonReadStatus.HANDLE_LOST,
                     "The runtime-state pointer is null.",
                 )
-            payload = api.read(
+            payload, record_count = self._read_container_payload(
+                api,
                 handle,
-                array_address + profile.state_array_offset,
-                profile.array_read_size_bytes,
+                array_address,
+                profile,
             )
-            if len(payload) != profile.array_read_size_bytes:
-                self._close_handle()
-                return {}, DungeonReadDiagnostic(
-                    DungeonReadStatus.HANDLE_LOST,
-                    "The cooldown-array read was incomplete.",
-                )
-        except OSError as error:
+        except (OSError, ValueError, struct.error) as error:
             self._close_handle()
             return {}, DungeonReadDiagnostic(DungeonReadStatus.HANDLE_LOST, str(error))
         except _DungeonOpenError as error:
             return {}, DungeonReadDiagnostic(error.status, error.detail)
-        return self._decode(profile, payload), None
+        return self._decode(profile, payload, record_count), None
+
+    @staticmethod
+    def _read_container_payload(
+        api: ForegroundProcessMemoryApi,
+        handle: int,
+        manager_address: int,
+        profile: ClientDungeonProfile,
+    ) -> tuple[bytes, int]:
+        container = profile.container
+        if isinstance(container, FixedDungeonArray):
+            read_size = container.record_size_bytes * container.record_count
+            payload = api.read(handle, manager_address + container.records_offset, read_size)
+            if len(payload) != read_size:
+                raise ValueError("The fixed dungeon-array read was incomplete.")
+            return payload, container.record_count
+
+        if not isinstance(container, BeginEndDungeonSpan):
+            raise TypeError("Unsupported dungeon container profile.")
+        header_size = (
+            max(
+                container.begin_pointer_offset,
+                container.end_pointer_offset,
+            )
+            + profile.pointer_size_bytes
+        )
+        header = api.read(handle, manager_address + container.container_offset, header_size)
+        if len(header) != header_size:
+            raise ValueError("The dungeon span header read was incomplete.")
+        pointer_format = "<I" if profile.pointer_size_bytes == UINT32_SIZE_BYTES else "<Q"
+        begin = int(struct.unpack_from(pointer_format, header, container.begin_pointer_offset)[0])
+        end = int(struct.unpack_from(pointer_format, header, container.end_pointer_offset)[0])
+        if begin <= 0 or end < begin:
+            raise ValueError("The dungeon span pointers are null or unordered.")
+        span_size = end - begin
+        if span_size % container.record_size_bytes:
+            raise ValueError("The dungeon span size is not aligned to its proven record size.")
+        record_count = span_size // container.record_size_bytes
+        if record_count > container.maximum_record_count:
+            raise ValueError("The dungeon span exceeds its statically proven record bound.")
+        payload = api.read(handle, begin, span_size)
+        if len(payload) != span_size:
+            raise ValueError("The bounded dungeon span read was incomplete.")
+        return payload, record_count
 
     def _ensure_open(
         self,
@@ -264,26 +319,29 @@ class LiveDungeonCooldownReader:
         self,
         profile: ClientDungeonProfile,
         payload: bytes,
+        record_count: int,
     ) -> dict[int, DungeonRuntimeState]:
         states: dict[int, DungeonRuntimeState] = {}
-        for index in range(profile.record_count):
-            start = profile.state_array_offset + index * profile.record_size_bytes
-            record = payload[start : start + profile.record_size_bytes]
-            dungeon_id = int(
-                struct.unpack_from(UINT32_FORMAT, record, profile.dungeon_id_offset)[0]
-            )
+        fields = profile.fields
+        record_size = profile.container.record_size_bytes
+        for index in range(record_count):
+            start = index * record_size
+            record = payload[start : start + record_size]
+            dungeon_id = int(struct.unpack_from(UINT32_FORMAT, record, fields.dungeon_id_offset)[0])
             if dungeon_id == UNKNOWN_DUNGEON_ID or dungeon_id not in self._definitions:
                 continue
+            if dungeon_id in states:
+                raise ValueError("The dungeon container repeats a known dungeon ID.")
             raw_timestamp = struct.unpack_from(
                 FLOAT32_FORMAT,
                 record,
-                profile.cooldown_end_timestamp_offset,
+                fields.cooldown_end_timestamp_offset,
             )[0]
             entries_used = int(
-                struct.unpack_from(UINT32_FORMAT, record, profile.entries_used_offset)[0]
+                struct.unpack_from(UINT32_FORMAT, record, fields.entries_used_offset)[0]
             )
             daily_limit = int(
-                struct.unpack_from(UINT32_FORMAT, record, profile.daily_entry_limit_offset)[0]
+                struct.unpack_from(UINT32_FORMAT, record, fields.daily_entry_limit_offset)[0]
             )
             timestamp = float(raw_timestamp)
             now_seconds = time.monotonic()

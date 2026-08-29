@@ -35,6 +35,20 @@ class PlayerStatSourceKind(StrEnum):
 
     DIRECT = "direct"
     RATIO = "ratio"
+    XOR_PAIR = "xor_pair"
+
+
+# A player-stat XOR key is one unsigned 64-bit word.
+_XOR_PAIR_WORD_BYTES = 8
+_UINT64_MASK = (1 << 64) - 1
+_XOR_PAIR_PRIMITIVES = frozenset(
+    {
+        PlayerStatType.U32,
+        PlayerStatType.I32,
+        PlayerStatType.U64,
+        PlayerStatType.I64,
+    }
+)
 
 
 _PLAYER_STAT_STRUCT_FORMATS: dict[PlayerStatType, str] = {
@@ -121,7 +135,49 @@ class RatioPlayerStatSource:
         return numerator * self.scale / denominator
 
 
-PlayerStatSource = DirectPlayerStatSource | RatioPlayerStatSource
+@dataclass(frozen=True, slots=True)
+class XorPairPlayerStatSource:
+    """One integer stored as two XOR-obfuscated 64-bit copies with a consistency check.
+
+    The client keeps ``word_a = value ^ key_a`` at ``offset`` and ``word_b = value ^ key_b``
+    at ``offset + 8``; it treats a mismatch between the two decoded copies as tampering and
+    reads zero. This reader fails the whole poll closed on a mismatch instead of substituting
+    a fabricated value.
+    """
+
+    offset: int
+    key_a: int
+    key_b: int
+    primitive: PlayerStatType = PlayerStatType.I64
+    kind: PlayerStatSourceKind = PlayerStatSourceKind.XOR_PAIR
+
+    def __post_init__(self) -> None:
+        if self.offset < 0:
+            raise ValueError("An XOR-pair player-stat offset must be non-negative.")
+        if not 0 <= self.key_a <= _UINT64_MASK or not 0 <= self.key_b <= _UINT64_MASK:
+            raise ValueError("An XOR-pair player-stat key must be an unsigned 64-bit word.")
+        if self.key_a == self.key_b:
+            raise ValueError("An XOR-pair player-stat needs two distinct keys.")
+        if self.primitive not in _XOR_PAIR_PRIMITIVES:
+            raise ValueError("An XOR-pair player-stat must decode to a 32- or 64-bit integer.")
+
+    @property
+    def ranges(self) -> tuple[tuple[int, int], ...]:
+        return ((self.offset, self.offset + 2 * _XOR_PAIR_WORD_BYTES),)
+
+    def decode(self, payload: bytes, read_start_offset: int) -> float:
+        base = self.offset - read_start_offset
+        word_a = struct.unpack_from("<Q", payload, base)[0] ^ self.key_a
+        word_b = struct.unpack_from("<Q", payload, base + _XOR_PAIR_WORD_BYTES)[0] ^ self.key_b
+        if word_a != word_b:
+            raise ValueError("The XOR-pair player-stat copies disagree; the read is not trusted.")
+        format_string = "<" + _PLAYER_STAT_STRUCT_FORMATS[self.primitive]
+        width = struct.calcsize(format_string)
+        low_bytes = (word_a & ((1 << (8 * width)) - 1)).to_bytes(width, "little")
+        return float(struct.unpack(format_string, low_bytes)[0])
+
+
+PlayerStatSource = DirectPlayerStatSource | RatioPlayerStatSource | XorPairPlayerStatSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,14 +231,16 @@ class ClientPlayerStatsProfile:
         names = [field.name for field in self.fields]
         if len(names) != len(set(names)):
             raise ValueError("A player-stats profile repeats a field name.")
-        vital_fields = {
-            field.name: field for field in self.fields if field.name in {"hp", "mp", "fp"}
-        }
-        for name, field in vital_fields.items():
-            if not isinstance(field.source, RatioPlayerStatSource):
-                raise ValueError(f"The {name} field must be a proven ratio, not a raw value.")
-            if field.minimum != 0.0 or field.maximum != 100.0:
-                raise ValueError(f"The {name} ratio output must be bounded from 0 to 100.")
+        # A vital may be a proven ``current * 100 / maximum`` ratio, or (when this client build
+        # computes the maximum at runtime, ADR-010) a raw current value left to the HUD reader
+        # for its percentage. Only a ratio vital is required to output a 0..100 percentage.
+        for field in self.fields:
+            if (
+                field.name in {"hp", "mp", "fp"}
+                and isinstance(field.source, RatioPlayerStatSource)
+                and (field.minimum != 0.0 or field.maximum != 100.0)
+            ):
+                raise ValueError(f"The {field.name} ratio output must be bounded from 0 to 100.")
         all_ranges = sorted(
             (start, end, field.name) for field in self.fields for start, end in field.ranges
         )
@@ -315,6 +373,12 @@ def _load_source(profile_index: int, field_index: int, payload: object) -> Playe
         if not isinstance(offset, int) or isinstance(offset, bool):
             raise ValueError(f"field {field_index} direct source needs an integer offset.")
         return DirectPlayerStatSource(offset, primitive)
+    if kind is PlayerStatSourceKind.XOR_PAIR:
+        numbers = (payload.get("offset"), payload.get("key_a"), payload.get("key_b"))
+        if not all(isinstance(value, int) and not isinstance(value, bool) for value in numbers):
+            raise ValueError(f"field {field_index} xor_pair source needs integer offset and keys.")
+        offset, key_a, key_b = cast(tuple[int, int, int], numbers)
+        return XorPairPlayerStatSource(offset, key_a, key_b, primitive)
     numerator = payload.get("numerator_offset")
     denominator = payload.get("denominator_offset")
     scale = payload.get("scale")

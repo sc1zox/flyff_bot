@@ -61,12 +61,12 @@ class _SetupWorker(QObject):
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self, profile_source: Path | None) -> bool:
+    def start(self, *, profile_only: bool = False) -> bool:
         if self.is_running:
             return False
         self._thread = threading.Thread(
             target=self._run,
-            args=(profile_source,),
+            args=(profile_only,),
             name=_EXTRACTION_THREAD_NAME,
             daemon=True,
         )
@@ -81,16 +81,17 @@ class _SetupWorker(QObject):
         if self._thread is not None:
             self._thread.join(timeout_seconds)
 
-    def _run(self, profile_source: Path | None) -> None:
+    def _run(self, profile_only: bool) -> None:
         try:
             self._extractor = UnifiedClientExtractor(
                 self._client_root,
                 self._output_paths(),
                 monster_names_path=self._monster_names_path,
-                profile_source_path=profile_source,
                 progress=self._emit_progress,
             )
-            result = self._extractor.run()
+            result = (
+                self._extractor.run_memory_profile_only() if profile_only else self._extractor.run()
+            )
         except (OSError, ValueError) as error:
             self.failed.emit(str(error))
             return
@@ -112,6 +113,7 @@ class SetupWizard(QDialog):
     """Validate a client folder, run all passes, and show typed diagnostics."""
 
     setup_completed = Signal(object)
+    memory_profiles_updated = Signal(object)
 
     def __init__(
         self,
@@ -141,6 +143,7 @@ class SetupWizard(QDialog):
         self._path_edit = QLineEdit()
         self._browse_button = QPushButton()
         self._start_button = QPushButton()
+        self._rescan_button = QPushButton()
         self._cancel_button = QPushButton()
         self._close_button = QPushButton()
         self._progress_bar = QProgressBar()
@@ -155,6 +158,7 @@ class SetupWizard(QDialog):
         path_actions.addWidget(self._browse_button)
         actions = QHBoxLayout()
         actions.addWidget(self._start_button)
+        actions.addWidget(self._rescan_button)
         actions.addWidget(self._cancel_button)
         actions.addStretch()
         actions.addWidget(self._close_button)
@@ -184,6 +188,10 @@ class SetupWizard(QDialog):
         return self._cancel_button
 
     @property
+    def rescan_button(self) -> QPushButton:
+        return self._rescan_button
+
+    @property
     def summary_view(self) -> QTextEdit:
         return self._summary_view
 
@@ -208,6 +216,7 @@ class SetupWizard(QDialog):
     def _connect_controls(self) -> None:
         self._browse_button.clicked.connect(self._on_browse_clicked)
         self._start_button.clicked.connect(self._on_start_clicked)
+        self._rescan_button.clicked.connect(self._on_rescan_clicked)
         self._cancel_button.clicked.connect(self._worker.cancel)
         self._cancel_button.clicked.connect(
             lambda: self._status_label.setText(self._translator.text(Message.UI_SETUP_CANCELING))
@@ -229,7 +238,19 @@ class SetupWizard(QDialog):
             self._status_label.setText(self._translator.text(Message.UI_SETUP_INVALID_DIRECTORY))
             return
         self._set_running_state(True)
-        if not self._worker.start(None):
+        if not self._worker.start():
+            self._set_running_state(False)
+
+    @Slot()
+    def _on_rescan_clicked(self) -> None:
+        client_root = Path(self._path_edit.text())
+        try:
+            UnifiedClientExtractor.validate_client_directory(client_root)
+        except InvalidClientDirectory:
+            self._status_label.setText(self._translator.text(Message.UI_SETUP_INVALID_DIRECTORY))
+            return
+        self._set_running_state(True)
+        if not self._worker.start(profile_only=True):
             self._set_running_state(False)
 
     @Slot(int, str)
@@ -248,6 +269,8 @@ class SetupWizard(QDialog):
         self._status_label.setText(self._translator.text(Message.UI_SETUP_COMPLETE))
         self._summary_view.setPlainText(self._summary_text(result))
         self.setup_completed.emit(result)
+        if result.memory_profile is not None:
+            self.memory_profiles_updated.emit(result.memory_profile)
 
     @Slot(str)
     def _on_failed(self, message: str) -> None:
@@ -261,6 +284,7 @@ class SetupWizard(QDialog):
 
     def _set_running_state(self, running: bool) -> None:
         self._start_button.setEnabled(not running)
+        self._rescan_button.setEnabled(not running)
         self._browse_button.setEnabled(not running)
         self._path_edit.setEnabled(not running)
         self._cancel_button.setEnabled(running)
@@ -298,5 +322,9 @@ class SetupWizard(QDialog):
         self._path_label.setText(self._translator.text(Message.UI_SETUP_CLIENT_PATH))
         self._browse_button.setText(self._translator.text(Message.UI_SETUP_BROWSE))
         self._start_button.setText(self._translator.text(Message.UI_SETUP_START))
+        self._rescan_button.setText(self._translator.text(Message.UI_SETUP_RESCAN_PROFILES))
+        self._rescan_button.setToolTip(
+            self._translator.text(Message.UI_SETUP_RESCAN_PROFILES_TOOLTIP)
+        )
         self._cancel_button.setText(self._translator.text(Message.UI_SETUP_CANCEL))
         self._close_button.setText(self._translator.text(Message.UI_WORLD_DATA_CLOSE))

@@ -13,3 +13,4 @@ that are obvious from the code do not need an ADR.
 - [ADR-006: Unrestricted read-only process memory access for runtime game state extraction](ADR-006-read-only-process-memory-access.md)
 - [ADR-008: Closed learning-loop invariants](ADR-008-closed-learning-loop-invariants.md)
 - [ADR-009: Bounded tactical parameter space and hybrid tuning boundary](ADR-009-bounded-tactical-parameter-space.md)
+- [ADR-010: Client-derived vital maxima are not runtime-resolvable; vital percentages are a degradable capability](ADR-010-client-derived-vital-maxima-are-not-runtime-resolvable.md)

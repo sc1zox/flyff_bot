@@ -231,10 +231,13 @@ def test_external_client_profile_file_is_loaded_with_an_optional_position_offset
     assert reading.position == api.position
 
 
-def test_missing_profile_file_uses_embedded_defaults(tmp_path: Path) -> None:
+def test_missing_profile_file_leaves_the_reader_unconfigured(tmp_path: Path) -> None:
+    """No embedded fallback: a GPS profile only ever comes from a generated file."""
+
     reader = LivePositionReader(WINDOW_HANDLE, profiles_path=tmp_path / "missing.json")
 
-    assert reader._profiles is ENTROPIA_POSITION_PROFILES
+    assert reader._profiles == {}
+    assert reader._profile_configuration_error is None
 
 
 def test_invalid_profile_file_is_an_explicit_gps_error(tmp_path: Path) -> None:

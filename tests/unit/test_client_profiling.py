@@ -247,3 +247,56 @@ def test_discover_monster_kills_finds_counter_in_synthetic_pe() -> None:
 
     discovered = _discover_monster_kills(pe)
     assert discovered == target_var_rva
+
+
+def _call_rel32(instruction_rva: int, target_rva: int) -> bytes:
+    return b"\xe8" + struct.pack("<i", target_rva - (instruction_rva + 5))
+
+
+def test_analyze_wrapped_vital_ratio_extracts_current_offset_and_leaves_computed_max_unknown() -> (
+    None
+):
+    from flyff_bot.features.client_profiling.profiler import analyze_wrapped_vital_ratio
+
+    wrapper_rva, current_rva, max_rva = 0x1000, 0x1100, 0x1200
+    reload_rcx = b"\x48\x8b\x4c\x24\x40"
+    wrapper = (
+        reload_rcx
+        + _call_rel32(wrapper_rva + 5, max_rva)  # guarded maximum getter
+        + b"\x83\x7c\x24\x20\x00\x75\x04\x33\xc0\xeb\x00"  # cmp/jne/xor eax,eax/jmp
+        + reload_rcx
+        + _call_rel32(wrapper_rva + 26, current_rva)  # current getter
+        + b"\xc3"
+    )
+    # current getter: mov rax,[rsp+0x40]; movsxd rax,[rax+0x12FC]; ret
+    current_getter = b"\x48\x89\x4c\x24\x08\x48\x83\xec\x38\x48\x8b\x44\x24\x40" + (
+        b"\x48\x63\x80" + struct.pack("<i", 0x12FC) + b"\xc3"
+    )
+    # maximum getter: loads a float constant and calls onward -> no fixed offset
+    max_getter = b"\x48\x89\x4c\x24\x08\x48\x83\xec\x38\xf3\x0f\x10\x05\x00\x00\x00\x00" + (
+        _call_rel32(max_rva + 17, max_rva + 40) + b"\xc3"
+    )
+
+    text = bytearray(b"\x90" * 0x260)
+    text[0x000 : len(wrapper)] = wrapper
+    text[0x100 : 0x100 + len(current_getter)] = current_getter
+    text[0x200 : 0x200 + len(max_getter)] = max_getter
+
+    image = _build_synthetic_pe(text_payload=bytes(text))
+    evidence = analyze_wrapped_vital_ratio(image, wrapper_rva)
+
+    assert evidence.current_offset == 0x12FC
+    assert evidence.max_offset is None
+
+
+def test_analyze_wrapped_vital_ratio_rejects_a_helper_without_a_guarded_getter_pair() -> None:
+    from flyff_bot.features.client_profiling.profiler import analyze_wrapped_vital_ratio
+
+    # One getter call, no ``xor eax,eax`` zero guard, no second call.
+    text_payload = (b"\x48\x8b\x4c\x24\x40" + _call_rel32(0x1005, 0x1100) + b"\xc3").ljust(
+        64, b"\x90"
+    )
+
+    with pytest.raises(ClientProfilingError) as error:
+        analyze_wrapped_vital_ratio(_build_synthetic_pe(text_payload=text_payload), 0x1000)
+    assert error.value.code is ClientProfilingErrorCode.INCOMPLETE_PLAYER_STATS

@@ -24,9 +24,13 @@ from flyff_bot.features.player_stats.profiles import (
     PlayerStatFieldProfile,
     PlayerStatType,
     RatioPlayerStatSource,
+    XorPairPlayerStatSource,
     load_client_player_stats_profiles,
 )
 from flyff_bot.features.player_stats.reader import LivePlayerStatsReader
+
+_HP_XOR_KEY_A = 0x5A3C9E17C4D2F8B1
+_HP_XOR_KEY_B = 0x2D74B1C9A6E03F5D
 
 WINDOW_HANDLE = 42
 PROCESS_ID = 1337
@@ -137,7 +141,13 @@ def test_profile_loader_rejects_duplicates_before_a_handle_opens(tmp_path: Path)
             "fields": [
                 {
                     "name": "hp",
-                    "source": {"kind": "direct", "offset": 0, "primitive": "f32"},
+                    "source": {
+                        "kind": "ratio",
+                        "numerator_offset": 0,
+                        "denominator_offset": 4,
+                        "primitive": "f32",
+                        "scale": 1.0,
+                    },
                     "minimum": 0,
                     "maximum": 100,
                 }
@@ -150,7 +160,13 @@ def test_profile_loader_rejects_duplicates_before_a_handle_opens(tmp_path: Path)
             "fields": [
                 {
                     "name": "mp",
-                    "source": {"kind": "direct", "offset": 0, "primitive": "f32"},
+                    "source": {
+                        "kind": "ratio",
+                        "numerator_offset": 8,
+                        "denominator_offset": 12,
+                        "primitive": "f32",
+                        "scale": 1.0,
+                    },
                     "minimum": 0,
                     "maximum": 100,
                 }
@@ -162,6 +178,65 @@ def test_profile_loader_rejects_duplicates_before_a_handle_opens(tmp_path: Path)
 
     with pytest.raises(ValueError, match="repeat"):
         load_client_player_stats_profiles(path)
+
+
+def test_xor_pair_source_decodes_two_consistent_obfuscated_copies() -> None:
+    source = XorPairPlayerStatSource(0x1304, _HP_XOR_KEY_A, _HP_XOR_KEY_B, PlayerStatType.I64)
+    payload = struct.pack("<QQ", 4321 ^ _HP_XOR_KEY_A, 4321 ^ _HP_XOR_KEY_B)
+
+    assert source.decode(payload, 0x1304) == 4321.0
+    assert source.ranges == ((0x1304, 0x1304 + 16),)
+
+
+def test_xor_pair_source_fails_closed_when_the_two_copies_disagree() -> None:
+    source = XorPairPlayerStatSource(0, _HP_XOR_KEY_A, _HP_XOR_KEY_B)
+    payload = struct.pack("<QQ", 10 ^ _HP_XOR_KEY_A, 11 ^ _HP_XOR_KEY_B)
+
+    with pytest.raises(ValueError, match="disagree"):
+        source.decode(payload, 0)
+
+
+def test_profile_loader_accepts_a_current_only_xor_pair_vital(tmp_path: Path) -> None:
+    digest = _executable_digest()
+    payload = [
+        {
+            "sha256": digest,
+            "player_pointer_rva": PLAYER_POINTER_RVA,
+            "pointer_size_bytes": 8,
+            "fields": [
+                {
+                    "name": "hp",
+                    "source": {
+                        "kind": "xor_pair",
+                        "offset": 0x1304,
+                        "key_a": _HP_XOR_KEY_A,
+                        "key_b": _HP_XOR_KEY_B,
+                        "primitive": "i64",
+                    },
+                    "minimum": 0,
+                    "maximum": 2_000_000_000,
+                },
+                {
+                    "name": "mp",
+                    "source": {"kind": "direct", "offset": 0x12FC, "primitive": "i32"},
+                    "minimum": 0,
+                    "maximum": 2_000_000_000,
+                },
+            ],
+        }
+    ]
+    path = tmp_path / "profiles.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    profile = load_client_player_stats_profiles(path)[digest]
+    hp_source = profile.fields[0].source
+
+    assert isinstance(hp_source, XorPairPlayerStatSource)
+    assert (hp_source.offset, hp_source.key_a, hp_source.key_b) == (
+        0x1304,
+        _HP_XOR_KEY_A,
+        _HP_XOR_KEY_B,
+    )
 
 
 def test_no_configured_profile_is_typed_without_opening_the_process() -> None:

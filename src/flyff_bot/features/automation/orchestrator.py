@@ -802,6 +802,12 @@ class FarmingOrchestrator:
                 reason=PLAYER_STATS_HUD_FALLBACK_REASON,
             )
 
+    def restore_player_stats_readiness(self) -> None:
+        """Reinstate the declared memory-stat dependency after an atomic profile reload."""
+
+        self._player_stats_unsupported_since_seconds = None
+        self._readiness_gate.restore_source(LiveStateSource.PLAYER_STATS)
+
     def _update_dungeon_readiness(self, at_seconds: float) -> None:
         provider = self._dungeon_provider
         if provider is None:

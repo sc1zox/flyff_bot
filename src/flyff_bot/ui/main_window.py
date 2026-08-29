@@ -183,6 +183,9 @@ class MainWindow(QMainWindow):
         quest_npc_positions_path: Path | None = None,
         dungeon_database_path: Path | None = None,
         player_profiles_path: Path | None = None,
+        position_profiles_path: Path | None = None,
+        camera_profiles_path: Path | None = None,
+        dungeon_profiles_path: Path | None = None,
         client_catalog_path: Path | None = None,
         mover_label_mapping_path: Path | None = None,
         source_manifest_path: Path | None = None,
@@ -199,6 +202,15 @@ class MainWindow(QMainWindow):
         self._dungeon_database_path = dungeon_database_path or Path(DEFAULT_DUNGEON_DATABASE_PATH)
         self._player_profiles_path = player_profiles_path or Path(
             DEFAULT_CLIENT_PLAYER_STATS_PROFILES_PATH
+        )
+        self._position_profiles_path = position_profiles_path or Path(
+            DEFAULT_CLIENT_POSITION_PROFILES_PATH
+        )
+        self._camera_profiles_path = camera_profiles_path or Path(
+            DEFAULT_CLIENT_CAMERA_PROFILES_PATH
+        )
+        self._dungeon_profiles_path = dungeon_profiles_path or Path(
+            DEFAULT_CLIENT_DUNGEON_PROFILES_PATH
         )
         self._client_catalog_path = client_catalog_path or Path(DEFAULT_CLIENT_CATALOG_PATH)
         self._mover_label_mapping_path = mover_label_mapping_path or Path(
@@ -1031,6 +1043,9 @@ class MainWindow(QMainWindow):
             quest_database=self._quest_database_path,
             dungeon_database=self._dungeon_database_path,
             player_profiles=self._player_profiles_path,
+            position_profiles=self._position_profiles_path,
+            camera_profiles=self._camera_profiles_path,
+            dungeon_profiles=self._dungeon_profiles_path,
             client_catalog=self._client_catalog_path,
             source_manifest=self._source_manifest_path,
         )

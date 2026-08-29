@@ -24,6 +24,7 @@ from flyff_bot.features.navigation.live_position import load_client_position_pro
 from flyff_bot.features.player_stats.profiles import (
     DirectPlayerStatSource,
     RatioPlayerStatSource,
+    XorPairPlayerStatSource,
     load_client_player_stats_profiles,
 )
 
@@ -141,6 +142,14 @@ def _player_stats_document(bundle: GeneratedClientProfileBundle) -> dict[str, ob
             source_document: dict[str, object] = {
                 "kind": source.kind.value,
                 "offset": source.offset,
+                "primitive": source.primitive.value,
+            }
+        elif isinstance(source, XorPairPlayerStatSource):
+            source_document = {
+                "kind": source.kind.value,
+                "offset": source.offset,
+                "key_a": source.key_a,
+                "key_b": source.key_b,
                 "primitive": source.primitive.value,
             }
         else:

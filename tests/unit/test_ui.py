@@ -32,9 +32,6 @@ from flyff_bot.features.automation.kill_goals import (
 )
 from flyff_bot.features.automation.models import (
     InventoryEntry,
-    MonsterStatsMetrics,
-    MonsterStatsSource,
-    MonsterStatsStatus,
     PlayerVitals,
     Position,
     SelectedTarget,
@@ -101,7 +98,6 @@ from flyff_bot.features.tactical_parameters import (
 )
 from flyff_bot.features.telemetry.efficiency import summarize_efficiency
 from flyff_bot.features.vision.models import CapturedFrame, ClientSize
-from flyff_bot.features.vision.monster_stats import MonsterStatsConfig, compute_monster_stats_roi
 from flyff_bot.features.vision.target_verification import TargetVerifier
 from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.app import (
@@ -483,43 +479,12 @@ def test_debug_overlay_widget_renders_cleanly_with_aspect_scaling() -> None:
         (),
         SelectedTarget(TargetState.NONE, None, 0),
         Translator(Language.ENGLISH),
-        monster_stats_config=MonsterStatsConfig(),
     )
     widget.setPixmap(pixmap)
     assert widget.pixmap() is pixmap
     assert widget.sizeHint().width() > 0
     assert widget.sizeHint().height() > 0
     widget.render(widget)
-
-
-def test_debug_overlay_draws_monster_stats_calibration_guide_box() -> None:
-    _application = QApplication.instance() or QApplication([])
-    config = MonsterStatsConfig()
-    frame = CapturedFrame(np.zeros((900, 1600, 3), dtype=np.uint8), ClientSize(1600, 900))
-
-    pixmap = render_debug_overlay(
-        frame,
-        (),
-        SelectedTarget(TargetState.NONE, None, 0),
-        Translator(Language.ENGLISH),
-        monster_stats_config=config,
-        show_placements=True,
-    )
-    left, top, right, bottom = compute_monster_stats_roi(
-        frame.client_size.width, frame.client_size.height, config
-    )
-
-    assert not pixmap.isNull()
-    assert 0 <= left < right <= frame.client_size.width
-    assert 0 <= top < bottom <= frame.client_size.height
-
-    without_guide = render_debug_overlay(
-        frame,
-        (),
-        SelectedTarget(TargetState.NONE, None, 0),
-        Translator(Language.ENGLISH),
-    )
-    assert not without_guide.isNull()
 
 
 def test_debug_overlay_placements_toggle_draws_vitals_and_target_guide_boxes() -> None:
@@ -531,7 +496,6 @@ def test_debug_overlay_placements_toggle_draws_vitals_and_target_guide_boxes() -
         (),
         SelectedTarget(TargetState.NONE, None, 0),
         Translator(Language.ENGLISH),
-        monster_stats_config=MonsterStatsConfig(),
         show_placements=True,
     )
     without_placements = render_debug_overlay(
@@ -539,7 +503,6 @@ def test_debug_overlay_placements_toggle_draws_vitals_and_target_guide_boxes() -
         (),
         SelectedTarget(TargetState.NONE, None, 0),
         Translator(Language.ENGLISH),
-        monster_stats_config=MonsterStatsConfig(),
         show_placements=False,
     )
 
@@ -966,146 +929,6 @@ def test_main_window_target_debug_panel_in_tab_and_renders_failure_metrics() -> 
     assert window.target_name_value.text() == "PASS 'Flame <Lvl 175>' → none"
     assert window.target_state_value.text() == "Wrong target"
     assert window.target_reason_value.text() == "HP bar below minimum pixel threshold"
-
-
-def test_main_window_monster_stats_panel_in_tab_and_renders_a_successful_reading() -> None:
-    application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.ENGLISH))
-
-    window.show()
-    window.tab_widget.setCurrentIndex(DashboardTab.DIAGNOSTICS_LOGS)
-    application.processEvents()
-    assert window.monster_stats_panel.isVisibleTo(window)
-
-    metrics = MonsterStatsMetrics(
-        anchor_configured=True,
-        anchor_score=0.93,
-        anchor_threshold=0.85,
-        anchor_passed=True,
-        roi_width=145,
-        roi_height=20,
-        raw_text="Monster Kills: 12",
-        parsed_count=12,
-        status=MonsterStatsStatus.OK,
-    )
-    window.update_dashboard(
-        DashboardUpdate(replace(_world_state(), monster_stats=metrics), BotStatus.ACTIVE)
-    )
-    application.processEvents()
-
-    assert window.monster_anchor_value.text() == "PASS 0.93 / 0.85"
-    assert window.monster_roi_value.text() == "145 x 20 px"
-    assert window.monster_kills_value.text() == "12"
-    assert window.monster_text_value.text() == "Monster Kills: 12"
-    assert window.monster_status_value.text() == "OK"
-
-
-def test_main_window_monster_stats_panel_reports_a_failed_reading_and_stays_updated() -> None:
-    """The panel renders off-tab, so it is current the moment Diagnostics opens."""
-
-    application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.ENGLISH))
-
-    metrics = MonsterStatsMetrics(
-        anchor_configured=True,
-        anchor_score=0.42,
-        anchor_threshold=0.85,
-        status=MonsterStatsStatus.NO_MATCH,
-        source=MonsterStatsSource.FIXED_REGION,
-    )
-    window.update_dashboard(
-        DashboardUpdate(replace(_world_state(), monster_stats=metrics), BotStatus.STANDBY)
-    )
-    application.processEvents()
-
-    window.show()
-    assert not window.monster_stats_panel.isVisibleTo(window)
-    assert window.monster_anchor_value.text() == "FAIL 0.42 / 0.85"
-    assert window.monster_kills_value.text() == "Not recognized"
-    assert window.monster_text_value.text() == "No text recognized"
-    assert window.monster_status_value.text() == "No kill counter found in the text"
-    # A missed anchor still reads, so the panel must name which crop produced the number.
-    assert window.monster_source_value.text() == "Predefined placement region"
-
-    window.tab_widget.setCurrentIndex(DashboardTab.DIAGNOSTICS_LOGS)
-    application.processEvents()
-    assert window.monster_stats_panel.isVisibleTo(window)
-
-
-def test_main_window_monster_stats_panel_marks_an_unconfigured_anchor() -> None:
-    application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.ENGLISH))
-
-    metrics = MonsterStatsMetrics(
-        anchor_configured=False,
-        roi_width=174,
-        roi_height=90,
-        raw_text="Level 42",
-        status=MonsterStatsStatus.NO_MATCH,
-    )
-    window.update_dashboard(
-        DashboardUpdate(replace(_world_state(), monster_stats=metrics), BotStatus.STANDBY)
-    )
-    application.processEvents()
-
-    assert "predefined placement region" in window.monster_anchor_value.text()
-    assert "No anchor template configured" not in window.monster_anchor_value.text()
-    assert window.monster_status_value.text() == "No kill counter found in the text"
-
-
-def test_main_window_monster_stats_panel_names_an_unavailable_ocr_engine() -> None:
-    """A missing Tesseract install must not read as a generic recognition failure."""
-
-    application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.ENGLISH))
-
-    window.update_dashboard(
-        DashboardUpdate(
-            replace(
-                _world_state(),
-                monster_stats=MonsterStatsMetrics(
-                    status=MonsterStatsStatus.ENGINE_UNAVAILABLE, roi_width=145, roi_height=20
-                ),
-            ),
-            BotStatus.STANDBY,
-        )
-    )
-    application.processEvents()
-
-    engine_unavailable = window.monster_status_value.text()
-    window.update_dashboard(
-        DashboardUpdate(
-            replace(
-                _world_state(),
-                monster_stats=MonsterStatsMetrics(status=MonsterStatsStatus.OCR_FAILED),
-            ),
-            BotStatus.STANDBY,
-        )
-    )
-    application.processEvents()
-
-    assert engine_unavailable.strip()
-    assert engine_unavailable != window.monster_status_value.text()
-
-
-def test_main_window_monster_stats_panel_renders_in_german_locale() -> None:
-    application = QApplication.instance() or QApplication([])
-    window = MainWindow(Translator(Language.GERMAN))
-
-    window.update_dashboard(
-        DashboardUpdate(
-            replace(
-                _world_state(),
-                monster_stats=MonsterStatsMetrics(status=MonsterStatsStatus.OCR_FAILED),
-            ),
-            BotStatus.STANDBY,
-        )
-    )
-    application.processEvents()
-
-    assert window.monster_stats_panel.title() == "Monster-Stats-Debug"
-    assert window.monster_status_value.text() == "OCR fehlgeschlagen"
-    assert window.monster_kills_value.text() == "Nicht erkannt"
 
 
 def test_main_window_target_threshold_controls_emit_live_configuration() -> None:
@@ -1571,28 +1394,19 @@ def test_main_window_localizes_the_window_state_for_german_operators() -> None:
     assert window.status_label.text() == "Bot-Status: Pausiert"
 
 
-def test_placement_guides_cover_the_vitals_gauges_target_and_monster_stats_regions() -> None:
+def test_placement_guides_cover_the_vitals_gauges_and_target_regions() -> None:
     client_size = ClientSize(1920, 1080)
 
-    guides = compute_placement_guides(
-        client_size, Translator(Language.ENGLISH), MonsterStatsConfig()
-    )
+    guides = compute_placement_guides(client_size, Translator(Language.ENGLISH))
 
-    assert len(guides) == 6
+    assert len(guides) == 5
     labeled = [guide for guide in guides if guide.label is not None]
-    assert len(labeled) == 3
+    assert len(labeled) == 2
     assert all(guide.style is GuideStyle.DASHED for guide in labeled)
     assert all(guide.style is GuideStyle.SOLID for guide in guides if guide.label is None)
     for guide in guides:
         assert 0 <= guide.left < guide.right <= client_size.width
         assert 0 <= guide.top < guide.bottom <= client_size.height
-
-
-def test_placement_guides_omit_the_monster_stats_box_without_a_configuration() -> None:
-    guides = compute_placement_guides(ClientSize(1920, 1080), Translator(Language.ENGLISH))
-
-    assert len(guides) == 5
-    assert [guide.label for guide in guides].count(None) == 3
 
 
 def test_logical_geometry_converts_physical_pixels_for_scaled_displays() -> None:

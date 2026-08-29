@@ -300,9 +300,8 @@ class LiveCameraReader:
             window_handle if callable(window_handle) else lambda: window_handle
         )
         self._api = api
-        self._profiles: Mapping[str, ClientCameraProfile] = (
-            ENTROPIA_CAMERA_PROFILES if profiles is None else profiles
-        )
+        self._profiles: Mapping[str, ClientCameraProfile] = {} if profiles is None else profiles
+        self._profiles_path = profiles_path
         self._profile_configuration_error: str | None = None
         if profiles is None and profiles_path.is_file():
             try:
@@ -374,6 +373,22 @@ class LiveCameraReader:
         self._handle = None
         self._module_base = None
         self._profile = None
+
+    def reload_profiles(self, _profile_update: object | None = None) -> None:
+        """Close stale handles and reload generated profiles without embedded fallbacks."""
+
+        with self._lock:
+            self.close()
+            self._profiles = {}
+            self._profile_configuration_error = None
+            if self._profiles_path.is_file():
+                try:
+                    self._profiles = load_client_camera_profiles(self._profiles_path)
+                except ValueError as error:
+                    self._profile_configuration_error = str(error)
+            self._polled_at_seconds = None
+            self._last_reading = CameraReading()
+            self._last_error_code = None
 
     def _api_or_raise(self) -> CameraProcessMemoryApi:
         if self._api is None:

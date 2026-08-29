@@ -38,6 +38,13 @@ REQUIRED_RTTI_NAMES = (
 )
 STATUS_ANALYSIS_WINDOW_BYTES = 512
 PLAYER_POSITION_COPY_BYTES = 12
+# The vital helpers are located right after a ``mov edx, 100`` marker, so a wrapped helper's
+# percent scale is fixed by construction rather than read from an ``imul`` immediate.
+VITAL_RATIO_PERCENT_SCALE = 100.0
+# A player-struct member offset large enough to be a mistake rather than a field.
+_MAX_STRUCT_ACCESSOR_OFFSET = 0x100000
+_WRAPPER_SCAN_BYTES = 64
+_ACCESSOR_SCAN_BYTES = 48
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +133,101 @@ def analyze_ratio_function(code: bytes) -> RatioEvidence:
             "A vital helper contains a non-positive offset or scale.",
         )
     return RatioEvidence(numerator, denominator, PlayerStatType.I32, float(scale))
+
+
+@dataclass(frozen=True, slots=True)
+class WrappedRatioEvidence:
+    """What the wrapped ``max()`` / ``current()`` vital helper shape statically proves.
+
+    Either side is ``None`` when that getter computes its value through further calls instead
+    of a single fixed-offset load, so no bounded struct member can be named for it.
+    """
+
+    current_offset: int | None
+    max_offset: int | None
+
+
+def analyze_wrapped_vital_ratio(image: PeImage, wrapper_rva: int) -> WrappedRatioEvidence:
+    """Decode the two-call vital helper shape newer client builds use.
+
+    The wrapper calls a maximum getter (its result guarded ``!= 0``), then a current getter,
+    then combines them with a fixed percent scale. Only a getter that is a single fixed load
+    yields an offset.
+    """
+
+    body = image.read_rva(wrapper_rva, _WRAPPER_SCAN_BYTES)
+    # Each getter is invoked as ``mov rcx, [rsp+disp8]; call rel32``.
+    getter_calls = [
+        index + 5
+        for index in range(len(body) - 6)
+        if body[index : index + 4] == b"\x48\x8b\x4c\x24" and body[index + 5] == 0xE8
+    ]
+    zero_guard = body.find(b"\x33\xc0")  # xor eax,eax on the ``max == 0`` path
+    if len(getter_calls) < 2 or not getter_calls[0] < zero_guard < getter_calls[1]:
+        raise ClientProfilingError(
+            ClientProfilingErrorCode.INCOMPLETE_PLAYER_STATS,
+            "A vital helper does not guard a maximum getter before a current getter.",
+        )
+    max_rva = relative_call_target(body, getter_calls[0], wrapper_rva)
+    current_rva = relative_call_target(body, getter_calls[1], wrapper_rva)
+    return WrappedRatioEvidence(
+        _fixed_accessor_offset(image, current_rva),
+        _fixed_accessor_offset(image, max_rva),
+    )
+
+
+def _fixed_accessor_offset(image: PeImage, accessor_rva: int) -> int | None:
+    """Return the struct offset of a getter that is one fixed integer load, else ``None``."""
+
+    try:
+        body = image.read_rva(accessor_rva, _ACCESSOR_SCAN_BYTES)
+    except ClientProfilingError:
+        return None
+    # ``movsxd rax,[rax+d32]`` / ``mov eax,[rax+d32]`` / the same from rcx.
+    computed_at = min(
+        (index for index in (body.find(b"\xe8"), body.find(b"\xf3\x0f\x10")) if index >= 0),
+        default=len(body),
+    )
+    for pattern in (b"\x48\x63\x80", b"\x8b\x80", b"\x48\x63\x81", b"\x8b\x81"):
+        marker = body.find(pattern)
+        if marker < 0 or marker >= computed_at or marker + len(pattern) + 4 > len(body):
+            continue
+        offset = int(struct.unpack_from("<i", body, marker + len(pattern))[0])
+        if 0 < offset < _MAX_STRUCT_ACCESSOR_OFFSET:
+            return offset
+    return None
+
+
+def _resolve_vital_ratio_source(image: PeImage, helper_rva: int) -> RatioPlayerStatSource | None:
+    """Return a proven ``current * scale / maximum`` source for one vital, or ``None``.
+
+    ``None`` means this client build computes the vital through a path with no bounded
+    numerator/denominator pair (ADR-010); the vital is then left to the visual HUD reader
+    rather than guessed.
+    """
+
+    try:
+        evidence = analyze_ratio_function(image.read_rva(helper_rva, 96))
+        return RatioPlayerStatSource(
+            evidence.numerator_offset,
+            evidence.denominator_offset,
+            evidence.primitive,
+            evidence.scale,
+        )
+    except ClientProfilingError:
+        pass
+    try:
+        wrapped = analyze_wrapped_vital_ratio(image, helper_rva)
+    except ClientProfilingError:
+        return None
+    if wrapped.current_offset is None or wrapped.max_offset is None:
+        return None
+    return RatioPlayerStatSource(
+        wrapped.current_offset,
+        wrapped.max_offset,
+        PlayerStatType.I32,
+        VITAL_RATIO_PERCENT_SCALE,
+    )
 
 
 def analyze_dungeon_span_function(
@@ -257,21 +359,9 @@ def _discover_player_stats(
         )
     fields: list[PlayerStatFieldProfile] = []
     for name, helper_rva in zip(("hp", "mp", "fp"), helper_rvas, strict=True):
-        helper_code = image.read_rva(helper_rva, 96)
-        evidence = analyze_ratio_function(helper_code)
-        fields.append(
-            PlayerStatFieldProfile(
-                name,
-                RatioPlayerStatSource(
-                    evidence.numerator_offset,
-                    evidence.denominator_offset,
-                    evidence.primitive,
-                    evidence.scale,
-                ),
-                0.0,
-                100.0,
-            )
-        )
+        source = _resolve_vital_ratio_source(image, helper_rva)
+        if source is not None:
+            fields.append(PlayerStatFieldProfile(name, source, 0.0, 100.0))
     # A complete profile must also contain direct level and experience evidence. The target
     # build's helpers calculate these through additional data-center calls, so absence is a
     # hard failure rather than an adjacent-offset guess.

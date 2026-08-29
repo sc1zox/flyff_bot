@@ -351,20 +351,15 @@ class LivePositionReader:
             raise ValueError("Live position poll rate must be positive.")
         self._window_handle = window_handle
         self._api = api
-        self._profiles: Mapping[str, ClientPositionProfile] = (
-            ENTROPIA_POSITION_PROFILES if profiles is None else profiles
-        )
+        self._profiles: Mapping[str, ClientPositionProfile] = {} if profiles is None else profiles
         self._profiles_path = profiles_path
         self._profile_configuration_error: str | None = None
-        if profiles is None:
-            if profiles_path.is_file():
-                try:
-                    self._profiles = load_client_position_profiles(profiles_path)
-                except ValueError as error:
-                    self._profiles = {}
-                    self._profile_configuration_error = str(error)
-            else:
-                self._profiles = ENTROPIA_POSITION_PROFILES
+        if profiles is None and profiles_path.is_file():
+            try:
+                self._profiles = load_client_position_profiles(profiles_path)
+            except ValueError as error:
+                self._profiles = {}
+                self._profile_configuration_error = str(error)
         self._poll_interval_seconds = 1.0 / poll_hertz
         self._event_sink = event_sink
         self._handle: int | None = None
@@ -447,6 +442,22 @@ class LivePositionReader:
             self._handle = None
             self._module_base = None
             self._profile = None
+
+    def reload_profiles(self, _profile_update: object | None = None) -> None:
+        """Close stale handles and reload generated profiles without embedded fallbacks."""
+
+        with self._lock:
+            self.close()
+            self._profiles = {}
+            self._profile_configuration_error = None
+            if self._profiles_path.is_file():
+                try:
+                    self._profiles = load_client_position_profiles(self._profiles_path)
+                except ValueError as error:
+                    self._profile_configuration_error = str(error)
+            self._polled_at_seconds = None
+            self._last_reading = PositionReading(PositionSource.UNAVAILABLE)
+            self._last_error_code = None
 
     def _api_or_raise(self) -> ProcessMemoryApi:
         if self._api is None:

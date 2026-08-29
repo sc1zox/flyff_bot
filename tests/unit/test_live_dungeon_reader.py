@@ -14,7 +14,11 @@ from flyff_bot.features.dungeons.live_reader import (
     LiveDungeonCooldownReader,
 )
 from flyff_bot.features.dungeons.models import DungeonDefinition, DungeonStatus, format_cooldown
-from flyff_bot.features.dungeons.profiles import ClientDungeonProfile
+from flyff_bot.features.dungeons.profiles import (
+    ClientDungeonProfile,
+    DungeonFieldLayout,
+    FixedDungeonArray,
+)
 from flyff_bot.features.navigation.live_position import (
     PROCESS_QUERY_LIMITED_INFORMATION,
     PROCESS_VM_READ,
@@ -118,11 +122,8 @@ def _reader(
         digest,
         runtime_state_pointer_rva=POINTER_RVA,
         pointer_size_bytes=8,
-        record_size_bytes=RECORD_SIZE,
-        record_count=4,
-        cooldown_end_timestamp_offset=16,
-        entries_used_offset=28,
-        daily_entry_limit_offset=24,
+        container=FixedDungeonArray(0, RECORD_SIZE, 4),
+        fields=DungeonFieldLayout(0, 16, 28, 24),
     )
     definitions = _definitions()
     return (
@@ -152,7 +153,7 @@ def test_reader_reads_one_fixed_array_and_calculates_all_statuses(tmp_path: Path
     assert all(snapshot.diagnostic_code is None for snapshot in snapshots)
     assert api.reads == [
         (MODULE_BASE + POINTER_RVA, 8),
-        (ARRAY_ADDRESS, profile.array_read_size_bytes),
+        (ARRAY_ADDRESS, profile.container.record_size_bytes * profile.maximum_record_count),
     ]
     assert reader.is_open
     assert api.closed == []
@@ -311,6 +312,18 @@ def test_client_dungeon_profiles_round_trip_normalizes_fingerprints(tmp_path: Pa
                     "sha256": digest.upper(),
                     "runtime_state_pointer_rva": POINTER_RVA,
                     "pointer_size_bytes": 8,
+                    "container": {
+                        "kind": "fixed_array",
+                        "records_offset": 0,
+                        "record_size_bytes": 48,
+                        "record_count": 32,
+                    },
+                    "fields": {
+                        "dungeon_id_offset": 0,
+                        "cooldown_end_timestamp_offset": 16,
+                        "entries_used_offset": 24,
+                        "daily_entry_limit_offset": 28,
+                    },
                 }
             ]
         ),

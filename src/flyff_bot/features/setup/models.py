@@ -17,6 +17,7 @@ class SetupExtractionWarning(StrEnum):
     MEMORY_PROFILE_NOT_FOUND = "memory_profile_not_found"
     INVALID_MEMORY_PROFILE = "invalid_memory_profile"
     BINARY_ARCHITECTURE_UNKNOWN = "binary_architecture_unknown"
+    CLIENT_PROFILING_FAILED = "client_profiling_failed"
     CATALOG_EMPTY = "catalog_empty"
     CATALOG_TABLE_REJECTED = "catalog_table_rejected"
 
@@ -52,7 +53,10 @@ class ClientSetupPaths:
     quest_database: Path
     quest_npc_positions: Path
     dungeon_database: Path
+    position_profiles: Path
     player_stats_profiles: Path
+    camera_profiles: Path
+    dungeon_profiles: Path
     client_catalog: Path
     source_manifest: Path
 
@@ -96,7 +100,10 @@ class SetupRequiredDatasets:
     worlds: tuple[Path, ...]
     quests: Path
     dungeons: Path
-    player_profiles: Path
+    position_profiles: Path
+    player_stats_profiles: Path
+    camera_profiles: Path
+    dungeon_profiles: Path
     client_catalog: Path
     source_manifest: Path
 
@@ -106,7 +113,10 @@ class SetupRequiredDatasets:
             for path in (
                 self.quests,
                 self.dungeons,
-                self.player_profiles,
+                self.position_profiles,
+                self.player_stats_profiles,
+                self.camera_profiles,
+                self.dungeon_profiles,
                 self.client_catalog,
                 self.source_manifest,
             )
@@ -122,7 +132,10 @@ def missing_required_datasets(paths: SetupRequiredDatasets) -> tuple[str, ...]:
     for dataset_name, path in (
         ("quests", paths.quests),
         ("dungeons", paths.dungeons),
-        ("player_profiles", paths.player_profiles),
+        ("position_profiles", paths.position_profiles),
+        ("player_stats_profiles", paths.player_stats_profiles),
+        ("camera_profiles", paths.camera_profiles),
+        ("dungeon_profiles", paths.dungeon_profiles),
         ("client_catalog", paths.client_catalog),
         ("source_manifest", paths.source_manifest),
     ):

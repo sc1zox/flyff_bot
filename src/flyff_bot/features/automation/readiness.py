@@ -180,6 +180,7 @@ class LiveReadinessGate:
     def __init__(self) -> None:
         self._providers: dict[LiveStateSource, ProviderRegistration] = {}
         self._capabilities: dict[SessionCapability, CapabilityRequirement] = {}
+        self._declared_capabilities: dict[SessionCapability, CapabilityRequirement] = {}
         self._samples: dict[LiveStateSource, LiveProviderSample] = {}
         self._sample_versions: dict[LiveStateSource, int] = {}
         self._last_evaluated_at_seconds: float | None = None
@@ -201,6 +202,7 @@ class LiveReadinessGate:
         if requirement.capability in self._capabilities:
             raise ValueError(f"Capability {requirement.capability.value} is already registered.")
         self._capabilities[requirement.capability] = requirement
+        self._declared_capabilities[requirement.capability] = requirement
 
     def update(self, sample: LiveProviderSample) -> None:
         """Replace one registered provider sample with its newest normalized result."""
@@ -220,9 +222,24 @@ class LiveReadinessGate:
         if source in self._degraded_sources:
             return False
         self._degraded_sources.add(source)
+        self._capabilities = self._capabilities_without_degraded_sources()
+        return True
+
+    def restore_source(self, source: LiveStateSource) -> bool:
+        """Restore one declared source without clearing shutdown or F12 terminal state."""
+
+        if source not in self._degraded_sources:
+            return False
+        self._degraded_sources.remove(source)
+        self._capabilities = self._capabilities_without_degraded_sources()
+        return True
+
+    def _capabilities_without_degraded_sources(
+        self,
+    ) -> dict[SessionCapability, CapabilityRequirement]:
         remaining: dict[SessionCapability, CapabilityRequirement] = {}
-        for capability, requirement in self._capabilities.items():
-            required = requirement.required_sources - {source}
+        for capability, requirement in self._declared_capabilities.items():
+            required = requirement.required_sources - self._degraded_sources
             if not required:
                 continue
             remaining[capability] = (
@@ -234,8 +251,7 @@ class LiveReadinessGate:
                     blocks_session_actions=requirement.blocks_session_actions,
                 )
             )
-        self._capabilities = remaining
-        return True
+        return remaining
 
     def emergency_stop(self) -> None:
         """Latch the terminal emergency override; repeated calls are harmless."""

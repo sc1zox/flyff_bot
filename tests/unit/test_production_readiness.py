@@ -117,6 +117,9 @@ def _install(root: Path, *, complete: bool) -> dict[str, Path]:
         "quest_database_path": root / "quests.json",
         "dungeon_database_path": root / "dungeons.json",
         "player_profiles_path": root / "profiles.json",
+        "position_profiles_path": root / "position_profiles.json",
+        "camera_profiles_path": root / "camera_profiles.json",
+        "dungeon_profiles_path": root / "dungeon_profiles.json",
         "client_catalog_path": root / "catalog.json",
         "source_manifest_path": root / "source_manifest.json",
     }
@@ -239,7 +242,10 @@ def test_first_run_detection_names_the_catalog_and_its_manifest(tmp_path: Path) 
         "world_map_directory": paths["world_map_dir"],
         "quest_database": paths["quest_database_path"],
         "dungeon_database": paths["dungeon_database_path"],
-        "player_profiles": paths["player_profiles_path"],
+        "position_profiles": paths["player_profiles_path"],
+        "player_stats_profiles": paths["player_profiles_path"],
+        "camera_profiles": paths["player_profiles_path"],
+        "dungeon_profiles": paths["player_profiles_path"],
         "client_catalog": paths["client_catalog_path"],
         "source_manifest": paths["source_manifest_path"],
     }
