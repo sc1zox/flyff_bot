@@ -55,4 +55,6 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-033: Unified setup does not ingest or autoload the client data it reports**](fixed/BUG-033-unified-setup-does-not-ingest-or-autoload-client-data.md)
 - [x] [**BUG-034: Live readers ignore foreground contract**](fixed/BUG-034-live-readers-ignore-foreground-contract.md)
 - [x] [**BUG-035: Setup wizard rejects the real Entropia client folder**](fixed/BUG-035-setup-wizard-rejects-the-real-entropia-client-folder.md)
+- [x] [**BUG-036: Dungeon extraction missing script and misleading UI status**](fixed/BUG-036-dungeon-extraction-missing-script-and-misleading-ui-status.md)
+- [x] [**BUG-037: Setup profiler RTTI resolution failure and rescan zero counts display**](fixed/BUG-037-setup-profiler-rtti-resolution-failure-and-rescan-zero-counts.md)
 - [x] [**BUG-038: Player-stats profiler fails closed on the shipped neuz.exe wrapped vital-ratio helpers**](fixed/BUG-038-player-stats-profiler-fails-closed-on-wrapped-vital-ratio-helpers.md)

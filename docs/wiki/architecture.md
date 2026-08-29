@@ -45,7 +45,7 @@ related:
   - ../user-stories/completed/US-071-unified-rl-environment-and-reward.md
   - ../user-stories/completed/US-035-measured-minimap-odometry-and-tracking-quality.md
   - ../user-stories/completed/US-036-navigation-profile-anchoring-across-sessions.md
-  - ../user-stories/US-037-measured-spawn-distance-and-enforced-leash.md
+  - ../user-stories/completed/US-037-measured-spawn-distance-and-enforced-leash.md
   - ../user-stories/completed/US-041-spawn-distance-calibration-capture-script.md
   - ../user-stories/completed/US-042-automated-camera-alignment-and-standardized-viewport-initialization.md
   - ../user-stories/completed/US-022-modern-dark-theme-and-streamlined-dashboard-ui.md
@@ -84,12 +84,13 @@ related:
   - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
   - ../user-stories/completed/US-059-authoritative-vector-navigation-legacy-removal-and-multi-zone-selection.md
   - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
-  - ../user-stories/US-062-automated-npc-quest-acceptance-and-turn-in.md
+  - ../user-stories/completed/US-062-automated-npc-quest-acceptance-and-turn-in.md
   - ../user-stories/completed/US-080-goal-driven-quest-execution-and-objective-bus.md
   - ../user-stories/completed/US-066-farming-and-navigation-value-model.md
-  - ../user-stories/US-069-experience-based-navmesh-routing.md
+  - ../user-stories/completed/US-069-experience-based-navmesh-routing.md
   - ../user-stories/completed/US-068-rolling-horizon-multi-target-planning.md
-  - ../user-stories/US-063-client-dungeon-data-and-live-cooldown-memory-extraction.md
+  - ../user-stories/completed/US-063-client-dungeon-data-and-live-cooldown-memory-extraction.md
+  - ../user-stories/completed/US-089-automated-client-binary-reverse-engineering-and-memory-profiling.md
   - ../bugs/fixed/BUG-036-dungeon-extraction-missing-script-and-misleading-ui-status.md
   - ../user-stories/completed/US-078-initial-setup-wizard-and-unified-client-data-extraction.md
   - ../bugs/fixed/BUG-029-tesseract-ocr-tsv-argument-ordering-causes-empty-stdout-and-unreadable-target-names.md

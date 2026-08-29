@@ -42,11 +42,11 @@ As an **operator running automated farming sessions**, I want **the teleporter h
 - [ ] **Streamlined Combat Executor:** Given `CombatController`, when stepping combat, then it executes the requested target from the policy layer without duplicating candidate ranking logic, retaining fallback delegation to the canonical ranking function only for standalone execution.
 - [ ] **Consistent Shadow Mode Telemetry:** Given `policy_mode == PolicyRuntimeMode.ML_SHADOW`, when recording policy insights and executed selections, then the recorded baseline matches the executed canonical heuristic identically without guesswork or phantom divergence.
 - [ ] **Closed-Loop Memory-Guided Camera Positioning:** Given live camera state from `LiveCameraReader`, when initializing or resetting viewport perspective, then camera pitch (~45°) and zoom-out are adjusted closed-loop using live memory pitch/zoom values rather than unmeasured blind key holds.
-- [ ] **Memory-Based Monster Kills Extraction:** Given `LivePlayerStatsReader` and `ClientPlayerStatsProfile`, when polling client memory, then the cumulative session monster kill counter is read directly from proven process memory offsets (`monster_kills`), populating `WorldState.monster_kill_count` without OCR subprocess overhead.
+- [x] **Memory-Based Monster Kills Extraction:** Given `LivePlayerStatsReader` and `ClientPlayerStatsProfile`, when polling client memory, then the cumulative session monster kill counter is read directly from proven process memory offsets (`monster_kills`), populating `WorldState.monster_kill_count` without OCR subprocess overhead.
 - [ ] **Decommissioning of Pixel Vitals & OCR Subsystems:** Given the perception pipeline, when processing frames:
   - `PlayerVitalsReader` (pixel scanning HUD orb) is pruned; `LivePlayerStatsReader` serves as the authoritative source for player vitals.
-  - `MonsterStatsReader` OCR and nameplate OCR in `TargetVerifier` are pruned once direct memory extraction for player stats and monster kills is operational.
-  - `MonsterStatsDebugPanel` is removed from UI diagnostics.
+  - [x] `MonsterStatsReader` OCR and `MonsterStatsDebugPanel` UI diagnostics are pruned (delivered in `a80adae`).
+  - [ ] Nameplate OCR in `TargetVerifier` is pruned once direct memory verification is operational.
 - [ ] **Removal of Frame-Diff Stall Detection:** Given `StallDetector`, when monitoring motion, then stall decisions rely strictly on `_observe_live` (`WorldPosition` delta over time); `_observe_frame` and its peripheral pixel sampling masks are pruned.
 - [ ] **Pruning of Dead Code & Stubs:** Given the codebase:
   - `planner.py` (`Planner`, `Goal`, `PlanningAction`), `executor.py` (`VerifiedExecutor`), `NavigationController` (in `controllers.py`), and legacy `TeleportController` (`teleport.py`) are deleted.
