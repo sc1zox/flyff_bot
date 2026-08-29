@@ -27,7 +27,8 @@ As an **operator running automated farming sessions**, I want **the teleporter h
   - `LivePositionReader` ([US-053](completed/US-053-pure-gps-navigation-and-client-profile-configuration.md)) provides live 3D `WorldPosition`.
 - Visual heuristics and OCR subsystems left from early iterations are now redundant and create unnecessary subprocess overhead:
   - `PlayerVitalsReader` (pixel scanning top-left HUD orb) is redundant with `LivePlayerStatsReader`.
-  - `MonsterStatsReader`, `TesseractTextRecognizer`, and nameplate OCR in `TargetVerifier` introduce fragile Tesseract dependencies when combat death is verifiable via state transitions and player stats.
+  - Monster kill counts can be decoded directly from the client player/session memory structure via `LivePlayerStatsReader`, replacing the brittle `MonsterStatsReader` Tesseract OCR subprocess and HUD window alignment.
+  - Nameplate OCR in `TargetVerifier` introduces fragile Tesseract dependencies when target identity is verifiable via catalog movers and combat state transitions.
   - `StallDetector._observe_frame` (downsampled screenshot pixel diffing) is redundant with `_observe_live` (`WorldPosition` delta over time).
   - Dead bootstrap artifacts (`Planner` in `planner.py`, `VerifiedExecutor` in `executor.py`, `NavigationController` in `controllers.py`, dead `FarmingGoal` item inventory checks) clutter the codebase.
 - Relevant decisions and ADRs: [ADR-002](docs/decisions/ADR-002-target-architecture-and-pyside6.md), [ADR-006](docs/decisions/ADR-006-read-only-process-memory-access.md), [ADR-008](docs/decisions/ADR-008-closed-learning-loop-invariants.md), [ADR-009](docs/decisions/ADR-009-bounded-tactical-parameter-space.md).
@@ -41,9 +42,10 @@ As an **operator running automated farming sessions**, I want **the teleporter h
 - [ ] **Streamlined Combat Executor:** Given `CombatController`, when stepping combat, then it executes the requested target from the policy layer without duplicating candidate ranking logic, retaining fallback delegation to the canonical ranking function only for standalone execution.
 - [ ] **Consistent Shadow Mode Telemetry:** Given `policy_mode == PolicyRuntimeMode.ML_SHADOW`, when recording policy insights and executed selections, then the recorded baseline matches the executed canonical heuristic identically without guesswork or phantom divergence.
 - [ ] **Closed-Loop Memory-Guided Camera Positioning:** Given live camera state from `LiveCameraReader`, when initializing or resetting viewport perspective, then camera pitch (~45°) and zoom-out are adjusted closed-loop using live memory pitch/zoom values rather than unmeasured blind key holds.
-- [ ] **Removal of Pixel Vitals & OCR Subsystems:** Given the perception pipeline, when processing frames:
+- [ ] **Memory-Based Monster Kills Extraction:** Given `LivePlayerStatsReader` and `ClientPlayerStatsProfile`, when polling client memory, then the cumulative session monster kill counter is read directly from proven process memory offsets (`monster_kills`), populating `WorldState.monster_kill_count` without OCR subprocess overhead.
+- [ ] **Decommissioning of Pixel Vitals & OCR Subsystems:** Given the perception pipeline, when processing frames:
   - `PlayerVitalsReader` (pixel scanning HUD orb) is pruned; `LivePlayerStatsReader` serves as the authoritative source for player vitals.
-  - `MonsterStatsReader`, `TesseractTextRecognizer`, and nameplate OCR in `TargetVerifier` are pruned.
+  - `MonsterStatsReader` OCR and nameplate OCR in `TargetVerifier` are pruned once direct memory extraction for player stats and monster kills is operational.
   - `MonsterStatsDebugPanel` is removed from UI diagnostics.
 - [ ] **Removal of Frame-Diff Stall Detection:** Given `StallDetector`, when monitoring motion, then stall decisions rely strictly on `_observe_live` (`WorldPosition` delta over time); `_observe_frame` and its peripheral pixel sampling masks are pruned.
 - [ ] **Pruning of Dead Code & Stubs:** Given the codebase:
