@@ -24,6 +24,7 @@ from flyff_bot.features.automation.orchestrator import (
     FarmingMode,
     FarmingOrchestrator,
 )
+from flyff_bot.features.diagnostics import SessionEventKind, SessionEventLogger
 from flyff_bot.features.input_control.keymap import VIRTUAL_KEY_W
 from flyff_bot.features.navigation.live_camera import (
     CameraReading,
@@ -347,6 +348,7 @@ def test_live_stall_projects_an_obstacle_ahead_and_replans_via_steering() -> Non
 class _Adapter:
     def __init__(self) -> None:
         self.keys: list[tuple[int, float]] = []
+        self.chords: list[tuple[int, ...]] = []
 
     def is_aborted(self) -> bool:
         return False
@@ -365,7 +367,8 @@ class _Adapter:
         virtual_keys: tuple[int, ...] | list[int] | int,
         duration_seconds: float,
     ) -> None:
-        pass
+        keys = (virtual_keys,) if isinstance(virtual_keys, int) else tuple(virtual_keys)
+        self.chords.append(keys)
 
 
 class _Pipeline:
@@ -395,6 +398,63 @@ def test_orchestrator_pauses_when_gps_is_offline() -> None:
 
     assert tick.mode is FarmingMode.PAUSED
     assert adapter.keys == []
+
+
+def test_out_of_zone_start_uses_navmesh_travel_instead_of_camera_search() -> None:
+    """BUG-043: an activated camp owns the first no-target tick from any live position."""
+
+    controller = _controller(_navigator((ZoneGoal("Flame"),)))
+    adapter = _Adapter()
+    orchestrator = FarmingOrchestrator(
+        cast("PerceptionPipeline", _Pipeline([_state(1.0)])),
+        cast("FarmingInputAdapter", adapter),
+        WINDOW_HANDLE,
+        pathing=controller,
+    )
+    orchestrator.start()
+
+    tick = orchestrator.tick()
+
+    assert tick.mode is FarmingMode.SEARCHING
+    assert any(VIRTUAL_KEY_W in keys for keys in adapter.chords)
+    assert controller.waypoints
+
+
+def test_unreachable_selected_zone_pauses_without_camera_search() -> None:
+    """BUG-043: an active camp without a route is a latched, diagnosable safe pause."""
+
+    navigator = VectorZoneNavigator(TERRAIN_WORLD_MAP, goals=(ZoneGoal("Flame"),))
+    controller = _controller(navigator)
+    adapter = _Adapter()
+    events: list[tuple[SessionEventKind, str | None]] = []
+
+    class _EventLogger:
+        def record(
+            self,
+            kind: SessionEventKind,
+            _new_mode: str,
+            *,
+            reason: str | None = None,
+            **_kwargs: object,
+        ) -> None:
+            events.append((kind, reason))
+
+    orchestrator = FarmingOrchestrator(
+        cast("PerceptionPipeline", _Pipeline([_state(1.0), _state(2.0)])),
+        cast("FarmingInputAdapter", adapter),
+        WINDOW_HANDLE,
+        pathing=controller,
+        event_logger=cast("SessionEventLogger", _EventLogger()),
+    )
+    orchestrator.start()
+
+    first = orchestrator.tick()
+    second = orchestrator.tick()
+
+    assert first.mode is FarmingMode.PAUSED
+    assert second.mode is FarmingMode.PAUSED
+    assert adapter.keys == []
+    assert events[-1] == (SessionEventKind.ZONE_ROUTE_UNAVAILABLE, "zone_route_unavailable")
 
 
 def test_orchestrator_auto_resumes_when_gps_recovers() -> None:

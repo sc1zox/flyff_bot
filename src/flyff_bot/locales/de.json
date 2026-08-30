@@ -255,6 +255,7 @@
   "ui.event_kind_player_death": "Spielertod",
   "ui.event_kind_recovery_resumed": "Wiederherstellung fortgesetzt",
   "ui.event_kind_budget_exhausted": "Budget ausgeschöpft",
+  "ui.event_kind_zone_route_unavailable": "Ausgewählte Zone ist nicht erreichbar",
   "ui.event_kind_navigation_test_arrived": "Navigationstest angekommen",
   "ui.event_kind_emergency_stopped": "Notstopp",
   "ui.event_kind_focus_lost": "Fokus verloren",

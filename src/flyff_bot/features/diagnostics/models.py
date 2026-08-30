@@ -25,6 +25,7 @@ class SessionEventKind(StrEnum):
     RECOVERY_RESUMED = "recovery_resumed"
     BUDGET_EXHAUSTED = "budget_exhausted"
     NAVIGATION_TEST_ARRIVED = "navigation_test_arrived"
+    ZONE_ROUTE_UNAVAILABLE = "zone_route_unavailable"
 
 
 @dataclass(frozen=True, slots=True)

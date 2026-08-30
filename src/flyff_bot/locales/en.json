@@ -255,6 +255,7 @@
   "ui.event_kind_player_death": "Player death",
   "ui.event_kind_recovery_resumed": "Recovery resumed",
   "ui.event_kind_budget_exhausted": "Budget exhausted",
+  "ui.event_kind_zone_route_unavailable": "Selected zone is unreachable",
   "ui.event_kind_navigation_test_arrived": "Navigation test arrived",
   "ui.event_kind_emergency_stopped": "Emergency stop",
   "ui.event_kind_focus_lost": "Focus lost",

@@ -1,7 +1,7 @@
 ---
 id: BUG-043
 title: Out-of-zone start triggers infinite camera search loop instead of NavMesh travel
-status: reported
+status: resolved
 severity: high
 created: 2026-08-30
 updated: 2026-08-30
@@ -43,7 +43,14 @@ When `_advance_pathing()` yields an idle or empty route when started outside the
 
 ## Regression verification
 
-- [ ] A failing automated test exists reproducing the out-of-zone start condition and verifying that `VectorZoneNavigator` / `PathingController` plans NavMesh travel to the zone rather than idling/rotating.
-- [ ] Automated check confirms that an unreachable zone safely pauses the session with a logged error instead of falling into the search rotation loop.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] `test_out_of_zone_start_uses_navmesh_travel_instead_of_camera_search` reproduces an activated, out-of-zone start and verifies that the session dispatches NavMesh travel rather than camera search.
+- [x] `test_unreachable_selected_zone_pauses_without_camera_search` verifies that an unreachable selected zone latches a safe pause and records `zone_route_unavailable` rather than entering the search rotation loop.
+- [x] Focused verification passed: `uv run pytest tests\unit\test_vector_pathing.py tests\unit\test_i18n.py --no-cov --basetemp C:\Windows\Temp\pytest-bug043` reported 29 passed in 0.29s.
+- [x] Related documentation is current. The existing architecture documentation already establishes selected-zone NavMesh routing; this regression does not introduce a separate durable architectural boundary.
+
+## Verification limits
+
+The canonical `./scripts/check.ps1` gate passed dependency synchronization, Ruff, formatting, and
+MyPy, but its pytest phase remains blocked by three unrelated failures in
+`tests/unit/test_quest_objectives.py` (lines 624, 721, and 812). Those failures are outside the
+BUG-043 change; the focused BUG-043 regression coverage passed as recorded above.

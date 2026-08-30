@@ -552,6 +552,7 @@ class Message(StrEnum):
     UI_EVENT_KIND_PLAYER_DEATH = "ui.event_kind_player_death"
     UI_EVENT_KIND_RECOVERY_RESUMED = "ui.event_kind_recovery_resumed"
     UI_EVENT_KIND_BUDGET_EXHAUSTED = "ui.event_kind_budget_exhausted"
+    UI_EVENT_KIND_ZONE_ROUTE_UNAVAILABLE = "ui.event_kind_zone_route_unavailable"
     UI_EVENT_MODE_PAUSED = "ui.event_mode_paused"
     UI_EVENT_MODE_ALIGNING = "ui.event_mode_aligning"
     UI_EVENT_MODE_SEARCHING = "ui.event_mode_searching"

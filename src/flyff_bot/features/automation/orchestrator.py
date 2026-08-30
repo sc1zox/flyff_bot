@@ -2498,6 +2498,8 @@ class FarmingOrchestrator:
                 return False
             if self._advance_pathing():
                 return True
+            if self._mode is not FarmingMode.SEARCHING:
+                return False
             search_decision = self._search.step(self._state.observed_at_seconds)
             dispatched = self._search_dispatcher.dispatch(search_decision)
             if (
@@ -2989,7 +2991,16 @@ class FarmingOrchestrator:
         decision = self._pathing.step(self._state.observed_at_seconds)
         self._forward_recovery_events()
         if decision.mode is PathingMode.BLOCKED:
-            self.pause(reason="gps_unavailable", manual=False)
+            if (
+                self._pathing.vector_navigation_active
+                and not self._pathing.vector_navigation_gps_unavailable
+            ):
+                self.pause(
+                    kind=SessionEventKind.ZONE_ROUTE_UNAVAILABLE,
+                    reason="zone_route_unavailable",
+                )
+            else:
+                self.pause(reason="gps_unavailable", manual=False)
             return False
         if self._telemetry is not None:
             live_position = self._pathing.live_position
