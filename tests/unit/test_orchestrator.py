@@ -1053,7 +1053,7 @@ def test_power_up_hotkey_is_dispatched_after_its_configured_interval() -> None:
 
 
 def test_paused_session_freezes_power_up_countdowns() -> None:
-    """US-016 & US-095: initial buff fires on start; pausing freezes countdowns without re-triggering."""
+    """US-016 & US-095: initial buff fires on start; pause freezes countdowns, no re-trigger."""
 
     adapter = _InputAdapter()
     states = [_state(time) for time in (0.0, 0.5, 1.0, 100.0, 100.5, 101.0, 101.5, 102.0)]

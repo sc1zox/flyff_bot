@@ -465,6 +465,7 @@ def _position_accessor_member_offset(image: PeImage, helper_rva: int) -> int | N
         return None
     if helper[cursor + instruction_size : cursor + instruction_size + 1] != b"\xc3":
         return None
+    offset = int(offset)
     if (
         offset <= 0
         or offset >= _MAX_STRUCT_ACCESSOR_OFFSET

@@ -43,8 +43,6 @@ from flyff_bot.features.navigation.live_position import (
 from flyff_bot.features.navigation.navmesh import (
     BakedNavMesh,
     NavMeshBaker,
-    WorldTriangle,
-    WorldVertex,
 )
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.teleporter_dispatch import (
@@ -65,6 +63,7 @@ from flyff_bot.features.navigation.world_extractor import (
     WorldDimensions,
     WorldVectorMap,
 )
+from flyff_bot.features.navigation.world_geometry import WorldTriangle, WorldVertex
 from flyff_bot.features.perception.pipeline import PerceptionPipeline, PerceptionTick
 from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjective,

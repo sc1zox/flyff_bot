@@ -86,9 +86,7 @@ def test_trigger_recurs_after_each_confirmed_press() -> None:
 
     assert scheduler.step(TICK_SECONDS).triggered is False
 
-    second, second_at = _run_until_trigger(
-        scheduler, start_at=2 * TICK_SECONDS, limit_seconds=5.0
-    )
+    second, second_at = _run_until_trigger(scheduler, start_at=2 * TICK_SECONDS, limit_seconds=5.0)
 
     assert second.virtual_key == VIRTUAL_KEY_F4
     assert second_at >= 2.0
