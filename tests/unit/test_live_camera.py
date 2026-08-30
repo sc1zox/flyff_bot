@@ -63,6 +63,7 @@ class FakeCameraMemoryApi:
         self.foreground = True
         self.fail_read = False
         self.short_read = False
+        self.view_matrix = IDENTITY_MATRIX
 
     def is_window_foreground(self, window_handle: int) -> bool:
         assert window_handle in {WINDOW_HANDLE, RESTARTED_WINDOW_HANDLE}
@@ -106,7 +107,7 @@ class FakeCameraMemoryApi:
                 "<16f",
                 payload,
                 self.profile.view_matrix_offset - self.profile.camera_read_start_offset,
-                *(value for row in IDENTITY_MATRIX for value in row),
+                *(value for row in self.view_matrix for value in row),
             )
             struct.pack_into(
                 "<3f",
@@ -224,6 +225,25 @@ def test_reader_reads_only_the_profiled_pointer_camera_span_and_projection(
         (CAMERA_ADDRESS + 0x8, 0x98),
         (MODULE_BASE + PROJECTION_RVA, MATRIX_SIZE_BYTES),
     ]
+
+
+def test_reader_reports_downward_pitch_as_positive_degrees(
+    configured_reader: tuple[LiveCameraReader, FakeCameraMemoryApi, list[CameraReadError]],
+) -> None:
+    reader, api, _events = configured_reader
+    cosine = math.cos(math.radians(45.0))
+    sine = math.sin(math.radians(45.0))
+    api.view_matrix = (
+        (1.0, 0.0, 0.0, 0.0),
+        (0.0, cosine, -sine, 0.0),
+        (0.0, sine, cosine, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+
+    reading = reader.poll(1.0)
+
+    assert reading.state is not None
+    assert reading.state.pitch_degrees == pytest.approx(45.0)
 
 
 def test_default_poll_rate_caches_the_last_reading_until_ten_hertz(

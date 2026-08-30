@@ -20,6 +20,7 @@ DEFAULT_AUTO_ALIGN_CAMERA = True
 CALIBRATED_CAMERA_PITCH_DEGREES = 45.0
 PITCH_TOLERANCE_DEGREES = 1.5
 ZOOM_DELTA_TOLERANCE_UNITS = 0.01
+ZOOM_HARD_STOP_CONFIRMATION_STEPS = 2
 MAXIMUM_PITCH_STEPS = 20
 
 
@@ -118,6 +119,7 @@ class CameraAligner:
             return CameraAlignmentStatus.CAMERA_UNAVAILABLE
 
         previous_zoom = reading.zoom_distance
+        stationary_zoom_steps = 0
         zoom_stopped = False
         for _step in range(self._config.zoom_out_notches):
             blocked = self._blocked()
@@ -132,8 +134,12 @@ class CameraAligner:
             zoom_delta = reading.zoom_distance - previous_zoom
             previous_zoom = reading.zoom_distance
             if zoom_delta <= self._config.zoom_delta_tolerance_units:
-                zoom_stopped = True
-                break
+                stationary_zoom_steps += 1
+                if stationary_zoom_steps >= ZOOM_HARD_STOP_CONFIRMATION_STEPS:
+                    zoom_stopped = True
+                    break
+            else:
+                stationary_zoom_steps = 0
         if not zoom_stopped:
             return CameraAlignmentStatus.NOT_CONVERGED
 

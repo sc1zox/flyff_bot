@@ -60,17 +60,46 @@ def _state(zoom: float, pitch: float) -> CameraState:
     return CameraState(zoom_distance=zoom, pitch_radians=math.radians(pitch))
 
 
-def test_alignment_repolls_until_zoom_hard_stop_then_pitch_target() -> None:
+def test_alignment_waits_for_confirmed_zoom_hard_stop_then_pitch_target() -> None:
     adapter = _CameraAdapter()
     source = _CameraSource(
-        [_state(10.0, 30.0), _state(11.0, 30.0), _state(11.0, 30.0), _state(11.0, 45.0)]
+        [
+            _state(10.0, 30.0),
+            _state(11.0, 30.0),
+            _state(11.0, 30.0),
+            _state(11.0, 30.0),
+            _state(11.0, 45.0),
+        ]
     )
 
     status = CameraAligner(adapter, WINDOW_HANDLE, source, sleep=lambda _delay: None).align()
 
     assert status is CameraAlignmentStatus.ALIGNED
-    assert [name for name, _value in adapter.actions] == ["scroll", "scroll", "key:0x26"]
-    assert source.polls == 4
+    assert [name for name, _value in adapter.actions] == [
+        "scroll",
+        "scroll",
+        "scroll",
+        "key:0x26",
+    ]
+    assert source.polls == 5
+
+
+def test_alignment_does_not_treat_one_delayed_zoom_measurement_as_a_hard_stop() -> None:
+    adapter = _CameraAdapter()
+    source = _CameraSource(
+        [
+            _state(10.0, 45.0),
+            _state(10.0, 45.0),
+            _state(11.0, 45.0),
+            _state(11.0, 45.0),
+            _state(11.0, 45.0),
+        ]
+    )
+
+    status = CameraAligner(adapter, WINDOW_HANDLE, source, sleep=lambda _delay: None).align()
+
+    assert status is CameraAlignmentStatus.ALIGNED
+    assert [name for name, _value in adapter.actions] == ["scroll", "scroll", "scroll", "scroll"]
 
 
 def test_missing_memory_state_fails_without_input() -> None:

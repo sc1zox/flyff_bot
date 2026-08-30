@@ -105,7 +105,10 @@ DEFAULT_WORLD_POSITION: WorldPosition = WorldPosition(0.0, 0.0, 0.0)
 
 @dataclass(frozen=True, slots=True)
 class CameraState:
-    """One coherent D3D9 camera snapshot derived from View and Projection matrices."""
+    """One coherent D3D9 camera snapshot derived from View and Projection matrices.
+
+    Pitch is positive when the camera points downward, matching the tactical camera target.
+    """
 
     position: WorldPosition = DEFAULT_WORLD_POSITION
     pitch_radians: float = 0.0
@@ -499,7 +502,7 @@ class LiveCameraReader:
             raise _MalformedCameraRead(str(error)) from error
         return CameraState(
             position=position,
-            pitch_radians=math.asin(max(-1.0, min(1.0, forward.y))),
+            pitch_radians=-math.asin(max(-1.0, min(1.0, forward.y))),
             yaw_radians=math.atan2(forward.x, forward.z),
             zoom_distance=zoom_distance,
             vertical_fov_radians=2.0 * math.atan(1.0 / fov_scale),

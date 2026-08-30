@@ -1,7 +1,7 @@
 ---
 id: BUG-041
 title: Camera alignment fails closed with top-down pitch inversion and non-functional zoom-out
-status: reported
+status: resolved
 severity: high
 created: 2026-08-30
 updated: 2026-08-30
@@ -41,6 +41,17 @@ Per [US-042](../user-stories/completed/US-042-automated-camera-alignment-and-sta
 
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated test or deterministic manual check exists.
+- [x] The check passes after the fix.
+- [x] Related documentation is current.
+
+## Resolution and evidence
+
+The deterministic camera-alignment regression coverage now verifies the downward-positive pitch
+convention and requires two consecutive stationary guarded zoom measurements before accepting the
+physical zoom hard stop. The focused automated regression tests and the full repository gate
+passed after the fix.
+
+No live Windows/Flyff walkthrough was run for this repair. The automated evidence does not verify
+physical zoom movement, pitch direction, or convergence in a foregrounded `neuz.exe` client; that
+validation remains outstanding.

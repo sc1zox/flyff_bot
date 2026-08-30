@@ -2734,6 +2734,10 @@ HP, quotas, and measured NavMesh distance when available. `ML_SHADOW` compares a
 canonical baseline that the live decision executes, eliminating the former geometric shadow
 divergence. The camera alignment loop similarly measures `LiveCameraReader` state, actuates a
 bounded pitch/zoom step, and repeats until the measured target or refusal condition is reached.
+`CameraState.pitch_degrees` is positive for a downward-facing camera, the same convention as the
+tactical target; two consecutive stationary guarded zoom measurements confirm the physical hard
+stop, so one delayed poll cannot terminate the loop. The bounded action budgets and the foreground
+and emergency-stop checks still apply to every step.
 
 US-092 also removes the dead planner/executor/navigation-controller bootstrap path, the legacy
 teleport controller, obsolete inventory and farming-goal remnants, minimap fixtures, and frame-diff
