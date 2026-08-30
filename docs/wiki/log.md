@@ -1324,8 +1324,17 @@ buttons that set every camp's check state in one action while `active_zones` sta
 US-059 sequential patrol, and persists its window geometry to `QSettings` (`window_geometry`) via
 the existing `_persist_state` synchronization point, restored by `_restore_geometry` on reopen.
 Localized `ui.world_data_select_all` / `ui.world_data_deselect_all` in both bundles. Automated
-evidence is the clean full gate: Ruff, format, MyPy, and pytest (1303 passed, 4 skipped; 88.85%
-coverage). The manual Windows/Flyff walkthrough remains unrun. The same change also repaired four
+evidence is the clean full gate: Ruff, format, MyPy, and pytest (1303 passed, 4 skipped; 88.85% coverage). The manual Windows/Flyff walkthrough remains unrun. The same change also repaired four
 pre-existing gate failures inherited from earlier commits (two ruff-format/line-length issues in
 `tests/unit/test_powerups.py` and `tests/unit/test_orchestrator.py`, an `int()` cast in
 `client_profiling/profiler.py`, and a non-reexported import in `tests/unit/test_quest_objectives.py`).
+
+## [2026-08-31] synthesis | Interactive map test navigation window focus and navmesh adoption (BUG-045)
+
+Recorded in [architecture.md](architecture.md) that test navigation requested from `PathInspectorWidget`
+is now handled via `start_test_navigation` which foregrounds the client window (`focus_window`) prior to
+initiating movement, preventing instant `focus_lost` pausing on the next worker tick. `NavigationTestRequest`
+carries the scene's loaded `BakedNavMesh`, and `FarmingOrchestrator.request_test_navigation` adopts it onto
+`PathingController` if not previously attached, enabling test navigation without requiring prior vector
+farming activation. Automated evidence is the clean full gate: Ruff, format, MyPy, and pytest (1307 passed,
+4 skipped; 88.85% coverage).

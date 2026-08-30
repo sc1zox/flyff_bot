@@ -220,6 +220,9 @@ class _TestNavigationPathing:
         self.cancelled = 0
         self.emergency_stopped = 0
 
+    def attach_navmesh(self, navmesh: object) -> None:
+        self.navmesh = navmesh
+
     def step(self, _at_seconds: float) -> PathingDecision:
         return next(self._decisions)
 
@@ -365,6 +368,24 @@ def test_navigation_test_stops_on_focus_loss_and_f12_without_dispatching() -> No
     assert stop_session.tick().mode is FarmingMode.EMERGENCY_STOPPED
     assert stop_pathing.emergency_stopped == 1
     assert stop_adapter.keys == []
+
+
+def test_test_navigation_adopts_request_navmesh_when_controller_has_none() -> None:
+    target = WorldPosition(125.0, 20.0, 325.0)
+    adapter = _InputAdapter()
+    pathing = _TestNavigationPathing([])
+    pathing.navmesh = None
+    session = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline([_state(1.0)])),
+        adapter,
+        WINDOW_HANDLE,
+        pathing=cast(PathingController, pathing),
+    )
+    mesh = object()
+    session.request_test_navigation(NavigationTestRequest(target, navmesh=mesh))  # type: ignore[arg-type]
+
+    assert pathing.navmesh is mesh
+    assert session.mode is FarmingMode.TEST_NAVIGATING
 
 
 def test_runs_full_target_combat_and_reconciliation_cycle_without_looting() -> None:

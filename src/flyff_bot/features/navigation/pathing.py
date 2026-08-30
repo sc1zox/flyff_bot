@@ -434,6 +434,14 @@ class PathingController:
 
         return not self.is_gps_available
 
+    def attach_navmesh(self, navmesh: BakedNavMesh | None) -> None:
+        """Adopt the authoritative collision mesh for standalone movement and routing."""
+
+        self._navmesh = navmesh
+        self._attack_point_planner = None
+        if self._vector_navigator is not None:
+            self._vector_navigator.attach_navmesh(navmesh)
+
     def attach_vector_navigator(self, navigator: VectorZoneNavigator | None) -> None:
         """Adopt or drop the extracted-map navigator and force a replan on the next step.
 

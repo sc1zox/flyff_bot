@@ -83,6 +83,7 @@ from flyff_bot.features.navigation.teleporter_models import (
     TeleporterCatalog,
     TeleporterDestination,
 )
+from flyff_bot.features.navigation.test_navigation import NavigationTestRequest
 from flyff_bot.features.navigation.vector_navigation import VectorNavigationRequest
 from flyff_bot.features.navigation.world_extractor import (
     VectorSpawnZone,
@@ -103,7 +104,9 @@ from flyff_bot.i18n import Language, Message, Translator
 from flyff_bot.ui.app import (
     connect_farming_controls,
     connect_target_selection,
+    connect_test_navigation,
     start_farming,
+    start_test_navigation,
     target_class_applier,
 )
 from flyff_bot.ui.dashboard import (
@@ -397,6 +400,70 @@ def test_start_farming_pauses_without_traceback_when_focus_fails() -> None:
     start_farming(Controller(), 42, Session())
 
     assert calls == ["pause"]
+
+
+def test_start_test_navigation_focuses_the_game_before_requesting_navigation() -> None:
+    calls: list[str] = []
+    target = WorldPosition(100.0, 0.0, 200.0)
+    request = NavigationTestRequest(target)
+
+    class Controller:
+        def focus_window(self, window_handle: int) -> None:
+            assert window_handle == 42
+            calls.append("focus")
+
+    class Session:
+        def request_test_navigation(self, req: NavigationTestRequest) -> None:
+            assert req == request
+            calls.append("navigate")
+
+        def pause(self) -> None:
+            calls.append("pause")
+
+    start_test_navigation(Controller(), 42, Session(), request)
+
+    assert calls == ["focus", "navigate"]
+
+
+def test_start_test_navigation_pauses_without_traceback_when_focus_fails() -> None:
+    calls: list[str] = []
+    target = WorldPosition(100.0, 0.0, 200.0)
+    request = NavigationTestRequest(target)
+
+    class Controller:
+        def focus_window(self, _window_handle: int) -> None:
+            raise InputControlError(InputErrorCode.FOCUS_FAILED)
+
+    class Session:
+        def request_test_navigation(self, _req: NavigationTestRequest) -> None:
+            calls.append("navigate")
+
+        def pause(self) -> None:
+            calls.append("pause")
+
+    start_test_navigation(Controller(), 42, Session(), request)
+
+    assert calls == ["pause"]
+
+
+def test_connect_test_navigation_uses_custom_start_handler() -> None:
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    target = WorldPosition(100.0, 0.0, 200.0)
+    request = NavigationTestRequest(target)
+    handled: list[NavigationTestRequest] = []
+
+    class Session:
+        def request_test_navigation(self, _req: NavigationTestRequest) -> None:
+            raise AssertionError("Should not be called directly when on_start is supplied")
+
+        def pause(self) -> None:
+            pass
+
+    connect_test_navigation(window, Session(), on_start=handled.append)
+    window.test_navigation_requested.emit(request)
+
+    assert handled == [request]
 
 
 def test_path_inspector_widget_renders_cleanly_with_populated_snapshot() -> None:

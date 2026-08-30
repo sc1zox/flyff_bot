@@ -960,7 +960,12 @@ class FarmingOrchestrator:
         if self._mode is FarmingMode.EMERGENCY_STOPPED:
             return
         pathing = self._pathing
-        if pathing is None or pathing.navmesh is None:
+        if pathing is None:
+            self.pause(reason="test_navigation_unavailable", manual=False)
+            return
+        if request.navmesh is not None and pathing.navmesh is None:
+            pathing.attach_navmesh(request.navmesh)
+        if pathing.navmesh is None:
             self.pause(reason="test_navigation_unavailable", manual=False)
             return
         self._clear_armed_actions()

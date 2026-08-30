@@ -500,6 +500,7 @@ class PathInspectorWidget(QWidget):
         return NavigationTestRequest(
             WorldPosition(coordinate.x, zone.center_y if zone is not None else 0.0, coordinate.z),
             None if zone is None else zone.monster_id,
+            navmesh=self.navmesh,
         )
 
     def _show_test_navigation_menu(self, point: QPointF, global_point: QPoint) -> None:

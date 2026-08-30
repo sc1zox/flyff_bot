@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from flyff_bot.features.navigation.live_position import WorldPosition
+
+if TYPE_CHECKING:
+    from flyff_bot.features.navigation.navmesh import BakedNavMesh
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,3 +17,4 @@ class NavigationTestRequest:
 
     target: WorldPosition
     zone_identifier: int | None = None
+    navmesh: BakedNavMesh | None = None

@@ -123,6 +123,8 @@ class TestNavigationControls(Protocol):
 
     def request_test_navigation(self, request: NavigationTestRequest) -> None: ...
 
+    def pause(self) -> None: ...
+
 
 class TargetGoalControls(Protocol):
     """The session-side surface that owns the operator's monster selection."""
@@ -193,12 +195,20 @@ def connect_vector_navigation(
     window.vector_navigation_cleared.connect(_deactivate)
 
 
-def connect_test_navigation(window: MainWindow, session: TestNavigationControls) -> None:
+def connect_test_navigation(
+    window: MainWindow,
+    session: TestNavigationControls,
+    *,
+    on_start: Callable[[NavigationTestRequest], None] | None = None,
+) -> None:
     """Forward only typed map destinations to the navigation-test session path."""
 
     def _activate(request: object) -> None:
         if isinstance(request, NavigationTestRequest):
-            session.request_test_navigation(request)
+            if on_start is not None:
+                on_start(request)
+            else:
+                session.request_test_navigation(request)
 
     window.test_navigation_requested.connect(_activate)
 
@@ -316,6 +326,22 @@ def arm_autopilot(
         session.pause()
         return
     session.arm_autopilot()
+
+
+def start_test_navigation(
+    controller: WindowFocusControls,
+    window_handle: int,
+    session: TestNavigationControls,
+    request: NavigationTestRequest,
+) -> None:
+    """Foreground the client, then start one test-navigation movement."""
+
+    try:
+        controller.focus_window(window_handle)
+    except InputControlError:
+        session.pause()
+        return
+    session.request_test_navigation(request)
 
 
 def run_desktop(arguments: Sequence[str] | None = None) -> int:
@@ -515,7 +541,13 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     on_start=lambda: start_farming(controller, window_handle, orchestrator),
                 )
                 connect_vector_navigation(window, orchestrator)
-                connect_test_navigation(window, orchestrator)
+                connect_test_navigation(
+                    window,
+                    orchestrator,
+                    on_start=lambda req: start_test_navigation(
+                        controller, window_handle, orchestrator, req
+                    ),
+                )
                 connect_quest_selection(
                     window,
                     orchestrator,

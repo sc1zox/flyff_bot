@@ -270,7 +270,8 @@ def test_map_point_emits_a_typed_test_navigation_request_with_zone_metadata() ->
     widget = PathInspectorWidget(Translator(Language.ENGLISH))
     widget.resize(640, 480)
     world_map = _world_map()
-    widget.set_world_data(world_map, _navmesh())
+    navmesh = _navmesh()
+    widget.set_world_data(world_map, navmesh)
     point = widget.world_to_screen(world_map.zones[0].centroid)
     requests: list[NavigationTestRequest] = []
     widget.test_navigation_requested.connect(requests.append)
@@ -286,6 +287,7 @@ def test_map_point_emits_a_typed_test_navigation_request_with_zone_metadata() ->
         (world_map.zones[0].center_x, world_map.zones[0].center_z)
     )
     assert request.target.y == world_map.zones[0].center_y
+    assert request.navmesh is navmesh
 
 
 def test_follow_mode_tracks_successive_live_positions_and_keeps_heading_snapshot() -> None:

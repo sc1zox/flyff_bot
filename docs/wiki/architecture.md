@@ -35,6 +35,7 @@ related:
   - ../user-stories/completed/US-091-unified-goal-navigation-fluid-scanning-and-intelligent-unstuck.md
   - ../user-stories/completed/US-093-geometry-verified-stall-recovery-and-navmesh-routing-unification.md
   - ../user-stories/completed/US-095-interactive-map-direct-navigation-test-mode.md
+  - ../bugs/fixed/BUG-045-test-navigation-inactive-and-missing-window-focus.md
   - ../user-stories/US-092-teleporter-config-target-selection-and-legacy-pruning.md
   - ../user-stories/completed/US-086-unattended-autopilot-session-resilience-and-goal-arbitration.md
   - ../user-stories/completed/US-009-reactive-loot-controller.md
@@ -2744,14 +2745,16 @@ the existing key release.
 ## Interactive map direct navigation test mode (US-095, completed)
 
 **A map click can now exercise navigation without starting a farm.** `PathInspectorWidget` maps a
-right-clicked canvas position to a typed `NavigationTestRequest`, retaining the selected spawn
-zone's monster identifier when present. Its localized context-menu action displays the destination
-coordinates, and the navigation-controller/main-window facade forwards only that typed request to
-the session.
+right-clicked canvas position to a typed `NavigationTestRequest`, carrying the destination `WorldPosition`,
+any selected spawn zone identifier, and the scene's loaded `BakedNavMesh`. Its localized context-menu action
+displays the destination coordinates. When dispatched, `start_test_navigation` foregrounds the game client
+window before requesting session navigation, ensuring the session is not instantly paused on the next tick
+by foreground safety guards.
 
 **The test session owns movement only.** `FarmingOrchestrator` enters
-`FarmingMode.TEST_NAVIGATING`, first refreshing the existing fingerprinted GPS/camera pathing state
-and then starting `PathingController.begin_position_approach` on the requested `WorldPosition`.
+`FarmingMode.TEST_NAVIGATING`, adopts the request's NavMesh onto `PathingController` if not previously attached,
+first refreshes the fingerprinted GPS/camera pathing state, and then starts `PathingController.begin_position_approach`
+on the requested `WorldPosition`.
 This mode does not call the perception pipeline or its YOLO, target-verification, combat, or loot
 paths. It keeps the existing NavMesh route, live steering, stall detection, and US-093
 geometry-verified recovery path intact. No route, unavailable live navigation state, a dispatch

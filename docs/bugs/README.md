@@ -61,3 +61,4 @@ bugs are moved to `docs/bugs/fixed/`.
 - [x] [**BUG-038: Player-stats profiler fails closed on the shipped neuz.exe wrapped vital-ratio helpers**](fixed/BUG-038-player-stats-profiler-fails-closed-on-wrapped-vital-ratio-helpers.md)
 - [x] [**BUG-039: Generated position offset is a byte-match false positive; position and world-id registries are empty**](fixed/BUG-039-generated-position-offset-false-positive-and-empty-position-world-id-registries.md)
 - [x] [**BUG-042: Camera alignment pitch oscillation, excessive steepness, and search rotation perception failure**](fixed/BUG-042-camera-alignment-pitch-oscillation-and-convergence-failure.md)
+- [x] [**BUG-045: Test navigation inactive due to missing client window focus and unattached NavMesh**](fixed/BUG-045-test-navigation-inactive-and-missing-window-focus.md)
