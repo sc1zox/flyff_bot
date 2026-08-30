@@ -29,6 +29,13 @@ _KIND_MESSAGES: dict[SessionEventKind, Message] = {
     SessionEventKind.FRAME_CAPTURE_ERROR: Message.UI_EVENT_KIND_FRAME_CAPTURE_ERROR,
     SessionEventKind.GOAL_COMPLETED: Message.UI_EVENT_KIND_GOAL_COMPLETED,
     SessionEventKind.CAPABILITY_DEGRADED: Message.UI_EVENT_KIND_CAPABILITY_DEGRADED,
+    SessionEventKind.TICK_FAULT: Message.UI_EVENT_KIND_TICK_FAULT,
+    SessionEventKind.AUTOPILOT_ARMED: Message.UI_EVENT_KIND_AUTOPILOT_ARMED,
+    SessionEventKind.AUTOPILOT_DISARMED: Message.UI_EVENT_KIND_AUTOPILOT_DISARMED,
+    SessionEventKind.AUTOPILOT_GOAL: Message.UI_EVENT_KIND_AUTOPILOT_GOAL,
+    SessionEventKind.PLAYER_DEATH: Message.UI_EVENT_KIND_PLAYER_DEATH,
+    SessionEventKind.RECOVERY_RESUMED: Message.UI_EVENT_KIND_RECOVERY_RESUMED,
+    SessionEventKind.BUDGET_EXHAUSTED: Message.UI_EVENT_KIND_BUDGET_EXHAUSTED,
 }
 
 _KIND_BADGE_COLORS: dict[SessionEventKind, QColor] = {
@@ -40,6 +47,13 @@ _KIND_BADGE_COLORS: dict[SessionEventKind, QColor] = {
     SessionEventKind.FRAME_CAPTURE_ERROR: _WARNING_BADGE_COLOR,
     SessionEventKind.GOAL_COMPLETED: _SUCCESS_BADGE_COLOR,
     SessionEventKind.CAPABILITY_DEGRADED: _WARNING_BADGE_COLOR,
+    SessionEventKind.TICK_FAULT: _DANGER_BADGE_COLOR,
+    SessionEventKind.AUTOPILOT_ARMED: _SUCCESS_BADGE_COLOR,
+    SessionEventKind.AUTOPILOT_DISARMED: _NEUTRAL_BADGE_COLOR,
+    SessionEventKind.AUTOPILOT_GOAL: _NEUTRAL_BADGE_COLOR,
+    SessionEventKind.PLAYER_DEATH: _WARNING_BADGE_COLOR,
+    SessionEventKind.RECOVERY_RESUMED: _SUCCESS_BADGE_COLOR,
+    SessionEventKind.BUDGET_EXHAUSTED: _WARNING_BADGE_COLOR,
 }
 
 _MODE_MESSAGES: dict[str, Message] = {
@@ -107,14 +121,14 @@ class EventLogPanel(QGroupBox):
             return
         for event in self._events[:MAXIMUM_DISPLAYED_EVENTS]:
             item = QListWidgetItem(self._summary(event))
-            item.setForeground(_KIND_BADGE_COLORS[event.kind])
+            item.setForeground(_KIND_BADGE_COLORS.get(event.kind, _NEUTRAL_BADGE_COLOR))
             self._list.addItem(item)
 
     def _summary(self, event: SessionEvent) -> str:
         summary = self._translator.text(
             Message.UI_EVENT_LOG_SUMMARY,
             time=_local_time_text(event.timestamp),
-            kind=self._translator.text(_KIND_MESSAGES[event.kind]),
+            kind=self._kind_text(event.kind),
             previous=self._mode_text(event.previous_mode),
             new=self._mode_text(event.new_mode),
         )
@@ -130,6 +144,14 @@ class EventLogPanel(QGroupBox):
                 process=event.foreground_window_process or "",
             )
         return summary
+
+    def _kind_text(self, kind: SessionEventKind) -> str:
+        message = _KIND_MESSAGES.get(kind)
+        return (
+            self._translator.text(message)
+            if message is not None
+            else str(getattr(kind, "value", kind))
+        )
 
     def _mode_text(self, mode: str) -> str:
         message = _MODE_MESSAGES.get(mode)

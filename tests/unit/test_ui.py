@@ -6,6 +6,7 @@ import json
 import os
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -115,6 +116,7 @@ from flyff_bot.ui.dashboard import (
 )
 from flyff_bot.ui.debug_overlay import DebugOverlayWidget, render_debug_overlay
 from flyff_bot.ui.dungeon_panel import DungeonCooldownPanel
+from flyff_bot.ui.event_log_panel import _KIND_BADGE_COLORS, _KIND_MESSAGES
 from flyff_bot.ui.main_window import DashboardTab, MainWindow
 from flyff_bot.ui.main_window_parts.efficiency import EfficiencyPanel
 from flyff_bot.ui.navigation_window import NavigationMapWindow
@@ -1747,6 +1749,32 @@ def test_main_window_event_log_panel_labels_are_localized() -> None:
 
     assert window_en.event_log_panel.title() == "Diagnostic Event Log"
     assert window_de.event_log_panel.title() == "Diagnose-Ereignisprotokoll"
+
+
+def test_event_log_panel_maps_every_declared_session_event_kind() -> None:
+    """BUG-040: diagnostics emitted by any declared kind must remain renderable."""
+
+    assert set(_KIND_MESSAGES) == set(SessionEventKind)
+    assert set(_KIND_BADGE_COLORS) == set(SessionEventKind)
+
+
+def test_event_log_panel_renders_an_unrecognized_event_kind_safely() -> None:
+    """BUG-040: a future event kind cannot stop dashboard rendering."""
+
+    _application = QApplication.instance() or QApplication([])
+    window = MainWindow(Translator(Language.ENGLISH))
+    window.event_log_panel.set_events(
+        (
+            SessionEvent(
+                timestamp="2026-08-30T12:00:00+00:00",
+                kind=cast("SessionEventKind", "future_event"),
+                previous_mode="paused",
+                new_mode="searching",
+            ),
+        )
+    )
+
+    assert "future_event" in window.event_log_panel.list_widget.item(0).text()
 
 
 def test_main_window_event_log_panel_renders_recent_events_most_recent_first() -> None:
