@@ -405,8 +405,13 @@ def test_readiness_blocks_every_action_and_recovers_without_replaying_pending_in
     recovery_state = replace(
         blocked_state, observed_at_seconds=2.0, player_stats_snapshot=_player_stats(2.0)
     )
-    ready_state = replace(recovery_state, observed_at_seconds=3.0)
-    pipeline = _LiveStatsPipeline([blocked_state, recovery_state, ready_state])
+    ready_state = replace(
+        recovery_state, observed_at_seconds=3.0, player_stats_snapshot=_player_stats(3.0)
+    )
+    combat_state = replace(
+        recovery_state, observed_at_seconds=4.0, player_stats_snapshot=_player_stats(4.0)
+    )
+    pipeline = _LiveStatsPipeline([blocked_state, recovery_state, ready_state, combat_state])
     orchestrator = FarmingOrchestrator(
         cast(PerceptionPipeline, pipeline),
         adapter,
@@ -416,7 +421,7 @@ def test_readiness_blocks_every_action_and_recovers_without_replaying_pending_in
                 rules=(VitalTriggerRule(VitalTriggerType.HP, 50.0, parse_virtual_key("F1")),)
             ),
             powerups=PowerUpConfig(
-                entries=(PowerUpEntry(parse_virtual_key("F2"), 1, enabled=True),)
+                entries=(PowerUpEntry(parse_virtual_key("F2"), 10, enabled=True),)
             ),
         ),
     )
@@ -436,9 +441,16 @@ def test_readiness_blocks_every_action_and_recovers_without_replaying_pending_in
     assert adapter.clicks == []
     assert adapter.keys == []
 
-    dispatched = orchestrator.tick()
-    assert dispatched.mode is FarmingMode.TARGETING
+    # US-095: First active tick dispatches enabled start buffs
+    dispatched_powerup = orchestrator.tick()
+    assert dispatched_powerup.mode is FarmingMode.SEARCHING
+    assert adapter.clicks == []
+    assert adapter.keys == [(parse_virtual_key("F2"), 0.05)]
+
+    dispatched_target = orchestrator.tick()
+    assert dispatched_target.mode is FarmingMode.TARGETING
     assert adapter.clicks == [(WINDOW_HANDLE, 30, 30)]
+    assert adapter.keys == [(parse_virtual_key("F2"), 0.05)]
 
 
 def test_end_while_readiness_blocked_closes_live_providers_and_prevents_reopen() -> None:
@@ -1026,18 +1038,22 @@ def test_power_up_hotkey_is_dispatched_after_its_configured_interval() -> None:
     orchestrator = _orchestrator(states, adapter, config=config)
     orchestrator.start()
 
-    keys_before_interval: list[tuple[int, float]] = []
-    for index, _ in enumerate(states):
-        if index == 15:
-            keys_before_interval = list(adapter.keys)
-        orchestrator.tick()
-
-    assert [key for key, _duration in keys_before_interval if key == POWER_UP_KEY] == []
+    # US-095: First tick triggers initial power-up immediately on start
+    orchestrator.tick()
     assert adapter.keys.count((POWER_UP_KEY, 0.05)) == 1
+
+    # Before the 2 s interval elapses, no duplicate key is sent
+    for _ in range(19):
+        orchestrator.tick()
+    assert adapter.keys.count((POWER_UP_KEY, 0.05)) == 1
+
+    # Once the 2 s interval elapses, the second press recurs
+    orchestrator.tick()
+    assert adapter.keys.count((POWER_UP_KEY, 0.05)) == 2
 
 
 def test_paused_session_freezes_power_up_countdowns() -> None:
-    """US-016: pausing halts interval timers instead of letting wall time expire them."""
+    """US-016 & US-095: initial buff fires on start; pausing freezes countdowns without re-triggering."""
 
     adapter = _InputAdapter()
     states = [_state(time) for time in (0.0, 0.5, 1.0, 100.0, 100.5, 101.0, 101.5, 102.0)]
@@ -1048,23 +1064,27 @@ def test_paused_session_freezes_power_up_countdowns() -> None:
     )
     orchestrator = _orchestrator(states, adapter, config=config)
     orchestrator.start()
-    for _ in range(3):
+    orchestrator.tick()
+    assert _power_up_presses(adapter) == 1
+
+    for _ in range(2):
         orchestrator.tick()
+    assert _power_up_presses(adapter) == 1
 
     orchestrator.pause()
     for _ in range(2):
         orchestrator.tick()
-    assert _power_up_presses(adapter) == 0
+    assert _power_up_presses(adapter) == 1
 
     # The 99 s paused span must not count, so one more second of active time is
-    # still owed before the 2 s interval expires.
+    # still owed before the 2 s interval expires. Resuming does not re-dispatch initial buffs.
     orchestrator.start()
     orchestrator.tick()
     orchestrator.tick()
-    assert _power_up_presses(adapter) == 0
+    assert _power_up_presses(adapter) == 1
 
     orchestrator.tick()
-    assert _power_up_presses(adapter) == 1
+    assert _power_up_presses(adapter) == 2
 
 
 def test_power_up_hotkey_is_withheld_while_the_client_is_not_foregrounded() -> None:

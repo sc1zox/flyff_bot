@@ -1,7 +1,7 @@
 ---
 id: US-095
 title: Initial Power-Up and Buff Dispatch on Session Start
-status: draft
+status: completed
 created: 2026-08-30
 updated: 2026-08-30
 ---
@@ -15,7 +15,7 @@ As an **operator starting an automated farming session**, I want **all enabled p
 ## Context and assumptions
 
 - Target client: Entropia Flyff PServer (`neuz.exe`).
-- Under [US-016](completed/US-016-auto-power-ups-and-timed-hotkeys.md), `PowerUpScheduler` initializes each entry's elapsed time at `0.0`, requiring a full interval to elapse (e.g. 10800s / 3h for World Buffs or 300s for scrolls) before the first keystroke is sent.
+- Under [US-016](US-016-auto-power-ups-and-timed-hotkeys.md), `PowerUpScheduler` initializes each entry's elapsed time at `0.0`, requiring a full interval to elapse (e.g. 10800s / 3h for World Buffs or 300s for scrolls) before the first keystroke is sent.
 - When an operator launches or restarts an automated farming session, the character typically lacks active buffs or consumables, requiring manual casting before starting the bot.
 - Initial power-up dispatch must strictly preserve existing safety boundaries:
   - The Flyff game client window must be foregrounded (`is_foreground`).
@@ -26,12 +26,12 @@ As an **operator starting an automated farming session**, I want **all enabled p
 
 ## Acceptance criteria
 
-- [ ] Given configured enabled power-up entries, when a farming session is started from an idle/reset state, then all enabled power-up hotkeys are flagged as due immediately and dispatched sequentially honoring the stagger delay once the client window is foregrounded.
-- [ ] Given a session is paused and resumed without a session reset, when resuming, then elapsed timers continue from their pre-pause countdown rather than re-dispatching start buffs.
-- [ ] Given an emergency stop (`F12`) or loss of game window focus during initial buff dispatch, when triggered, dispatching immediately halts and resumes safely when focus is regained or abort is cleared.
-- [ ] Given a session reset or power-up reconfiguration (`reset_powerups`), when triggered, elapsed times are re-initialized so the initial dispatch fires on the next session start.
-- [ ] All user-visible strings, tooltips, and documentation in German and English (`de.json`, `en.json`) are updated and kept synchronized.
-- [ ] Automated unit tests in `tests/unit/test_powerups.py` verify that `PowerUpScheduler` fires enabled entries immediately on initial start step, respects staggering, and preserves countdowns across pause/resume.
+- [x] Given configured enabled power-up entries, when a farming session is started from an idle/reset state, then all enabled power-up hotkeys are flagged as due immediately and dispatched sequentially honoring the stagger delay once the client window is foregrounded.
+- [x] Given a session is paused and resumed without a session reset, when resuming, then elapsed timers continue from their pre-pause countdown rather than re-dispatching start buffs.
+- [x] Given an emergency stop (`F12`) or loss of game window focus during initial buff dispatch, when triggered, dispatching immediately halts and resumes safely when focus is regained or abort is cleared.
+- [x] Given a session reset or power-up reconfiguration (`reset_powerups`), when triggered, elapsed times are re-initialized so the initial dispatch fires on the next session start.
+- [x] All user-visible strings, tooltips, and documentation in German and English (`de.json`, `en.json`) are updated and kept synchronized.
+- [x] Automated unit tests in `tests/unit/test_powerups.py` verify that `PowerUpScheduler` fires enabled entries immediately on initial start step, respects staggering, and preserves countdowns across pause/resume.
 
 ## Out of scope
 

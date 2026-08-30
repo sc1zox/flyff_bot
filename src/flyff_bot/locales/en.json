@@ -426,7 +426,7 @@
   "ui.powerups_hotkey_tooltip": "Action slot key pressed when this timer expires.",
   "ui.powerups_interval": "Interval",
   "ui.powerups_interval_suffix": " s",
-  "ui.powerups_interval_tooltip": "Seconds between two presses. The first press happens after one full interval.",
+  "ui.powerups_interval_tooltip": "Seconds between two presses. The first press happens immediately upon session start, then periodically after each interval.",
   "ui.powerups_name": "Name",
   "ui.powerups_name_placeholder": "e.g. Grilled Eel",
   "ui.powerups_remove": "-",

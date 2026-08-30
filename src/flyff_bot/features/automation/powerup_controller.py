@@ -89,7 +89,10 @@ class PowerUpScheduler:
 
     def __init__(self, config: PowerUpConfig | None = None) -> None:
         self._config = config or PowerUpConfig()
-        self._elapsed_seconds = [0.0] * len(self._config.entries)
+        self._elapsed_seconds = [
+            float(entry.interval_seconds) if entry.enabled else 0.0
+            for entry in self._config.entries
+        ]
         self._last_step_at_seconds: float | None = None
         self._last_dispatch_at_seconds: float | None = None
 
@@ -109,6 +112,7 @@ class PowerUpScheduler:
 
         Editing an unrelated row must not restart a 3600 s buff timer, so elapsed
         time carries over for every position whose key and interval are unchanged.
+        New or enabled entries are initialized as immediately due.
         """
 
         preserved: list[float] = []
@@ -118,8 +122,13 @@ class PowerUpScheduler:
                 previous is not None
                 and previous.virtual_key == entry.virtual_key
                 and previous.interval_seconds == entry.interval_seconds
+                and previous.enabled == entry.enabled
             )
-            preserved.append(self._elapsed_seconds[index] if carries_over else 0.0)
+            preserved.append(
+                self._elapsed_seconds[index]
+                if carries_over
+                else (float(entry.interval_seconds) if entry.enabled else 0.0)
+            )
         self._config = config
         self._elapsed_seconds = preserved
 
@@ -129,9 +138,12 @@ class PowerUpScheduler:
         self._last_step_at_seconds = None
 
     def reset(self) -> None:
-        """Restart every countdown from zero."""
+        """Restart every countdown, making all enabled entries due on next start."""
 
-        self._elapsed_seconds = [0.0] * len(self._config.entries)
+        self._elapsed_seconds = [
+            float(entry.interval_seconds) if entry.enabled else 0.0
+            for entry in self._config.entries
+        ]
         self._last_step_at_seconds = None
         self._last_dispatch_at_seconds = None
 
@@ -140,15 +152,11 @@ class PowerUpScheduler:
 
         previous_step_at = self._last_step_at_seconds
         self._last_step_at_seconds = at_seconds
-        if previous_step_at is None:
-            # The first tick after start or resume only seeds the clock, so the
-            # halted span never counts towards an interval.
-            return PowerUpDecision(triggered=False)
-
-        elapsed_since_step = max(0.0, at_seconds - previous_step_at)
-        for index, entry in enumerate(self._config.entries):
-            if entry.enabled:
-                self._elapsed_seconds[index] += elapsed_since_step
+        if previous_step_at is not None:
+            elapsed_since_step = max(0.0, at_seconds - previous_step_at)
+            for index, entry in enumerate(self._config.entries):
+                if entry.enabled:
+                    self._elapsed_seconds[index] += elapsed_since_step
 
         if self._is_staggering(at_seconds):
             return PowerUpDecision(triggered=False)

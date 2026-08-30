@@ -66,34 +66,32 @@ def test_entry_rejects_intervals_outside_the_supported_range() -> None:
         PowerUpEntry(virtual_key=VIRTUAL_KEY_F4, interval_seconds=90_000)
 
 
-def test_first_trigger_happens_only_after_a_full_interval() -> None:
+def test_initial_trigger_happens_immediately_on_session_start() -> None:
     scheduler = PowerUpScheduler(
-        PowerUpConfig(entries=(PowerUpEntry(virtual_key=VIRTUAL_KEY_F4, interval_seconds=5),))
+        PowerUpConfig(entries=(PowerUpEntry(virtual_key=VIRTUAL_KEY_F4, interval_seconds=300),))
     )
 
-    assert scheduler.step(100.0).triggered is False
-    assert scheduler.step(104.0).triggered is False
-    decision, fired_at = _run_until_trigger(scheduler, start_at=104.1, limit_seconds=3.0)
-
-    assert decision.virtual_key == VIRTUAL_KEY_F4
-    assert fired_at >= 105.0
+    first = scheduler.step(100.0)
+    assert first.triggered is True
+    assert first.virtual_key == VIRTUAL_KEY_F4
 
 
 def test_trigger_recurs_after_each_confirmed_press() -> None:
     scheduler = PowerUpScheduler(
         PowerUpConfig(entries=(PowerUpEntry(virtual_key=VIRTUAL_KEY_F4, interval_seconds=2),))
     )
-    scheduler.step(0.0)
+    first = scheduler.step(0.0)
+    assert first.triggered is True
+    scheduler.confirm(first, 0.0)
 
-    first, first_at = _run_until_trigger(scheduler, start_at=TICK_SECONDS, limit_seconds=5.0)
-    scheduler.confirm(first, first_at)
-    assert scheduler.step(first_at + TICK_SECONDS).triggered is False
+    assert scheduler.step(TICK_SECONDS).triggered is False
 
-    _, second_at = _run_until_trigger(
-        scheduler, start_at=first_at + 2 * TICK_SECONDS, limit_seconds=5.0
+    second, second_at = _run_until_trigger(
+        scheduler, start_at=2 * TICK_SECONDS, limit_seconds=5.0
     )
 
-    assert second_at - first_at >= 2.0
+    assert second.virtual_key == VIRTUAL_KEY_F4
+    assert second_at >= 2.0
 
 
 def test_concurrent_entries_are_staggered_and_dispatched_sequentially() -> None:
@@ -105,17 +103,16 @@ def test_concurrent_entries_are_staggered_and_dispatched_sequentially() -> None:
             )
         )
     )
-    scheduler.step(0.0)
 
-    first = scheduler.step(5.0)
+    first = scheduler.step(0.0)
     assert first.virtual_key == VIRTUAL_KEY_F4
-    scheduler.confirm(first, 5.0)
+    scheduler.confirm(first, 0.0)
 
     # The second entry stays due but is withheld until the stagger gap elapsed.
-    held = scheduler.step(5.0 + DEFAULT_POWERUP_STAGGER_SECONDS / 2)
+    held = scheduler.step(DEFAULT_POWERUP_STAGGER_SECONDS / 2)
     assert held.triggered is False
 
-    second = scheduler.step(5.0 + DEFAULT_POWERUP_STAGGER_SECONDS)
+    second = scheduler.step(DEFAULT_POWERUP_STAGGER_SECONDS)
     assert second.virtual_key == VIRTUAL_KEY_F5
 
 
@@ -128,11 +125,9 @@ def test_disabled_entries_never_accumulate_or_trigger() -> None:
             )
         )
     )
-    scheduler.step(0.0)
 
-    decision = scheduler.step(10.0)
-
-    assert decision.virtual_key == VIRTUAL_KEY_F5
+    first = scheduler.step(0.0)
+    assert first.virtual_key == VIRTUAL_KEY_F5
     assert scheduler.elapsed_seconds(0) == 0.0
 
 
@@ -140,7 +135,8 @@ def test_halted_span_does_not_count_towards_an_interval() -> None:
     scheduler = PowerUpScheduler(
         PowerUpConfig(entries=(PowerUpEntry(virtual_key=VIRTUAL_KEY_F4, interval_seconds=10),))
     )
-    scheduler.step(0.0)
+    first = scheduler.step(0.0)
+    scheduler.confirm(first, 0.0)
     scheduler.step(4.0)
 
     scheduler.halt()
@@ -154,7 +150,8 @@ def test_halted_span_does_not_count_towards_an_interval() -> None:
 def test_update_config_preserves_countdowns_for_unchanged_entries() -> None:
     entry = PowerUpEntry(virtual_key=VIRTUAL_KEY_F4, interval_seconds=180)
     scheduler = PowerUpScheduler(PowerUpConfig(entries=(entry,)))
-    scheduler.step(0.0)
+    first = scheduler.step(0.0)
+    scheduler.confirm(first, 0.0)
     scheduler.step(120.0)
 
     scheduler.update_config(PowerUpConfig(entries=(replace(entry, label="Haste"),)))
@@ -163,32 +160,31 @@ def test_update_config_preserves_countdowns_for_unchanged_entries() -> None:
     scheduler.update_config(
         PowerUpConfig(entries=(PowerUpEntry(virtual_key=VIRTUAL_KEY_F4, interval_seconds=300),))
     )
-    assert scheduler.elapsed_seconds(0) == 0.0
+    assert scheduler.elapsed_seconds(0) == 300.0
 
 
 def test_reset_restarts_every_countdown() -> None:
     scheduler = PowerUpScheduler(
         PowerUpConfig(entries=(PowerUpEntry(virtual_key=VIRTUAL_KEY_F4, interval_seconds=10),))
     )
-    scheduler.step(0.0)
+    first = scheduler.step(0.0)
+    scheduler.confirm(first, 0.0)
     scheduler.step(9.0)
 
     scheduler.reset()
 
-    assert scheduler.elapsed_seconds(0) == 0.0
-    scheduler.step(100.0)
-    assert scheduler.step(105.0).triggered is False
+    assert scheduler.elapsed_seconds(0) == 10.0
+    assert scheduler.step(100.0).triggered is True
 
 
 def test_unconfirmed_decision_stays_due_until_the_guards_allow_it() -> None:
     scheduler = PowerUpScheduler(
         PowerUpConfig(entries=(PowerUpEntry(virtual_key=VIRTUAL_KEY_F4, interval_seconds=2),))
     )
-    scheduler.step(0.0)
 
-    assert scheduler.step(2.5).triggered is True
+    assert scheduler.step(0.0).triggered is True
     # Never confirmed, so the very next tick still reports the same entry as due.
-    assert scheduler.step(2.6).virtual_key == VIRTUAL_KEY_F4
+    assert scheduler.step(0.1).virtual_key == VIRTUAL_KEY_F4
 
 
 def test_dispatcher_sends_the_key_when_focused_and_not_aborted() -> None:

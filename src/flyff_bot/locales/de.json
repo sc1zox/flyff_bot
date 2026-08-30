@@ -426,7 +426,7 @@
   "ui.powerups_hotkey_tooltip": "Taste des Aktionsfeldes, die beim Ablauf des Timers gedrückt wird.",
   "ui.powerups_interval": "Intervall",
   "ui.powerups_interval_suffix": " s",
-  "ui.powerups_interval_tooltip": "Sekunden zwischen zwei Tastendrücken. Der erste Druck erfolgt nach einem vollen Intervall.",
+  "ui.powerups_interval_tooltip": "Sekunden zwischen zwei Tastendrücken. Der erste Druck erfolgt sofort beim Start der Sitzung, danach periodisch nach jedem Intervall.",
   "ui.powerups_name": "Name",
   "ui.powerups_name_placeholder": "z. B. Gegrillter Aal",
   "ui.powerups_remove": "-",
