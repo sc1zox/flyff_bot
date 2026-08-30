@@ -1302,3 +1302,15 @@ only stall detection, and removal of dead navigation/bootstrap paths and minimap
 the story in progress: ADR-010 and US-094 require retaining `PlayerVitalsReader`, and
 `TargetVerifier` nameplate/target-HP verification remains until a selected-target memory profile
 is proven. No live Windows walkthrough was claimed.
+
+## [2026-08-30] synthesis | Interactive map direct navigation test mode (US-095)
+
+Recorded in [architecture.md](architecture.md) and [glossary.md](glossary.md) that a right-click on
+the interactive map produces a typed `NavigationTestRequest` for a selected `WorldPosition` and
+optional spawn-zone identifier. `FarmingOrchestrator` handles it in `TEST_NAVIGATING`: it uses the
+existing fingerprinted GPS/camera, NavMesh route, steering, and US-093 recovery path while
+bypassing perception, YOLO, target verification, combat, and loot. Arrival cancels the route,
+returns to `PAUSED`, and emits a localized coordinate event; foreground loss cancels and pauses,
+and the existing F12 path enters `EMERGENCY_STOPPED`. Automated evidence is the clean full gate:
+Ruff, format, MyPy, and pytest (1290 passed, 4 skipped). The manual Windows/Flyff walkthrough
+remains unrun.

@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: active
-updated: 2026-08-29
+updated: 2026-08-30
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -106,7 +106,9 @@ related:
   `RECONCILING`; it pauses on lost foreground focus and latches emergency stops. Since US-025 a
   confirmed kill (`CombatMode.TARGET_DEAD`) transitions directly into `RECONCILING` — bumping
   `WorldState.progress_marker` for that kill — instead of the removed `LOOTING` mode, assuming an
-  active in-game loot pet.
+  active in-game loot pet. Its separate `TEST_NAVIGATING` mode runs only the live GPS/camera and
+  NavMesh pathing path for one operator-selected destination; it bypasses perception, combat, and
+  loot, then returns to `PAUSED` on arrival, guarded cancellation, or focus loss.
 - **Farming goal** — An optional item name and required inventory quantity that completes a farming
   session when the immutable world-state inventory reaches the target.
 - **Attack key** — One supported virtual key (`A`–`Z`, `0`–`9`, Space, or `F1`–`F12`) that the
@@ -501,3 +503,7 @@ related:
 - **Recovery context** — The controller-internal `RecoveryContext` / `RecoveryPhase`
   (`NONE` / `LOCAL_REPLAN` / `ESCAPE`) that tracks stall-recovery progress without ever surfacing as
   a `PathingMode`. Its milestones are drained each tick as `RecoveryEvent` values for telemetry.
+- **Navigation test request** — The immutable operator intent emitted by the interactive map for a
+  standalone route test. It contains a `WorldPosition` destination and, when the clicked point lies
+  in a spawn zone, that zone's monster identifier; the intent does not create a farming goal or
+  authorize combat.

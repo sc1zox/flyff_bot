@@ -65,7 +65,10 @@ from flyff_bot.features.navigation.live_position import (
 )
 from flyff_bot.features.navigation.pathing import (
     PathingController,
+    PathingDecision,
+    PathingMode,
 )
+from flyff_bot.features.navigation.test_navigation import NavigationTestRequest
 from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationRequest,
     VectorZoneNavigator,
@@ -205,6 +208,44 @@ class _InputAdapter:
             self.keys.append((k, duration_seconds))
 
 
+class _TestNavigationPathing:
+    """Minimal pathing double that proves the test mode owns no perception or combat work."""
+
+    def __init__(self, decisions: list[PathingDecision]) -> None:
+        self.navmesh = object()
+        self.navmesh_target: WorldPosition | None = None
+        self._decisions = iter(decisions)
+        self.begin_targets: list[WorldPosition] = []
+        self.confirmed: list[PathingDecision] = []
+        self.cancelled = 0
+        self.emergency_stopped = 0
+
+    def step(self, _at_seconds: float) -> PathingDecision:
+        return next(self._decisions)
+
+    def begin_position_approach(self, target: WorldPosition, _at_seconds: float) -> bool:
+        self.begin_targets.append(target)
+        self.navmesh_target = target
+        return True
+
+    def confirm(self, decision: PathingDecision) -> None:
+        self.confirmed.append(decision)
+
+    def cancel_target_approach(self) -> None:
+        self.cancelled += 1
+        self.navmesh_target = None
+
+    def block_for_readiness(self) -> None:
+        pass
+
+    def emergency_stop(self) -> None:
+        self.emergency_stopped += 1
+        self.navmesh_target = None
+
+    def drain_recovery_events(self) -> tuple[object, ...]:
+        return ()
+
+
 def _state(
     time: float,
     *,
@@ -261,6 +302,69 @@ def _orchestrator(
         event_logger=event_logger,
         foreground_window_info=foreground_window_info,
     )
+
+
+def test_navigation_test_bypasses_perception_combat_and_arrives_in_paused_state() -> None:
+    adapter = _InputAdapter()
+    pipeline = _Pipeline([_state(1.0, mobs=(MOB,))])
+    pathing = _TestNavigationPathing(
+        [
+            PathingDecision(PathingMode.IDLE),
+            PathingDecision(PathingMode.TRAVELING, VIRTUAL_KEY_W, 0.1),
+            PathingDecision(PathingMode.IDLE),
+        ]
+    )
+    orchestrator = FarmingOrchestrator(
+        cast(PerceptionPipeline, pipeline),
+        adapter,
+        WINDOW_HANDLE,
+        pathing=cast(PathingController, pathing),
+        clock=lambda: 1.0,
+    )
+    target = WorldPosition(125.0, 20.0, 325.0)
+
+    orchestrator.request_test_navigation(NavigationTestRequest(target))
+
+    assert orchestrator.tick().mode is FarmingMode.TEST_NAVIGATING
+    assert adapter.keys == [(VIRTUAL_KEY_W, 0.1)]
+    assert pipeline.calls == []
+    assert adapter.clicks == []
+
+    assert orchestrator.tick().mode is FarmingMode.PAUSED
+    assert pathing.begin_targets == [target]
+    assert pathing.cancelled >= 2
+    assert pipeline.calls == []
+
+
+def test_navigation_test_stops_on_focus_loss_and_f12_without_dispatching() -> None:
+    target = WorldPosition(125.0, 20.0, 325.0)
+    focus_adapter = _InputAdapter(foreground=False)
+    focus_pathing = _TestNavigationPathing([])
+    focus_session = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline([_state(1.0)])),
+        focus_adapter,
+        WINDOW_HANDLE,
+        pathing=cast(PathingController, focus_pathing),
+    )
+    focus_session.request_test_navigation(NavigationTestRequest(target))
+
+    assert focus_session.tick().mode is FarmingMode.PAUSED
+    assert focus_pathing.cancelled >= 2
+    assert focus_adapter.keys == []
+
+    stop_adapter = _InputAdapter(aborted=True)
+    stop_pathing = _TestNavigationPathing([])
+    stop_session = FarmingOrchestrator(
+        cast(PerceptionPipeline, _Pipeline([_state(1.0)])),
+        stop_adapter,
+        WINDOW_HANDLE,
+        pathing=cast(PathingController, stop_pathing),
+    )
+    stop_session.request_test_navigation(NavigationTestRequest(target))
+
+    assert stop_session.tick().mode is FarmingMode.EMERGENCY_STOPPED
+    assert stop_pathing.emergency_stopped == 1
+    assert stop_adapter.keys == []
 
 
 def test_runs_full_target_combat_and_reconciliation_cycle_without_looting() -> None:

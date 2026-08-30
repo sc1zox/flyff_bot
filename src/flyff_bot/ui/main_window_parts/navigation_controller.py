@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtWidgets import QPushButton, QWidget
 
+from flyff_bot.features.navigation.test_navigation import NavigationTestRequest
 from flyff_bot.i18n import Translator
 from flyff_bot.ui.main_window_parts.navigation import NavigationSection
 from flyff_bot.ui.world_data_dialog import WorldDataDialog
@@ -37,6 +39,11 @@ class NavigationController:
             self.dialog.loaded_map,
             self.dialog.loaded_navmesh,
         )
+
+    def connect_test_navigation(self, callback: Callable[[NavigationTestRequest], None]) -> None:
+        """Forward the map's typed test-navigation request to the main window facade."""
+
+        self.navigation.inspector.test_navigation_requested.connect(callback)
 
     @property
     def world_data_button(self) -> QPushButton:

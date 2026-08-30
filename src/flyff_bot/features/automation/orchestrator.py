@@ -142,6 +142,7 @@ from flyff_bot.features.navigation.teleporter_dispatch import (
     TeleporterDispatchStatus,
 )
 from flyff_bot.features.navigation.teleporter_models import TeleporterCatalog
+from flyff_bot.features.navigation.test_navigation import NavigationTestRequest
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
 from flyff_bot.features.navigation.world_extractor import WorldCoordinate
 from flyff_bot.features.perception.pipeline import PerceptionPipeline
@@ -275,6 +276,7 @@ class FarmingMode(StrEnum):
     ALIGNING = "aligning"
     SEARCHING = "searching"
     REPOSITIONING = "repositioning"
+    TEST_NAVIGATING = "test_navigating"
     TARGETING = "targeting"
     APPROACHING = "approaching"
     COMBAT = "combat"
@@ -528,6 +530,7 @@ class FarmingOrchestrator:
         self._dungeon_snapshots: tuple[DungeonStateSnapshot, ...] | None = None
         self._telemetry_observed_at_seconds: float | None = None
         self._pending_target_click: CombatDecision | None = None
+        self._test_navigation_target: WorldPosition | None = None
         self._session_active = False
         self._pathing_engagement_distance = self._tactical_parameters.engagement_distance_units
         self._pathing_engagement_profile: CombatClassProfile = MELEE_COMBAT_CLASS_PROFILE
@@ -922,6 +925,8 @@ class FarmingOrchestrator:
     ) -> None:
         """Pause without sending any compensating input to the client."""
 
+        if self._mode is FarmingMode.TEST_NAVIGATING:
+            self._cancel_test_navigation()
         if manual:
             self._session_active = False
             if self._autopilot.armed:
@@ -948,6 +953,21 @@ class FarmingOrchestrator:
             close_pipeline()
         if self._dungeon_provider is not None:
             self._dungeon_provider.close()
+
+    def request_test_navigation(self, request: NavigationTestRequest) -> None:
+        """Start one operator-selected NavMesh movement test without farming activity."""
+
+        if self._mode is FarmingMode.EMERGENCY_STOPPED:
+            return
+        pathing = self._pathing
+        if pathing is None or pathing.navmesh is None:
+            self.pause(reason="test_navigation_unavailable", manual=False)
+            return
+        self._clear_armed_actions()
+        pathing.cancel_target_approach()
+        self._test_navigation_target = request.target
+        self._session_active = True
+        self._set_mode(FarmingMode.TEST_NAVIGATING, reason="test_navigation_requested")
 
     def handle_tick_fault(self, error: Exception) -> None:
         """Contain a worker tick fault in a visible, non-dispatching session state.
@@ -1781,6 +1801,8 @@ class FarmingOrchestrator:
             self.emergency_stop(reason="killswitch")
             self._readiness = self._readiness_gate.evaluate(self._state.observed_at_seconds)
             return self._publish(False)
+        if self._mode is FarmingMode.TEST_NAVIGATING:
+            return self._run_test_navigation()
         if self._mode is FarmingMode.ALIGNING:
             return self._run_alignment()
         if self._mode in STANDBY_MODES:
@@ -1893,6 +1915,77 @@ class FarmingOrchestrator:
 
         dispatched = self._advance()
         return self._publish(dispatched)
+
+    def _run_test_navigation(self) -> FarmingTick:
+        """Run one GPS/camera/NavMesh-only movement tick, bypassing all perception and combat."""
+
+        from flyff_bot.features.navigation.pathing import PathingMode
+
+        pathing = self._pathing
+        target = self._test_navigation_target
+        if pathing is None or target is None:
+            self._halt_test_navigation("test_navigation_unavailable")
+            return self._publish(False)
+        if not self._input_adapter.is_foreground(self._window_handle):
+            self._halt_test_navigation("focus_lost", kind=SessionEventKind.FOCUS_LOST)
+            return self._publish(False)
+
+        now = self._clock()
+        if pathing.navmesh_target is None:
+            # The first no-route step refreshes only fingerprinted read-only GPS/camera state.
+            # It intentionally never calls the perception pipeline, detector, combat, or loot paths.
+            initial = pathing.step(now)
+            self._forward_recovery_events()
+            if initial.mode is PathingMode.BLOCKED:
+                self._halt_test_navigation("test_navigation_gps_or_camera_unavailable")
+                return self._publish(False)
+            if not pathing.begin_position_approach(target, now):
+                self._halt_test_navigation("test_navigation_route_unavailable")
+                return self._publish(False)
+
+        decision = pathing.step(now)
+        self._forward_recovery_events()
+        if decision.mode is PathingMode.BLOCKED:
+            self._halt_test_navigation("test_navigation_gps_or_camera_unavailable")
+            return self._publish(False)
+        if decision.mode is PathingMode.IDLE:
+            self._complete_test_navigation(target)
+            return self._publish(False)
+        if not self._pathing_dispatcher.dispatch(decision):
+            self._halt_test_navigation("test_navigation_dispatch_refused")
+            return self._publish(False)
+        pathing.confirm(decision)
+        return self._publish(True)
+
+    def _cancel_test_navigation(self) -> None:
+        """Drop the standalone route before any pause, focus loss, or manual cancellation."""
+
+        self._test_navigation_target = None
+        if self._pathing is not None:
+            self._pathing.cancel_target_approach()
+
+    def _halt_test_navigation(
+        self,
+        reason: str,
+        *,
+        kind: SessionEventKind = SessionEventKind.MODE_TRANSITION,
+    ) -> None:
+        """Cancel the route and enter standby after a guarded movement refusal."""
+
+        self._cancel_test_navigation()
+        self._session_active = False
+        self._set_mode(FarmingMode.PAUSED, kind=kind, reason=reason)
+
+    def _complete_test_navigation(self, target: WorldPosition) -> None:
+        """Record the arrived target and return to an inert, non-farming standby state."""
+
+        self._cancel_test_navigation()
+        self._session_active = False
+        self._set_mode(
+            FarmingMode.PAUSED,
+            kind=SessionEventKind.NAVIGATION_TEST_ARRIVED,
+            reason=f"{target.x:.1f},{target.z:.1f}",
+        )
 
     def _record_event(self, kind: SessionEventKind, reason: str) -> None:
         """Record one diagnostic that reports a decision rather than a mode change."""
@@ -3106,6 +3199,8 @@ def _dashboard_status(
         return BotStatus.STANDBY if live_preview else BotStatus.PAUSED
     if mode is FarmingMode.REPOSITIONING:
         return BotStatus.REPOSITIONING
+    if mode is FarmingMode.TEST_NAVIGATING:
+        return BotStatus.TEST_NAVIGATING
     if mode is FarmingMode.APPROACHING:
         return BotStatus.APPROACHING
     if mode is FarmingMode.SEARCHING:

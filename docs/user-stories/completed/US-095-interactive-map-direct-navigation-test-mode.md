@@ -1,7 +1,7 @@
 ---
 id: US-095
 title: Interactive map direct navigation test mode
-status: draft
+status: completed
 created: 2026-08-30
 updated: 2026-08-30
 ---
@@ -37,23 +37,23 @@ so that **the character walks directly to the selected destination using authori
 
 ## Acceptance criteria
 
-- [ ] **Context Menu & Coordinate Selection on Map:**
+- [x] **Context Menu & Coordinate Selection on Map:**
   - `PathInspectorWidget` provides a context menu (via right-click or context menu trigger) on the map canvas with the localized action "Hierhin navigieren (Test)" / "Navigate here (Test)".
   - The menu displays the clicked world coordinates `(X, Z)` or zone name.
   - Triggering the action emits a typed test navigation request carrying the target `WorldPosition` and optional zone identifier.
-- [ ] **Pure Navigation Mode Execution:**
+- [x] **Pure Navigation Mode Execution:**
   - `FarmingOrchestrator` (or the navigation controller) supports a dedicated test navigation mode (`FarmingMode.TEST_NAVIGATING` or direct position approach).
   - During test navigation, YOLO mob detection, combat targeting, attack hotkey dispatch, and looting are bypassed.
   - The character is steered along the NavMesh route calculated by `PathingController` using live GPS and camera heading.
   - Stall detection and geometry-verified obstacle recovery (`US-093`) remain active to handle collision recovery during the test.
-- [ ] **Arrival & Halt Behavior:**
+- [x] **Arrival & Halt Behavior:**
   - When the character arrives within the arrival tolerance (`navmesh_waypoint_arrival_units`) of the destination, all movement keys are released, the test completes, and the bot transitions to `PAUSED` / `IDLE`.
   - A localized notification/event log entry confirms test arrival (e.g. "Navigationstest erfolgreich: Ziel {x}, {z} erreicht.").
-- [ ] **Safety Boundaries & Cancellation:**
+- [x] **Safety Boundaries & Cancellation:**
   - If the game client loses foreground focus (`NOT_FOREGROUND`), test navigation immediately releases all held keys and pauses.
   - Pressing `F12` immediately halts test navigation, releases keys, and transitions to `EMERGENCY_STOPPED`.
   - The operator can manually pause or cancel the test at any time via the UI Pause/Stop buttons.
-- [ ] **Localization:**
+- [x] **Localization:**
   - All context menu entries, status badges, tooltips, and log messages are fully synchronized in German (`de.json`) and English (`en.json`).
 
 ## Out of scope

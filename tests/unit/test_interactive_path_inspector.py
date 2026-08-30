@@ -11,10 +11,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QImage, QMouseEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMenu
 
 from flyff_bot.features.navigation.live_position import PositionSource, WorldPosition
 from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshBaker
+from flyff_bot.features.navigation.test_navigation import NavigationTestRequest
 from flyff_bot.features.navigation.world_extractor import (
     LAND_BLOCK_SAMPLE_COUNT,
     LandBlock,
@@ -263,6 +264,28 @@ def test_hover_tooltip_and_left_click_expose_complete_zone_metadata() -> None:
 
     assert selected == [world_map.zones[0]]
     assert widget.selected_zone == world_map.zones[0]
+
+
+def test_map_point_emits_a_typed_test_navigation_request_with_zone_metadata() -> None:
+    widget = PathInspectorWidget(Translator(Language.ENGLISH))
+    widget.resize(640, 480)
+    world_map = _world_map()
+    widget.set_world_data(world_map, _navmesh())
+    point = widget.world_to_screen(world_map.zones[0].centroid)
+    requests: list[NavigationTestRequest] = []
+    widget.test_navigation_requested.connect(requests.append)
+
+    request = widget.test_navigation_request_at(point)
+    action = widget._test_navigation_action(point, QMenu(widget))
+    action.trigger()
+
+    assert requests == [request]
+    assert "Navigate here (Test)" in action.text()
+    assert request.zone_identifier == world_map.zones[0].monster_id
+    assert (request.target.x, request.target.z) == pytest.approx(
+        (world_map.zones[0].center_x, world_map.zones[0].center_z)
+    )
+    assert request.target.y == world_map.zones[0].center_y
 
 
 def test_follow_mode_tracks_successive_live_positions_and_keeps_heading_snapshot() -> None:

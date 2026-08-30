@@ -52,6 +52,7 @@ from flyff_bot.features.navigation.teleporter_dispatch import (
     TeleporterDispatcher,
 )
 from flyff_bot.features.navigation.teleporter_input import TeleporterWindowsInput
+from flyff_bot.features.navigation.test_navigation import NavigationTestRequest
 from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationRequest,
     VectorZoneNavigator,
@@ -115,6 +116,12 @@ class VectorNavigationControls(Protocol):
     """The session-side surface that adopts or drops an extracted world map."""
 
     def configure_vector_navigation(self, navigator: VectorZoneNavigator | None) -> None: ...
+
+
+class TestNavigationControls(Protocol):
+    """The bounded session surface for one operator-selected map navigation test."""
+
+    def request_test_navigation(self, request: NavigationTestRequest) -> None: ...
 
 
 class TargetGoalControls(Protocol):
@@ -184,6 +191,16 @@ def connect_vector_navigation(
 
     window.vector_navigation_requested.connect(_activate)
     window.vector_navigation_cleared.connect(_deactivate)
+
+
+def connect_test_navigation(window: MainWindow, session: TestNavigationControls) -> None:
+    """Forward only typed map destinations to the navigation-test session path."""
+
+    def _activate(request: object) -> None:
+        if isinstance(request, NavigationTestRequest):
+            session.request_test_navigation(request)
+
+    window.test_navigation_requested.connect(_activate)
 
 
 def connect_target_selection(
@@ -498,6 +515,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     on_start=lambda: start_farming(controller, window_handle, orchestrator),
                 )
                 connect_vector_navigation(window, orchestrator)
+                connect_test_navigation(window, orchestrator)
                 connect_quest_selection(
                     window,
                     orchestrator,

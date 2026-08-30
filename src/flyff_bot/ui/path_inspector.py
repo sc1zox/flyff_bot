@@ -6,10 +6,12 @@ import math
 from collections import OrderedDict
 from collections.abc import Callable
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
+    QAction,
     QBrush,
     QColor,
+    QContextMenuEvent,
     QFont,
     QImage,
     QMouseEvent,
@@ -20,10 +22,15 @@ from PySide6.QtGui import (
     QResizeEvent,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QMenu, QWidget
 
-from flyff_bot.features.navigation.live_position import PositionReadErrorCode, PositionSource
+from flyff_bot.features.navigation.live_position import (
+    PositionReadErrorCode,
+    PositionSource,
+    WorldPosition,
+)
 from flyff_bot.features.navigation.navmesh import BakedNavMesh, NavMeshPolygon
+from flyff_bot.features.navigation.test_navigation import NavigationTestRequest
 from flyff_bot.features.navigation.world_extractor import (
     LAND_BLOCK_VERTICES_PER_SIDE,
     LandBlock,
@@ -140,6 +147,7 @@ class PathInspectorWidget(QWidget):
 
     zone_selected = Signal(object)
     follow_mode_changed = Signal(bool)
+    test_navigation_requested = Signal(object)
 
     def __init__(
         self,
@@ -163,6 +171,8 @@ class PathInspectorWidget(QWidget):
         self._view_initialized = False
         self._follow_player = False
         self._right_drag_anchor: QPointF | None = None
+        self._right_dragged = False
+        self._suppress_next_context_menu = False
         self._selected_zone: VectorSpawnZone | None = None
         self._hovered_zone: VectorSpawnZone | None = None
         self._terrain_images: OrderedDict[tuple[int, int], QImage] = OrderedDict()
@@ -422,6 +432,7 @@ class PathInspectorWidget(QWidget):
 
         if event.button() is Qt.MouseButton.RightButton:
             self._right_drag_anchor = event.position()
+            self._right_dragged = False
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
@@ -441,6 +452,7 @@ class PathInspectorWidget(QWidget):
         if self._right_drag_anchor is not None and event.buttons() & Qt.MouseButton.RightButton:
             delta = event.position() - self._right_drag_anchor
             self._right_drag_anchor = event.position()
+            self._right_dragged = self._right_dragged or not delta.isNull()
             self.pan_by_pixels(delta.x(), delta.y())
             event.accept()
             return
@@ -454,11 +466,59 @@ class PathInspectorWidget(QWidget):
         """Finish a captured RMB pan without running selection hit-testing."""
 
         if event.button() is Qt.MouseButton.RightButton:
+            was_dragged = self._right_dragged
             self._right_drag_anchor = None
+            self._right_dragged = False
             self.unsetCursor()
+            if not was_dragged:
+                self._suppress_next_context_menu = True
+                self._show_test_navigation_menu(event.position(), event.globalPosition().toPoint())
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        """Offer a typed, NavMesh-only navigation test at the selected map point."""
+
+        if self._suppress_next_context_menu:
+            self._suppress_next_context_menu = False
+            event.accept()
+            return
+        self._show_test_navigation_menu(QPointF(event.pos()), event.globalPos())
+        event.accept()
+
+    def test_navigation_request_at(self, point: QPointF) -> NavigationTestRequest:
+        """Map one canvas point to an immutable test-navigation intent.
+
+        The pathing controller projects the endpoint to the loaded authoritative NavMesh.
+        A point outside that mesh therefore remains an explicit route refusal rather than
+        receiving a guessed terrain height in this presentation component.
+        """
+
+        coordinate = self.screen_to_world(point)
+        zone = self.zone_at(point)
+        return NavigationTestRequest(
+            WorldPosition(coordinate.x, zone.center_y if zone is not None else 0.0, coordinate.z),
+            None if zone is None else zone.monster_id,
+        )
+
+    def _show_test_navigation_menu(self, point: QPointF, global_point: QPoint) -> None:
+        menu = QMenu(self)
+        menu.addAction(self._test_navigation_action(point, menu))
+        menu.exec(global_point)
+
+    def _test_navigation_action(self, point: QPointF, parent: QMenu) -> QAction:
+        """Create the localized menu action without coupling its intent to the Qt menu loop."""
+
+        request = self.test_navigation_request_at(point)
+        label = self._translator.text(
+            Message.UI_MAP_NAVIGATE_TEST_COORDINATES,
+            x=f"{request.target.x:.1f}",
+            z=f"{request.target.z:.1f}",
+        )
+        action = QAction(label, parent)
+        action.triggered.connect(lambda: self.test_navigation_requested.emit(request))
+        return action
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Apply smooth, bounded, cursor-centred wheel zoom."""

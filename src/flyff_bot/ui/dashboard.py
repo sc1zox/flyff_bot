@@ -44,6 +44,7 @@ class BotStatus(StrEnum):
     SEARCH_ROTATING = "search_rotating"
     SEARCH_SCANNING = "search_scanning"
     REPOSITIONING = "repositioning"
+    TEST_NAVIGATING = "test_navigating"
     APPROACHING = "approaching"
     ALIGNING = "aligning"
     ALIGNMENT_FAILED = "alignment_failed"

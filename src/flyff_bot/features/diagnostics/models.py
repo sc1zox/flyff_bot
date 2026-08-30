@@ -24,6 +24,7 @@ class SessionEventKind(StrEnum):
     PLAYER_DEATH = "player_death"
     RECOVERY_RESUMED = "recovery_resumed"
     BUDGET_EXHAUSTED = "budget_exhausted"
+    NAVIGATION_TEST_ARRIVED = "navigation_test_arrived"
 
 
 @dataclass(frozen=True, slots=True)

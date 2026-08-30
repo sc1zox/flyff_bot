@@ -36,6 +36,7 @@ _KIND_MESSAGES: dict[SessionEventKind, Message] = {
     SessionEventKind.PLAYER_DEATH: Message.UI_EVENT_KIND_PLAYER_DEATH,
     SessionEventKind.RECOVERY_RESUMED: Message.UI_EVENT_KIND_RECOVERY_RESUMED,
     SessionEventKind.BUDGET_EXHAUSTED: Message.UI_EVENT_KIND_BUDGET_EXHAUSTED,
+    SessionEventKind.NAVIGATION_TEST_ARRIVED: Message.UI_EVENT_KIND_NAVIGATION_TEST_ARRIVED,
 }
 
 _KIND_BADGE_COLORS: dict[SessionEventKind, QColor] = {
@@ -54,6 +55,7 @@ _KIND_BADGE_COLORS: dict[SessionEventKind, QColor] = {
     SessionEventKind.PLAYER_DEATH: _WARNING_BADGE_COLOR,
     SessionEventKind.RECOVERY_RESUMED: _SUCCESS_BADGE_COLOR,
     SessionEventKind.BUDGET_EXHAUSTED: _WARNING_BADGE_COLOR,
+    SessionEventKind.NAVIGATION_TEST_ARRIVED: _SUCCESS_BADGE_COLOR,
 }
 
 _MODE_MESSAGES: dict[str, Message] = {
@@ -61,6 +63,7 @@ _MODE_MESSAGES: dict[str, Message] = {
     "aligning": Message.UI_EVENT_MODE_ALIGNING,
     "searching": Message.UI_EVENT_MODE_SEARCHING,
     "repositioning": Message.UI_EVENT_MODE_REPOSITIONING,
+    "test_navigating": Message.UI_STATUS_TEST_NAVIGATING,
     "approaching": Message.UI_EVENT_MODE_APPROACHING,
     "targeting": Message.UI_EVENT_MODE_TARGETING,
     "combat": Message.UI_EVENT_MODE_COMBAT,
@@ -125,6 +128,10 @@ class EventLogPanel(QGroupBox):
             self._list.addItem(item)
 
     def _summary(self, event: SessionEvent) -> str:
+        if event.kind is SessionEventKind.NAVIGATION_TEST_ARRIVED and event.reason:
+            x, separator, z = event.reason.partition(",")
+            if separator:
+                return self._translator.text(Message.UI_NAVIGATION_TEST_ARRIVED, x=x, z=z)
         summary = self._translator.text(
             Message.UI_EVENT_LOG_SUMMARY,
             time=_local_time_text(event.timestamp),

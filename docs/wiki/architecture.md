@@ -33,6 +33,7 @@ related:
   - ../user-stories/completed/US-085-production-readiness-and-autonomous-farming-polish.md
   - ../user-stories/completed/US-091-unified-goal-navigation-fluid-scanning-and-intelligent-unstuck.md
   - ../user-stories/completed/US-093-geometry-verified-stall-recovery-and-navmesh-routing-unification.md
+  - ../user-stories/completed/US-095-interactive-map-direct-navigation-test-mode.md
   - ../user-stories/US-092-teleporter-config-target-selection-and-legacy-pruning.md
   - ../user-stories/completed/US-086-unattended-autopilot-session-resilience-and-goal-arbitration.md
   - ../user-stories/completed/US-009-reactive-loot-controller.md
@@ -2725,6 +2726,30 @@ matching `attach_vector_navigator`, so patrol, combat, and escape routing can ne
 `RecoveryContext` / `RecoveryPhase` stay internal to the controller. `emergency_stop()` clears the
 obstacle registry, the local-stall history, the recovery context, and the queued events alongside
 the existing key release.
+
+## Interactive map direct navigation test mode (US-095, completed)
+
+**A map click can now exercise navigation without starting a farm.** `PathInspectorWidget` maps a
+right-clicked canvas position to a typed `NavigationTestRequest`, retaining the selected spawn
+zone's monster identifier when present. Its localized context-menu action displays the destination
+coordinates, and the navigation-controller/main-window facade forwards only that typed request to
+the session.
+
+**The test session owns movement only.** `FarmingOrchestrator` enters
+`FarmingMode.TEST_NAVIGATING`, first refreshing the existing fingerprinted GPS/camera pathing state
+and then starting `PathingController.begin_position_approach` on the requested `WorldPosition`.
+This mode does not call the perception pipeline or its YOLO, target-verification, combat, or loot
+paths. It keeps the existing NavMesh route, live steering, stall detection, and US-093
+geometry-verified recovery path intact. No route, unavailable live navigation state, a dispatch
+refusal, or foreground loss cancels the approach and returns the session to paused standby.
+
+**Arrival is inert and observable.** When `PathingController` reports idle after reaching its
+existing waypoint-arrival tolerance, the orchestrator cancels the route, releases movement through
+the controller's cancellation path, enters `PAUSED`, and publishes a localized arrival event with
+the requested X/Z coordinates. The existing F12 emergency-stop path remains authoritative and
+transitions to `EMERGENCY_STOPPED`. Automated tests cover the map intent, movement-only execution,
+arrival, foreground loss, and emergency stop; the Windows client walkthrough remains operator
+validation rather than proof supplied by the automated gate.
 
 ## Teleporter configuration, canonical target selection, and legacy pruning (US-092, in progress)
 

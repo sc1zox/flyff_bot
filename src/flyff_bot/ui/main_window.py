@@ -159,6 +159,7 @@ class MainWindow(QMainWindow):
     quest_selection_changed = Signal(object)
     vector_navigation_requested = Signal(object)
     vector_navigation_cleared = Signal()
+    test_navigation_requested = Signal(object)
     # Emits the freshly loaded mover catalog join (or ``None``) so the live perception
     # pipeline can adopt a new extraction without an application restart (US-085).
     client_data_reloaded = Signal(object)
@@ -957,6 +958,7 @@ class MainWindow(QMainWindow):
             )
             controller.dialog.vector_navigation_requested.connect(self.vector_navigation_requested)
             controller.dialog.vector_navigation_cleared.connect(self.vector_navigation_cleared)
+            controller.connect_test_navigation(self.test_navigation_requested.emit)
             self._navigation_controller = controller
         return self._navigation_controller
 
