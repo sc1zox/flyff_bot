@@ -1,10 +1,10 @@
 ---
 id: BUG-039
 title: Generated player-position offset is a byte-match false positive
-status: reported
+status: resolved
 severity: high
 created: 2026-08-29
-updated: 2026-08-30
+updated: 2026-08-31
 ---
 
 # BUG-039: Generated player-position offset is a byte-match false positive
@@ -72,27 +72,48 @@ updated: 2026-08-30
   player icon to the corner of the navigation map and preventing position tracking.
 - Frequency: every profiler run against `8079c88f…` (100%).
 
+## Resolution
+
+`ClientBinaryProfiler._discover_player` now follows the decoded `GetPlayer` call through its
+helper return and accepts the 12-byte position copy only when that proven flow identifies the
+member. For the shipped x64 fingerprint, the result is `CMover + 0x188` (`392`), rather than the
+former byte-match false positive `0xB8` (`184`). The setup path persists only the decoded,
+fingerprint-bound profile.
+
+Position profiles now have a committed home at
+`data/config/client_position_profiles.json`. It contains the explicit x64 `0x188` profile only:
+the x86 build remains unavailable until independently verified. `LivePositionReader` does not use
+an embedded profile or a default/guessed offset when the registry lacks a matching fingerprint.
+`data/config/client_world_id_profiles.json` is deliberately committed empty because no world-ID
+offset is proven; `LiveWorldIdReader` therefore remains typed-unavailable rather than guessing a
+value. Arrival confirmation continues to fail closed when world ID is unavailable.
+
 ## Fix plan
 
-- [ ] Harden `ClientBinaryProfiler._discover_player`: decode the `add`/`lea` instruction rather
-      than byte-matching `48 05`, and require the member to be the actual source register of the
-      12-byte `D3DXVECTOR3` copy. Add a synthetic-PE regression with a spurious `48 05` byte in an
-      unrelated instruction. Re-run against the real binary and assert `0x188`.
-- [ ] Give the fingerprinted position (and world-id) profile a committed home consistent with
-      camera / dungeon / player-stats — i.e. a `data/config/` path — or, if it must stay operator-
-      generated, have `persist_profile_bundle` / the wizard cross-check the generated
-      `position_offset` against `PLAYER_POSITION_OFFSET` and refuse a mismatch.
-- [ ] Decide whether the live readers should fall back to their `ENTROPIA_*_PROFILES` maps when no
-      registry file is present; apply one policy across all four live readers. `live_world_id.py`
-      has no embedded map and `GeneratedClientProfileBundle` emits no world-id profile — close that
-      gap or document it.
+- [x] Harden `ClientBinaryProfiler._discover_player` so it follows the decoded `GetPlayer` helper
+      path and accepts only the proven 12-byte `D3DXVECTOR3` copy. Synthetic regressions reject a
+      spurious `48 05` byte match; the real local x64 profiler yields `0x188`.
+- [x] Give fingerprinted position profiles a committed `data/config/` home. The x64 profile carries
+      its explicit verified offset; world ID remains an intentionally empty committed registry
+      until evidence supports an entry.
+- [x] Apply the no-fallback policy to the live position and world-ID readers: no embedded profile
+      or default offset is used when a registry entry is absent. The empty world-ID registry is
+      documented as typed-unavailable rather than treated as a gap to guess.
 - [ ] Verify the bin32 build (`3446ffeb…`) position offset independently; `PLAYER_POSITION_OFFSET`
       is shared as the default for both builds.
-- [ ] Correct the "completes end to end" / "statically evidenced" position claims in BUG-038 and
-      `docs/wiki/architecture.md` (done in the reporting change).
+- [x] Correct the historical "completes end to end" / "statically evidenced" position claims in
+      BUG-038 and `docs/wiki/architecture.md`.
 
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A failing automated regression was added for decoded position discovery, false-positive
+      rejection, committed profile loading, and unavailable world-ID behavior.
+- [x] The focused regression passes: `uv run pytest --no-cov
+      tests/unit/test_client_profiling.py tests/unit/test_live_position.py
+      tests/unit/test_live_world_id.py tests/unit/test_setup_extraction.py` passed 48 tests with
+      repo-local `TMP`, `TEMP`, and `UV_CACHE_DIR`; the real local x64 profiler returned
+      `position_offset=392` (`0x188`).
+- [x] Related documentation is current. The canonical `./scripts/check.ps1` was attempted with
+      the same environment, but stopped after dependency synchronization because of the unrelated,
+      pre-existing Ruff error `tests/unit/test_orchestrator.py:1056 E501`; format, mypy, and the
+      full pytest suite did not run, so this bug does not claim a green canonical gate.

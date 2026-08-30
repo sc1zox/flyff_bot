@@ -79,6 +79,48 @@ def _build_synthetic_pe(
     return PeImage(bytes(data), IMAGE_BASE, sections, ())
 
 
+def _player_copy_fixture(*, spurious_offset: int) -> tuple[PeImage, int, int]:
+    """Build the GetPlayer -> helper -> D3DXVECTOR3 copy evidence used by BUG-039."""
+
+    getter_rva = 0x1000
+    status_call_rva = 0x1010
+    copy_call_rva = 0x1060
+    helper_rva = 0x1100
+    player_global_rva = 0x3000
+    text = bytearray(b"\x90" * 0x200)
+    text[0:8] = b"\x48\x8b\x05" + struct.pack("<i", player_global_rva - (getter_rva + 7)) + b"\xc3"
+    text[status_call_rva - getter_rva : status_call_rva - getter_rva + 5] = _call_rel32(
+        status_call_rva, getter_rva
+    )
+    status_markers = b"\xba\x64\x00\x00\x00\xf3\x0f\x2a\xc0" * 3
+    status_start = status_call_rva - getter_rva + 5
+    text[status_start : status_start + len(status_markers)] = status_markers
+    copy = (
+        _call_rel32(copy_call_rva, getter_rva)
+        + b"\x48\x8b\xc8"
+        + _call_rel32(copy_call_rva + 8, helper_rva)
+        + b"\x48\x8d\x4c\x24\x38\x48\x8b\xf9\x48\x8b\xf0"
+        + b"\xb9\x0c\x00\x00\x00\xf3\xa4"
+        # Raw bytes inside an unrelated instruction used to be mistaken for ``add rax, imm32``.
+        + b"\x66\x48\x05"
+        + struct.pack("<I", spurious_offset)
+    )
+    copy_start = copy_call_rva - getter_rva
+    text[copy_start : copy_start + len(copy)] = copy
+    helper = b"\x48\x89\x4c\x24\x08\x48\x8b\x44\x24\x08\x48\x05\x88\x01\x00\x00\xc3"
+    helper_start = helper_rva - getter_rva
+    text[helper_start : helper_start + len(helper)] = helper
+    return _build_synthetic_pe(text_payload=bytes(text)), player_global_rva, status_call_rva
+
+
+def test_discover_player_uses_proven_helper_copy_not_raw_add_bytes() -> None:
+    from flyff_bot.features.client_profiling.profiler import _discover_player
+
+    image, player_global_rva, status_call_rva = _player_copy_fixture(spurious_offset=0xB8)
+
+    assert _discover_player(image) == (player_global_rva, 0x188, status_call_rva)
+
+
 def test_resolve_primary_vtable_finds_type_descriptor_in_data_section() -> None:
     decorated_name = ".?AVCMover@@"
     name_bytes = decorated_name.encode("ascii") + b"\0"

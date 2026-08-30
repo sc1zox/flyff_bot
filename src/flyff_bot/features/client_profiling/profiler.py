@@ -47,6 +47,15 @@ _WRAPPER_SCAN_BYTES = 64
 _ACCESSOR_SCAN_BYTES = 48
 # The obfuscated-HP decoder loads both 64-bit keys within the first ~0x70 bytes.
 _XOR_DECODER_SCAN_BYTES = 160
+_POSITION_COPY_SETUP = b"\x48\x8b\xc8\xe8"  # mov rcx, rax; call position helper
+_POSITION_COPY_DESTINATION = b"\x48\x8d\x4c\x24"  # lea rcx, [rsp+imm8]
+_POSITION_COPY_DESTINATION_REGISTER = b"\x48\x8b\xf9"  # mov rdi, rcx
+_POSITION_COPY_SOURCE_REGISTER = b"\x48\x8b\xf0"  # mov rsi, rax
+_POSITION_COPY_LENGTH = b"\xb9\x0c\x00\x00\x00\xf3\xa4"  # mov ecx, 12; rep movsb
+_POSITION_HELPER_STACK_ARGUMENT = b"\x48\x89\x4c\x24\x08\x48\x8b\x44\x24\x08"
+_POSITION_HELPER_ADD_RAX = b"\x48\x05"
+_POSITION_HELPER_LEA_RAX_RCX = b"\x48\x8d\x81"
+_POSITION_MEMBER_ALIGNMENT_BYTES = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,18 +387,91 @@ def _discover_player(image: PeImage) -> tuple[int, int, int]:
             continue
         if relative_call_target(code, offset, text.virtual_address) != getter_rva:
             continue
-        window = code[offset + 5 : offset + 5 + 160]
-        add_offset = window.find(b"\x48\x05")
-        if add_offset >= 0 and add_offset + 6 <= len(window):
-            member_offset = struct.unpack_from("<I", window, add_offset + 2)[0]
-            if b"\xb9\x0c\x00\x00\x00\xf3\xa4" in window or b"\xf3\x0f\x10" in window:
-                position_offsets.add(member_offset)
+        member_offset = _position_copy_member_offset(
+            image,
+            code,
+            call_offset=offset,
+            text_rva=text.virtual_address,
+        )
+        if member_offset is not None:
+            position_offsets.add(member_offset)
     if len(position_offsets) != 1:
         raise ClientProfilingError(
             ClientProfilingErrorCode.INCOMPLETE_POSITION,
             "The player coordinate member is missing or ambiguous.",
         )
     return getters[getter_rva], next(iter(position_offsets)), status_rva
+
+
+def _position_copy_member_offset(
+    image: PeImage,
+    code: bytes,
+    *,
+    call_offset: int,
+    text_rva: int,
+) -> int | None:
+    """Return a player member offset only for the proven 12-byte copy shape.
+
+    ``GetPlayer`` returns the ``CMover`` in ``rax``.  The accepted call site forwards that
+    exact value through ``rcx`` to a tiny accessor, then copies the accessor return from
+    ``rsi`` with ``rep movsb``.  Searching for the bytes of ``add rax, imm32`` anywhere in
+    a nearby window is not instruction decoding and can turn arbitrary operand bytes into a
+    live-memory address (BUG-039).
+    """
+
+    cursor = call_offset + 5
+    if code[cursor : cursor + len(_POSITION_COPY_SETUP)] != _POSITION_COPY_SETUP:
+        return None
+    helper_call_offset = cursor + len(_POSITION_COPY_SETUP) - 1
+    helper_rva = relative_call_target(code, helper_call_offset, text_rva)
+    cursor += len(_POSITION_COPY_SETUP) + 4  # remaining rel32 bytes of the helper call
+    if code[cursor : cursor + len(_POSITION_COPY_DESTINATION)] != _POSITION_COPY_DESTINATION:
+        return None
+    cursor += len(_POSITION_COPY_DESTINATION) + 1  # stack displacement
+    if (
+        code[cursor : cursor + len(_POSITION_COPY_DESTINATION_REGISTER)]
+        != _POSITION_COPY_DESTINATION_REGISTER
+    ):
+        return None
+    cursor += len(_POSITION_COPY_DESTINATION_REGISTER)
+    if (
+        code[cursor : cursor + len(_POSITION_COPY_SOURCE_REGISTER)]
+        != _POSITION_COPY_SOURCE_REGISTER
+    ):
+        return None
+    cursor += len(_POSITION_COPY_SOURCE_REGISTER)
+    if code[cursor : cursor + len(_POSITION_COPY_LENGTH)] != _POSITION_COPY_LENGTH:
+        return None
+    return _position_accessor_member_offset(image, helper_rva)
+
+
+def _position_accessor_member_offset(image: PeImage, helper_rva: int) -> int | None:
+    """Decode the bounded accessor that returns ``CMover + position_offset``."""
+
+    try:
+        helper = image.read_rva(helper_rva, 24)
+    except ClientProfilingError:
+        return None
+    cursor = 0
+    if helper.startswith(_POSITION_HELPER_STACK_ARGUMENT):
+        cursor = len(_POSITION_HELPER_STACK_ARGUMENT)
+    if helper[cursor : cursor + 2] == _POSITION_HELPER_ADD_RAX:
+        offset = struct.unpack_from("<i", helper, cursor + 2)[0]
+        instruction_size = 6
+    elif helper[cursor : cursor + 3] == _POSITION_HELPER_LEA_RAX_RCX:
+        offset = struct.unpack_from("<i", helper, cursor + 3)[0]
+        instruction_size = 7
+    else:
+        return None
+    if helper[cursor + instruction_size : cursor + instruction_size + 1] != b"\xc3":
+        return None
+    if (
+        offset <= 0
+        or offset >= _MAX_STRUCT_ACCESSOR_OFFSET
+        or offset % _POSITION_MEMBER_ALIGNMENT_BYTES
+    ):
+        return None
+    return offset
 
 
 def _discover_player_stats(

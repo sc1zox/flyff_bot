@@ -144,8 +144,11 @@ value (not 0..1 as first recorded) and there is **no fingerprint-stable anchor t
 bundle for `8079c88f…` was found to be a byte-match false positive (`184` where the verified
 offset is `0x188`), installed verbatim by the setup wizard's `persist_profile_bundle` call. The
 "position … statically evidenced" and "completes end to end" statements above overstate the
-position result; they hold for camera / dungeon / player-stats. Tracked in
-[BUG-039](../BUG-039-generated-position-offset-false-positive-and-empty-position-world-id-registries.md).
+position result; they hold for camera / dungeon / player-stats. [BUG-039](BUG-039-generated-position-offset-false-positive-and-empty-position-world-id-registries.md)
+is resolved: the x64 profile is now explicit committed configuration, world ID remains
+typed-unavailable from its intentionally empty registry, and the focused regression passed. Its
+canonical repository gate was attempted but did not complete because of an unrelated pre-existing
+Ruff E501; this note makes no claim that BUG-039 has a green canonical gate.
 
 ## Regression verification
 

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from flyff_bot.constants import DEFAULT_CLIENT_WORLD_ID_PROFILES_PATH
 from flyff_bot.features.navigation.live_world_id import (
     ClientWorldIdProfile,
     LiveWorldIdReader,
@@ -61,6 +62,10 @@ def test_load_profiles_from_valid_json(tmp_path: Path) -> None:
 
     assert _DIGEST in profiles
     assert profiles[_DIGEST].world_id_rva == 0x12345
+
+
+def test_committed_world_id_registry_is_explicitly_empty_until_an_rva_is_proven() -> None:
+    assert load_client_world_id_profiles(Path(DEFAULT_CLIENT_WORLD_ID_PROFILES_PATH)) == {}
 
 
 def test_rejects_invalid_json(tmp_path: Path) -> None:

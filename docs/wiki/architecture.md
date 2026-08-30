@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-30
+updated: 2026-08-31
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -12,6 +12,7 @@ sources:
   - ../sources/2026-08-21-entropia-keyed-archive-and-quest-data-analysis.md
   - ../sources/2026-08-28-operator-verified-eden-mover-symbols.md
   - ../sources/2026-08-28-tactical-policy-inference-latency-measurement.md
+  - ../sources/2026-08-29-entropia-cwndstatus-and-player-position-static-analysis.md
 related:
   - project-overview.md
   - glossary.md
@@ -1987,14 +1988,15 @@ The automated profiler proves this offset by scanning the `CWndDungeonCooldownLi
 `CWndDungeonCooldownQuick` vtables for the fixed `mov rcx,[rip+player]; call <time-member helper>`
 shape; `ClientBinaryProfiler.profile()` runs to completion for this digest. Its camera, dungeon,
 and player-stat outputs are RTTI- and prologue-anchored and match the committed `data/config/`
-registries; its `position_offset` output is **not** trustworthy — `_discover_player` byte-matches
-`48 05` rather than decoding an instruction and emits a false positive (`184`) for this build,
-where the verified player coordinate is `CMover + 0x188` (`PLAYER_POSITION_OFFSET`). The setup
-wizard's `persist_profile_bundle` call installs that value into the `.gitignore`d
-`data/navigation/client_profiles.json` without a correctness check, so a wrong GPS offset can be
-installed silently on operator setup; the fingerprinted position and world-id profiles have no
-committed home under `data/config/` alongside camera / dungeon / player-stats. See
-[BUG-039](../bugs/BUG-039-generated-position-offset-false-positive-and-empty-position-world-id-registries.md).
+registries. Position discovery now decodes the proven `GetPlayer` -> helper -> 12-byte copy flow,
+which yields the verified `CMover + 0x188` (`392`) for this x64 fingerprint; it no longer accepts
+the former raw `48 05` byte-match false positive (`184`). The explicit x64 profile is committed in
+`data/config/client_position_profiles.json`; there is no x86 entry because its offset has not been
+independently verified. `LivePositionReader` uses only the exact-fingerprint registry entry and
+has no embedded/default offset fallback. `data/config/client_world_id_profiles.json` is committed
+empty because no world-ID offset is proven, so `LiveWorldIdReader` remains typed-unavailable and
+arrival confirmation fails closed rather than guessing identity. See
+[BUG-039](../bugs/fixed/BUG-039-generated-position-offset-false-positive-and-empty-position-world-id-registries.md).
 The `CWndStatus` gauge-float path for vital percentages was investigated and closed as not
 bounded-readable on this build
 ([US-094](../user-stories/completed/US-094-cwndstatus-gauge-vital-memory-path.md),

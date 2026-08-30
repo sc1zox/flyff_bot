@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from flyff_bot.features.navigation.live_position import (
-    ENTROPIA_POSITION_PROFILES,
+    DEFAULT_CLIENT_POSITION_PROFILES_FILE,
     POSITION_STRUCT_SIZE_BYTES,
     PROCESS_QUERY_LIMITED_INFORMATION,
     PROCESS_VM_READ,
@@ -98,16 +98,18 @@ def test_reader_uses_only_read_process_rights() -> None:
     assert PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ == 0x1010
 
 
-def test_local_client_hashes_bind_to_the_verified_pointer_width_and_rva() -> None:
-    x86 = ENTROPIA_POSITION_PROFILES[
-        "3446ffeb5d104a68d187e9e2ecfa216e1bdb88ce3f9201a046aa900525b6c07e"
-    ]
-    x64 = ENTROPIA_POSITION_PROFILES[
-        "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5"
-    ]
+def test_committed_position_registry_contains_only_the_independently_proven_x64_build() -> None:
+    profiles = load_client_position_profiles(DEFAULT_CLIENT_POSITION_PROFILES_FILE)
 
-    assert (x86.player_pointer_rva, x86.pointer_size_bytes) == (0x94F698, 4)
-    assert (x64.player_pointer_rva, x64.pointer_size_bytes) == (0xB7C908, 8)
+    assert set(profiles) == {"8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5"}
+    assert profiles["8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5"] == (
+        ClientPositionProfile(
+            "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5",
+            player_pointer_rva=0xB7C908,
+            pointer_size_bytes=8,
+            position_offset=0x188,
+        )
+    )
 
 
 def test_reader_follows_the_fingerprinted_player_pointer_to_exact_xyz_struct(
@@ -187,7 +189,7 @@ def test_unknown_build_falls_back_without_reading_memory(tmp_path: Path) -> None
     executable = tmp_path / "neuz.exe"
     executable.write_bytes(b"unknown")
     digest = hashlib.sha256(executable.read_bytes()).hexdigest()
-    dummy = ClientPositionProfile("0" * 64, PLAYER_POINTER_RVA, 8)
+    dummy = ClientPositionProfile("0" * 64, PLAYER_POINTER_RVA, 8, POSITION_OFFSET)
     api = FakeProcessMemoryApi(executable, dummy)
 
     reading = LivePositionReader(WINDOW_HANDLE, api=api, profiles={}).poll(0.0)
@@ -201,7 +203,7 @@ def test_unknown_build_falls_back_without_reading_memory(tmp_path: Path) -> None
     assert str(executable) in reading.error.detail
 
 
-def test_external_client_profile_file_is_loaded_with_an_optional_position_offset(
+def test_external_client_profile_file_is_loaded_with_an_explicit_position_offset(
     tmp_path: Path,
 ) -> None:
     executable = tmp_path / "neuz.exe"
@@ -231,6 +233,25 @@ def test_external_client_profile_file_is_loaded_with_an_optional_position_offset
     assert reading.position == api.position
 
 
+def test_position_profile_requires_an_explicit_position_offset(tmp_path: Path) -> None:
+    profiles_path = tmp_path / "client_profiles.json"
+    profiles_path.write_text(
+        json.dumps(
+            [
+                {
+                    "sha256": "a" * 64,
+                    "player_pointer_rva": PLAYER_POINTER_RVA,
+                    "pointer_size_bytes": 8,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="position_offset"):
+        load_client_position_profiles(profiles_path)
+
+
 def test_missing_profile_file_leaves_the_reader_unconfigured(tmp_path: Path) -> None:
     """No embedded fallback: a GPS profile only ever comes from a generated file."""
 
@@ -245,7 +266,7 @@ def test_invalid_profile_file_is_an_explicit_gps_error(tmp_path: Path) -> None:
     profiles_path.write_text("{}", encoding="utf-8")
     executable = tmp_path / "neuz.exe"
     executable.write_bytes(b"invalid-config")
-    profile = ClientPositionProfile("0" * 64, PLAYER_POINTER_RVA, 8)
+    profile = ClientPositionProfile("0" * 64, PLAYER_POINTER_RVA, 8, POSITION_OFFSET)
     api = FakeProcessMemoryApi(executable, profile)
 
     reading = LivePositionReader(WINDOW_HANDLE, api=api, profiles_path=profiles_path).poll(0.0)

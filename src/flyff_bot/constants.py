@@ -10,7 +10,7 @@ DEFAULT_DATASET_MANIFEST_PATH = "data/datasets/mobs/data.yaml"
 DEFAULT_MOB_MODEL_PATH = "models/mob_detector.onnx"
 DEFAULT_MOB_LABELS_PATH = "models/labels.txt"
 DEFAULT_TRAINING_EPOCHS = 100
-DEFAULT_CLIENT_POSITION_PROFILES_PATH = "data/navigation/client_profiles.json"
+DEFAULT_CLIENT_POSITION_PROFILES_PATH = "data/config/client_position_profiles.json"
 DEFAULT_CLIENT_CAMERA_PROFILES_PATH = "data/config/client_camera_profiles.json"
 # Live dungeon cooldown profiles (US-063) remain empty until an exact client binary has
 # verified offsets; the reader refuses to guess rather than reading an inferred address.
@@ -43,7 +43,7 @@ DEFAULT_SOURCE_MANIFEST_PATH = "data/client/source_manifest.json"
 DEFAULT_MOVER_LABEL_MAPPING_PATH = "data/client/mover_label_mapping.json"
 DEFAULT_TARGET_ANCHOR_PATH = "data/assets/mobs/target_anchor.png"
 DEFAULT_TELEPORTER_DATABASE_PATH = "data/navigation/teleporters.json"
-DEFAULT_CLIENT_WORLD_ID_PROFILES_PATH = "data/navigation/client_world_id_profiles.json"
+DEFAULT_CLIENT_WORLD_ID_PROFILES_PATH = "data/config/client_world_id_profiles.json"
 DEFAULT_PLAYER_VITALS_PANEL_PATH = "data/assets/player/player_vitals_left_top_corner.png"
 # Live dungeon cooldown profiles (US-063) remain empty until an exact client binary has
 # verified offsets; the reader refuses to guess rather than reading an inferred address.

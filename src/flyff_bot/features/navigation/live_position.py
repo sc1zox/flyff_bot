@@ -105,7 +105,7 @@ class ClientPositionProfile:
     sha256: str
     player_pointer_rva: int
     pointer_size_bytes: int
-    position_offset: int = PLAYER_POSITION_OFFSET
+    position_offset: int
 
     def __post_init__(self) -> None:
         if len(self.sha256) != 64:
@@ -115,25 +115,6 @@ class ClientPositionProfile:
         if self.pointer_size_bytes not in {4, 8}:
             raise ValueError("A client pointer must be either 4 or 8 bytes wide.")
 
-
-ENTROPIA_POSITION_PROFILES: Mapping[str, ClientPositionProfile] = {
-    # Entropia/Entropia/bin32/neuz.exe, built 2026-08-14.
-    "3446ffeb5d104a68d187e9e2ecfa216e1bdb88ce3f9201a046aa900525b6c07e": (
-        ClientPositionProfile(
-            "3446ffeb5d104a68d187e9e2ecfa216e1bdb88ce3f9201a046aa900525b6c07e",
-            player_pointer_rva=0x94F698,
-            pointer_size_bytes=4,
-        )
-    ),
-    # Entropia/Entropia/bin64/neuz.exe, built 2026-08-14.
-    "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5": (
-        ClientPositionProfile(
-            "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5",
-            player_pointer_rva=0xB7C908,
-            pointer_size_bytes=8,
-        )
-    ),
-}
 
 DEFAULT_CLIENT_POSITION_PROFILES_FILE = Path(DEFAULT_CLIENT_POSITION_PROFILES_PATH)
 
@@ -156,21 +137,19 @@ def load_client_position_profiles(path: Path) -> Mapping[str, ClientPositionProf
     for index, item in enumerate(payload):
         if not isinstance(item, dict):
             raise ValueError(f"Client profile entry {index} must be an object.")
-        required = {"sha256", "player_pointer_rva", "pointer_size_bytes"}
+        required = {"sha256", "player_pointer_rva", "pointer_size_bytes", "position_offset"}
         if missing := required.difference(item):
             raise ValueError(
                 f"Client profile entry {index} is missing {', '.join(sorted(missing))}."
             )
         if not all(
             isinstance(item[key], int) and not isinstance(item[key], bool)
-            for key in ("player_pointer_rva", "pointer_size_bytes")
+            for key in ("player_pointer_rva", "pointer_size_bytes", "position_offset")
         ):
             raise ValueError(
                 f"Client profile entry {index} has non-integer offsets or pointer size."
             )
-        position_offset = item.get("position_offset", PLAYER_POSITION_OFFSET)
-        if not isinstance(position_offset, int) or isinstance(position_offset, bool):
-            raise ValueError(f"Client profile entry {index} has a non-integer position offset.")
+        position_offset = item["position_offset"]
         sha256 = item["sha256"]
         if not isinstance(sha256, str):
             raise ValueError(f"Client profile entry {index} has a non-string SHA-256 digest.")
