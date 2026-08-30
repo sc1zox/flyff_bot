@@ -7,9 +7,7 @@ in and left `flyff_bot.cli` and `flyff_bot.ui.app` unimportable from a cold inte
 Import it from `flyff_bot.features.automation.orchestrator` instead.
 """
 
-from flyff_bot.features.automation.executor import VerifiedExecutor
 from flyff_bot.features.automation.models import Action, Observation, PlayerVitals, WorldState
-from flyff_bot.features.automation.planner import Planner
 from flyff_bot.features.automation.supervisor import Supervisor
 from flyff_bot.features.automation.vitals_controller import (
     VitalsDecision,
@@ -24,10 +22,8 @@ from flyff_bot.features.automation.vitals_controller import (
 __all__ = [
     "Action",
     "Observation",
-    "Planner",
     "PlayerVitals",
     "Supervisor",
-    "VerifiedExecutor",
     "VitalTriggerRule",
     "VitalTriggerType",
     "VitalsDecision",

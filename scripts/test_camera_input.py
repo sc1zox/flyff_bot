@@ -10,7 +10,7 @@ Usage examples:
     # Test only mouse wheel zoom-in (30 forward notches)
     uv run python scripts/test_camera_input.py scroll --notches 30
 
-    # Test pitch keys (pitch-up ceiling + pitch-down pulse)
+    # Test pitch keys directly (manual adapter diagnostic)
     uv run python scripts/test_camera_input.py pitch
 
     # Interactive step-by-step test
@@ -33,6 +33,7 @@ from flyff_bot.features.input_control.keymap import (
     VIRTUAL_KEY_DOWN,
     VIRTUAL_KEY_UP,
 )
+from flyff_bot.features.navigation.live_camera import LiveCameraReader
 
 DEFAULT_COUNTDOWN_SECONDS = 3.0
 FOCUS_SETTLE_SECONDS = 0.3
@@ -55,13 +56,13 @@ def acquire_target_window(
     controller.focus_window(window.handle)
     time.sleep(FOCUS_SETTLE_SECONDS)
 
-    print(f"[INFO] Starting in {int(countdown)} seconds... (Emergency stop: hold END key)")
+    print(f"[INFO] Starting in {int(countdown)} seconds... (Emergency stop: press F12)")
     for remaining in range(int(countdown), 0, -1):
         print(f"  > {remaining}...")
         time.sleep(1.0)
 
     if controller.is_aborted():
-        print("[ABORT] Emergency stop (END) was pressed. Aborting.")
+        print("[ABORT] Emergency stop (F12) was pressed. Aborting.")
         sys.exit(1)
 
     if not controller.is_foreground(window.handle):
@@ -74,9 +75,9 @@ def acquire_target_window(
 def test_align(controller: WindowsInputController, handle: int) -> None:
     """Run full camera alignment."""
     print("\n--- Running Full Camera Alignment ---")
-    aligner = CameraAligner(controller, handle)
-    print("[1/2] Scrolling wheel forward 20 notches (zoom out to hard-stop)...")
-    print("[2/2] Tilting pitch up to ceiling and pulsing down ~45°...")
+    aligner = CameraAligner(controller, handle, LiveCameraReader(handle))
+    print("[1/2] Measuring zoom while stepping toward the zoom-out hard-stop...")
+    print("[2/2] Measuring pitch while stepping toward ~45 degrees...")
 
     status = aligner.align()
     if status == CameraAlignmentStatus.ALIGNED:

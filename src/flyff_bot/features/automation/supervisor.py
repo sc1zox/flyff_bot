@@ -43,17 +43,9 @@ class Supervisor:
             failures.add(FailureFlag.STUCK)
         if desired.minimum_mob_count > observed.nearby_mob_count:
             failures.add(FailureFlag.NO_MOBS)
-        if not self._has_required_inventory(desired, observed):
-            failures.add(FailureFlag.INVENTORY_MISMATCH)
         if self._has_timed_out_without_progress(observed):
             failures.add(FailureFlag.NO_PROGRESS)
         return Reconciliation(frozenset(failures))
-
-    def _has_required_inventory(self, desired: DesiredState, observed: WorldState) -> bool:
-        quantities = {entry.item: entry.quantity for entry in observed.inventory}
-        return all(
-            quantities.get(entry.item, 0) >= entry.quantity for entry in desired.required_inventory
-        )
 
     def _has_timed_out_without_progress(self, observed: WorldState) -> bool:
         if self._progress_marker != observed.progress_marker:

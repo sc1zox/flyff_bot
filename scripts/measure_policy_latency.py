@@ -80,7 +80,6 @@ def measure(candidate_count: int, samples: int = SAMPLES_PER_COUNT) -> LatencyMe
         1.0,
         Position(50, 50),
         candidate_count,
-        (),
         0,
         viewport=Viewport(CLIENT_WIDTH, CLIENT_HEIGHT),
     )

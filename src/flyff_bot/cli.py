@@ -128,7 +128,6 @@ from flyff_bot.features.vision import (
     load_mob_anchor_templates,
 )
 from flyff_bot.i18n import Language, Message, Translator
-from flyff_bot.ui.dashboard import FarmingGoal
 
 COUNTDOWN_POLL_SECONDS = 0.05
 BOT_VERSION = "0.1.0"
@@ -405,8 +404,6 @@ def _argument_parser(translator: Translator) -> argparse.ArgumentParser:
         default=DEFAULT_POLICY_MODEL_DIRECTORY,
         help=translator.text(Message.HELP_POLICY_MODEL_DIR, default=DEFAULT_POLICY_MODEL_DIRECTORY),
     )
-    parser.add_argument("--goal-item", help=translator.text(Message.HELP_GOAL_ITEM))
-    parser.add_argument("--goal-count", type=int, help=translator.text(Message.HELP_GOAL_COUNT))
     parser.add_argument("--target-anchor", help=translator.text(Message.HELP_TARGET_ANCHOR))
     parser.add_argument(
         "--target-name",
@@ -808,8 +805,6 @@ def _farming_orchestrator(
 ) -> FarmingOrchestrator:
     model_path = args.model or DEFAULT_MOB_MODEL_PATH
     labels_path = args.labels or DEFAULT_MOB_LABELS_PATH
-    if (args.goal_item is None) != (args.goal_count is None):
-        raise FarmingConfigurationError(Message.FARM_GOAL_REQUIRED)
     allowed_names = (
         tuple(args.target_name) or tuple(args.class_name) or load_class_names(Path(labels_path))
     )
@@ -828,7 +823,6 @@ def _farming_orchestrator(
         KeyBinding(virtual_key, args.attack_cooldown)
         for virtual_key in (args.rotation_key or [0x20])
     )
-    goal = FarmingGoal(args.goal_item, args.goal_count) if args.goal_item is not None else None
     pipeline = PerceptionPipeline(
         WindowsFrameSource(),
         OpenCVDnnYoloDetector.from_files(
@@ -872,7 +866,6 @@ def _farming_orchestrator(
                 key_press_duration_seconds=max(MINIMUM_KEY_DURATION_SECONDS, args.duration),
             ),
             desired_state=DesiredState(),
-            goal=goal,
             search_retry_seconds=args.search_retry,
             search=SearchConfig(
                 idle_timeout_seconds=args.search_idle_timeout,

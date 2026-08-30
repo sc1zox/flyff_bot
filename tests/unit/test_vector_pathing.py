@@ -46,7 +46,6 @@ from flyff_bot.features.navigation.pathing import (
     PathingMode,
 )
 from flyff_bot.features.navigation.stall_recovery import RecoveryEventKind
-from flyff_bot.features.navigation.teleport import TeleportAnchor, TeleportConfig
 from flyff_bot.features.navigation.tracking import StallConfig
 from flyff_bot.features.navigation.vector_navigation import (
     VectorZoneNavigator,
@@ -174,7 +173,6 @@ def _state(seconds: float, mobs: tuple[VisibleMob, ...] = ()) -> WorldState:
         observed_at_seconds=seconds,
         position=Position(0, 0),
         nearby_mob_count=len(mobs),
-        inventory=(),
         progress_marker=0,
         is_stuck=False,
         selected_target=SelectedTarget(TargetState.NONE, None, 0),
@@ -344,28 +342,6 @@ def test_live_stall_projects_an_obstacle_ahead_and_replans_via_steering() -> Non
     assert RecoveryEventKind.TEMPORARY_OBSTACLE_CREATED in kinds
     assert RecoveryEventKind.LOCAL_REPLAN_REQUESTED in kinds
     assert RecoveryEventKind.LOCAL_REPLAN_SUCCEEDED in kinds
-
-
-def test_long_range_teleport_anchor_dispatch() -> None:
-    reader = _LiveReader([WorldPosition(0.0, 100.0, 0.0)])
-    navigator = VectorZoneNavigator(
-        TERRAIN_WORLD_MAP,
-        goals=(ZoneGoal("Flame"),),
-    )
-    controller = PathingController(
-        config=PATHING_CONFIG,
-        vector_navigator=navigator,
-        position_reader=cast("LivePositionReader", reader),
-        teleport_config=TeleportConfig(
-            enabled=True,
-            anchors=(TeleportAnchor("Flame", WorldPosition(190.0, 100.0, 190.0), 0x70),),
-        ),
-    )
-    controller.observe(_state(0.0))
-    dispatch = controller.step(0.0)
-
-    assert dispatch.mode is PathingMode.TELEPORTING
-    assert dispatch.virtual_key == 0x70
 
 
 class _Adapter:

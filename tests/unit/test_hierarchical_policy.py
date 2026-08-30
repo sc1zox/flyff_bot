@@ -16,7 +16,7 @@ from flyff_bot.features.policy.models import PolicyCandidate, PolicyContext
 
 
 def _state() -> WorldState:
-    return WorldState(1.0, Position(50, 50), 2, (), 0, viewport=Viewport(100, 100))
+    return WorldState(1.0, Position(50, 50), 2, 0, viewport=Viewport(100, 100))
 
 
 def _candidate(identifier: int, position: int, *, reachable: bool = True) -> PolicyCandidate:

@@ -6,7 +6,6 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from flyff_bot.features.automation.models import (
-    ActionKind,
     Position,
     TargetState,
     VisibleMob,
@@ -62,22 +61,6 @@ DEFAULT_SEARCH_ROTATION_DURATION_SECONDS = DEFAULT_SEARCH_TURN_DURATION_SECONDS
 DEFAULT_SEARCH_ROTATION_SETTLE_PAUSE_SECONDS = 0.15
 DEFAULT_SEARCH_ROTATION_STEPS = 12
 DEFAULT_SEARCH_ROTATION_VIRTUAL_KEY = VIRTUAL_KEY_RIGHT
-
-
-class ControllerMode(StrEnum):
-    """State modes shared by the small reactive controllers."""
-
-    IDLE = "idle"
-    ACTIVE = "active"
-    RECOVERING = "recovering"
-
-
-@dataclass(frozen=True, slots=True)
-class ControllerDecision:
-    """One state transition and the abstract action category it requests."""
-
-    mode: ControllerMode
-    action_kind: ActionKind | None
 
 
 class CombatMode(StrEnum):
@@ -485,34 +468,12 @@ class CombatController:
         candidates = self._eligible_candidates(state)
         if not candidates:
             return None
-        # Rank on expected goal value per second whenever the authoritative catalog can price
-        # the fight (US-083 AC8). Distance stays a cost term inside that objective rather than
-        # standing in for it. Without any client evidence the estimate has nothing the older
-        # geometric ordering did not, so that ordering is kept instead of dressing the same
-        # numbers up as an economic decision.
         ranked = rank_candidates(
             tuple(candidates),
             state,
             quota_class_names=self._quota_class_names,
         )
-        if ranked and ranked[0][1].has_client_evidence:
-            return ranked[0][0]
-        if not state.viewport.has_size:
-            if not any(mob.navmesh_path_distance is not None for mob in candidates):
-                return max(
-                    candidates, key=lambda mob: (mob.confidence, -mob.class_id, mob.class_name)
-                )
-            return min(candidates, key=_navmesh_candidate_key)
-        center = Position(state.viewport.width // 2, state.viewport.height // 2)
-        return min(
-            candidates,
-            key=lambda mob: (
-                *_navmesh_candidate_key(mob),
-                _distance_squared(_mob_center(mob), center),
-                mob.class_id,
-                mob.class_name,
-            ),
-        )
+        return ranked[0][0] if ranked else None
 
     def _attack_if_ready(self, state: WorldState, progress: bool = False) -> CombatDecision:
         binding = self._config.rotation[self._rotation_index]
@@ -729,15 +690,6 @@ def _mob_center(mob: VisibleMob) -> Position:
 
 def _distance_squared(left: Position, right: Position) -> int:
     return (left.x - right.x) ** 2 + (left.y - right.y) ** 2
-
-
-class NavigationController:
-    """Request recovery for a stuck state and movement otherwise."""
-
-    def step(self, state: WorldState) -> ControllerDecision:
-        if state.is_stuck:
-            return ControllerDecision(ControllerMode.RECOVERING, ActionKind.RECOVER)
-        return ControllerDecision(ControllerMode.ACTIVE, ActionKind.MOVE)
 
 
 class SearchController:

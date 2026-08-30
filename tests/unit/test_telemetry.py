@@ -36,7 +36,6 @@ def _state() -> WorldState:
         observed_at_seconds=1.0,
         position=Position(0, 0),
         nearby_mob_count=1,
-        inventory=(),
         progress_marker=0,
         viewport=Viewport(100, 100),
         visible_mobs=(VisibleMob(1, "Aibatt", 0.9, 40, 30, 20, 20),),

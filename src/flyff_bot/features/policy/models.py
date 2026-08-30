@@ -156,6 +156,12 @@ class PolicyContext:
     valid_attack_points: tuple[AttackPointAction, ...] = ()
     macro_event_token: tuple[object, ...] = ()
     live_state: LiveObservationState | None = None
+    #: Classes whose next kill still advances the active quota. The canonical heuristic
+    #: consumes this decision-time fact directly instead of reaching back into the session.
+    quota_class_names: frozenset[str] = frozenset()
+    #: Measured camera/player heading used by the economic turning-cost term. ``None`` keeps
+    #: the cost visibly unavailable rather than inventing an orientation.
+    heading_degrees: float | None = None
     #: The session facts that decide which goals are legal before ranking (US-083). Its
     #: defaults are the least-capable reading, so an unmeasured fact narrows the option set
     #: instead of silently claiming a capability the session cannot ground.

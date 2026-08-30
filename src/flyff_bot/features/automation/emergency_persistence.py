@@ -16,6 +16,7 @@ JSON_INDENT_SPACES = 2
 DESTINATION_FIELD = "destination_id"
 STUCK_TIMEOUT_FIELD = "stuck_timeout_seconds"
 CONFIRMATION_TIMEOUT_FIELD = "confirmation_timeout_seconds"
+TELEPORTER_HOTKEY_FIELD = "teleporter_hotkey_virtual_key"
 # Named so the handlers below stay single-name `except` clauses. The pinned formatter
 # rewrites an inline `except (A, B):` into invalid Python, and a named tuple also says
 # what the group of failures means.
@@ -32,6 +33,7 @@ def emergency_config_to_dict(config: EmergencyRecoveryConfig) -> dict[str, Any]:
         ),
         STUCK_TIMEOUT_FIELD: config.stuck_timeout_seconds,
         CONFIRMATION_TIMEOUT_FIELD: config.confirmation_timeout_seconds,
+        TELEPORTER_HOTKEY_FIELD: config.teleporter_hotkey_virtual_key,
     }
 
 
@@ -61,6 +63,9 @@ def emergency_config_from_dict(
             ),
             confirmation_timeout_seconds=float(
                 data.get(CONFIRMATION_TIMEOUT_FIELD, defaults.confirmation_timeout_seconds)
+            ),
+            teleporter_hotkey_virtual_key=int(
+                data.get(TELEPORTER_HOTKEY_FIELD, defaults.teleporter_hotkey_virtual_key)
             ),
         )
     except CONFIG_FIELD_ERRORS:

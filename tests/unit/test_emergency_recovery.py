@@ -133,7 +133,7 @@ def test_the_emergency_settings_survive_a_restart_with_a_selected_destination(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "emergency.json"
-    stored = replace(CONFIG, stuck_timeout_seconds=125.0)
+    stored = replace(CONFIG, stuck_timeout_seconds=125.0, teleporter_hotkey_virtual_key=ord("B"))
 
     save_emergency_config(stored, path, destinations=(DESTINATION,))
 

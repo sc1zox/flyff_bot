@@ -1290,3 +1290,15 @@ so only a bare install triggers it; `is_setup_required()` still gates arming. `r
 now reuses an existing per-stage artifact (memory profile keyed to the `neuz.exe` SHA-256) via the
 `_load_cached_*` helpers, and the wizard's new "Force re-extraction" / "Vollständig neu extrahieren"
 checkbox threads `force=True` through `_SetupWorker` to re-extract and overwrite the caches.
+
+## [2026-08-30] synthesis | Teleporter, canonical targeting, and legacy pruning (US-092)
+
+Updated the active US-092 story and architecture synthesis after the canonical automated gate
+(Ruff, format, MyPy, and pytest: 1278 passed, 4 skipped; 88.70% coverage). Recorded persisted
+teleporter hotkey configuration (default `V`), client-asset anchored dialog geometry with
+fail-closed dispatch, the shared `rank_candidates()` economic baseline across heuristic/controller/
+orchestrator and shadow telemetry, closed-loop `LiveCameraReader` pitch/zoom actuation, live-GPS-
+only stall detection, and removal of dead navigation/bootstrap paths and minimap fixtures. Kept
+the story in progress: ADR-010 and US-094 require retaining `PlayerVitalsReader`, and
+`TargetVerifier` nameplate/target-HP verification remains until a selected-target memory profile
+is proven. No live Windows walkthrough was claimed.

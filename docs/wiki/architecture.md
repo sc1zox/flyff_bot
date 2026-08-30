@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: active
-updated: 2026-08-29
+updated: 2026-08-30
 sources:
   - ../sources/2026-08-15-repository-bootstrap-request.md
   - ../sources/2026-08-15-target-architecture-proposal.md
@@ -33,6 +33,7 @@ related:
   - ../user-stories/completed/US-085-production-readiness-and-autonomous-farming-polish.md
   - ../user-stories/completed/US-091-unified-goal-navigation-fluid-scanning-and-intelligent-unstuck.md
   - ../user-stories/completed/US-093-geometry-verified-stall-recovery-and-navmesh-routing-unification.md
+  - ../user-stories/US-092-teleporter-config-target-selection-and-legacy-pruning.md
   - ../user-stories/completed/US-086-unattended-autopilot-session-resilience-and-goal-arbitration.md
   - ../user-stories/completed/US-009-reactive-loot-controller.md
   - ../user-stories/completed/US-011-multi-mob-training-dataset-pipeline.md
@@ -2716,3 +2717,31 @@ matching `attach_vector_navigator`, so patrol, combat, and escape routing can ne
 `RecoveryContext` / `RecoveryPhase` stay internal to the controller. `emergency_stop()` clears the
 obstacle registry, the local-stall history, the recovery context, and the queued events alongside
 the existing key release.
+
+## Teleporter configuration, canonical target selection, and legacy pruning (US-092, in progress)
+
+`TeleporterDispatcher` now persists the operator's teleporter hotkey (default `V`) through the
+dashboard settings and applies the same foreground and emergency-stop guards as other input. The
+teleporter dialog is located from a client-asset template anchor; search, first-result, and confirm
+clicks are derived from the detected dialog geometry and refuse to dispatch when the anchor or
+expected geometry is not proven. This is a coordinate-relative UI boundary, not a claim that a live
+Windows dialog walkthrough has been completed.
+
+Target choice has one economic source of truth: `rank_candidates()` in
+`features/policy/candidate_economics.py`. `HeuristicPolicy`, the combat controller's standalone
+fallback, and the orchestrator's policy runner consume that ranking, including mover metadata,
+HP, quotas, and measured NavMesh distance when available. `ML_SHADOW` compares against the same
+canonical baseline that the live decision executes, eliminating the former geometric shadow
+divergence. The camera alignment loop similarly measures `LiveCameraReader` state, actuates a
+bounded pitch/zoom step, and repeats until the measured target or refusal condition is reached.
+
+US-092 also removes the dead planner/executor/navigation-controller bootstrap path, the legacy
+teleport controller, obsolete inventory and farming-goal remnants, minimap fixtures, and frame-diff
+stall observation. Stall decisions are live-GPS-only. Monster-kill extraction remains on the
+fingerprinted player-stats memory path, but the two visual replacements are deliberately not
+overclaimed: [ADR-010](../decisions/ADR-010-client-derived-vital-maxima-are-not-runtime-resolvable.md)
+and completed [US-094](../user-stories/completed/US-094-cwndstatus-gauge-vital-memory-path.md)
+establish that this client has no bounded fingerprint-stable HP/MP/FP percentage path, so
+`PlayerVitalsReader` remains. Likewise, `TargetVerifier` retains its nameplate/target-HP path
+until a selected-target memory profile is proven. Automated evidence is the canonical gate (Ruff,
+format, MyPy, and 1278 passing tests with 4 skipped); live Windows validation remains unrun.

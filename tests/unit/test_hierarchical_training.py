@@ -150,7 +150,7 @@ def test_an_untrained_action_class_is_never_selected_live(
             NavMeshContext("zone_0_0", 0.0, 10.0),
         ),
     )
-    state = WorldState(1.0, Position(50, 50), 1, (), 0, viewport=Viewport(100, 100))
+    state = WorldState(1.0, Position(50, 50), 1, 0, viewport=Viewport(100, 100))
 
     action = policy.evaluate(state, context)
 
@@ -244,7 +244,7 @@ def test_cached_three_head_inference_stays_inside_five_millisecond_budget(
             NavMeshContext("zone_0_0", 0.0, 10.0),
         ),
     )
-    state = WorldState(1.0, Position(50, 50), 1, (), 0, viewport=Viewport(100, 100))
+    state = WorldState(1.0, Position(50, 50), 1, 0, viewport=Viewport(100, 100))
     runner = PolicyRunner(policy)
     runner.evaluate(state, context)
 

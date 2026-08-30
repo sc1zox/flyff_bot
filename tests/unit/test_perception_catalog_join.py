@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 
 from flyff_bot.features.automation.models import (
-    InventoryEntry,
     PlayerVitals,
     Position,
     VisibleMob,
@@ -125,7 +124,6 @@ def _previous_state(
         observed_at_seconds=1.0,
         position=Position(3, 4),
         nearby_mob_count=0,
-        inventory=(InventoryEntry("potion", 2),),
         progress_marker=9,
         player_vitals=PlayerVitals(0.0, 0.0, 0.0),
         visible_mobs=visible_mobs,

@@ -57,7 +57,6 @@ from flyff_bot.features.automation.kill_goals import (
 )
 from flyff_bot.features.automation.models import (
     DesiredState,
-    InventoryEntry,
     Position,
     TargetState,
     VisibleMob,
@@ -158,7 +157,6 @@ from flyff_bot.features.policy.goal_preconditions import (
     can_interact,
     can_navigate,
 )
-from flyff_bot.features.policy.heuristic import HeuristicPolicy
 from flyff_bot.features.policy.hierarchical import (
     HierarchicalObjective,
     HierarchicalObjectiveKind,
@@ -222,7 +220,6 @@ from flyff_bot.ui.dashboard import (
     BotStatus,
     DashboardFeed,
     DashboardUpdate,
-    FarmingGoal,
     WindowStatus,
 )
 
@@ -388,11 +385,10 @@ class FarmingInputAdapter(
 
 @dataclass(frozen=True, slots=True)
 class FarmingConfig:
-    """Explicit timing, controller, and item-goal settings for one session."""
+    """Explicit timing and controller settings for one session."""
 
     combat: CombatConfig = field(default_factory=CombatConfig)
     desired_state: DesiredState = field(default_factory=DesiredState)
-    goal: FarmingGoal | None = None
     tick_interval_seconds: float = DEFAULT_TICK_INTERVAL_SECONDS
     search_retry_seconds: float = DEFAULT_SEARCH_RETRY_SECONDS
     search: SearchConfig = field(default_factory=SearchConfig)
@@ -416,19 +412,6 @@ class FarmingConfig:
             raise ValueError("Farming tick interval must be positive.")
         if self.search_retry_seconds < 0.0:
             raise ValueError("Farming search retry interval must not be negative.")
-        if self.goal is not None and self.desired_state.required_inventory:
-            raise ValueError("Configure either a dashboard goal or required inventory, not both.")
-
-    @property
-    def effective_desired_state(self) -> DesiredState:
-        """Return the supervisor target including the optional displayed item goal."""
-
-        if self.goal is None:
-            return self.desired_state
-        return DesiredState(
-            minimum_mob_count=self.desired_state.minimum_mob_count,
-            required_inventory=(InventoryEntry(self.goal.item_name, self.goal.required_quantity),),
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -552,6 +535,7 @@ class FarmingOrchestrator:
         self._learned_policy: LearnedPolicyProtocol | None = None
         self._policy_load_fault: PolicyFault | None = None
         self._policy_runner = PolicyRunner(None)
+        self._heuristic_runner = PolicyRunner(None)
         self._policy_fault: PolicyFault | None = None
         self._policy_insights = PolicyInsightRecorder()
         self._policy_attack_point_override: AttackPointAction | None = None
@@ -1360,6 +1344,8 @@ class FarmingOrchestrator:
             feature_matrix(self._policy_feature_rows(candidates)),
             valid_attack_points=self._policy_attack_points(candidates),
             live_state=self._live_observation_state(),
+            quota_class_names=self._kill_goals.active_class_names,
+            heading_degrees=(None if self._pathing is None else self._pathing.heading_degrees),
             grounding=self._session_grounding(),
         )
 
@@ -1370,7 +1356,7 @@ class FarmingOrchestrator:
         giving it a version would let it be compared against one in a promotion report.
         """
 
-        if self._policy_mode is PolicyRuntimeMode.HEURISTIC or self._learned_policy is None:
+        if self._policy_mode is not PolicyRuntimeMode.ML_ACTIVE or self._learned_policy is None:
             return ""
         return current_contract_stamp().contract_version
 
@@ -1526,9 +1512,6 @@ class FarmingOrchestrator:
         """Return a policy-selected candidate only when every deterministic mask passes."""
 
         self._policy_attack_point_override = None
-        if self._policy_mode is PolicyRuntimeMode.HEURISTIC:
-            self._policy_insights.reset_decision()
-            return None
         candidates = self._policy_candidates()
         if not any(candidate.is_eligible for candidate in candidates):
             # Nothing legal to choose between is an empty option set, not a serving failure:
@@ -1538,29 +1521,38 @@ class FarmingOrchestrator:
             return None
         context = self._policy_context(candidates)
         self._bind_policy_objective()
-        action = self._policy_runner.evaluate(self._state, context)
-        fault = self._policy_runner.last_fault
-        if fault is not None:
-            self._record_policy_fault(fault)
-            return None
-        self._record_policy_insight(candidates, context, action)
-        self._autopilot.clear_policy_faults()
-        self._last_policy_action = (
-            action if isinstance(action, TargetAction | AttackPointAction) else None
+        decision_mode = self._policy_mode
+        baseline_action = self._heuristic_runner.evaluate(self._state, context)
+        action = baseline_action
+        if decision_mode is not PolicyRuntimeMode.HEURISTIC:
+            action = self._policy_runner.evaluate(self._state, context)
+            fault = self._policy_runner.last_fault
+            if fault is not None:
+                self._record_policy_fault(fault)
+                if self._policy_mode is PolicyRuntimeMode.ML_ACTIVE:
+                    return None
+            else:
+                self._autopilot.clear_policy_faults()
+        self._record_policy_insight(candidates, action, baseline_action)
+        executed_action = (
+            baseline_action if decision_mode is PolicyRuntimeMode.ML_SHADOW else action
         )
-        if self._policy_mode is PolicyRuntimeMode.ML_SHADOW or not isinstance(
-            action, TargetAction | AttackPointAction
-        ):
+        self._last_policy_action = (
+            executed_action
+            if isinstance(executed_action, TargetAction | AttackPointAction)
+            else None
+        )
+        if not isinstance(executed_action, TargetAction | AttackPointAction):
             return None
-        if isinstance(action, TargetAction) and action.attack_point is not None:
-            self._policy_attack_point_override = action.attack_point
-        if isinstance(action, AttackPointAction):
-            self._policy_attack_point_override = action
+        if isinstance(executed_action, TargetAction) and executed_action.attack_point is not None:
+            self._policy_attack_point_override = executed_action.attack_point
+        if isinstance(executed_action, AttackPointAction):
+            self._policy_attack_point_override = executed_action
         return next(
             (
                 candidate.mob
                 for candidate in candidates
-                if candidate.original_position == action.candidate_index
+                if candidate.original_position == executed_action.candidate_index
             ),
             None,
         )
@@ -1568,8 +1560,8 @@ class FarmingOrchestrator:
     def _record_policy_insight(
         self,
         candidates: tuple[PolicyCandidate, ...],
-        context: PolicyContext,
         action: TacticalActionPayload | None,
+        baseline_action: TacticalActionPayload | None,
     ) -> None:
         """Retain what this decision revealed, for the operator-facing ML view (US-087).
 
@@ -1579,11 +1571,7 @@ class FarmingOrchestrator:
         """
 
         position = self._pathing.live_position if self._pathing is not None else None
-        baseline_index = (
-            baseline_candidate_index(candidates, HeuristicPolicy().evaluate(self._state, context))
-            if self._policy_mode is PolicyRuntimeMode.ML_SHADOW
-            else None
-        )
+        baseline_index = baseline_candidate_index(candidates, baseline_action)
         self._policy_insights.record_decision(
             candidates,
             action,
@@ -1736,6 +1724,8 @@ class FarmingOrchestrator:
 
         self._config = replace(self._config, emergency=config)
         self._emergency.update_config(config)
+        if self._pathing is not None and self._pathing.teleporter_dispatcher is not None:
+            self._pathing.teleporter_dispatcher.update_hotkey(config.teleporter_hotkey_virtual_key)
         self._emergency_teleport_unavailable = False
 
     def configure_vector_navigation(self, navigator: VectorZoneNavigator | None) -> None:
@@ -1799,7 +1789,7 @@ class FarmingOrchestrator:
             emergency_stopped = self._mode is FarmingMode.EMERGENCY_STOPPED
             self._observe(poll_live_providers=not emergency_stopped)
             if self._pathing is not None and not emergency_stopped:
-                self._pathing.track(self._state, self._last_frame)
+                self._pathing.track(self._state)
             if emergency_stopped:
                 self._readiness = self._readiness_gate.evaluate(self._state.observed_at_seconds)
                 return self._publish(False)
@@ -1859,7 +1849,7 @@ class FarmingOrchestrator:
             return self._settle_teleport()
 
         if self._pathing is not None:
-            self._pathing.observe(self._state, self._last_frame)
+            self._pathing.observe(self._state)
             self._state = replace(
                 self._state,
                 is_stuck=self._pathing.is_stalled,
@@ -2311,7 +2301,11 @@ class FarmingOrchestrator:
             combat.position.x,
             combat.position.y,
             reason=(
-                f"policy_{self._policy_mode.value.lower()}"
+                (
+                    f"policy_{self._policy_mode.value.lower()}"
+                    if self._policy_mode is PolicyRuntimeMode.ML_ACTIVE
+                    else "policy_heuristic"
+                )
                 if requested_target is not None
                 else (
                     "policy_fallback"
@@ -2509,9 +2503,7 @@ class FarmingOrchestrator:
             return dispatched
 
         if self._mode is FarmingMode.RECONCILING:
-            reconciliation = self._supervisor.reconcile(
-                self._config.effective_desired_state, self._state
-            )
+            reconciliation = self._supervisor.reconcile(self._config.desired_state, self._state)
             if reconciliation.is_healthy:
                 self._combat.reset()
                 self._set_mode(FarmingMode.SEARCHING, reason="reconciled")
@@ -2707,7 +2699,6 @@ class FarmingOrchestrator:
             self._pathing.live_sampled_at_seconds if self._pathing is not None else None
         )
         return self._approach_stalls.observe(
-            self._last_frame,
             movement_commanded=True,
             at_seconds=self._state.observed_at_seconds,
             live_position=live_position,
@@ -2972,13 +2963,7 @@ class FarmingOrchestrator:
         if queue is not None and queue.has_quests:
             # A quest session ends when its queue does, not when one quest's quotas are met.
             return queue.is_completed
-        if self._kill_goals.is_completed:
-            return True
-        goal = self._config.goal
-        if goal is None:
-            return False
-        quantities = {entry.item: entry.quantity for entry in self._state.inventory}
-        return quantities.get(goal.item_name, 0) >= goal.required_quantity
+        return bool(self._kill_goals.is_completed)
 
     def _complete_session(self) -> None:
         self._session_active = False
@@ -2990,7 +2975,7 @@ class FarmingOrchestrator:
 
     def _publish(self, dispatched: bool) -> FarmingTick:
         reconciliation = (
-            self._supervisor.reconcile(self._config.effective_desired_state, self._state)
+            self._supervisor.reconcile(self._config.desired_state, self._state)
             if self._mode is FarmingMode.RECONCILING
             else None
         )
@@ -3013,7 +2998,6 @@ class FarmingOrchestrator:
                         alignment_failed=self._alignment_failure is not None,
                         teleport_unavailable=self._emergency_teleport_unavailable,
                     ),
-                    self._config.goal,
                     frame=self._last_frame,
                     navigation=(
                         self._pathing.snapshot(self._state.observed_at_seconds)
@@ -3187,7 +3171,7 @@ def _dungeon_provider_health(status: object | None) -> ProviderHealth:
 
 
 def _initial_world_state() -> WorldState:
-    return WorldState(0.0, Position(0, 0), 0, (), 0)
+    return WorldState(0.0, Position(0, 0), 0, 0)
 
 
 def _completion_reason(queue: QuestFarmingQueue | None, kill_goals: KillGoalTracker) -> str:

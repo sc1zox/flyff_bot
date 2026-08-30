@@ -41,7 +41,6 @@ def _make_world_state(
         observed_at_seconds=observed_at,
         position=Position(0, 0),
         nearby_mob_count=0,
-        inventory=(),
         progress_marker=0,
         player_vitals=PlayerVitals(hp_percentage=hp, mp_percentage=mp, fp_percentage=fp),
     )

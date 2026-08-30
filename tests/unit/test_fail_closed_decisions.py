@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from flyff_bot.features.automation.models import (
-    InventoryEntry,
     Position,
     WorldState,
 )
@@ -40,7 +39,6 @@ def _state(interval: ObservationInterval) -> WorldState:
         observed_at_seconds=NOW,
         position=Position(0, 0),
         nearby_mob_count=0,
-        inventory=(InventoryEntry("penya", 0),),
         progress_marker=0,
         observation_interval=interval,
     )

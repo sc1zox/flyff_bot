@@ -296,7 +296,6 @@ def test_the_simulator_and_live_encoders_produce_one_identical_vector(
         observed_at_seconds=1.0,
         position=Position(0, 0),
         nearby_mob_count=1,
-        inventory=(),
         progress_marker=0,
         selected_target=SelectedTarget(TargetState.NONE, None, 0),
         visible_mobs=(mob,),

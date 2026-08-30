@@ -126,6 +126,8 @@ def rank_candidates(
         )
         for mob in candidates
     )
+    if not any(economics.has_client_evidence for _mob, economics in scored):
+        return tuple(sorted(scored, key=lambda item: _geometric_fallback_key(item[0], state)))
     return tuple(
         sorted(
             scored,
@@ -136,6 +138,32 @@ def rank_candidates(
             ),
         )
     )
+
+
+def _geometric_fallback_key(
+    mob: VisibleMob, state: WorldState
+) -> tuple[int, float, float, int, str]:
+    """Retain deterministic NavMesh/viewport ordering when no catalog can price a fight.
+
+    This fallback lives beside the economic objective so every caller degrades in exactly the
+    same way. A measured NavMesh distance wins over client-space proximity; without a viewport,
+    confidence is the only remaining measured discriminator.
+    """
+
+    route_group = 0 if mob.navmesh_path_distance is not None else 1
+    route_distance = (
+        mob.navmesh_path_distance if mob.navmesh_path_distance is not None else float("inf")
+    )
+    screen_distance: float
+    if state.viewport.has_size:
+        center_x = state.viewport.width // 2
+        center_y = state.viewport.height // 2
+        screen_distance = float(
+            (mob.x + mob.width // 2 - center_x) ** 2 + (mob.y + mob.height // 2 - center_y) ** 2
+        )
+    else:
+        screen_distance = -mob.confidence
+    return route_group, route_distance, screen_distance, mob.class_id, mob.class_name
 
 
 def candidate_economics(

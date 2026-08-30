@@ -8,7 +8,9 @@ from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.teleporter_dispatch import (
     ArrivalObservation,
     ArrivalObserver,
+    ClientPoint,
     CombatObservation,
+    TeleporterDialogGeometry,
     TeleporterDispatchConfig,
     TeleporterDispatcher,
     TeleporterDispatchStatus,
@@ -24,13 +26,21 @@ DESTINATION = TeleporterDestination(
     anchor_x=100.0,
     anchor_z=200.0,
 )
+DIALOG = TeleporterDialogGeometry(ClientPoint(10, 20), ClientPoint(30, 40), ClientPoint(50, 60))
 
 
 class Adapter:
-    def __init__(self, *, foreground: bool = True, aborted: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        foreground: bool = True,
+        aborted: bool = False,
+        dialog: TeleporterDialogGeometry | None = DIALOG,
+    ) -> None:
         self.actions: list[tuple[str, object]] = []
         self.foreground = foreground
         self.aborted = aborted
+        self.dialog = dialog
 
     def is_aborted(self) -> bool:
         return self.aborted
@@ -44,14 +54,16 @@ class Adapter:
     def type_search_text(self, window_handle: int, text: str) -> None:
         self.actions.append(("type", text))
 
-    def click_search_field(self, window_handle: int) -> None:
-        self.actions.append(("search_click", window_handle))
+    def locate_dialog(self, _window_handle: int) -> TeleporterDialogGeometry | None:
+        return self.dialog
 
-    def select_first_result(self, window_handle: int) -> None:
-        self.actions.append(("select_click", window_handle))
-
-    def click_teleport_button(self, window_handle: int) -> None:
-        self.actions.append(("teleport_click", window_handle))
+    def click_client_point(self, window_handle: int, point: ClientPoint) -> None:
+        name = {
+            DIALOG.search_field: "search_click",
+            DIALOG.first_result: "select_click",
+            DIALOG.teleport_button: "teleport_click",
+        }[point]
+        self.actions.append((name, window_handle))
 
     def close_teleporter_window(self, window_handle: int) -> None:
         self.actions.append(("close", window_handle))
@@ -130,6 +142,19 @@ def test_refuses_input_while_backgrounded_or_aborted() -> None:
 
     assert background.actions == []
     assert aborted.actions == []
+
+
+def test_missing_dialog_geometry_fails_closed_after_the_guarded_hotkey() -> None:
+    adapter = Adapter(dialog=None)
+    controller = dispatcher(adapter, Observer())
+    controller.request(DESTINATION, 0.0)
+
+    controller.tick(CombatObservation(False, 100.0, 0.5), at_seconds=0.5)
+    result = controller.tick(CombatObservation(False, 100.0, 2.0), at_seconds=2.0)
+
+    assert result.status is TeleporterDispatchStatus.FAILED_STANDBY
+    assert result.reason == "dialog_not_found"
+    assert [name for name, _value in adapter.actions] == ["hotkey", "close"]
 
 
 def test_confirms_only_matching_world_identity_and_position() -> None:

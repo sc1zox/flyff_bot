@@ -505,6 +505,8 @@
   "ui.recovery_destination": "Teleporter-Ziel",
   "ui.recovery_destination_tooltip": "Ziel aus den eigenen TeleportOption-Daten des Clients. Das eingebaute Teleporter-Fenster wird erst nach Kampf-, Fokus- und Notfall-Prüfungen benutzt.",
   "ui.recovery_destination_unassigned": "Nicht gewählt",
+  "ui.recovery_hotkey": "Teleporter-Taste",
+  "ui.recovery_hotkey_tooltip": "Taste zum Öffnen des eingebauten Teleporter-Fensters. Eingaben bleiben durch Vordergrundfokus und den F12-Not-Aus geschützt.",
   "ui.recovery_timeout": "Zeitlimit",
   "ui.recovery_timeout_tooltip": "Wie lange der Charakter überhaupt keinen Fortschritt machen darf, bevor das eingebaute Teleporter-Reset-Ziel benutzt wird.",
   "ui.recovery_title": "Rettung bei ausweglosem Steckenbleiben",

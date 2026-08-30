@@ -87,13 +87,6 @@ from flyff_bot.features.navigation.stall_recovery import (
     TemporaryObstacle,
     TemporaryObstacleRegistry,
 )
-from flyff_bot.features.navigation.teleport import (
-    TeleportAnchor,
-    TeleportConfig,
-    TeleportController,
-    TeleportDispatch,
-    TeleportStatus,
-)
 from flyff_bot.features.navigation.tracking import (
     StallConfig,
     StallDetector,
@@ -200,11 +193,6 @@ __all__ = [
     "StallDetector",
     "StallObservation",
     "SurfaceSpan",
-    "TeleportAnchor",
-    "TeleportConfig",
-    "TeleportController",
-    "TeleportDispatch",
-    "TeleportStatus",
     "TemporaryObstacle",
     "TemporaryObstacleRegistry",
     "Vector3D",

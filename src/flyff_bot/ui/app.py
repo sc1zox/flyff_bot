@@ -15,6 +15,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from flyff_bot.constants import (
+    DEFAULT_CLIENT_DATA_ROOT,
     DEFAULT_DUNGEON_DATABASE_PATH,
     DEFAULT_MOB_LABELS_PATH,
     DEFAULT_MOB_MODEL_PATH,
@@ -42,7 +43,15 @@ from flyff_bot.features.dungeons.persistence import load_dungeon_database
 from flyff_bot.features.input_control import InputControlError, WindowsInputController
 from flyff_bot.features.navigation.live_camera import LiveCameraReader
 from flyff_bot.features.navigation.live_position import LivePositionReader
+from flyff_bot.features.navigation.live_world_id import LiveWorldIdReader
 from flyff_bot.features.navigation.pathing import PathingController
+from flyff_bot.features.navigation.teleporter_dialog import TemplateTeleporterDialogLocator
+from flyff_bot.features.navigation.teleporter_dispatch import (
+    LiveArrivalObserver,
+    TeleporterDispatchConfig,
+    TeleporterDispatcher,
+)
+from flyff_bot.features.navigation.teleporter_input import TeleporterWindowsInput
 from flyff_bot.features.navigation.vector_navigation import (
     VectorNavigationRequest,
     VectorZoneNavigator,
@@ -364,10 +373,31 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                 )
                 position_reader = LivePositionReader(window_handle)
                 camera_reader = LiveCameraReader(window_handle)
+                emergency_config = window.get_emergency_config()
+                teleporter_input = TeleporterWindowsInput(
+                    controller,
+                    window_handle,
+                    dialog_locator=TemplateTeleporterDialogLocator(
+                        frame_source,
+                        Path(DEFAULT_CLIENT_DATA_ROOT),
+                    ),
+                )
+                teleporter_dispatcher = TeleporterDispatcher(
+                    teleporter_input,
+                    window_handle,
+                    LiveArrivalObserver(position_reader, LiveWorldIdReader(window_handle)),
+                    config=TeleporterDispatchConfig(
+                        hotkey_virtual_key=emergency_config.teleporter_hotkey_virtual_key,
+                        confirmation_timeout_seconds=(
+                            emergency_config.confirmation_timeout_seconds
+                        ),
+                    ),
+                )
                 pathing = PathingController(
                     position_reader=position_reader,
                     camera_reader=camera_reader,
                     tactical_parameters=window.tactical_parameters,
+                    teleporter_dispatcher=teleporter_dispatcher,
                 )
                 # The pathing controller polls the camera and owns the baked mesh, so it is
                 # what lets a perception tick unproject its own detections (US-057).
@@ -405,7 +435,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                         ),
                         vitals=window.get_vitals_config(),
                         powerups=window.get_powerup_config(),
-                        emergency=window.get_emergency_config(),
+                        emergency=emergency_config,
                         tactical_parameters=window.tactical_parameters,
                         auto_align_camera=window.auto_align_toggle.isChecked(),
                         policy_mode=window.policy_mode,
@@ -416,6 +446,7 @@ def run_desktop(arguments: Sequence[str] | None = None) -> int:
                     camera_aligner=CameraAligner(
                         controller,
                         window_handle,
+                        camera_reader,
                         tactical_parameters=window.tactical_parameters,
                     ),
                     kill_goals=KillGoalTracker(

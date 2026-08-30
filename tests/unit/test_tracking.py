@@ -1,21 +1,13 @@
-"""Tests for live GPS and visual stall detection (US-040, US-059)."""
+"""Tests for authoritative live-GPS stall detection."""
 
 from __future__ import annotations
 
-import numpy as np
-
 from flyff_bot.features.navigation.live_position import WorldPosition
 from flyff_bot.features.navigation.tracking import StallConfig, StallDetector
-from flyff_bot.features.vision.models import CapturedFrame, ClientSize
 
 
 def _live_pos(x: float, y: float, z: float) -> WorldPosition:
     return WorldPosition(x=x, y=y, z=z)
-
-
-def _frame(fill_value: int) -> CapturedFrame:
-    image = np.full((100, 100, 3), fill_value, dtype=np.uint8)
-    return CapturedFrame(image, ClientSize(width=100, height=100))
 
 
 def test_stall_detector_reports_no_stall_when_moving_via_gps() -> None:
@@ -61,14 +53,9 @@ def test_stall_detector_resets_counter_on_movement() -> None:
     assert not detector.is_stalled
 
 
-def test_stall_detector_frame_diff_fallback_when_gps_unavailable() -> None:
-    detector = StallDetector(StallConfig(motion_threshold=5.0, stall_timeout_seconds=1.5))
+def test_missing_live_position_never_fabricates_a_stall() -> None:
+    detector = StallDetector(StallConfig(live_stall_timeout_seconds=1.0))
 
-    frame = _frame(100)
-
-    assert not detector.observe(frame=frame, at_seconds=0.0)
-    assert not detector.observe(frame=frame, at_seconds=1.0)
-    assert detector.stalled_seconds == 1.0
-    # Over 1.5s stall timeout
-    assert detector.observe(frame=frame, at_seconds=2.0)
-    assert detector.is_stalled
+    assert not detector.observe(live_position=None, at_seconds=0.0)
+    assert not detector.observe(live_position=None, at_seconds=10.0)
+    assert detector.stalled_seconds == 0.0

@@ -43,6 +43,8 @@ from flyff_bot.features.navigation.live_position import (
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.teleporter_dispatch import (
     ArrivalObservation,
+    ClientPoint,
+    TeleporterDialogGeometry,
     TeleporterDispatchConfig,
     TeleporterDispatcher,
     TeleporterInputAdapter,
@@ -509,14 +511,12 @@ class _TeleporterInput:
     def type_search_text(self, _window_handle: int, text: str) -> None:
         self.actions.append(f"type:{text}")
 
-    def click_search_field(self, _window_handle: int) -> None:
-        self.actions.append("search_click")
+    def locate_dialog(self, _window_handle: int) -> TeleporterDialogGeometry:
+        return TeleporterDialogGeometry(ClientPoint(1, 2), ClientPoint(3, 4), ClientPoint(5, 6))
 
-    def select_first_result(self, _window_handle: int) -> None:
-        self.actions.append("select_click")
-
-    def click_teleport_button(self, _window_handle: int) -> None:
-        self.actions.append("teleport_click")
+    def click_client_point(self, _window_handle: int, point: ClientPoint) -> None:
+        name = {1: "search_click", 3: "select_click", 5: "teleport_click"}[point.x]
+        self.actions.append(name)
 
     def close_teleporter_window(self, _window_handle: int) -> None:
         self.actions.append("close")
@@ -546,7 +546,6 @@ def _state(time: float, *, mobs: tuple[VisibleMob, ...] = ()) -> WorldState:
         observed_at_seconds=time,
         position=Position(0, 0),
         nearby_mob_count=len(mobs),
-        inventory=(),
         progress_marker=0,
         selected_target=SelectedTarget(TargetState.NONE, None, 0),
         visible_mobs=mobs,

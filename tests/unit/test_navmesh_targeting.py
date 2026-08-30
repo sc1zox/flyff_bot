@@ -26,7 +26,6 @@ def _state(*mobs: VisibleMob) -> WorldState:
         observed_at_seconds=1.0,
         position=Position(0, 0),
         nearby_mob_count=len(mobs),
-        inventory=(),
         progress_marker=0,
         selected_target=SelectedTarget(TargetState.NONE, None, 0),
         visible_mobs=mobs,

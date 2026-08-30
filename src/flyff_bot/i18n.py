@@ -402,6 +402,8 @@ class Message(StrEnum):
     UI_RECOVERY_DESTINATION = "ui.recovery_destination"
     UI_RECOVERY_DESTINATION_TOOLTIP = "ui.recovery_destination_tooltip"
     UI_RECOVERY_DESTINATION_UNASSIGNED = "ui.recovery_destination_unassigned"
+    UI_RECOVERY_HOTKEY = "ui.recovery_hotkey"
+    UI_RECOVERY_HOTKEY_TOOLTIP = "ui.recovery_hotkey_tooltip"
     UI_ANCHOR_THRESHOLD = "ui.anchor_threshold"
     UI_ANCHOR_THRESHOLD_TOOLTIP = "ui.anchor_threshold_tooltip"
     UI_PLACEMENTS_TOGGLE = "ui.placements_toggle"

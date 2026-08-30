@@ -21,7 +21,6 @@ from flyff_bot.features.automation.controllers import (
 from flyff_bot.features.automation.kill_goals import KillGoalConfig, MobKillQuota
 from flyff_bot.features.automation.models import (
     DesiredState,
-    InventoryEntry,
     PlayerVitals,
     Position,
     SelectedTarget,
@@ -94,7 +93,6 @@ from flyff_bot.ui.dashboard import (
     BotStatus,
     DashboardFeed,
     DashboardUpdate,
-    FarmingGoal,
     WindowStatus,
 )
 
@@ -108,6 +106,18 @@ FROZEN_FRAME = CapturedFrame(
     np.zeros((FROZEN_FRAME_SIZE, FROZEN_FRAME_SIZE, 3), dtype=np.uint8),
     ClientSize(width=FROZEN_FRAME_SIZE, height=FROZEN_FRAME_SIZE),
 )
+
+
+class _ConstantLivePositionReader:
+    def poll(self, at_seconds: float) -> PositionReading:
+        return PositionReading(
+            PositionSource.LIVE,
+            WorldPosition(100.0, 20.0, 300.0),
+            sampled_at_seconds=at_seconds,
+        )
+
+    def close(self) -> None:
+        pass
 
 
 class _Pipeline:
@@ -200,13 +210,11 @@ def _state(
     *,
     target: SelectedTarget | None = None,
     mobs: tuple[VisibleMob, ...] = (),
-    inventory: tuple[InventoryEntry, ...] = (),
 ) -> WorldState:
     return WorldState(
         observed_at_seconds=time,
         position=Position(0, 0),
         nearby_mob_count=len(mobs),
-        inventory=inventory,
         progress_marker=0,
         selected_target=target or SelectedTarget(TargetState.NONE, None, 0),
         visible_mobs=mobs,
@@ -237,12 +245,19 @@ def _orchestrator(
     event_logger: SessionEventLogger | None = None,
     foreground_window_info: Callable[[], ForegroundWindowInfo | None] | None = None,
 ) -> FarmingOrchestrator:
+    selected_pipeline = pipeline or _Pipeline(states)
+    pathing = (
+        PathingController(position_reader=cast("LivePositionReader", _ConstantLivePositionReader()))
+        if selected_pipeline._frame is FROZEN_FRAME
+        else None
+    )
     return FarmingOrchestrator(
-        cast(PerceptionPipeline, pipeline or _Pipeline(states)),
+        cast(PerceptionPipeline, selected_pipeline),
         adapter,
         WINDOW_HANDLE,
         config=config,
         dashboard_feed=dashboard_feed,
+        pathing=pathing,
         event_logger=event_logger,
         foreground_window_info=foreground_window_info,
     )
@@ -279,7 +294,7 @@ def test_readiness_blocks_every_action_and_recovers_without_replaying_pending_in
         error=PlayerStatsReadError(PlayerStatsReadErrorCode.NO_PROFILE),
     )
     blocked_state = replace(
-        _state(1.0, mobs=(MOB,), inventory=(InventoryEntry("Quest drop", 3),)),
+        _state(1.0, mobs=(MOB,)),
         player_stats_snapshot=unavailable,
         player_vitals=PlayerVitals(100.0, 100.0, 100.0),
     )
@@ -310,7 +325,6 @@ def test_readiness_blocks_every_action_and_recovers_without_replaying_pending_in
     assert blocked.readiness.primary_source is LiveStateSource.PLAYER_STATS
     assert adapter.clicks == []
     assert adapter.keys == []
-    assert blocked.state.inventory == (InventoryEntry("Quest drop", 3),)
 
     recovered = orchestrator.tick()
     assert recovered.mode is FarmingMode.SEARCHING
@@ -777,25 +791,6 @@ def test_engagement_publishes_a_dedicated_combat_status() -> None:
     orchestrator.tick()
 
     assert [update.status for update in updates] == [BotStatus.COMBAT, BotStatus.COMBAT]
-
-
-def test_item_goal_completes_before_any_input_and_publishes_dashboard_update() -> None:
-    adapter = _InputAdapter()
-    feed = DashboardFeed()
-    updates: list[DashboardUpdate] = []
-    feed.update_available.connect(updates.append)
-    orchestrator = _orchestrator(
-        [_state(1.0, inventory=(InventoryEntry("Sunstones", 3),))],
-        adapter,
-        config=FarmingConfig(goal=FarmingGoal("Sunstones", 3)),
-        dashboard_feed=feed,
-    )
-    orchestrator.start()
-    result = orchestrator.tick()
-
-    assert result.mode is FarmingMode.COMPLETED
-    assert adapter.keys == []
-    assert updates[-1].goal == FarmingGoal("Sunstones", 3)
 
 
 def test_orchestrator_publishes_navigation_snapshot_when_pathing_is_configured() -> None:
@@ -1488,27 +1483,6 @@ def test_supervisor_failure_pause_records_the_failure_flags(tmp_path: Path) -> N
     )
     assert failure_event.reason is not None
     assert "no_mobs" in failure_event.reason.split(",")
-
-
-def test_goal_completion_is_recorded(tmp_path: Path) -> None:
-    """US-049: reaching an item goal records a typed GOAL_COMPLETED event."""
-
-    adapter = _InputAdapter()
-    logger = SessionEventLogger(tmp_path / "sessions")
-    orchestrator = _orchestrator(
-        [_state(1.0, inventory=(InventoryEntry("Sunstones", 3),))],
-        adapter,
-        config=FarmingConfig(goal=FarmingGoal("Sunstones", 3)),
-        event_logger=logger,
-    )
-    orchestrator.start()
-
-    result = orchestrator.tick()
-
-    assert result.mode is FarmingMode.COMPLETED
-    event = logger.recent_events[0]
-    assert event.kind is SessionEventKind.GOAL_COMPLETED
-    assert event.reason == "item_goal"
 
 
 def test_dashboard_update_carries_recent_session_events(tmp_path: Path) -> None:

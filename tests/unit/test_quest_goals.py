@@ -613,7 +613,6 @@ def _state(
         observed_at_seconds=time,
         position=Position(0, 0),
         nearby_mob_count=len(mobs),
-        inventory=(),
         progress_marker=0,
         selected_target=target or SelectedTarget(TargetState.NONE, None, 0),
         visible_mobs=mobs,

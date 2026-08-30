@@ -13,6 +13,8 @@ from flyff_bot.features.navigation.live_position import (
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.teleporter_dispatch import (
     ArrivalObservation,
+    ClientPoint,
+    TeleporterDialogGeometry,
     TeleporterDispatchConfig,
     TeleporterDispatcher,
     TeleporterInputAdapter,
@@ -57,14 +59,12 @@ class _TeleporterInput:
     def type_search_text(self, _window_handle: int, text: str) -> None:
         self.actions.append(("type", text))
 
-    def click_search_field(self, window_handle: int) -> None:
-        self.actions.append(("search_click", window_handle))
+    def locate_dialog(self, _window_handle: int) -> TeleporterDialogGeometry:
+        return TeleporterDialogGeometry(ClientPoint(1, 2), ClientPoint(3, 4), ClientPoint(5, 6))
 
-    def select_first_result(self, window_handle: int) -> None:
-        self.actions.append(("select_click", window_handle))
-
-    def click_teleport_button(self, window_handle: int) -> None:
-        self.actions.append(("teleport_click", window_handle))
+    def click_client_point(self, window_handle: int, point: ClientPoint) -> None:
+        name = {1: "search_click", 3: "select_click", 5: "teleport_click"}[point.x]
+        self.actions.append((name, window_handle))
 
     def close_teleporter_window(self, window_handle: int) -> None:
         self.actions.append(("close", window_handle))

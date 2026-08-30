@@ -442,7 +442,6 @@ def _unavailable_state(at_seconds: float, code: PlayerStatsReadErrorCode) -> Wor
         observed_at_seconds=at_seconds,
         position=Position(0, 0),
         nearby_mob_count=0,
-        inventory=(),
         progress_marker=0,
         selected_target=SelectedTarget(TargetState.NONE, None, 0),
         viewport=Viewport(100, 100),

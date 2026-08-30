@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from flyff_bot.features.automation.kill_goals import MobKillProgress
-from flyff_bot.features.automation.models import WorldState
 from flyff_bot.features.navigation.live_camera import CameraReadErrorCode
 from flyff_bot.features.navigation.live_position import PositionReadErrorCode
 from flyff_bot.i18n import Message, Translator
-from flyff_bot.ui.dashboard import BotStatus, FarmingGoal, WindowStatus
+from flyff_bot.ui.dashboard import BotStatus, WindowStatus
 
 
 def status_message(status: BotStatus) -> Message:
@@ -92,24 +91,6 @@ def window_status_message(status: WindowStatus) -> Message:
         WindowStatus.NOT_FOUND: Message.UI_WINDOW_NOT_FOUND,
         WindowStatus.CAPTURE_FAILED: Message.UI_WINDOW_CAPTURE_FAILED,
     }[status]
-
-
-def goal_text(
-    translator: Translator,
-    state: WorldState | None,
-    goal: FarmingGoal | None,
-) -> str:
-    if goal is None:
-        return translator.text(Message.UI_NO_GOAL)
-    quantities = (
-        {entry.item: entry.quantity for entry in state.inventory} if state is not None else {}
-    )
-    return translator.text(
-        Message.UI_GOAL_PROGRESS,
-        current=quantities.get(goal.item_name, 0),
-        required=goal.required_quantity,
-        item_name=goal.item_name,
-    )
 
 
 def kill_progress_text(

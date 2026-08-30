@@ -551,9 +551,10 @@ def test_shadow_records_the_learned_choice_while_active_executes_it(tmp_path: Pa
     shadow._advance()
     active._advance()
 
-    # Shadow records the learned decision while the deterministic baseline keeps steering.
+    # Shadow keeps the executed-action provenance on the canonical baseline while its
+    # insight snapshot separately records and compares the learned decision.
     assert isinstance(shadow._last_policy_action, TargetAction)
-    assert shadow._last_policy_action.candidate_index == 1
+    assert shadow._last_policy_action.candidate_index == 0
     assert shadow_adapter.clicks == [(WINDOW_HANDLE, *_centre(heuristic_choice))]
     # Active dispatches the learned instance instead, so the two modes are observably distinct.
     assert active_adapter.clicks == [(WINDOW_HANDLE, *_centre(learned_choice))]
@@ -618,8 +619,8 @@ def test_a_shadow_session_publishes_candidate_reward_and_agreement_telemetry(
     )
 
 
-def test_a_heuristic_session_publishes_no_candidate_ranking_at_all() -> None:
-    """Nothing was served, so there is no learned decision to inspect."""
+def test_a_heuristic_session_publishes_the_canonical_baseline_ranking() -> None:
+    """The operator can inspect the same canonical decision the controller executed."""
 
     from typing import cast
 
@@ -647,8 +648,8 @@ def test_a_heuristic_session_publishes_no_candidate_ranking_at_all() -> None:
     session._advance()
     snapshot = session._policy_insight_snapshot()
 
-    assert snapshot.candidates == ()
-    assert snapshot.chosen is None
+    assert len(snapshot.candidates) == 2
+    assert snapshot.chosen is not None and snapshot.chosen.candidate_index == 0
     assert snapshot.shadow is None
     assert snapshot.inference_latency_seconds is None
     assert not snapshot.artifact.is_loaded

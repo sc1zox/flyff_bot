@@ -53,7 +53,6 @@ def _state(mob: VisibleMob) -> WorldState:
         observed_at_seconds=1.0,
         position=Position(0, 0),
         nearby_mob_count=1,
-        inventory=(),
         progress_marker=0,
         visible_mobs=(mob,),
         viewport=Viewport(100, 100),

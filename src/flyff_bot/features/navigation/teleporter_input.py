@@ -2,28 +2,34 @@
 
 from __future__ import annotations
 
-from flyff_bot.features.input_control import (
-    InputControlError,
-    InputErrorCode,
-    WindowsInputController,
-    parse_virtual_key,
+from typing import Protocol
+
+from flyff_bot.features.input_control import WindowsInputController, parse_virtual_key
+from flyff_bot.features.navigation.teleporter_dispatch import (
+    ClientPoint,
+    TeleporterDialogGeometry,
 )
-from flyff_bot.features.navigation.teleporter_dispatch import TeleporterDispatchConfig
+
+
+class TeleporterDialogLocator(Protocol):
+    """Locate the visible dialog and derive all points from its measured rectangle."""
+
+    def locate(self, window_handle: int) -> TeleporterDialogGeometry | None: ...
 
 
 class TeleporterWindowsInput:
-    """Send teleporter UI actions only while the client is foreground and END is clear."""
+    """Send teleporter UI actions only while the client is foreground and F12 is clear."""
 
     def __init__(
         self,
         controller: WindowsInputController,
         window_handle: int,
         *,
-        config: TeleporterDispatchConfig | None = None,
+        dialog_locator: TeleporterDialogLocator,
     ) -> None:
         self._controller = controller
         self._window_handle = window_handle
-        self._config = config or TeleporterDispatchConfig()
+        self._dialog_locator = dialog_locator
 
     def is_aborted(self) -> bool:
         return self._controller.is_aborted()
@@ -41,35 +47,11 @@ class TeleporterWindowsInput:
     def type_search_text(self, window_handle: int, text: str) -> None:
         self._controller.type_text_while_guarded(window_handle, text)
 
-    def click_search_field(self, window_handle: int) -> None:
-        bounds = self._controller.client_screen_bounds(window_handle)
-        if bounds is None:
-            raise InputControlError(InputErrorCode.FOCUS_FAILED)
-        self._controller.click_client(
-            window_handle,
-            round(bounds.width * self._config.search_field_x_fraction),
-            round(bounds.height * self._config.search_field_y_fraction),
-        )
+    def locate_dialog(self, window_handle: int) -> TeleporterDialogGeometry | None:
+        return self._dialog_locator.locate(window_handle)
 
-    def select_first_result(self, window_handle: int) -> None:
-        bounds = self._controller.client_screen_bounds(window_handle)
-        if bounds is None:
-            raise InputControlError(InputErrorCode.FOCUS_FAILED)
-        self._controller.click_client(
-            window_handle,
-            round(bounds.width * self._config.first_result_x_fraction),
-            round(bounds.height * self._config.first_result_y_fraction),
-        )
-
-    def click_teleport_button(self, window_handle: int) -> None:
-        bounds = self._controller.client_screen_bounds(window_handle)
-        if bounds is None:
-            raise InputControlError(InputErrorCode.FOCUS_FAILED)
-        self._controller.click_client(
-            window_handle,
-            round(bounds.width * self._config.teleport_button_x_fraction),
-            round(bounds.height * self._config.teleport_button_y_fraction),
-        )
+    def click_client_point(self, window_handle: int, point: ClientPoint) -> None:
+        self._controller.click_client(window_handle, point.x, point.y)
 
     def close_teleporter_window(self, window_handle: int) -> None:
         self._controller.send_key_while_guarded(

@@ -239,14 +239,12 @@ class MainWindow(QMainWindow):
         self._camera_label = self._status_card.camera_label
         self._mob_label = self._summary_card.mob_label
         self._target_label = self._summary_card.target_label
-        self._goal_label = self._summary_card.goal_label
         self._vitals_label = self._summary_card.vitals_label
         self._kill_progress_label = self._summary_card.kill_progress_label
         self._dashboard_presenter = DashboardPresenter(
             translator,
             mob_label=self._mob_label,
             target_label=self._target_label,
-            goal_label=self._goal_label,
             vitals_label=self._vitals_label,
             kill_progress_label=self._kill_progress_label,
         )
@@ -552,10 +550,6 @@ class MainWindow(QMainWindow):
         self._status_presenter.render_window_status(status)
 
     @property
-    def goal_label(self) -> QLabel:
-        return self._goal_label
-
-    @property
     def vitals_label(self) -> QLabel:
         return self._vitals_label
 
@@ -680,6 +674,10 @@ class MainWindow(QMainWindow):
     @property
     def recovery_destination_combo(self) -> QComboBox:
         return self._settings.recovery_panel.destination_combo
+
+    @property
+    def recovery_hotkey_combo(self) -> QComboBox:
+        return self._settings.recovery_panel.hotkey_combo
 
     @property
     def teleporter_catalog(self) -> TeleporterCatalog:
@@ -816,6 +814,7 @@ class MainWindow(QMainWindow):
         self._recovery_panel.destination_combo.currentIndexChanged.connect(
             self._on_emergency_changed
         )
+        self._recovery_panel.hotkey_combo.currentIndexChanged.connect(self._on_emergency_changed)
         for controls in self._vitals_panel.rows:
             controls.enabled.toggled.connect(self._on_vitals_changed)
             controls.threshold.valueChanged.connect(self._on_vitals_changed)

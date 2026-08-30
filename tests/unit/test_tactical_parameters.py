@@ -47,7 +47,7 @@ from flyff_bot.i18n import Language, Message, Translator
 
 
 def _state(mob: VisibleMob) -> WorldState:
-    return WorldState(0.0, Position(0, 0), 1, (), 0, visible_mobs=(mob,))
+    return WorldState(0.0, Position(0, 0), 1, 0, visible_mobs=(mob,))
 
 
 def test_every_modifiable_field_has_one_immutable_bounded_definition() -> None:

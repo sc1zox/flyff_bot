@@ -1,41 +1,30 @@
-"""Tests for the standardized camera viewport alignment routine."""
+"""Tests for closed-loop live-memory camera alignment."""
 
 from __future__ import annotations
+
+import math
 
 import pytest
 
 from flyff_bot.features.automation.camera_alignment import (
-    PITCH_DOWN_PULSE_SECONDS,
-    PITCH_UP_HOLD_SECONDS,
-    ZOOM_OUT_WHEEL_NOTCHES,
     CameraAligner,
     CameraAlignmentConfig,
     CameraAlignmentStatus,
 )
-from flyff_bot.features.input_control.keymap import (
-    VIRTUAL_KEY_DOWN,
-    VIRTUAL_KEY_UP,
-)
-
-VIRTUAL_KEY_PAGE_UP = 0x21
-VIRTUAL_KEY_PAGE_DOWN = 0x22
+from flyff_bot.features.navigation.live_camera import CameraReading, CameraState
 
 WINDOW_HANDLE = 7
 
 
 class _CameraAdapter:
-    """Record the dispatched sequence and fail the guards after a chosen step."""
-
     def __init__(
         self, *, abort_after: int | None = None, focus_loss_after: int | None = None
     ) -> None:
         self.abort_after = abort_after
         self.focus_loss_after = focus_loss_after
-        self.actions: list[tuple[str, int, float]] = []
-        self.guard_checks = 0
+        self.actions: list[tuple[str, float]] = []
 
     def is_aborted(self) -> bool:
-        self.guard_checks += 1
         return self.abort_after is not None and len(self.actions) >= self.abort_after
 
     def is_foreground(self, window_handle: int) -> bool:
@@ -45,128 +34,97 @@ class _CameraAdapter:
         )
 
     def scroll_wheel_while_guarded(self, window_handle: int, notches: int) -> None:
-        self.actions.append(("scroll", window_handle, float(notches)))
+        assert window_handle == WINDOW_HANDLE
+        self.actions.append(("scroll", float(notches)))
 
     def send_key_while_guarded(
         self, window_handle: int, virtual_key: int, duration_seconds: float
     ) -> None:
-        self.actions.append((f"key:{virtual_key:#04x}", window_handle, duration_seconds))
-
-    def click_client(self, window_handle: int, x_coordinate: int, y_coordinate: int) -> None:
-        pass
+        assert window_handle == WINDOW_HANDLE
+        self.actions.append((f"key:{virtual_key:#04x}", duration_seconds))
 
 
-def _aligner(
-    adapter: _CameraAdapter,
-    sleeps: list[float],
-) -> CameraAligner:
-    return CameraAligner(
-        adapter,
-        WINDOW_HANDLE,
-        sleep=sleeps.append,
+class _CameraSource:
+    def __init__(self, states: list[CameraState | None]) -> None:
+        self.states = states
+        self.polls = 0
+
+    def poll(self, at_seconds: float) -> CameraReading:
+        assert at_seconds >= 0.0
+        self.polls += 1
+        state = self.states.pop(0)
+        return CameraReading(state=state, sampled_at_seconds=at_seconds)
+
+
+def _state(zoom: float, pitch: float) -> CameraState:
+    return CameraState(zoom_distance=zoom, pitch_radians=math.radians(pitch))
+
+
+def test_alignment_repolls_until_zoom_hard_stop_then_pitch_target() -> None:
+    adapter = _CameraAdapter()
+    source = _CameraSource(
+        [_state(10.0, 30.0), _state(11.0, 30.0), _state(11.0, 30.0), _state(11.0, 45.0)]
     )
 
-
-def test_align_runs_the_zoom_hard_stop_then_pitch_ceiling_then_calibrated_pulse() -> None:
-    adapter = _CameraAdapter()
-    sleeps: list[float] = []
-
-    status = _aligner(adapter, sleeps).align()
+    status = CameraAligner(adapter, WINDOW_HANDLE, source, sleep=lambda _delay: None).align()
 
     assert status is CameraAlignmentStatus.ALIGNED
-    assert adapter.actions == [
-        ("scroll", WINDOW_HANDLE, float(ZOOM_OUT_WHEEL_NOTCHES)),
-        (f"key:{VIRTUAL_KEY_UP:#04x}", WINDOW_HANDLE, PITCH_UP_HOLD_SECONDS),
-        (f"key:{VIRTUAL_KEY_DOWN:#04x}", WINDOW_HANDLE, PITCH_DOWN_PULSE_SECONDS),
-    ]
-    assert len(sleeps) == len(adapter.actions)
+    assert [name for name, _value in adapter.actions] == ["scroll", "scroll", "key:0x26"]
+    assert source.polls == 4
 
 
-def test_align_refuses_to_dispatch_anything_while_the_client_is_not_foregrounded() -> None:
-    adapter = _CameraAdapter(focus_loss_after=0)
+def test_missing_memory_state_fails_without_input() -> None:
+    adapter = _CameraAdapter()
+    source = _CameraSource([None])
 
-    status = _aligner(adapter, []).align()
+    status = CameraAligner(adapter, WINDOW_HANDLE, source).align()
 
-    assert status is CameraAlignmentStatus.FOCUS_LOST
+    assert status is CameraAlignmentStatus.CAMERA_UNAVAILABLE
     assert adapter.actions == []
 
 
-def test_align_refuses_to_dispatch_anything_while_the_emergency_stop_is_held() -> None:
-    adapter = _CameraAdapter(abort_after=0)
+@pytest.mark.parametrize(
+    ("adapter", "expected"),
+    [
+        (_CameraAdapter(abort_after=0), CameraAlignmentStatus.ABORTED),
+        (_CameraAdapter(focus_loss_after=0), CameraAlignmentStatus.FOCUS_LOST),
+    ],
+)
+def test_initial_guard_refuses_all_input(
+    adapter: _CameraAdapter, expected: CameraAlignmentStatus
+) -> None:
+    source = _CameraSource([_state(10.0, 45.0)])
 
-    status = _aligner(adapter, []).align()
-
-    assert status is CameraAlignmentStatus.ABORTED
+    assert CameraAligner(adapter, WINDOW_HANDLE, source).align() is expected
     assert adapter.actions == []
+    assert source.polls == 0
 
 
-def test_align_halts_before_the_remaining_steps_when_focus_is_lost_mid_sequence() -> None:
+def test_focus_loss_between_actions_halts_the_loop() -> None:
     adapter = _CameraAdapter(focus_loss_after=1)
+    source = _CameraSource([_state(10.0, 45.0)])
 
-    status = _aligner(adapter, []).align()
+    status = CameraAligner(adapter, WINDOW_HANDLE, source, sleep=lambda _delay: None).align()
 
     assert status is CameraAlignmentStatus.FOCUS_LOST
-    assert [action for action, _handle, _value in adapter.actions] == ["scroll"]
+    assert len(adapter.actions) == 1
 
 
-def test_align_halts_before_the_remaining_steps_when_the_emergency_stop_is_pressed() -> None:
-    adapter = _CameraAdapter(abort_after=2)
+def test_bounded_zoom_without_a_measured_hard_stop_reports_non_convergence() -> None:
+    adapter = _CameraAdapter()
+    source = _CameraSource([_state(1.0, 45.0), _state(2.0, 45.0), _state(3.0, 45.0)])
+    config = CameraAlignmentConfig(zoom_out_notches=2, step_settle_seconds=0.0)
 
-    status = _aligner(adapter, []).align()
+    status = CameraAligner(adapter, WINDOW_HANDLE, source, config=config).align()
 
-    assert status is CameraAlignmentStatus.ABORTED
+    assert status is CameraAlignmentStatus.NOT_CONVERGED
     assert len(adapter.actions) == 2
 
 
-def test_align_reports_focus_loss_that_happens_during_the_final_pitch_pulse() -> None:
-    adapter = _CameraAdapter(focus_loss_after=3)
-
-    status = _aligner(adapter, []).align()
-
-    assert status is CameraAlignmentStatus.FOCUS_LOST
-    assert len(adapter.actions) == 3
-
-
-def test_alignment_zooms_out_forwards_past_the_hard_stop_with_the_arrow_pitch_keys() -> None:
-    config = CameraAlignmentConfig()
-
-    assert config.zoom_out_notches > 0
-    assert config.zoom_out_notches >= 20
-    assert config.pitch_up_virtual_key == VIRTUAL_KEY_UP
-    assert config.pitch_down_virtual_key == VIRTUAL_KEY_DOWN
-
-
-def test_alignment_config_rejects_a_backwards_zoom_and_non_positive_durations() -> None:
-    with pytest.raises(ValueError):
-        CameraAlignmentConfig(zoom_out_notches=-15)
+def test_alignment_config_rejects_invalid_budgets_and_tolerances() -> None:
     with pytest.raises(ValueError):
         CameraAlignmentConfig(zoom_out_notches=0)
     with pytest.raises(ValueError):
-        CameraAlignmentConfig(pitch_up_hold_seconds=0.0)
+        CameraAlignmentConfig(maximum_pitch_steps=0)
     with pytest.raises(ValueError):
-        CameraAlignmentConfig(pitch_down_pulse_seconds=-0.1)
-    with pytest.raises(ValueError):
-        CameraAlignmentConfig(step_settle_seconds=-0.1)
-
-
-def test_align_honors_a_custom_configuration() -> None:
-    adapter = _CameraAdapter()
-    sleeps: list[float] = []
-    config = CameraAlignmentConfig(
-        zoom_out_notches=4,
-        pitch_up_virtual_key=VIRTUAL_KEY_PAGE_UP,
-        pitch_up_hold_seconds=0.5,
-        pitch_down_virtual_key=VIRTUAL_KEY_PAGE_DOWN,
-        pitch_down_pulse_seconds=0.25,
-        step_settle_seconds=0.0,
-    )
-
-    status = CameraAligner(adapter, WINDOW_HANDLE, config=config, sleep=sleeps.append).align()
-
-    assert status is CameraAlignmentStatus.ALIGNED
-    assert adapter.actions == [
-        ("scroll", WINDOW_HANDLE, 4.0),
-        (f"key:{VIRTUAL_KEY_PAGE_UP:#04x}", WINDOW_HANDLE, 0.5),
-        (f"key:{VIRTUAL_KEY_PAGE_DOWN:#04x}", WINDOW_HANDLE, 0.25),
-    ]
-    assert sleeps == [0.0, 0.0, 0.0]
+        CameraAlignmentConfig(pitch_tolerance_degrees=0.0)

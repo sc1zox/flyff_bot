@@ -5,8 +5,8 @@ from PySide6.QtWidgets import QLabel
 from flyff_bot.features.automation.kill_goals import MobKillProgress
 from flyff_bot.features.automation.models import SelectedTarget, TargetState, WorldState
 from flyff_bot.i18n import Message, Translator
-from flyff_bot.ui.dashboard import DashboardUpdate, FarmingGoal
-from flyff_bot.ui.main_window_parts.header import goal_text, kill_progress_text
+from flyff_bot.ui.dashboard import DashboardUpdate
+from flyff_bot.ui.main_window_parts.header import kill_progress_text
 
 
 class DashboardPresenter:
@@ -18,14 +18,12 @@ class DashboardPresenter:
         *,
         mob_label: QLabel,
         target_label: QLabel,
-        goal_label: QLabel,
         vitals_label: QLabel,
         kill_progress_label: QLabel,
     ) -> None:
         self.translator = translator
         self._mob_label = mob_label
         self._target_label = target_label
-        self._goal_label = goal_label
         self._vitals_label = vitals_label
         self._kill_progress_label = kill_progress_label
 
@@ -39,7 +37,6 @@ class DashboardPresenter:
     def render_update(self, update: DashboardUpdate) -> None:
         self.render_mob_count(update.state.nearby_mob_count)
         self.render_target(update.state.selected_target)
-        self.render_goal(update.goal, update.state)
         self.render_vitals(update.state)
         self.render_kill_progress(update.kill_progress)
 
@@ -55,13 +52,6 @@ class DashboardPresenter:
             else Message.UI_TARGET_NONE
         )
         self._target_label.setText(self.translator.text(message))
-
-    def render_goal(
-        self,
-        goal: FarmingGoal | None,
-        state: WorldState | None,
-    ) -> None:
-        self._goal_label.setText(goal_text(self.translator, state, goal))
 
     def render_vitals(self, state: WorldState | None = None) -> None:
         vitals = state.player_vitals if state is not None else None

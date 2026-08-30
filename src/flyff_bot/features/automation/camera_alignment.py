@@ -1,4 +1,4 @@
-"""Deterministic viewport initialization for camera zoom and pitch."""
+"""Closed-loop camera positioning from guarded input and live memory feedback."""
 
 from __future__ import annotations
 
@@ -8,18 +8,19 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
 
-from flyff_bot.features.input_control.keymap import (
-    VIRTUAL_KEY_DOWN,
-    VIRTUAL_KEY_UP,
-)
+from flyff_bot.features.input_control.keymap import VIRTUAL_KEY_DOWN, VIRTUAL_KEY_UP
+from flyff_bot.features.navigation.live_camera import CameraReading, CameraState
 from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 
 ZOOM_OUT_WHEEL_NOTCHES = 20
-PITCH_UP_HOLD_SECONDS = 0.8
-PITCH_DOWN_PULSE_SECONDS = 0.55
+PITCH_UP_HOLD_SECONDS = 0.08
+PITCH_DOWN_PULSE_SECONDS = 0.08
 STEP_SETTLE_SECONDS = 0.2
 DEFAULT_AUTO_ALIGN_CAMERA = True
 CALIBRATED_CAMERA_PITCH_DEGREES = 45.0
+PITCH_TOLERANCE_DEGREES = 1.5
+ZOOM_DELTA_TOLERANCE_UNITS = 0.01
+MAXIMUM_PITCH_STEPS = 20
 
 
 class CameraAlignmentStatus(StrEnum):
@@ -28,11 +29,13 @@ class CameraAlignmentStatus(StrEnum):
     ALIGNED = "aligned"
     ABORTED = "aborted"
     FOCUS_LOST = "focus_lost"
+    CAMERA_UNAVAILABLE = "camera_unavailable"
+    NOT_CONVERGED = "not_converged"
 
 
 @dataclass(frozen=True, slots=True)
 class CameraAlignmentConfig:
-    """Zoom, pitch, and settle timings of the standardized alignment sequence."""
+    """Bounded actuator and convergence settings for camera alignment."""
 
     zoom_out_notches: int = ZOOM_OUT_WHEEL_NOTCHES
     pitch_up_virtual_key: int = VIRTUAL_KEY_UP
@@ -40,14 +43,20 @@ class CameraAlignmentConfig:
     pitch_down_virtual_key: int = VIRTUAL_KEY_DOWN
     pitch_down_pulse_seconds: float = PITCH_DOWN_PULSE_SECONDS
     step_settle_seconds: float = STEP_SETTLE_SECONDS
+    target_pitch_degrees: float = CALIBRATED_CAMERA_PITCH_DEGREES
+    pitch_tolerance_degrees: float = PITCH_TOLERANCE_DEGREES
+    zoom_delta_tolerance_units: float = ZOOM_DELTA_TOLERANCE_UNITS
+    maximum_pitch_steps: int = MAXIMUM_PITCH_STEPS
 
     def __post_init__(self) -> None:
-        if self.zoom_out_notches <= 0:
-            raise ValueError("Camera zoom-out notch count must be positive.")
+        if self.zoom_out_notches <= 0 or self.maximum_pitch_steps <= 0:
+            raise ValueError("Camera actuator step budgets must be positive.")
         if self.pitch_up_hold_seconds <= 0.0 or self.pitch_down_pulse_seconds <= 0.0:
             raise ValueError("Camera pitch durations must be positive.")
         if self.step_settle_seconds < 0.0:
             raise ValueError("Camera settle delay must not be negative.")
+        if self.pitch_tolerance_degrees <= 0.0 or self.zoom_delta_tolerance_units < 0.0:
+            raise ValueError("Camera convergence tolerances are invalid.")
 
 
 class CameraInputAdapter(Protocol):
@@ -63,27 +72,35 @@ class CameraInputAdapter(Protocol):
         self, window_handle: int, virtual_key: int, duration_seconds: float
     ) -> None: ...
 
-    def click_client(self, window_handle: int, x_coordinate: int, y_coordinate: int) -> None: ...
+
+class CameraStateSource(Protocol):
+    """Read-only source of measured pitch and zoom after each bounded action."""
+
+    def poll(self, at_seconds: float) -> CameraReading: ...
 
 
 class CameraAligner:
-    """Drive one client's camera to the calibrated zoom hard-stop and ~45 degree pitch."""
+    """Converge to the zoom hard-stop and configured pitch using live feedback."""
 
     def __init__(
         self,
         adapter: CameraInputAdapter,
         window_handle: int,
+        camera_source: CameraStateSource,
         *,
         config: CameraAlignmentConfig | None = None,
         tactical_parameters: TacticalParameterSpace | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._adapter = adapter
         self._window_handle = window_handle
+        self._camera_source = camera_source
         self._config = config or CameraAlignmentConfig()
         if tactical_parameters is not None:
             self._config = _camera_config_with_parameters(self._config, tactical_parameters)
         self._sleep = sleep
+        self._monotonic = monotonic
 
     def update_tactical_parameters(self, parameters: TacticalParameterSpace) -> None:
         """Apply bounded actuator targets for the next explicit alignment request."""
@@ -91,43 +108,68 @@ class CameraAligner:
         self._config = _camera_config_with_parameters(self._config, parameters)
 
     def align(self) -> CameraAlignmentStatus:
-        """Run the standardized sequence, halting before any step that is no longer safe."""
+        """Run a guarded measure-act-measure loop with bounded attempts."""
 
         blocked = self._blocked()
         if blocked is not None:
             return blocked
+        reading = self._poll()
+        if reading is None:
+            return CameraAlignmentStatus.CAMERA_UNAVAILABLE
 
-        self._adapter.scroll_wheel_while_guarded(self._window_handle, self._config.zoom_out_notches)
-        blocked = self._settle_then_check()
-        if blocked is not None:
-            return blocked
+        previous_zoom = reading.zoom_distance
+        zoom_stopped = False
+        for _step in range(self._config.zoom_out_notches):
+            blocked = self._blocked()
+            if blocked is not None:
+                return blocked
+            self._adapter.scroll_wheel_while_guarded(self._window_handle, 1)
+            blocked, reading = self._settle_and_poll()
+            if blocked is not None:
+                return blocked
+            if reading is None:
+                return CameraAlignmentStatus.CAMERA_UNAVAILABLE
+            zoom_delta = reading.zoom_distance - previous_zoom
+            previous_zoom = reading.zoom_distance
+            if zoom_delta <= self._config.zoom_delta_tolerance_units:
+                zoom_stopped = True
+                break
+        if not zoom_stopped:
+            return CameraAlignmentStatus.NOT_CONVERGED
 
-        self._adapter.send_key_while_guarded(
-            self._window_handle,
-            self._config.pitch_up_virtual_key,
-            self._config.pitch_up_hold_seconds,
-        )
-        blocked = self._settle_then_check()
-        if blocked is not None:
-            return blocked
+        for _step in range(self._config.maximum_pitch_steps):
+            error = self._config.target_pitch_degrees - reading.pitch_degrees
+            if abs(error) <= self._config.pitch_tolerance_degrees:
+                return CameraAlignmentStatus.ALIGNED
+            blocked = self._blocked()
+            if blocked is not None:
+                return blocked
+            if error > 0.0:
+                key = self._config.pitch_up_virtual_key
+                duration = self._config.pitch_up_hold_seconds
+            else:
+                key = self._config.pitch_down_virtual_key
+                duration = self._config.pitch_down_pulse_seconds
+            self._adapter.send_key_while_guarded(self._window_handle, key, duration)
+            blocked, reading = self._settle_and_poll()
+            if blocked is not None:
+                return blocked
+            if reading is None:
+                return CameraAlignmentStatus.CAMERA_UNAVAILABLE
+        return CameraAlignmentStatus.NOT_CONVERGED
 
-        self._adapter.send_key_while_guarded(
-            self._window_handle,
-            self._config.pitch_down_virtual_key,
-            self._config.pitch_down_pulse_seconds,
-        )
-        blocked = self._settle_then_check()
-        if blocked is not None:
-            return blocked
-        return CameraAlignmentStatus.ALIGNED
-
-    def _settle_then_check(self) -> CameraAlignmentStatus | None:
+    def _settle_and_poll(
+        self,
+    ) -> tuple[CameraAlignmentStatus | None, CameraState | None]:
         self._sleep(self._config.step_settle_seconds)
-        return self._blocked()
+        blocked = self._blocked()
+        return (blocked, None) if blocked is not None else (None, self._poll())
+
+    def _poll(self) -> CameraState | None:
+        reading = self._camera_source.poll(self._monotonic())
+        return reading.state
 
     def _blocked(self) -> CameraAlignmentStatus | None:
-        """Report why the sequence must not continue, or None while it stays safe."""
-
         if self._adapter.is_aborted():
             return CameraAlignmentStatus.ABORTED
         if not self._adapter.is_foreground(self._window_handle):
@@ -141,9 +183,5 @@ def _camera_config_with_parameters(
     return replace(
         config,
         zoom_out_notches=round(parameters.camera_zoom_level),
-        pitch_down_pulse_seconds=(
-            PITCH_DOWN_PULSE_SECONDS
-            * parameters.camera_pitch_degrees
-            / CALIBRATED_CAMERA_PITCH_DEGREES
-        ),
+        target_pitch_degrees=parameters.camera_pitch_degrees,
     )

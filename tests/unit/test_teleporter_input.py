@@ -5,7 +5,15 @@ from __future__ import annotations
 from typing import cast
 
 from flyff_bot.features.input_control import WindowsInputController
-from flyff_bot.features.navigation.teleporter_input import TeleporterWindowsInput
+from flyff_bot.features.navigation.teleporter_input import (
+    TeleporterDialogLocator,
+    TeleporterWindowsInput,
+)
+
+
+class _Locator:
+    def locate(self, _window_handle: int) -> None:
+        return None
 
 
 class _GuardedController:
@@ -33,7 +41,11 @@ class _GuardedController:
 
 def test_teleporter_hotkey_uses_window_guard() -> None:
     controller = _GuardedController()
-    adapter = TeleporterWindowsInput(cast(WindowsInputController, controller), 1234)
+    adapter = TeleporterWindowsInput(
+        cast(WindowsInputController, controller),
+        1234,
+        dialog_locator=cast(TeleporterDialogLocator, _Locator()),
+    )
 
     adapter.pulse_teleporter_hotkey(0x56, 0.08)
 

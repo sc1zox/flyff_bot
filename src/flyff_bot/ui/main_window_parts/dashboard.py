@@ -3,13 +3,9 @@ from __future__ import annotations
 from PySide6.QtWidgets import QGridLayout, QGroupBox, QHBoxLayout, QLabel
 
 from flyff_bot.features.automation.kill_goals import MobKillProgress
-from flyff_bot.features.automation.models import PlayerVitals, WorldState
+from flyff_bot.features.automation.models import PlayerVitals
 from flyff_bot.i18n import Message, Translator
-from flyff_bot.ui.dashboard import FarmingGoal
-from flyff_bot.ui.main_window_parts.header import (
-    goal_text,
-    kill_progress_text,
-)
+from flyff_bot.ui.main_window_parts.header import kill_progress_text
 
 
 class DashboardSummary(QGroupBox):
@@ -26,29 +22,18 @@ class DashboardSummary(QGroupBox):
         self.kill_progress_label.setObjectName("StatChip")
         self.vitals_label = QLabel()
         self.vitals_label.setObjectName("StatChip")
-        self.goal_label = QLabel()
-        self.goal_label.setObjectName("StatChip")
 
         layout = QGridLayout(self)
         layout.addWidget(self.mob_label, 0, 0)
         layout.addWidget(self.target_label, 0, 1)
         layout.addWidget(self.kill_progress_label, 0, 2)
         layout.addWidget(self.vitals_label, 1, 0, 1, 2)
-        layout.addWidget(self.goal_label, 1, 2)
 
     def retranslate(self, translator: Translator) -> None:
         self.setTitle(translator.text(Message.UI_DASHBOARD_SUMMARY))
 
     def render_mob_count(self, translator: Translator, count: int) -> None:
         self.mob_label.setText(translator.text(Message.UI_MOBS_COUNT, count=count))
-
-    def render_goal(
-        self,
-        translator: Translator,
-        state: WorldState | None,
-        goal: FarmingGoal | None,
-    ) -> None:
-        self.goal_label.setText(goal_text(translator, state, goal))
 
     def render_vitals(
         self,

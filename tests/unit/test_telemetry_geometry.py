@@ -74,7 +74,6 @@ def test_recorder_serializes_measured_candidate_geometry(tmp_path: Path) -> None
             observed_at_seconds=1.0,
             position=Position(0, 0),
             nearby_mob_count=1,
-            inventory=(),
             progress_marker=0,
             viewport=Viewport(200, 100),
             visible_mobs=(VisibleMob(1, "Aibatt", 0.9, 90, 80, 20, 20),),

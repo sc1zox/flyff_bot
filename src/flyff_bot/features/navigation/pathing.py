@@ -53,11 +53,6 @@ from flyff_bot.features.navigation.stall_recovery import (
     select_escape,
 )
 from flyff_bot.features.navigation.targeting import enrich_visible_mobs, mob_world_position
-from flyff_bot.features.navigation.teleport import (
-    TeleportConfig,
-    TeleportController,
-    TeleportStatus,
-)
 from flyff_bot.features.navigation.teleporter_dispatch import (
     CombatObservation,
     TeleporterDispatcher,
@@ -73,7 +68,6 @@ from flyff_bot.features.navigation.vector_navigation import (
 )
 from flyff_bot.features.navigation.world_extractor import VectorSpawnZone, WorldCoordinate
 from flyff_bot.features.tactical_parameters import TacticalParameterSpace
-from flyff_bot.features.vision.models import CapturedFrame
 
 DEFAULT_PATHING_STEP_DURATION_SECONDS = 0.6
 DEFAULT_PATHING_TURN_DURATION_SECONDS = 0.08
@@ -164,7 +158,6 @@ class PathingController:
         position_reader: LivePositionReader | None = None,
         camera_reader: LiveCameraReader | None = None,
         navmesh: BakedNavMesh | None = None,
-        teleport_config: TeleportConfig | None = None,
         teleporter_dispatcher: TeleporterDispatcher | None = None,
         tactical_parameters: TacticalParameterSpace | None = None,
     ) -> None:
@@ -199,7 +192,6 @@ class PathingController:
         self._attack_point_planner: AttackPointPlanner | None = None
         self._planned_attack_target: WorldPosition | None = None
         self._world_waypoints: tuple[WorldPosition, ...] = ()
-        self._teleport = TeleportController(teleport_config)
         self._teleporter_dispatcher = teleporter_dispatcher
         self._pending_decision: PathingDecision | None = None
         self._obstacles = TemporaryObstacleRegistry()
@@ -518,7 +510,7 @@ class PathingController:
             navigation_trajectory=tuple(self._navigation_trajectory),
         )
 
-    def track(self, state: WorldState, frame: CapturedFrame | None = None) -> None:
+    def track(self, state: WorldState) -> None:
         """Update live GPS and camera estimates without dispatching input."""
 
         self._poll_live_position(state.observed_at_seconds)
@@ -743,15 +735,14 @@ class PathingController:
         self._config = _pathing_config_with_parameters(self._config, parameters)
         self._stalls = StallDetector(self._config.stall)
 
-    def observe(self, state: WorldState, frame: CapturedFrame | None = None) -> None:
+    def observe(self, state: WorldState) -> None:
         """Record live position delta and stall evidence for one tick."""
 
         at_seconds = state.observed_at_seconds
         previous_position = self._live_position
         self._stall_previous_position = previous_position
-        self.track(state, frame)
+        self.track(state)
         stalled = self._stalls.observe(
-            frame,
             movement_commanded=self._movement_commanded,
             at_seconds=at_seconds,
             live_position=self._live_position,
@@ -892,7 +883,6 @@ class PathingController:
 
         if decision.mode is not PathingMode.TELEPORTING:
             return
-        self._teleport.reject_pending()
         self._mode = PathingMode.IDLE
         self._planned_at_seconds = None
 
@@ -911,7 +901,6 @@ class PathingController:
         self._navmesh_target = None
         self._navigation_trajectory = []
         self._stalls.reset()
-        self._teleport.reset()
         if self._teleporter_dispatcher is not None:
             self._teleporter_dispatcher.cancel()
         if self._position_reader is not None:
@@ -932,7 +921,6 @@ class PathingController:
         self._block_navigation()
         self._navmesh_target = None
         self._navigation_trajectory = []
-        self._teleport.reset()
         if self._teleporter_dispatcher is not None:
             self._teleporter_dispatcher.cancel()
 
@@ -1205,20 +1193,6 @@ class PathingController:
             selection.zone.center_y,
             selection.zone.center_z,
         )
-        dispatch = self._teleport.update(live, target, at_seconds)
-        if dispatch is not None:
-            self._pending_decision = PathingDecision(
-                PathingMode.TELEPORTING,
-                dispatch.virtual_key,
-                dispatch.duration_seconds,
-            )
-            self._mode = PathingMode.TELEPORTING
-            self._vector_zone = selection.zone
-            return True
-        if self._teleport.status is TeleportStatus.WAITING_FOR_POSITION:
-            self._mode = PathingMode.TELEPORTING
-            self._vector_zone = selection.zone
-            return True
         if self._recovery.original_goal is None:
             self._recovery.original_goal = target
         if self._recovery.phase is RecoveryPhase.ESCAPE:
@@ -1300,12 +1274,7 @@ def _pathing_config_with_parameters(
         stall=StallConfig(
             live_motion_threshold_units_per_second=(stall.live_motion_threshold_units_per_second),
             live_stall_timeout_seconds=parameters.stall_timeout_seconds,
-            motion_threshold=stall.motion_threshold,
-            stall_timeout_seconds=parameters.stall_timeout_seconds,
             movement_grace_seconds=stall.movement_grace_seconds,
-            sample_stride=stall.sample_stride,
-            center_mask_width_fraction=stall.center_mask_width_fraction,
-            center_mask_height_fraction=stall.center_mask_height_fraction,
         ),
     )
 

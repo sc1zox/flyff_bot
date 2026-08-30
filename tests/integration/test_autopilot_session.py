@@ -156,7 +156,6 @@ def _state(at_seconds: float, *, hp: float = ALIVE_HP) -> WorldState:
         observed_at_seconds=at_seconds,
         position=Position(0, 0),
         nearby_mob_count=0,
-        inventory=(),
         progress_marker=0,
         selected_target=SelectedTarget(TargetState.NONE, None, 0),
         visible_mobs=(),

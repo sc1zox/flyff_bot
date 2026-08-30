@@ -31,7 +31,6 @@ from flyff_bot.features.automation.kill_goals import (
     MobKillQuota,
 )
 from flyff_bot.features.automation.models import (
-    InventoryEntry,
     PlayerVitals,
     Position,
     SelectedTarget,
@@ -110,7 +109,6 @@ from flyff_bot.ui.dashboard import (
     BotStatus,
     DashboardFeed,
     DashboardUpdate,
-    FarmingGoal,
     NavigationSnapshot,
     VectorZoneSnapshot,
     WindowStatus,
@@ -153,15 +151,13 @@ def test_main_window_receives_dashboard_signal_and_renders_overlay() -> None:
         DashboardUpdate(
             _world_state(),
             BotStatus.RECONCILING,
-            FarmingGoal("Sunstones", 500),
-            _frame(),
+            frame=_frame(),
         )
     )
     application.processEvents()
 
     assert window.windowTitle() == "Flyff Bot"
     assert window.status_label.text() == "Bot status: Healing / Reconciling"
-    assert window.goal_label.text() == "Goal: 124/500 Sunstones"
     assert window.overlay_label.pixmap() is not None
     assert window.overlay_label.isHidden()
 
@@ -517,8 +513,7 @@ def test_main_window_camera_preview_does_not_resize_the_window() -> None:
         DashboardUpdate(
             _world_state(),
             BotStatus.ACTIVE,
-            FarmingGoal("Sunstones", 500),
-            _frame(),
+            frame=_frame(),
         )
     )
     window.show()
@@ -760,9 +755,7 @@ def test_main_window_placements_toggle_renders_guide_boxes_immediately() -> None
     application = QApplication.instance() or QApplication([])
     window = MainWindow(Translator(Language.ENGLISH))
     frame = CapturedFrame(np.zeros((300, 400, 3), dtype=np.uint8), ClientSize(400, 300))
-    window.update_dashboard(
-        DashboardUpdate(_world_state(), BotStatus.ACTIVE, FarmingGoal("Sunstones", 500), frame)
-    )
+    window.update_dashboard(DashboardUpdate(_world_state(), BotStatus.ACTIVE, frame=frame))
     application.processEvents()
     before = window.overlay_label.pixmap()
     assert before is not None
@@ -1150,7 +1143,6 @@ def test_main_window_tab_hierarchy_and_object_names() -> None:
     assert window.start_button.objectName() == "ActionStart"
     assert window.pause_button.objectName() == "ActionPause"
     assert window.status_label.objectName() == "StatusBadge"
-    assert window.goal_label.objectName() == "StatChip"
     assert window.vitals_label.objectName() == "StatChip"
     assert window.camera_preview_toggle.objectName() == "Switch"
     assert window.auto_align_toggle.objectName() == "Switch"
@@ -1351,7 +1343,6 @@ def test_main_window_separates_bot_status_from_mob_and_target_telemetry() -> Non
     assert window.status_label.text() == "Bot status: Ready (live preview)"
     assert window.mob_label.text() == "Visible mobs: 1"
     assert window.target_label.text() == "Valid target"
-    assert window.goal_label.text() == "Goal: none configured"
 
 
 def test_main_window_reports_the_game_window_state() -> None:
@@ -1515,7 +1506,6 @@ def _world_state() -> WorldState:
         observed_at_seconds=1.0,
         position=Position(0, 0),
         nearby_mob_count=1,
-        inventory=(InventoryEntry("Sunstones", 124),),
         progress_marker=124,
         selected_target=SelectedTarget(TargetState.VALID, "Flame", 10),
         visible_mobs=(VisibleMob(0, "Flame", 0.9, 1, 1, 2, 2),),
@@ -1896,10 +1886,12 @@ def test_the_recovery_panel_persists_the_timeout_and_reset_destination(
     window.recovery_destination_combo.setCurrentIndex(
         window.recovery_destination_combo.findData(RESET_DESTINATION.destination_id)
     )
+    window.recovery_hotkey_combo.setCurrentIndex(window.recovery_hotkey_combo.findData(ord("B")))
     application.processEvents()
 
     assert configs[-1].stuck_timeout_seconds == pytest.approx(90.0)
     assert configs[-1].destination is RESET_DESTINATION
+    assert configs[-1].teleporter_hotkey_virtual_key == ord("B")
 
     restored = MainWindow(
         Translator(Language.ENGLISH),

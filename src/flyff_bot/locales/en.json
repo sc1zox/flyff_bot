@@ -505,6 +505,8 @@
   "ui.recovery_destination": "Teleporter destination",
   "ui.recovery_destination_tooltip": "Destination extracted from the client's own TeleportOption data. The built-in teleporter window is used only after combat, focus, and emergency checks pass.",
   "ui.recovery_destination_unassigned": "Unselected",
+  "ui.recovery_hotkey": "Teleporter hotkey",
+  "ui.recovery_hotkey_tooltip": "Key used to open the client's built-in teleporter window. Input remains guarded by foreground focus and F12 emergency stop.",
   "ui.recovery_timeout": "Stuck timeout",
   "ui.recovery_timeout_tooltip": "How long the character may make no progress at all before the built-in teleporter reset destination is used.",
   "ui.recovery_title": "Unrecoverable stuck recovery",

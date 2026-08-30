@@ -57,7 +57,7 @@ def test_masked_or_fabricated_learned_output_stops_instead_of_acting_heuristical
         def evaluate(_state: WorldState, _context: PolicyContext) -> NavigateAction:
             return NavigateAction((99.0, 0.0, 99.0), "fabricated")
 
-    state = WorldState(1.0, Position(0, 0), 0, (), 0, viewport=Viewport(100, 100))
+    state = WorldState(1.0, Position(0, 0), 0, 0, viewport=Viewport(100, 100))
     context = _context(_candidate(eligible=False))
     runner = PolicyRunner(_FabricatingPolicy())
 

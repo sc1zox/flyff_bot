@@ -122,7 +122,6 @@ def test_unavailable_client_stats_do_not_request_ocr() -> None:
         observed_at_seconds=0.0,
         position=Position(0, 0),
         nearby_mob_count=0,
-        inventory=(),
         progress_marker=0,
     )
     pipeline = PerceptionPipeline(

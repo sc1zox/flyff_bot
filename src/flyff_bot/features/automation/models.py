@@ -26,7 +26,6 @@ class FailureFlag(StrEnum):
     NO_PROGRESS = "no_progress"
     NO_MOBS = "no_mobs"
     STUCK = "stuck"
-    INVENTORY_MISMATCH = "inventory_mismatch"
 
 
 class ActionKind(StrEnum):
@@ -73,14 +72,6 @@ class Viewport:
         """Return whether the client dimensions are available."""
 
         return self.width > 0 and self.height > 0
-
-
-@dataclass(frozen=True, slots=True)
-class InventoryEntry:
-    """An observed inventory count for one item."""
-
-    item: str
-    quantity: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,7 +122,6 @@ class WorldState:
     observed_at_seconds: float
     position: Position
     nearby_mob_count: int
-    inventory: tuple[InventoryEntry, ...]
     progress_marker: int
     is_stuck: bool = False
     selected_target: SelectedTarget = SelectedTarget(TargetState.NONE, None, 0)
@@ -171,7 +161,6 @@ class DesiredState:
     """The observable conditions the supervisor tries to maintain."""
 
     minimum_mob_count: int = 0
-    required_inventory: tuple[InventoryEntry, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

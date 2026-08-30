@@ -7,6 +7,7 @@ from flyff_bot.features.automation.emergency_recovery import (
     MINIMUM_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS,
     EmergencyRecoveryConfig,
 )
+from flyff_bot.features.input_control.keymap import SUPPORTED_SINGLE_CHARACTERS
 from flyff_bot.features.navigation.teleporter_models import TeleporterDestination
 from flyff_bot.i18n import Message, Translator
 
@@ -35,11 +36,18 @@ class RecoverySettingsPanel(QGroupBox):
         self.destination_combo = QComboBox()
         self.destination_combo.addItem("", userData=None)
 
+        self._hotkey_label = QLabel()
+        self.hotkey_combo = QComboBox()
+        for label in sorted(SUPPORTED_SINGLE_CHARACTERS):
+            self.hotkey_combo.addItem(label, userData=ord(label))
+
         layout = QGridLayout(self)
         layout.addWidget(self._timeout_label, 0, 0)
         layout.addWidget(self.timeout_spin, 0, 1)
         layout.addWidget(self._destination_label, 1, 0)
         layout.addWidget(self.destination_combo, 1, 1)
+        layout.addWidget(self._hotkey_label, 2, 0)
+        layout.addWidget(self.hotkey_combo, 2, 1)
 
     def set_destinations(self, destinations: tuple[TeleporterDestination, ...]) -> None:
         """Populate the selector with client-declared destinations only."""
@@ -63,6 +71,8 @@ class RecoverySettingsPanel(QGroupBox):
         destination_id = None if config.destination is None else config.destination.destination_id
         index = self.destination_combo.findData(destination_id)
         self.destination_combo.setCurrentIndex(index if index >= 0 else 0)
+        hotkey_index = self.hotkey_combo.findData(config.teleporter_hotkey_virtual_key)
+        self.hotkey_combo.setCurrentIndex(hotkey_index if hotkey_index >= 0 else 0)
 
     def get_config(self) -> EmergencyRecoveryConfig:
         destination_id = self.destination_combo.currentData()
@@ -77,6 +87,7 @@ class RecoverySettingsPanel(QGroupBox):
         return EmergencyRecoveryConfig(
             stuck_timeout_seconds=self.timeout_spin.value(),
             destination=destination,
+            teleporter_hotkey_virtual_key=int(self.hotkey_combo.currentData()),
         )
 
     def retranslate(self, translator: Translator) -> None:
@@ -85,6 +96,8 @@ class RecoverySettingsPanel(QGroupBox):
         self.timeout_spin.setToolTip(translator.text(Message.UI_RECOVERY_TIMEOUT_TOOLTIP))
         self._destination_label.setText(translator.text(Message.UI_RECOVERY_DESTINATION))
         self.destination_combo.setToolTip(translator.text(Message.UI_RECOVERY_DESTINATION_TOOLTIP))
+        self._hotkey_label.setText(translator.text(Message.UI_RECOVERY_HOTKEY))
+        self.hotkey_combo.setToolTip(translator.text(Message.UI_RECOVERY_HOTKEY_TOOLTIP))
         self.destination_combo.blockSignals(True)
         self.destination_combo.setItemText(
             0,

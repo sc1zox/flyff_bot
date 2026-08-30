@@ -62,7 +62,7 @@ def test_nan_hierarchical_output_halts_learned_automation(
             PlayerKinematics(1.0, 2.0, 3.0, 0.5), NavMeshContext("poly-1", 0.0, 12.0)
         ),
     )
-    state = WorldState(1.0, Position(50, 50), 1, (), 0, viewport=Viewport(100, 100))
+    state = WorldState(1.0, Position(50, 50), 1, 0, viewport=Viewport(100, 100))
     runner = PolicyRunner(learned)
 
     action = runner.evaluate(state, context)

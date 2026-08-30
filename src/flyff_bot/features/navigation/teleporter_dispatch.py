@@ -21,12 +21,8 @@ DEFAULT_TELEPORTER_HOTKEY_VIRTUAL_KEY = ord("V")
 DEFAULT_TELEPORTER_CONFIRMATION_TIMEOUT_SECONDS = 5.0
 DEFAULT_ARRIVAL_TOLERANCE_UNITS = 10.0
 DEFAULT_COMBAT_STABLE_SECONDS = 1.0
-SEARCH_FIELD_X_FRACTION = 0.50
-SEARCH_FIELD_Y_FRACTION = 0.25
-FIRST_RESULT_X_FRACTION = 0.50
-FIRST_RESULT_Y_FRACTION = 0.35
-TELEPORT_BUTTON_X_FRACTION = 0.50
-TELEPORT_BUTTON_Y_FRACTION = 0.80
+MINIMUM_VIRTUAL_KEY = 1
+MAXIMUM_VIRTUAL_KEY = 0xFE
 
 
 class TeleporterDispatchStatus(StrEnum):
@@ -64,6 +60,27 @@ class TeleporterDispatchResult:
     reason: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ClientPoint:
+    """One measured point in the target window's client coordinates."""
+
+    x: int
+    y: int
+
+    def __post_init__(self) -> None:
+        if self.x < 0 or self.y < 0:
+            raise ValueError("Teleporter client coordinates cannot be negative.")
+
+
+@dataclass(frozen=True, slots=True)
+class TeleporterDialogGeometry:
+    """Clickable client points derived from one detected teleporter dialog."""
+
+    search_field: ClientPoint
+    first_result: ClientPoint
+    teleport_button: ClientPoint
+
+
 class TeleporterInputAdapter(Protocol):
     """Guarded UI operations; every implementation must enforce its own safety checks."""
 
@@ -73,13 +90,11 @@ class TeleporterInputAdapter(Protocol):
 
     def pulse_teleporter_hotkey(self, virtual_key: int, duration_seconds: float) -> None: ...
 
+    def locate_dialog(self, window_handle: int) -> TeleporterDialogGeometry | None: ...
+
     def type_search_text(self, window_handle: int, text: str) -> None: ...
 
-    def click_search_field(self, window_handle: int) -> None: ...
-
-    def select_first_result(self, window_handle: int) -> None: ...
-
-    def click_teleport_button(self, window_handle: int) -> None: ...
+    def click_client_point(self, window_handle: int, point: ClientPoint) -> None: ...
 
     def close_teleporter_window(self, window_handle: int) -> None: ...
 
@@ -134,19 +149,13 @@ class LiveArrivalObserver:
 
 @dataclass(frozen=True, slots=True)
 class TeleporterDispatchConfig:
-    """Explicit timings and widget placement for one deterministic UI sequence."""
+    """Explicit timings for one deterministic, detected-dialog UI sequence."""
 
     hotkey_virtual_key: int = DEFAULT_TELEPORTER_HOTKEY_VIRTUAL_KEY
     hotkey_duration_seconds: float = 0.08
     confirmation_timeout_seconds: float = DEFAULT_TELEPORTER_CONFIRMATION_TIMEOUT_SECONDS
     arrival_tolerance_units: float = DEFAULT_ARRIVAL_TOLERANCE_UNITS
     combat_stable_seconds: float = DEFAULT_COMBAT_STABLE_SECONDS
-    search_field_x_fraction: float = SEARCH_FIELD_X_FRACTION
-    search_field_y_fraction: float = SEARCH_FIELD_Y_FRACTION
-    first_result_x_fraction: float = FIRST_RESULT_X_FRACTION
-    first_result_y_fraction: float = FIRST_RESULT_Y_FRACTION
-    teleport_button_x_fraction: float = TELEPORT_BUTTON_X_FRACTION
-    teleport_button_y_fraction: float = TELEPORT_BUTTON_Y_FRACTION
 
     def __post_init__(self) -> None:
         if self.hotkey_duration_seconds <= 0.0:
@@ -155,16 +164,8 @@ class TeleporterDispatchConfig:
             raise ValueError("Teleporter confirmation timeout must be positive.")
         if self.arrival_tolerance_units <= 0.0 or self.combat_stable_seconds <= 0.0:
             raise ValueError("Teleporter safety thresholds must be positive.")
-        fractions = (
-            self.search_field_x_fraction,
-            self.search_field_y_fraction,
-            self.first_result_x_fraction,
-            self.first_result_y_fraction,
-            self.teleport_button_x_fraction,
-            self.teleport_button_y_fraction,
-        )
-        if any(not 0.0 <= fraction <= 1.0 for fraction in fractions):
-            raise ValueError("Teleporter widget fractions must lie within the client area.")
+        if not MINIMUM_VIRTUAL_KEY <= self.hotkey_virtual_key <= MAXIMUM_VIRTUAL_KEY:
+            raise ValueError("Teleporter hotkey must be a valid virtual-key code.")
 
 
 class TeleporterDispatcher:
@@ -216,6 +217,17 @@ class TeleporterDispatcher:
         self._started_at_seconds = None
         self._safe_since_seconds = None
 
+    def update_hotkey(self, virtual_key: int) -> None:
+        """Adopt a persisted operator binding for future dispatches."""
+
+        self._config = TeleporterDispatchConfig(
+            hotkey_virtual_key=virtual_key,
+            hotkey_duration_seconds=self._config.hotkey_duration_seconds,
+            confirmation_timeout_seconds=self._config.confirmation_timeout_seconds,
+            arrival_tolerance_units=self._config.arrival_tolerance_units,
+            combat_stable_seconds=self._config.combat_stable_seconds,
+        )
+
     def tick(
         self,
         combat: CombatObservation | None,
@@ -249,9 +261,11 @@ class TeleporterDispatcher:
 
         if self._started_at_seconds is None:
             try:
-                self._dispatch_sequence()
+                sequence_error = self._dispatch_sequence()
             except OSError as error:
                 return self._fail(f"input_failed:{error}")
+            if sequence_error is not None:
+                return self._fail(sequence_error)
             self._started_at_seconds = at_seconds
             return TeleporterDispatchResult(TeleporterDispatchStatus.DISPATCHED, "ui_sequence")
 
@@ -263,18 +277,35 @@ class TeleporterDispatcher:
             return self._fail("confirmation_timeout")
         return TeleporterDispatchResult(TeleporterDispatchStatus.DISPATCHED, "awaiting_arrival")
 
-    def _dispatch_sequence(self) -> None:
+    def _dispatch_sequence(self) -> str | None:
         destination = self._destination
         if destination is None:
-            return
+            return "no_request"
         self._adapter.pulse_teleporter_hotkey(
             self._config.hotkey_virtual_key,
             self._config.hotkey_duration_seconds,
         )
-        self._adapter.click_search_field(self._window_handle)
+        if not self._input_is_safe():
+            return "guard_changed"
+        geometry = self._adapter.locate_dialog(self._window_handle)
+        if geometry is None:
+            return "dialog_not_found"
+        if not self._input_is_safe():
+            return "guard_changed"
+        self._adapter.click_client_point(self._window_handle, geometry.search_field)
+        if not self._input_is_safe():
+            return "guard_changed"
         self._adapter.type_search_text(self._window_handle, destination.search_text)
-        self._adapter.select_first_result(self._window_handle)
-        self._adapter.click_teleport_button(self._window_handle)
+        if not self._input_is_safe():
+            return "guard_changed"
+        self._adapter.click_client_point(self._window_handle, geometry.first_result)
+        if not self._input_is_safe():
+            return "guard_changed"
+        self._adapter.click_client_point(self._window_handle, geometry.teleport_button)
+        return None
+
+    def _input_is_safe(self) -> bool:
+        return not self._adapter.is_aborted() and self._adapter.is_foreground(self._window_handle)
 
     def _is_arrived(self, observation: ArrivalObservation) -> bool:
         destination = self._destination

@@ -268,7 +268,6 @@ class PerceptionPipeline:
             observed_at_seconds=observed_at_seconds,
             position=previous_state.position,
             nearby_mob_count=len(visible_mobs),
-            inventory=previous_state.inventory,
             progress_marker=previous_state.progress_marker,
             is_stuck=previous_state.is_stuck,
             selected_target=selected_target,

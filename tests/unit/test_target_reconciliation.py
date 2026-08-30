@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from flyff_bot.features.automation.models import (
-    InventoryEntry,
     Position,
     VisibleMob,
     WorldState,
@@ -69,7 +68,6 @@ def _state(
         observed_at_seconds=OBSERVED_AT_SECONDS,
         position=Position(0, 0),
         nearby_mob_count=1,
-        inventory=(InventoryEntry("penya", 0),),
         progress_marker=0,
         player_stats_snapshot=snapshot,
         mob_catalog_joins=joins,

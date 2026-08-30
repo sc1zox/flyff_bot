@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 
 from flyff_bot.features.automation.models import (
-    InventoryEntry,
     PlayerVitals,
     Position,
     SelectedTarget,
@@ -91,7 +90,6 @@ def _previous_state() -> WorldState:
         observed_at_seconds=1.0,
         position=Position(3, 4),
         nearby_mob_count=0,
-        inventory=(InventoryEntry("potion", 2),),
         progress_marker=9,
         player_vitals=PlayerVitals(0.0, 0.0, 0.0),
     )
@@ -113,7 +111,6 @@ def test_tick_aggregates_one_shared_frame_into_a_new_world_state() -> None:
     assert tick.state is not _previous_state()
     assert tick.state.observed_at_seconds == OBSERVED_AT_SECONDS
     assert tick.state.position == Position(3, 4)
-    assert tick.state.inventory == (InventoryEntry("potion", 2),)
     assert tick.state.progress_marker == 9
     assert tick.state.nearby_mob_count == 1
     assert tick.state.visible_mobs[0].class_name == "Aibatt"

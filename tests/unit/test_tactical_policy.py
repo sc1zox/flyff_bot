@@ -38,7 +38,6 @@ def _state(mobs: tuple[VisibleMob, ...]) -> WorldState:
         observed_at_seconds=1.0,
         position=Position(0, 0),
         nearby_mob_count=len(mobs),
-        inventory=(),
         progress_marker=0,
         visible_mobs=mobs,
         viewport=Viewport(100, 100),

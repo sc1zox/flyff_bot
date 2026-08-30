@@ -6,6 +6,11 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
+from flyff_bot.features.navigation.teleporter_dispatch import (
+    DEFAULT_TELEPORTER_HOTKEY_VIRTUAL_KEY,
+    MAXIMUM_VIRTUAL_KEY,
+    MINIMUM_VIRTUAL_KEY,
+)
 from flyff_bot.features.navigation.teleporter_models import TeleporterDestination
 
 DEFAULT_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS = 60.0
@@ -41,6 +46,7 @@ class EmergencyRecoveryConfig:
     stuck_timeout_seconds: float = DEFAULT_UNRECOVERABLE_STUCK_TIMEOUT_SECONDS
     confirmation_timeout_seconds: float = DEFAULT_EMERGENCY_CONFIRMATION_SECONDS
     progress_distance_units: float = DEFAULT_PROGRESS_DISTANCE_UNITS
+    teleporter_hotkey_virtual_key: int = DEFAULT_TELEPORTER_HOTKEY_VIRTUAL_KEY
 
     def __post_init__(self) -> None:
         if not (
@@ -57,6 +63,8 @@ class EmergencyRecoveryConfig:
             raise ValueError("Emergency recovery progress distance must be positive.")
         if self.confirmation_timeout_seconds <= 0.0:
             raise ValueError("Emergency teleport confirmation timeout must be positive.")
+        if not MINIMUM_VIRTUAL_KEY <= self.teleporter_hotkey_virtual_key <= MAXIMUM_VIRTUAL_KEY:
+            raise ValueError("Teleporter hotkey must be a valid virtual-key code.")
 
 
 @dataclass(frozen=True, slots=True)
