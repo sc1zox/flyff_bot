@@ -1,67 +1,67 @@
 [
   {
-    "sha256": "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5",
-    "player_pointer_rva": 12044552,
-    "pointer_size_bytes": 8,
     "fields": [
       {
+        "is_unknown": false,
+        "maximum": 2147483647.0,
+        "minimum": 0.0,
         "name": "current_hp",
         "source": {
-          "kind": "xor_pair",
-          "offset": 4868,
           "key_a": 6502245786939750577,
           "key_b": 3275438308651450205,
+          "kind": "xor_pair",
+          "offset": 4868,
           "primitive": "i64"
-        },
-        "minimum": 0.0,
-        "maximum": 2147483647.0,
-        "is_unknown": false
+        }
       },
       {
+        "is_unknown": false,
+        "maximum": 2147483647.0,
+        "minimum": 0.0,
         "name": "current_mp",
         "source": {
           "kind": "direct",
           "offset": 4860,
           "primitive": "i32"
-        },
-        "minimum": 0.0,
-        "maximum": 2147483647.0,
-        "is_unknown": false
+        }
       },
       {
+        "is_unknown": false,
+        "maximum": 2147483647.0,
+        "minimum": 0.0,
         "name": "current_fp",
         "source": {
           "kind": "direct",
           "offset": 4864,
           "primitive": "i32"
-        },
-        "minimum": 0.0,
-        "maximum": 2147483647.0,
-        "is_unknown": false
+        }
       },
       {
+        "is_unknown": false,
+        "maximum": 1000.0,
+        "minimum": 1.0,
         "name": "level",
         "source": {
           "kind": "direct",
           "offset": 4800,
           "primitive": "i32"
-        },
-        "minimum": 1.0,
-        "maximum": 1000.0,
-        "is_unknown": false
+        }
       },
       {
+        "is_unknown": false,
+        "maximum": 9.223372036854776e+18,
+        "minimum": 0.0,
         "name": "experience",
         "source": {
           "kind": "direct",
           "offset": 4808,
           "primitive": "u64"
-        },
-        "minimum": 0.0,
-        "maximum": 9.223372036854776e+18,
-        "is_unknown": false
+        }
       }
     ],
-    "monster_kills_rva": 12281568
+    "monster_kills_rva": 12281568,
+    "player_pointer_rva": 12044552,
+    "pointer_size_bytes": 8,
+    "sha256": "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5"
   }
 ]

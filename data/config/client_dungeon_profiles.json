@@ -1,11 +1,11 @@
 [
   {
-    "sha256": "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5",
-    "runtime_state_pointer_rva": 12042024,
-    "pointer_size_bytes": 8,
     "container": {
       "kind": "global_lockout_timestamp",
       "lockout_timestamp_offset": 9848
-    }
+    },
+    "pointer_size_bytes": 8,
+    "runtime_state_pointer_rva": 12042024,
+    "sha256": "8079c88f4c4e35a0b5acd117995125bee528c175d5b621e0533d85a4458dada5"
   }
 ]
