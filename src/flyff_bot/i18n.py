@@ -524,6 +524,8 @@ class Message(StrEnum):
     UI_WORLD_DATA_ZONE_ENTRY = "ui.world_data_zone_entry"
     UI_WORLD_DATA_QUOTA = "ui.world_data_quota"
     UI_WORLD_DATA_QUOTA_TOOLTIP = "ui.world_data_quota_tooltip"
+    UI_WORLD_DATA_SELECT_ALL = "ui.world_data_select_all"
+    UI_WORLD_DATA_DESELECT_ALL = "ui.world_data_deselect_all"
     UI_WORLD_DATA_ACTIVATE = "ui.world_data_activate"
     UI_WORLD_DATA_DEACTIVATE = "ui.world_data_deactivate"
     UI_WORLD_DATA_CLOSE = "ui.world_data_close"

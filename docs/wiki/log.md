@@ -1314,3 +1314,18 @@ returns to `PAUSED`, and emits a localized coordinate event; foreground loss can
 and the existing F12 path enters `EMERGENCY_STOPPED`. Automated evidence is the clean full gate:
 Ruff, format, MyPy, and pytest (1290 passed, 4 skipped). The manual Windows/Flyff walkthrough
 remains unrun.
+
+## [2026-08-31] synthesis | World data dialog resizable layout and batch spawn-zone selection (US-090)
+
+Recorded in [architecture.md](architecture.md) that `WorldDataDialog` drops the four-row cap on the
+spawn-zone list (an `Expanding`/`Expanding` size policy plus grid and layout stretch let it grow
+in both directions), opens at 640x560 with a 520x400 minimum, adds "Select All" / "Deselect All"
+buttons that set every camp's check state in one action while `active_zones` stays row-ordered for
+US-059 sequential patrol, and persists its window geometry to `QSettings` (`window_geometry`) via
+the existing `_persist_state` synchronization point, restored by `_restore_geometry` on reopen.
+Localized `ui.world_data_select_all` / `ui.world_data_deselect_all` in both bundles. Automated
+evidence is the clean full gate: Ruff, format, MyPy, and pytest (1303 passed, 4 skipped; 88.85%
+coverage). The manual Windows/Flyff walkthrough remains unrun. The same change also repaired four
+pre-existing gate failures inherited from earlier commits (two ruff-format/line-length issues in
+`tests/unit/test_powerups.py` and `tests/unit/test_orchestrator.py`, an `int()` cast in
+`client_profiling/profiler.py`, and a non-reexported import in `tests/unit/test_quest_objectives.py`).

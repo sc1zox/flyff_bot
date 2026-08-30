@@ -88,6 +88,7 @@ related:
   - ../user-stories/completed/US-058-navmesh-aware-targeting-and-telemetry-integration.md
   - ../user-stories/completed/US-057-yolo-bottom-center-camera-unprojection-and-navmesh-mob-positioning.md
   - ../user-stories/completed/US-059-authoritative-vector-navigation-legacy-removal-and-multi-zone-selection.md
+  - ../user-stories/completed/US-090-world-data-dialog-resizable-layout-and-batch-spawn-zone-selection.md
   - ../user-stories/completed/US-061-client-quest-data-extraction-and-goal-driven-quest-farming.md
   - ../user-stories/completed/US-062-automated-npc-quest-acceptance-and-turn-in.md
   - ../user-stories/completed/US-080-goal-driven-quest-execution-and-objective-bus.md
@@ -1195,6 +1196,17 @@ become a `VectorNavigationRequest`, which `run_desktop` turns into a navigator a
 position estimate at the moment the operator confirms it. The dialog cannot do that itself, and
 deliberately does not see the estimate, because a registration is only meaningful against the
 position it was applied at.
+
+US-090 makes that dialog usable for large multi-zone patrols. The spawn-zone list is no longer
+capped at four rows: it carries an `Expanding`/`Expanding` size policy and the grid row and column
+it occupies take the stretch, so it grows in both directions with the window, which itself opens
+at 640x560 (minimum 520x400) and can be resized or maximized. "Select All" and "Deselect All"
+buttons below the list set every camp's check state in one action; `active_zones` is still read by
+iterating the list in row order, so batch selection keeps the deterministic sequence US-059's
+multi-zone navigator and quota progression depend on. The window geometry is saved to `QSettings`
+(`window_geometry`) by `_persist_state` - the same synchronization point that already stores the
+region, map, zone, and quota selections, and which `closeEvent` calls - and `_restore_geometry`
+reapplies it on the next open, falling back to the default size when nothing is stored.
 
 ## Closed-loop 3D world navigation (US-048)
 

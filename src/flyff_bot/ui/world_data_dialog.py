@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSettings, Qt, Signal, Slot
+from PySide6.QtCore import QByteArray, QObject, QSettings, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -64,8 +65,13 @@ _MAP_SETTING = "selected_map"
 _ZONE_SETTING = "selected_zone"
 _ZONES_SETTING = "selected_zones"
 _QUOTA_SETTING = "kill_quota"
-# Four camps fit without scrolling while a long monster list still stays inside the dialog.
-_ZONE_LIST_VISIBLE_ROWS = 4
+_GEOMETRY_SETTING = "window_geometry"
+# Wide enough to show zone names, mob counts, and coordinates without horizontal truncation, and
+# tall enough to list many camps at once; the operator resizes freely from this starting point.
+_DEFAULT_DIALOG_WIDTH = 640
+_DEFAULT_DIALOG_HEIGHT = 560
+_MINIMUM_DIALOG_WIDTH = 520
+_MINIMUM_DIALOG_HEIGHT = 400
 
 
 class WorldExtractionWorker(QObject):
@@ -161,6 +167,9 @@ class WorldDataDialog(QDialog):
         self._map_selector = QComboBox()
         self._zone_list = QListWidget()
         self._zone_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self._zone_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._select_all_button = QPushButton()
+        self._deselect_all_button = QPushButton()
         self._quota_spin = QSpinBox()
         self._quota_spin.setRange(UNLIMITED_KILL_QUOTA, MAXIMUM_KILL_QUOTA)
         self._quota_spin.setValue(self._saved_quota())
@@ -180,6 +189,8 @@ class WorldDataDialog(QDialog):
         self._build_layout()
         self._connect_controls()
         self._retranslate()
+        self.setMinimumSize(_MINIMUM_DIALOG_WIDTH, _MINIMUM_DIALOG_HEIGHT)
+        self._restore_geometry()
         self.refresh()
 
     @property
@@ -229,6 +240,18 @@ class WorldDataDialog(QDialog):
         """Expose the deactivation button for testing."""
 
         return self._deactivate_button
+
+    @property
+    def select_all_button(self) -> QPushButton:
+        """Expose the batch select-all button for testing."""
+
+        return self._select_all_button
+
+    @property
+    def deselect_all_button(self) -> QPushButton:
+        """Expose the batch deselect-all button for testing."""
+
+        return self._deselect_all_button
 
     @property
     def quota_spin(self) -> QSpinBox:
@@ -287,10 +310,14 @@ class WorldDataDialog(QDialog):
         grid.addWidget(self._extract_button, 0, 2)
         grid.addWidget(self._map_label, 1, 0)
         grid.addWidget(self._map_selector, 1, 1, 1, 2)
-        grid.addWidget(self._zone_label, 2, 0)
+        grid.addWidget(self._zone_label, 2, 0, Qt.AlignmentFlag.AlignTop)
         grid.addWidget(self._zone_list, 2, 1, 1, 2)
-        grid.addWidget(self._quota_label, 3, 0)
-        grid.addWidget(self._quota_spin, 3, 1, 1, 2)
+        grid.addLayout(self._batch_selection_row(), 3, 1, 1, 2)
+        grid.addWidget(self._quota_label, 4, 0)
+        grid.addWidget(self._quota_spin, 4, 1, 1, 2)
+        # The spawn-zone list absorbs every spare pixel in both directions when the dialog grows.
+        grid.setRowStretch(2, 1)
+        grid.setColumnStretch(1, 1)
 
         actions = QHBoxLayout()
         actions.addWidget(self._activate_button)
@@ -299,10 +326,17 @@ class WorldDataDialog(QDialog):
         actions.addWidget(self._close_button)
 
         layout = QVBoxLayout()
-        layout.addLayout(grid)
+        layout.addLayout(grid, 1)
         layout.addWidget(self._status_label)
         layout.addLayout(actions)
         self.setLayout(layout)
+
+    def _batch_selection_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.addWidget(self._select_all_button)
+        row.addWidget(self._deselect_all_button)
+        row.addStretch()
+        return row
 
     def _connect_controls(self) -> None:
         self._extract_button.clicked.connect(self._on_extract_clicked)
@@ -310,6 +344,8 @@ class WorldDataDialog(QDialog):
         self._region_selector.currentIndexChanged.connect(self._persist_state)
         self._map_selector.currentIndexChanged.connect(self._persist_state)
         self._zone_list.itemChanged.connect(self._on_zone_checked)
+        self._select_all_button.clicked.connect(self._on_select_all_clicked)
+        self._deselect_all_button.clicked.connect(self._on_deselect_all_clicked)
         self._quota_spin.valueChanged.connect(self._persist_state)
         self._activate_button.clicked.connect(self._on_activate_clicked)
         self._deactivate_button.clicked.connect(self._on_deactivate_clicked)
@@ -446,7 +482,7 @@ class WorldDataDialog(QDialog):
                 self._zone_list.addItem(item)
             self._check_first_zone_when_nothing_is_selected()
         self._zone_list.blockSignals(False)
-        self._zone_list.setMaximumHeight(self._zone_list_height())
+        self._update_batch_controls_enabled()
         self._update_activation_enabled()
 
     def _check_first_zone_when_nothing_is_selected(self) -> None:
@@ -456,12 +492,31 @@ class WorldDataDialog(QDialog):
             return
         self._zone_list.item(0).setCheckState(Qt.CheckState.Checked)
 
-    def _zone_list_height(self) -> int:
-        rows = min(max(self._zone_list.count(), 1), _ZONE_LIST_VISIBLE_ROWS)
-        return rows * self._zone_list.sizeHintForRow(0) + 2 * self._zone_list.frameWidth()
-
     def _update_activation_enabled(self) -> None:
         self._activate_button.setEnabled(bool(self.active_zones))
+
+    def _update_batch_controls_enabled(self) -> None:
+        has_zones = self._zone_list.count() > 0
+        self._select_all_button.setEnabled(has_zones)
+        self._deselect_all_button.setEnabled(has_zones)
+
+    def _set_all_zone_check_states(self, checked: Qt.CheckState) -> None:
+        """Apply one check state to every listed zone, then sync activation and settings once."""
+
+        self._zone_list.blockSignals(True)
+        for index in range(self._zone_list.count()):
+            self._zone_list.item(index).setCheckState(checked)
+        self._zone_list.blockSignals(False)
+        self._update_activation_enabled()
+        self._persist_state()
+
+    @Slot()
+    def _on_select_all_clicked(self) -> None:
+        self._set_all_zone_check_states(Qt.CheckState.Checked)
+
+    @Slot()
+    def _on_deselect_all_clicked(self) -> None:
+        self._set_all_zone_check_states(Qt.CheckState.Unchecked)
 
     @Slot()
     def _on_zone_checked(self, *_args: object) -> None:
@@ -565,9 +620,19 @@ class WorldDataDialog(QDialog):
         self._quota_label.setText(self._translator.text(Message.UI_WORLD_DATA_QUOTA))
         self._quota_spin.setToolTip(self._translator.text(Message.UI_WORLD_DATA_QUOTA_TOOLTIP))
         self._extract_button.setText(self._translator.text(Message.UI_WORLD_DATA_EXTRACT))
+        self._select_all_button.setText(self._translator.text(Message.UI_WORLD_DATA_SELECT_ALL))
+        self._deselect_all_button.setText(self._translator.text(Message.UI_WORLD_DATA_DESELECT_ALL))
         self._activate_button.setText(self._translator.text(Message.UI_WORLD_DATA_ACTIVATE))
         self._deactivate_button.setText(self._translator.text(Message.UI_WORLD_DATA_DEACTIVATE))
         self._close_button.setText(self._translator.text(Message.UI_WORLD_DATA_CLOSE))
+
+    def _restore_geometry(self) -> None:
+        """Restore the last saved window geometry, or fall back to the default dimensions."""
+
+        stored = self._settings.value(_GEOMETRY_SETTING)
+        if isinstance(stored, (QByteArray, bytes, bytearray)) and self.restoreGeometry(stored):
+            return
+        self.resize(_DEFAULT_DIALOG_WIDTH, _DEFAULT_DIALOG_HEIGHT)
 
     def _saved_text(self, key: str) -> str:
         value = self._settings.value(key, "")
@@ -591,7 +656,7 @@ class WorldDataDialog(QDialog):
         return value if isinstance(value, int) else UNLIMITED_KILL_QUOTA
 
     def _persist_state(self, *_args: object) -> None:
-        """Persist only stable selection identities, never a list index."""
+        """Persist stable selection identities and the window geometry, never a list index."""
 
         region = self._region_selector.currentText()
         map_path = self._map_selector.currentData()
@@ -599,6 +664,7 @@ class WorldDataDialog(QDialog):
         self._settings.setValue(_MAP_SETTING, map_path.name if isinstance(map_path, Path) else "")
         self._settings.setValue(_ZONES_SETTING, [self._zone_key(z) for z in self.active_zones])
         self._settings.setValue(_QUOTA_SETTING, self._quota_spin.value())
+        self._settings.setValue(_GEOMETRY_SETTING, self.saveGeometry())
         self._settings.sync()
 
     @staticmethod

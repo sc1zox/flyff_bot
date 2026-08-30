@@ -11,7 +11,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QSizePolicy
 from world_fixtures import (
     flat_heights,
     raise_vertex,
@@ -300,6 +300,90 @@ def test_refresh_and_reopened_dialog_restore_region_map_zone_and_quota(
     assert reopened.map_selector.currentText() == "wdtest"
     assert [zone.monster_name for zone in reopened.active_zones] == ["Rapra"]
     assert reopened.quota_spin.value() == 17
+
+
+def test_select_all_checks_every_zone_and_enables_activation(
+    client_root: Path, tmp_path: Path
+) -> None:
+    dialog = _dialog(client_root, tmp_path)
+    _extract(dialog, tmp_path / "worlds")
+    _set_checked(dialog, 0, False)
+    assert not dialog.activate_button.isEnabled()
+
+    dialog.select_all_button.click()
+
+    assert [zone.monster_name for zone in dialog.active_zones] == ["Flame", "Rapra"]
+    assert all(
+        dialog.zone_list.item(index).checkState() is Qt.CheckState.Checked
+        for index in range(dialog.zone_list.count())
+    )
+    assert dialog.activate_button.isEnabled()
+
+
+def test_deselect_all_clears_every_zone_and_disables_activation(
+    client_root: Path, tmp_path: Path
+) -> None:
+    dialog = _dialog(client_root, tmp_path)
+    _extract(dialog, tmp_path / "worlds")
+    dialog.select_all_button.click()
+
+    dialog.deselect_all_button.click()
+
+    assert dialog.active_zones == ()
+    assert all(
+        dialog.zone_list.item(index).checkState() is Qt.CheckState.Unchecked
+        for index in range(dialog.zone_list.count())
+    )
+    assert not dialog.activate_button.isEnabled()
+
+
+def test_batch_selection_is_persisted_and_restored_on_reopen(
+    client_root: Path, tmp_path: Path
+) -> None:
+    settings = QSettings(str(tmp_path / "world_data_dialog.ini"), QSettings.Format.IniFormat)
+    dialog = _dialog(client_root, tmp_path, settings=settings)
+    _extract(dialog, tmp_path / "worlds")
+
+    dialog.select_all_button.click()
+
+    reopened = _dialog(client_root, tmp_path, settings=settings)
+    assert [zone.monster_name for zone in reopened.active_zones] == ["Flame", "Rapra"]
+
+
+def test_batch_controls_are_disabled_without_an_extracted_map(
+    client_root: Path, tmp_path: Path
+) -> None:
+    dialog = _dialog(client_root, tmp_path)
+
+    assert dialog.zone_list.count() == 0
+    assert not dialog.select_all_button.isEnabled()
+    assert not dialog.deselect_all_button.isEnabled()
+
+
+def test_zone_list_expands_without_a_fixed_row_cap(client_root: Path, tmp_path: Path) -> None:
+    dialog = _dialog(client_root, tmp_path)
+    _extract(dialog, tmp_path / "worlds")
+
+    policy = dialog.zone_list.sizePolicy()
+    assert policy.verticalPolicy() is QSizePolicy.Policy.Expanding
+    assert policy.horizontalPolicy() is QSizePolicy.Policy.Expanding
+    # The former 4-row cap resolved to a small pixel height; a genuinely uncapped list keeps
+    # Qt's default maximum.
+    assert dialog.zone_list.maximumHeight() > 100_000
+
+
+def test_window_geometry_is_saved_and_restored_across_reopen(
+    client_root: Path, tmp_path: Path
+) -> None:
+    settings = QSettings(str(tmp_path / "world_data_dialog.ini"), QSettings.Format.IniFormat)
+    dialog = _dialog(client_root, tmp_path, settings=settings)
+    dialog.resize(724, 618)
+
+    dialog._persist_state()
+    reopened = _dialog(client_root, tmp_path, settings=settings)
+
+    assert reopened.size().width() == 724
+    assert reopened.size().height() == 618
 
 
 def test_a_selected_monster_narrows_the_goals_to_that_class(
