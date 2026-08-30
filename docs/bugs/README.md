@@ -15,6 +15,8 @@ bugs are moved to `docs/bugs/fixed/`.
 ## Active Defect Backlog
 
 - [ ] [**BUG-039: Generated position offset is a byte-match false positive; position and world-id registries are empty**](BUG-039-generated-position-offset-false-positive-and-empty-position-world-id-registries.md)
+- [ ] [**BUG-040: EventLogPanel crashes with KeyError on unmapped SessionEventKind events**](BUG-040-event-log-panel-keyerror-on-unmapped-session-event-kinds.md)
+- [ ] [**BUG-041: Camera alignment fails closed with top-down pitch inversion and non-functional zoom-out**](BUG-041-camera-alignment-pitch-sign-inversion-and-zoom-early-termination.md)
 
 ---
 
