@@ -64,11 +64,11 @@ def test_alignment_waits_for_confirmed_zoom_hard_stop_then_pitch_target() -> Non
     adapter = _CameraAdapter()
     source = _CameraSource(
         [
-            _state(10.0, 30.0),
+            _state(10.0, 20.0),
+            _state(11.0, 20.0),
+            _state(11.0, 20.0),
+            _state(11.0, 20.0),
             _state(11.0, 30.0),
-            _state(11.0, 30.0),
-            _state(11.0, 30.0),
-            _state(11.0, 45.0),
         ]
     )
 
@@ -84,15 +84,54 @@ def test_alignment_waits_for_confirmed_zoom_hard_stop_then_pitch_target() -> Non
     assert source.polls == 5
 
 
+def test_alignment_uses_damped_pitch_pulses_to_converge_on_the_ergonomic_default() -> None:
+    """BUG-042: small remaining errors must not repeat the coarse 80-ms pulse."""
+
+    adapter = _CameraAdapter()
+    source = _CameraSource(
+        [
+            _state(10.0, 20.0),
+            _state(11.0, 20.0),
+            _state(11.0, 20.0),
+            _state(11.0, 20.0),
+            _state(11.0, 26.0),
+            _state(11.0, 29.0),
+        ]
+    )
+
+    status = CameraAligner(adapter, WINDOW_HANDLE, source, sleep=lambda _delay: None).align()
+
+    assert status is CameraAlignmentStatus.ALIGNED
+    assert CameraAlignmentConfig().target_pitch_degrees == pytest.approx(30.0)
+    assert CameraAlignmentConfig().pitch_tolerance_degrees == pytest.approx(2.5)
+    assert adapter.actions[-2:] == [("key:0x26", 0.05), ("key:0x26", 0.025)]
+
+
+def test_damped_pitch_pulses_never_exceed_the_configured_directional_cap() -> None:
+    config = CameraAlignmentConfig(pitch_up_hold_seconds=0.04, pitch_down_pulse_seconds=0.02)
+    aligner = CameraAligner(_CameraAdapter(), WINDOW_HANDLE, _CameraSource([]), config=config)
+
+    assert aligner._pitch_pulse_duration(7.0) == pytest.approx(0.04)
+    assert aligner._pitch_pulse_duration(-4.0) == pytest.approx(0.02)
+
+
+def test_damped_pitch_pulses_use_direction_and_exact_error_bands() -> None:
+    aligner = CameraAligner(_CameraAdapter(), WINDOW_HANDLE, _CameraSource([]))
+
+    assert aligner._pitch_pulse_duration(11.0) == pytest.approx(0.08)
+    assert aligner._pitch_pulse_duration(-10.0) == pytest.approx(0.05)
+    assert aligner._pitch_pulse_duration(5.0) == pytest.approx(0.025)
+
+
 def test_alignment_does_not_treat_one_delayed_zoom_measurement_as_a_hard_stop() -> None:
     adapter = _CameraAdapter()
     source = _CameraSource(
         [
-            _state(10.0, 45.0),
-            _state(10.0, 45.0),
-            _state(11.0, 45.0),
-            _state(11.0, 45.0),
-            _state(11.0, 45.0),
+            _state(10.0, 30.0),
+            _state(10.0, 30.0),
+            _state(11.0, 30.0),
+            _state(11.0, 30.0),
+            _state(11.0, 30.0),
         ]
     )
 

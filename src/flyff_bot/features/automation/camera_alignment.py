@@ -15,10 +15,14 @@ from flyff_bot.features.tactical_parameters import TacticalParameterSpace
 ZOOM_OUT_WHEEL_NOTCHES = 20
 PITCH_UP_HOLD_SECONDS = 0.08
 PITCH_DOWN_PULSE_SECONDS = 0.08
+PITCH_MEDIUM_PULSE_SECONDS = 0.05
+PITCH_FINE_PULSE_SECONDS = 0.025
+PITCH_COARSE_ERROR_DEGREES = 10.0
+PITCH_MEDIUM_ERROR_DEGREES = 5.0
 STEP_SETTLE_SECONDS = 0.2
 DEFAULT_AUTO_ALIGN_CAMERA = True
-CALIBRATED_CAMERA_PITCH_DEGREES = 45.0
-PITCH_TOLERANCE_DEGREES = 1.5
+CALIBRATED_CAMERA_PITCH_DEGREES = 30.0
+PITCH_TOLERANCE_DEGREES = 2.5
 ZOOM_DELTA_TOLERANCE_UNITS = 0.01
 ZOOM_HARD_STOP_CONFIRMATION_STEPS = 2
 MAXIMUM_PITCH_STEPS = 20
@@ -152,10 +156,9 @@ class CameraAligner:
                 return blocked
             if error > 0.0:
                 key = self._config.pitch_up_virtual_key
-                duration = self._config.pitch_up_hold_seconds
             else:
                 key = self._config.pitch_down_virtual_key
-                duration = self._config.pitch_down_pulse_seconds
+            duration = self._pitch_pulse_duration(error)
             self._adapter.send_key_while_guarded(self._window_handle, key, duration)
             blocked, reading = self._settle_and_poll()
             if blocked is not None:
@@ -163,6 +166,21 @@ class CameraAligner:
             if reading is None:
                 return CameraAlignmentStatus.CAMERA_UNAVAILABLE
         return CameraAlignmentStatus.NOT_CONVERGED
+
+    def _pitch_pulse_duration(self, error_degrees: float) -> float:
+        """Return a bounded pulse that becomes gentler near the measured target."""
+
+        absolute_error = abs(error_degrees)
+        maximum_duration = (
+            self._config.pitch_up_hold_seconds
+            if error_degrees > 0.0
+            else self._config.pitch_down_pulse_seconds
+        )
+        if absolute_error > PITCH_COARSE_ERROR_DEGREES:
+            return maximum_duration
+        if absolute_error > PITCH_MEDIUM_ERROR_DEGREES:
+            return min(maximum_duration, PITCH_MEDIUM_PULSE_SECONDS)
+        return min(maximum_duration, PITCH_FINE_PULSE_SECONDS)
 
     def _settle_and_poll(
         self,

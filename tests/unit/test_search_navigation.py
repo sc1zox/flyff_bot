@@ -82,6 +82,12 @@ def test_a_sweep_begins_without_any_idle_delay() -> None:
     assert decision.input_kind is SearchInputKind.KEY
 
 
+def test_default_search_settle_pause_reserves_a_stable_perception_window() -> None:
+    """BUG-042: the default sweep must leave YOLO a stationary frame to inspect."""
+
+    assert SearchConfig().rotation_settle_pause_seconds == pytest.approx(0.3)
+
+
 def test_search_uses_configured_rotation_virtual_key() -> None:
     search = SearchController(
         SearchConfig(

@@ -1,7 +1,7 @@
 ---
 id: BUG-042
 title: Camera alignment pitch oscillation, excessive steepness, and search rotation perception failure
-status: reported
+status: resolved
 severity: high
 created: 2026-08-30
 updated: 2026-08-30
@@ -77,6 +77,11 @@ Per [US-018](../user-stories/completed/US-018-multi-axis-camera-search-and-paced
 
 ## Regression verification
 
-- [ ] A failing automated test or deterministic manual check exists.
-- [ ] The check passes after the fix.
-- [ ] Related documentation is current.
+- [x] A deterministic automated regression test covers the adaptive pitch-pulse error bands, 30.0° target, 2.5° tolerance, and search settle duration.
+- [x] The full repository gate passed after the fix: `./scripts/check.ps1` reported 1287 passed and 4 skipped.
+- [x] Related documentation is current.
+
+## Verification limits
+
+The live Windows/Flyff walkthrough remains unrun. The automated gate verifies the bounded
+control contract, but does not establish live-client camera convergence or YOLO performance.

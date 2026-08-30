@@ -85,7 +85,7 @@ _DEFINITIONS = (
     TacticalParameterDefinition(TacticalParameterName.ATTACK_KEY_DELAY_SECONDS, 0.01, 1.0, 0.05),
     TacticalParameterDefinition(TacticalParameterName.TARGET_LOCKOUT_SECONDS, 0.0, 30.0, 1.0),
     TacticalParameterDefinition(TacticalParameterName.CLICK_DEBOUNCE_SECONDS, 0.0, 5.0, 0.2),
-    TacticalParameterDefinition(TacticalParameterName.CAMERA_PITCH_DEGREES, 10.0, 80.0, 45.0),
+    TacticalParameterDefinition(TacticalParameterName.CAMERA_PITCH_DEGREES, 10.0, 80.0, 30.0),
     TacticalParameterDefinition(TacticalParameterName.CAMERA_ZOOM_LEVEL, 1.0, 20.0, 20.0),
     # The upper bound is what keeps a tuned or learned profile inside the micro-sweep regime:
     # a longer burst smears the frame the sweep exists to inspect (US-091).
@@ -153,7 +153,7 @@ class TacticalParameterSpace:
     attack_key_delay_seconds: float = 0.05
     target_lockout_seconds: float = 1.0
     click_debounce_seconds: float = 0.2
-    camera_pitch_degrees: float = 45.0
+    camera_pitch_degrees: float = 30.0
     camera_zoom_level: float = 20.0
     search_turn_duration_seconds: float = DEFAULT_SEARCH_TURN_DURATION_SECONDS
     target_verification_threshold: float = 0.75

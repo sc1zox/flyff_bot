@@ -869,8 +869,9 @@ BUG-014 and BUG-016 established the verified alignment sequence. In Entropia Fly
 client zooms *out* on forward wheel rotation (`+WHEEL_DELTA`), so twenty forward notches outrun the
 zoom range from a fully zoomed-in start. Camera pitch is bound to `VK_UP`/`VK_DOWN`; the `VK_PRIOR`/`VK_NEXT`
 holds the routine used to dispatch are unmapped for pitch in the standard client, so the camera stayed at
-whatever elevation it had been left at and the ~45° standardization never happened. The pitch keys are now
-taken from the single `controllers.py` definition the search sequence already tilts with.
+whatever elevation it had been left at and the then-~45° standardization never happened. The pitch keys are now
+taken from the single `controllers.py` definition the search sequence already tilts with. The 45° target is
+historical only: BUG-042 supersedes it with the active 30.0° target and ±2.5° tolerance described below.
 
 `FarmingOrchestrator` owns alignment as a session phase, `FarmingMode.ALIGNING`, entered from
 `start()` when `FarmingConfig.auto_align_camera` is set and left only once the camera is standing
@@ -911,6 +912,13 @@ forward FOV for spawn sightings), both during calibration captures and live bot 
 automated that protocol as `CameraAligner`, which both the harness and the farming pre-flight run, so
 the two can no longer drift apart. US-043 added the minimap zoom-out hard stop to the same routine,
 which fixes the odometry scale the walk-in's travel is measured in as well.
+
+> **Historical protocol superseded by BUG-042.** The active measured alignment target is 30.0° with
+> a ±2.5° tolerance, not the 45° target recorded above. `CameraAligner` selects bounded pitch-key
+> pulses from the absolute measured error: 0.08 s above 10°, 0.05 s above 5° through 10°, and 0.025 s
+> at or below 5°. Search rotation waits 0.3 s before perception so frames can settle. The full
+> automated gate passed with 1287 tests passed and 4 skipped; a live Windows/Flyff convergence and
+> perception walkthrough remains unrun.
 
 **One walk-in follows one mob.** A spawn cluster puts ten or more mobs of the target class in the
 viewport at once, and the harness used to record the most confident candidate per frame. Confidence

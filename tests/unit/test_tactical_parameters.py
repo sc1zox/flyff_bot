@@ -64,6 +64,13 @@ def test_every_modifiable_field_has_one_immutable_bounded_definition() -> None:
         assert math.isfinite(definition.maximum)
 
 
+def test_camera_pitch_default_is_the_ergonomic_alignment_target() -> None:
+    definition = TACTICAL_PARAMETER_DEFINITIONS[TacticalParameterName.CAMERA_PITCH_DEGREES]
+
+    assert definition.default == pytest.approx(30.0)
+    assert DEFAULT_TACTICAL_PARAMETERS.camera_pitch_degrees == pytest.approx(30.0)
+
+
 @pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
 def test_non_finite_input_uses_the_safe_default_and_records_a_diagnostic(
     non_finite: float,
