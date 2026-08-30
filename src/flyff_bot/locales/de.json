@@ -549,7 +549,7 @@
   "ui.status_dead": "Tot",
   "ui.status_emergency_stopped": "Notgestoppt",
   "ui.status_emergency_teleport": "Notfall-Teleport",
-  "ui.status_emergency_teleport_unavailable": "Festgefahren: kein Teleport-Hotkey konfiguriert",
+  "ui.status_emergency_teleport_unavailable": "Festgefahren: kein Teleporter-Ziel gewählt",
   "ui.status_faulted": "Gestört",
   "ui.status_paused": "Pausiert",
   "ui.status_test_navigating": "Navigationstest",

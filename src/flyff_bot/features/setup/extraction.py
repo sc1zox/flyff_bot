@@ -18,6 +18,7 @@ from flyff_bot.constants import (
     DEFAULT_QUEST_DATABASE_PATH,
     DEFAULT_QUEST_NPC_POSITIONS_PATH,
     DEFAULT_SOURCE_MANIFEST_PATH,
+    DEFAULT_TELEPORTER_DATABASE_PATH,
     DEFAULT_WORLD_MAP_DIRECTORY,
 )
 from flyff_bot.features.client_data.extraction import (
@@ -40,6 +41,11 @@ from flyff_bot.features.dungeons.extraction import (
 from flyff_bot.features.dungeons.persistence import (
     load_dungeon_database,
     save_dungeon_database,
+)
+from flyff_bot.features.navigation.teleporter_extraction import (
+    extract_teleporter_catalog,
+    load_teleporter_catalog,
+    save_teleporter_catalog,
 )
 from flyff_bot.features.navigation.world_extractor import (
     ExtractionDiagnostic,
@@ -85,7 +91,8 @@ EXECUTABLE_RELATIVE_PATHS: tuple[tuple[str, ...], ...] = (
 WORLD_SUBDIRECTORY = "World"
 CLIENT_SYSTEM_DIRECTORY = "System2"
 DEFAULT_MEMORY_PROFILE_LANGUAGE = "English"
-_STAGE_COUNT = 5
+_STAGE_COUNT = 6
+_WORLD_STAGE_INDEX = 4
 
 
 class ClientProfiler(Protocol):
@@ -132,6 +139,7 @@ class UnifiedClientExtractor:
             dungeon_profiles=Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
             client_catalog=Path(DEFAULT_CLIENT_CATALOG_PATH),
             source_manifest=Path(DEFAULT_SOURCE_MANIFEST_PATH),
+            teleporter_database=Path(DEFAULT_TELEPORTER_DATABASE_PATH),
         )
 
     @staticmethod
@@ -159,6 +167,7 @@ class UnifiedClientExtractor:
         dungeon_profiles: Path = Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
         client_catalog: Path = Path(DEFAULT_CLIENT_CATALOG_PATH),
         source_manifest: Path = Path(DEFAULT_SOURCE_MANIFEST_PATH),
+        teleporter_database: Path = Path(DEFAULT_TELEPORTER_DATABASE_PATH),
     ) -> SetupRequiredDatasets:
         worlds = tuple(world_map_directory.glob("*.json"))
         return SetupRequiredDatasets(
@@ -171,6 +180,7 @@ class UnifiedClientExtractor:
             dungeon_profiles=dungeon_profiles,
             client_catalog=client_catalog,
             source_manifest=source_manifest,
+            teleporter_database=teleporter_database,
         )
 
     @staticmethod
@@ -185,6 +195,7 @@ class UnifiedClientExtractor:
         dungeon_profiles: Path = Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
         client_catalog: Path = Path(DEFAULT_CLIENT_CATALOG_PATH),
         source_manifest: Path = Path(DEFAULT_SOURCE_MANIFEST_PATH),
+        teleporter_database: Path = Path(DEFAULT_TELEPORTER_DATABASE_PATH),
     ) -> bool:
         """Return whether any mandatory extracted artifact is still absent.
 
@@ -202,6 +213,7 @@ class UnifiedClientExtractor:
             dungeon_profiles=dungeon_profiles,
             client_catalog=client_catalog,
             source_manifest=source_manifest,
+            teleporter_database=teleporter_database,
         )
         return bool(missing_required_datasets(datasets))
 
@@ -217,6 +229,7 @@ class UnifiedClientExtractor:
         dungeon_profiles: Path = Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
         client_catalog: Path = Path(DEFAULT_CLIENT_CATALOG_PATH),
         source_manifest: Path = Path(DEFAULT_SOURCE_MANIFEST_PATH),
+        teleporter_database: Path = Path(DEFAULT_TELEPORTER_DATABASE_PATH),
     ) -> bool:
         """Return whether any extracted client artifact is already present on disk.
 
@@ -235,6 +248,7 @@ class UnifiedClientExtractor:
             dungeon_profiles=dungeon_profiles,
             client_catalog=client_catalog,
             source_manifest=source_manifest,
+            teleporter_database=teleporter_database,
         )
         return has_any_extracted_dataset(datasets)
 
@@ -257,6 +271,13 @@ class UnifiedClientExtractor:
                 self._load_cached_catalog_counts(result)
             else:
                 self._run_mover_stage(result, diagnostics)
+        stage_index += 1
+        self._report(stage_index, "Teleporter destinations")
+        if not self._cancel_event.is_set():
+            if not force and self._output_paths.teleporter_database.is_file():
+                self._load_cached_teleporter_count(result)
+            else:
+                self._run_teleporter_stage(result)
         stage_index += 1
         self._report(stage_index, "Quests and NPC locations")
         if not self._cancel_event.is_set():
@@ -297,6 +318,17 @@ class UnifiedClientExtractor:
             self._output_paths.client_catalog.is_file()
             and self._output_paths.source_manifest.is_file()
         )
+
+    def _load_cached_teleporter_count(self, result: SetupExtractionResult) -> None:
+        result.teleporter_count = len(
+            load_teleporter_catalog(self._output_paths.teleporter_database).destinations
+        )
+
+    def _run_teleporter_stage(self, result: SetupExtractionResult) -> None:
+        _executable, data_root = _validate_client_layout(self._client_root)
+        catalog = extract_teleporter_catalog(data_root)
+        save_teleporter_catalog(catalog, self._output_paths.teleporter_database)
+        result.teleporter_count = len(catalog.destinations)
 
     def _world_cache_present(self) -> bool:
         directory = self._output_paths.world_map_directory
@@ -429,7 +461,7 @@ class UnifiedClientExtractor:
         for index, world_directory in enumerate(world_directories, start=1):
             if self.is_cancelled:
                 break
-            self._report(4, f"World {world_directory.name} ({index}/{total})")
+            self._report(_WORLD_STAGE_INDEX, f"World {world_directory.name} ({index}/{total})")
             world_diagnostics: list[ExtractionDiagnostic] = []
             try:
                 world_map = extract_world(
@@ -492,6 +524,7 @@ class UnifiedClientExtractor:
         self._load_cached_catalog_counts(result)
         self._load_cached_quest_count(result)
         self._load_cached_dungeon_count(result)
+        self._load_cached_teleporter_count(result)
         self._load_cached_world_names(result)
 
     def _load_cached_catalog_counts(self, result: SetupExtractionResult) -> None:

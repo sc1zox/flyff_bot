@@ -122,6 +122,7 @@ def _install(root: Path, *, complete: bool) -> dict[str, Path]:
         "dungeon_profiles_path": root / "dungeon_profiles.json",
         "client_catalog_path": root / "catalog.json",
         "source_manifest_path": root / "source_manifest.json",
+        "teleporter_database_path": root / "teleporters.json",
     }
     if complete:
         (worlds / "TestWorld.json").write_text("{}", encoding="utf-8")
@@ -148,7 +149,6 @@ def _window(tmp_path: Path, paths: dict[str, Path]) -> MainWindow:
         vitals_config_path=tmp_path / "vitals.json",
         powerup_config_path=tmp_path / "powerups.json",
         emergency_config_path=tmp_path / "emergency.json",
-        teleporter_database_path=tmp_path / "teleporters.json",
         quest_npc_positions_path=tmp_path / "npcs.json",
         **paths,
     )
@@ -248,6 +248,7 @@ def test_first_run_detection_names_the_catalog_and_its_manifest(tmp_path: Path) 
         "dungeon_profiles": paths["player_profiles_path"],
         "client_catalog": paths["client_catalog_path"],
         "source_manifest": paths["source_manifest_path"],
+        "teleporter_database": paths["teleporter_database_path"],
     }
 
     assert not UnifiedClientExtractor.is_first_run_required(**arguments)

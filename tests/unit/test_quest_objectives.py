@@ -40,6 +40,12 @@ from flyff_bot.features.navigation.live_position import (
     PositionSource,
     WorldPosition,
 )
+from flyff_bot.features.navigation.navmesh import (
+    BakedNavMesh,
+    NavMeshBaker,
+    WorldTriangle,
+    WorldVertex,
+)
 from flyff_bot.features.navigation.pathing import PathingController
 from flyff_bot.features.navigation.teleporter_dispatch import (
     ArrivalObservation,
@@ -553,17 +559,36 @@ def _state(time: float, *, mobs: tuple[VisibleMob, ...] = ()) -> WorldState:
     )
 
 
+def _triangle(
+    first: tuple[float, float, float],
+    second: tuple[float, float, float],
+    third: tuple[float, float, float],
+) -> WorldTriangle:
+    return WorldTriangle(WorldVertex(*first), WorldVertex(*second), WorldVertex(*third), "fixture")
+
+
+def _wide_mesh() -> BakedNavMesh:
+    return NavMeshBaker().bake(
+        (
+            _triangle((0.0, 5.0, 0.0), (1000.0, 5.0, 0.0), (1000.0, 5.0, 1000.0)),
+            _triangle((0.0, 5.0, 0.0), (1000.0, 5.0, 1000.0), (0.0, 5.0, 1000.0)),
+        )
+    )
+
+
 def _pathing(
     position: WorldPosition,
     *,
     dispatcher: TeleporterDispatcher | None = None,
     zones: tuple[VectorSpawnZone, ...] = (FLAME_ZONE, RAPRA_ZONE),
+    navmesh: BakedNavMesh | None = None,
 ) -> PathingController:
     controller = PathingController(
         position_reader=cast(LivePositionReader, _LiveReader(position)),
         teleporter_dispatcher=dispatcher,
     )
-    controller.attach_vector_navigator(VectorZoneNavigator(_world_map(*zones)))
+    mesh = _wide_mesh() if navmesh is None else navmesh
+    controller.attach_vector_navigator(VectorZoneNavigator(_world_map(*zones), navmesh=mesh))
     return controller
 
 
@@ -704,7 +729,7 @@ def test_a_goal_that_times_out_pauses_the_session_with_its_failure_recorded() ->
     pathing = _pathing(WorldPosition(100.0, 5.0, 100.0), zones=(FLAME_ZONE,))
     orchestrator, _ = _session(
         _kill_quest("general:A", ("Flame", 5)),
-        [_state(0.0), _state(1.0), _state(60.0)],
+        [_state(0.0), _state(1.0), _state(10.0)],
         pathing=pathing,
         config=FarmingConfig(
             quest_goal_timeouts=QuestGoalTimeouts(objective_seconds=5.0),

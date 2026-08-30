@@ -125,6 +125,17 @@ def test_languages_return_different_application_descriptions() -> None:
     assert german != english
 
 
+def test_emergency_teleport_unavailable_names_the_missing_destination() -> None:
+    assert (
+        Translator(Language.ENGLISH).text(Message.UI_STATUS_EMERGENCY_TELEPORT_UNAVAILABLE)
+        == "Stuck: no teleporter destination selected"
+    )
+    assert (
+        Translator(Language.GERMAN).text(Message.UI_STATUS_EMERGENCY_TELEPORT_UNAVAILABLE)
+        == "Festgefahren: kein Teleporter-Ziel gewählt"
+    )
+
+
 @pytest.mark.parametrize(
     "message",
     [Message.RL_TRANSITIONS_EXPORTED, Message.RL_TRANSITIONS_EXPORT_FAILED],

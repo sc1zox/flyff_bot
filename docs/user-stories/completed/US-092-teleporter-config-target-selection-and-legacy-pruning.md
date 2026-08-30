@@ -22,9 +22,9 @@ As an **operator running automated farming sessions**, I want **the teleporter h
   - In `ML_SHADOW` mode, policy insights compared against the outdated geometric heuristic while the live loop executed the economic candidate ranking, producing phantom baseline comparisons.
   - In `HEURISTIC` mode, the policy runner was bypassed entirely and fell back to `CombatController`'s internal candidate loop.
 - Live process memory reading via `ReadProcessMemory` is authoritative and operational:
-  - `LiveCameraReader` ([US-056](completed/US-056-client-camera-state-and-projection-matrix-reader.md)) provides live 4x4 View and Projection matrices, camera world position, yaw, and pitch.
-  - `LivePlayerStatsReader` ([US-076](completed/US-076-complete-client-player-stats-reader.md)) provides proven client-memory fields such as monster kills, level, and experience; this client profile does not prove HP/MP/FP percentages or current-vitals fields.
-  - `LivePositionReader` ([US-053](completed/US-053-pure-gps-navigation-and-client-profile-configuration.md)) provides live 3D `WorldPosition`.
+  - `LiveCameraReader` ([US-056](US-056-client-camera-state-and-projection-matrix-reader.md)) provides live 4x4 View and Projection matrices, camera world position, yaw, and pitch.
+  - `LivePlayerStatsReader` ([US-076](US-076-complete-client-player-stats-reader.md)) provides proven client-memory fields such as monster kills, level, and experience; this client profile does not prove HP/MP/FP percentages or current-vitals fields.
+  - `LivePositionReader` ([US-053](US-053-pure-gps-navigation-and-client-profile-configuration.md)) provides live 3D `WorldPosition`.
 - Visual heuristics and OCR subsystems left from early iterations are being retired only where authoritative replacements are proven:
   - `PlayerVitalsReader` (pixel scanning top-left HUD orb) remains required for this client build. ADR-010 and completed US-094 found no fingerprint-stable bounded memory path for HP/MP/FP percentages.
   - Monster kill counts can be decoded directly from the client player/session memory structure via `LivePlayerStatsReader`, replacing the brittle `MonsterStatsReader` Tesseract OCR subprocess and HUD window alignment.
@@ -80,6 +80,6 @@ The implementation slices covered by this story are complete and the canonical a
 green: Ruff, format, MyPy, and pytest (`1278 passed, 4 skipped`, 88.70% coverage). US-092 remains
 `in-progress` because the manual Windows walkthrough was not run and the two evidence-gated
 decommissioning subcriteria above are not satisfied. `PlayerVitalsReader` remains the supported
-percentage source under [ADR-010](../decisions/ADR-010-client-derived-vital-maxima-are-not-runtime-resolvable.md),
+percentage source under [ADR-010](../../decisions/ADR-010-client-derived-vital-maxima-are-not-runtime-resolvable.md),
 and `TargetVerifier` retains nameplate/HP verification until a selected-target memory profile is
 proven. Automated tests do not establish live-client behavior.

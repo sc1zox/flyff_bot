@@ -1,7 +1,7 @@
 ---
 id: BUG-044
 title: Setup wizard omits teleporter extraction, misleading stuck status, and idle in-place search timeout
-status: reported
+status: resolved
 severity: high
 created: 2026-08-30
 updated: 2026-08-30
@@ -31,7 +31,7 @@ updated: 2026-08-30
 
 ## Expected behavior
 
-Per [US-051](../user-stories/completed/US-051-teleport-dispatch-simplification-and-emergency-eden-reset.md), [US-088](../user-stories/completed/US-088-unified-client-setup-wizard-and-first-run-flow.md), [US-091](../user-stories/completed/US-091-unified-goal-navigation-fluid-scanning-and-intelligent-unstuck.md), and [US-092](../user-stories/US-092-teleporter-config-target-selection-and-legacy-pruning.md):
+Per [US-051](../user-stories/completed/US-051-teleport-dispatch-simplification-and-emergency-eden-reset.md), [US-088](../user-stories/completed/US-088-unified-client-setup-wizard-and-first-run-flow.md), [US-091](../user-stories/completed/US-091-unified-goal-navigation-fluid-scanning-and-intelligent-unstuck.md), and [US-092](../user-stories/completed/US-092-teleporter-config-target-selection-and-legacy-pruning.md):
 1. **Automated Setup Extraction:** The Setup Wizard (`UnifiedClientExtractor.run()`) must extract the client's `TeleportOption` database via `extract_teleporter_catalog()` and save `data/navigation/teleporters.json` alongside world maps, quests, and mover catalogs.
 2. **Accurate Emergency Status Localization:** When emergency recovery is triggered without a configured destination (`EmergencyRecoveryConfig.destination is None`), the localized status must state that no destination is selected (*"Festgefahren: kein Teleporter-Ziel gewählt"* / *"Stuck: no teleporter destination selected"*) rather than asserting that no hotkey is configured. If a destination is set but the hotkey is invalid, the status must report the hotkey issue separately.
 3. **Active Terrain / Goal Navigation & Avoidance of False Stuck Timeouts:** When the player is in `FarmingMode.SEARCHING` in a designated spawn area without immediate mob visual locks, the bot must not endlessly rotate in place in depressions/valleys until unrecoverable timeout; it must execute active NavMesh patrol / zone exploration to seek out targets and maintain movement progress.
@@ -49,7 +49,7 @@ Per [US-051](../user-stories/completed/US-051-teleport-dispatch-simplification-a
 
 ## Regression verification
 
-- [ ] Automated unit test verifies `UnifiedClientExtractor` includes teleporter extraction in `required_datasets()`, `is_first_run_required()`, and `run()`.
-- [ ] Automated unit test verifies `_dashboard_status` and localized messages correctly distinguish between missing destination vs. invalid hotkey for emergency teleport.
-- [ ] Automated test verifies that search rotation loops in open terrain do not starve NavMesh exploration / patrol waypoints.
-- [ ] Related documentation and locale bundles (`de.json`, `en.json`) are updated and synchronized.
+- [x] Automated unit test verifies `UnifiedClientExtractor` includes teleporter extraction in `required_datasets()`, `is_first_run_required()`, and `run()`.
+- [x] Automated unit test verifies `_dashboard_status` and localized messages correctly distinguish between missing destination vs. invalid hotkey for emergency teleport.
+- [x] Automated test verifies that search rotation loops in open terrain do not starve NavMesh exploration / patrol waypoints.
+- [x] Related documentation and locale bundles (`de.json`, `en.json`) are updated and synchronized.

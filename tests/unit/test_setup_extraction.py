@@ -135,7 +135,15 @@ def test_first_run_detection_checks_all_required_datasets(
     profile_paths = tuple(tmp_path / f"profiles-{index}.json" for index in range(4))
     catalog_path = tmp_path / "catalog.json"
     manifest_path = tmp_path / "source_manifest.json"
-    required_paths = (quest_path, dungeon_path, *profile_paths, catalog_path, manifest_path)
+    teleporter_path = tmp_path / "teleporters.json"
+    required_paths = (
+        quest_path,
+        dungeon_path,
+        *profile_paths,
+        catalog_path,
+        manifest_path,
+        teleporter_path,
+    )
     assert UnifiedClientExtractor.is_first_run_required(
         world_map_directory=tmp_path / "worlds",
         quest_database=quest_path,
@@ -146,11 +154,12 @@ def test_first_run_detection_checks_all_required_datasets(
         dungeon_profiles=profile_paths[3],
         client_catalog=catalog_path,
         source_manifest=manifest_path,
+        teleporter_database=teleporter_path,
     )
-    for path in required_paths[:-2]:
+    for path in required_paths[:-1]:
         path.write_text("[]", encoding="utf-8")
-    # The catalog and its manifest are mandatory too: without them no detection can be
-    # attributed to the mover the client declares (US-085).
+    # The teleporter catalog is mandatory too: without it emergency recovery cannot select
+    # a destination extracted from the client's own declarations (BUG-044).
     assert UnifiedClientExtractor.is_first_run_required(
         world_map_directory=tmp_path,
         quest_database=quest_path,
@@ -161,9 +170,9 @@ def test_first_run_detection_checks_all_required_datasets(
         dungeon_profiles=profile_paths[3],
         client_catalog=catalog_path,
         source_manifest=manifest_path,
+        teleporter_database=teleporter_path,
     )
-    for path in required_paths[-2:]:
-        path.write_text("[]", encoding="utf-8")
+    teleporter_path.write_text("[]", encoding="utf-8")
     assert not UnifiedClientExtractor.is_first_run_required(
         world_map_directory=tmp_path,
         quest_database=quest_path,
@@ -174,6 +183,7 @@ def test_first_run_detection_checks_all_required_datasets(
         dungeon_profiles=profile_paths[3],
         client_catalog=catalog_path,
         source_manifest=manifest_path,
+        teleporter_database=teleporter_path,
     )
 
 
@@ -183,6 +193,9 @@ def test_unified_extraction_runs_stages_and_collects_missing_profile(
     client_root = _client_root(tmp_path)
     system = client_root / "Data" / "System2"
     write_keyed_archive(system, "data1", {"propMover.txt": b"MI_TEST\t1\n"})
+    teleporter_asset = client_root / "Data" / "System3" / "TeleportOption.inc"
+    teleporter_asset.parent.mkdir()
+    teleporter_asset.write_text('AddTeleportOption(7, "Flaris", 1);', encoding="cp1252")
     output = tmp_path / "output"
     paths = UnifiedClientExtractor.default_output_paths()
     paths.world_map_directory = output / "worlds"
@@ -195,6 +208,7 @@ def test_unified_extraction_runs_stages_and_collects_missing_profile(
     paths.dungeon_profiles = output / "dungeon-profiles.json"
     paths.client_catalog = output / "catalog.json"
     paths.source_manifest = output / "source_manifest.json"
+    paths.teleporter_database = output / "teleporters.json"
     progress: list[int] = []
 
     extractor = UnifiedClientExtractor(
@@ -211,11 +225,13 @@ def test_unified_extraction_runs_stages_and_collects_missing_profile(
     assert result.world_names == ("TestWorld",)
     assert paths.quest_database.is_file()
     assert paths.dungeon_database.is_file()
+    assert paths.teleporter_database.is_file()
+    assert result.teleporter_count == 1
     assert not paths.player_stats_profiles.exists()
     assert SetupExtractionWarning.CLIENT_PROFILING_FAILED in {
         diagnostic.warning for diagnostic in result.diagnostics
     }
-    assert progress[-1] == 80 or progress[-1] == 100
+    assert progress[-1] in {83, 100}
     assert len(progress) in (_STAGE_COUNT + 1, _STAGE_COUNT + 2)
     assert progress == sorted(progress)
 

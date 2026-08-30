@@ -59,6 +59,7 @@ class ClientSetupPaths:
     dungeon_profiles: Path
     client_catalog: Path
     source_manifest: Path
+    teleporter_database: Path
 
 
 @dataclass(slots=True)
@@ -85,6 +86,7 @@ class SetupExtractionResult:
     item_count: int = 0
     skill_count: int = 0
     npc_count: int = 0
+    teleporter_count: int = 0
     memory_profile: SetupMemoryProfile | None = None
     diagnostics: tuple[SetupDiagnostic, ...] = ()
 
@@ -106,6 +108,7 @@ class SetupRequiredDatasets:
     dungeon_profiles: Path
     client_catalog: Path
     source_manifest: Path
+    teleporter_database: Path
 
     def is_complete(self) -> bool:
         return bool(self.worlds) and all(
@@ -119,6 +122,7 @@ class SetupRequiredDatasets:
                 self.dungeon_profiles,
                 self.client_catalog,
                 self.source_manifest,
+                self.teleporter_database,
             )
         )
 
@@ -138,6 +142,7 @@ def missing_required_datasets(paths: SetupRequiredDatasets) -> tuple[str, ...]:
         ("dungeon_profiles", paths.dungeon_profiles),
         ("client_catalog", paths.client_catalog),
         ("source_manifest", paths.source_manifest),
+        ("teleporters", paths.teleporter_database),
     ):
         if not path.is_file():
             missing.append(dataset_name)
@@ -164,5 +169,6 @@ def has_any_extracted_dataset(paths: SetupRequiredDatasets) -> bool:
             paths.dungeon_profiles,
             paths.client_catalog,
             paths.source_manifest,
+            paths.teleporter_database,
         )
     )

@@ -420,6 +420,34 @@ def test_out_of_zone_start_uses_navmesh_travel_instead_of_camera_search() -> Non
     assert controller.waypoints
 
 
+def test_in_zone_search_uses_navmesh_patrol_instead_of_camera_rotation() -> None:
+    """BUG-044: an empty camera sweep cannot starve an active camp patrol."""
+
+    controller = PathingController(
+        config=PATHING_CONFIG,
+        vector_navigator=_navigator((ZoneGoal("Flame"),)),
+        position_reader=cast(
+            "LivePositionReader", _LiveReader([WorldPosition(200.0, 100.0, 200.0)])
+        ),
+        camera_reader=cast("LiveCameraReader", _CameraReader([math.radians(225.0)])),
+    )
+    adapter = _Adapter()
+    orchestrator = FarmingOrchestrator(
+        cast("PerceptionPipeline", _Pipeline([_state(1.0)])),
+        cast("FarmingInputAdapter", adapter),
+        WINDOW_HANDLE,
+        pathing=controller,
+        config=FarmingConfig(search=SearchConfig(idle_timeout_seconds=0.0)),
+    )
+    orchestrator.start()
+
+    tick = orchestrator.tick()
+
+    assert tick.mode is FarmingMode.SEARCHING
+    assert any(VIRTUAL_KEY_W in keys for keys in adapter.chords)
+    assert controller.waypoints
+
+
 def test_unreachable_selected_zone_pauses_without_camera_search() -> None:
     """BUG-043: an active camp without a route is a latched, diagnosable safe pause."""
 

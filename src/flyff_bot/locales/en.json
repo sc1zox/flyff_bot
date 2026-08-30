@@ -549,7 +549,7 @@
   "ui.status_dead": "Dead",
   "ui.status_emergency_stopped": "Emergency Stopped",
   "ui.status_emergency_teleport": "Emergency teleport",
-  "ui.status_emergency_teleport_unavailable": "Stuck: no teleport hotkey configured",
+  "ui.status_emergency_teleport_unavailable": "Stuck: no teleporter destination selected",
   "ui.status_faulted": "Faulted",
   "ui.status_paused": "Paused",
   "ui.status_test_navigating": "Navigation test",

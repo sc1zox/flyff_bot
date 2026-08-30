@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-08-29
-- Related stories: [US-076](../user-stories/completed/US-076-complete-client-player-stats-reader.md), [US-089](../user-stories/US-089-automated-client-binary-reverse-engineering-and-memory-profiling.md), [US-092](../user-stories/US-092-teleporter-config-target-selection-and-legacy-pruning.md)
+- Related stories: [US-076](../user-stories/completed/US-076-complete-client-player-stats-reader.md), [US-089](../user-stories/US-089-automated-client-binary-reverse-engineering-and-memory-profiling.md), [US-092](../user-stories/completed/US-092-teleporter-config-target-selection-and-legacy-pruning.md)
 - Related decisions: [ADR-006](ADR-006-read-only-process-memory-access.md), [ADR-003](ADR-003-clean-schema-over-backward-compatibility.md)
 - Supersedes: none
 
@@ -55,9 +55,9 @@ therefore cannot obtain a vital maximum for this build.
    latch on the missing vitals.
 5. Vital percentages for such a build come from the visual HUD reader (`PlayerVitalsReader`) via
    the existing degrade/restore machinery. `PlayerVitalsReader` is retained until a supported
-   client build exposes a memory-resolvable vital ratio; the [US-092](../user-stories/US-092-teleporter-config-target-selection-and-legacy-pruning.md)
+   client build exposes a memory-resolvable vital ratio; the [US-092](../user-stories/completed/US-092-teleporter-config-target-selection-and-legacy-pruning.md)
    decommissioning of the pixel vitals reader is gated on that condition. The
-   [US-092](../user-stories/US-092-teleporter-config-target-selection-and-legacy-pruning.md)
+   [US-092](../user-stories/completed/US-092-teleporter-config-target-selection-and-legacy-pruning.md)
    memory `monster_kills` extraction is independent and not gated.
 
 ## Alternatives

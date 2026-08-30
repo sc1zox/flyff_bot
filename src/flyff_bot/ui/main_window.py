@@ -1049,6 +1049,7 @@ class MainWindow(QMainWindow):
             dungeon_profiles=self._dungeon_profiles_path,
             client_catalog=self._client_catalog_path,
             source_manifest=self._source_manifest_path,
+            teleporter_database=self._teleporter_database_path,
         )
 
     def is_setup_autostart_required(self) -> bool:
@@ -1070,6 +1071,7 @@ class MainWindow(QMainWindow):
             dungeon_profiles=self._dungeon_profiles_path,
             client_catalog=self._client_catalog_path,
             source_manifest=self._source_manifest_path,
+            teleporter_database=self._teleporter_database_path,
         )
 
     def refresh_setup_state(self) -> None:
@@ -1104,6 +1106,7 @@ class MainWindow(QMainWindow):
         dungeon_profiles: Path | None = None,
         client_catalog: Path | None = None,
         source_manifest: Path | None = None,
+        teleporter_database: Path | None = None,
     ) -> bool:
         return UnifiedClientExtractor.is_first_run_required(
             world_map_directory=world_map_directory or Path(DEFAULT_WORLD_MAP_DIRECTORY),
@@ -1116,6 +1119,7 @@ class MainWindow(QMainWindow):
             dungeon_profiles=dungeon_profiles or Path(DEFAULT_CLIENT_DUNGEON_PROFILES_PATH),
             client_catalog=client_catalog or Path(DEFAULT_CLIENT_CATALOG_PATH),
             source_manifest=source_manifest or Path(DEFAULT_SOURCE_MANIFEST_PATH),
+            teleporter_database=teleporter_database or Path(DEFAULT_TELEPORTER_DATABASE_PATH),
         )
 
     def _retranslate(self) -> None:
